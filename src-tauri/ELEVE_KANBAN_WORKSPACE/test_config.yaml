@@ -1,0 +1,24 @@
+# 测试配置文件
+# 用于测试 Eleve Agent 的文件工具和子agent编排功能
+
+## 测试场景设计
+
+### 场景1: 文件读写测试
+- 创建测试数据文件
+- 验证 read_file 和 write_file 功能
+
+### 场景2: 子agent编排测试
+- 使用 delegate_task 创建子agent
+- 验证子agent能够执行简单任务并返回结果
+
+### 场景3: 综合测试
+- 子agent读取文件
+- 子agent处理数据
+- 主agent汇总结果
+
+## 测试数据
+test_data:
+  - name: "测试项目A"
+    score: 85
+  - name: "测试项目B"
+    score: 92

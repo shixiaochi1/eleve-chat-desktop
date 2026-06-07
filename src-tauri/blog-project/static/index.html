@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的博客</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <nav class="navbar">
+            <div class="container">
+                <h1><a href="/">我的博客</a></h1>
+                <a href="/editor" class="btn">写文章</a>
+            </div>
+        </nav>
+    </header>
+
+    <main class="container">
+        <section class="posts-list" id="postsList">
+            <h2>最新文章</h2>
+            <div id="loading">加载中...</div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 个人博客系统 - 测试项目</p>
+        </div>
+    </footer>
+
+    <script src="/static/app.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', loadPosts);
+    </script>
+</body>
+</html>

@@ -1,0 +1,206 @@
+{
+  "project_root": "/mnt/c/Users/Administrator/Eleve Agent/eleve-chat-desktop",
+  "created_at": 1780862417.8555877,
+  "updated_at": 1780862417.8555877,
+  "file_count": 191,
+  "language_distribution": {
+    "markdown": 13,
+    "json": 13,
+    "html": 6,
+    "other": 15,
+    "typescript": 132,
+    "css": 3,
+    "toml": 1,
+    "yaml": 2,
+    "python": 2,
+    "javascript": 1,
+    "rust": 3
+  },
+  "top_level_structure": [
+    {
+      "name": "src",
+      "type": "directory",
+      "file_count": 133,
+      "subdirectories": [
+        {
+          "name": "components",
+          "file_count": 87
+        },
+        {
+          "name": "hooks",
+          "file_count": 17
+        },
+        {
+          "name": "utils",
+          "file_count": 9
+        },
+        {
+          "name": "lib",
+          "file_count": 5
+        },
+        {
+          "name": "themes",
+          "file_count": 4
+        },
+        {
+          "name": "store",
+          "file_count": 2
+        },
+        {
+          "name": "types",
+          "file_count": 2
+        }
+      ]
+    },
+    {
+      "name": "src-tauri",
+      "type": "directory",
+      "file_count": 46,
+      "subdirectories": [
+        {
+          "name": "blog-project",
+          "file_count": 10
+        },
+        {
+          "name": "gen",
+          "file_count": 5
+        },
+        {
+          "name": "icons",
+          "file_count": 4
+        },
+        {
+          "name": "ELEVE_KANBAN_WORKSPACE",
+          "file_count": 2
+        },
+        {
+          "name": "blog",
+          "file_count": 2
+        },
+        {
+          "name": "src",
+          "file_count": 2
+        },
+        {
+          "name": "$ELEVE_KANBAN_WORKSPACE",
+          "file_count": 1
+        },
+        {
+          "name": "ai_report",
+          "file_count": 1
+        },
+        {
+          "name": "binaries",
+          "file_count": 1
+        },
+        {
+          "name": "capabilities",
+          "file_count": 1
+        },
+        {
+          "name": "gobang",
+          "file_count": 1
+        }
+      ]
+    },
+    {
+      "name": "public",
+      "type": "directory",
+      "file_count": 2
+    },
+    {
+      "name": "docs",
+      "type": "directory",
+      "file_count": 1
+    }
+  ],
+  "key_files": [
+    "CLAUDE.md",
+    "package.json",
+    "README.md"
+  ],
+  "entry_points": [],
+  "custom_notes": "",
+  "schema_version": "2",
+  "readme_excerpt": "本地 AI 智能助手桌面客户端，内置前后端，一键安装即用。",
+  "module_descriptions": {
+    "src/utils": "Shared utilities",
+    "src-tauri": "测试项目",
+    "src-tauri/blog": "个人技术博客",
+    "src-tauri/blog-project": "个人博客系统",
+    "docs": "Documentation"
+  },
+  "critical_nodes": [
+    {
+      "rank": 1,
+      "name": "Codicon",
+      "symbol": "Codicon",
+      "pagerank": 0.0429,
+      "inbound_refs": 8
+    },
+    {
+      "rank": 2,
+      "name": "Button",
+      "symbol": "Button",
+      "pagerank": 0.0325,
+      "inbound_refs": 16
+    },
+    {
+      "rank": 3,
+      "name": "Input",
+      "symbol": "Input",
+      "pagerank": 0.0269,
+      "inbound_refs": 14
+    },
+    {
+      "rank": 4,
+      "name": "Switch",
+      "symbol": "Switch",
+      "pagerank": 0.018,
+      "inbound_refs": 6
+    },
+    {
+      "rank": 5,
+      "name": "SessionManagerHandle",
+      "symbol": "SessionManagerHandle",
+      "pagerank": 0.0149,
+      "inbound_refs": 2
+    },
+    {
+      "rank": 6,
+      "name": "SearchIcon",
+      "symbol": "SearchIcon",
+      "pagerank": 0.013,
+      "inbound_refs": 4
+    },
+    {
+      "rank": 7,
+      "name": "Skeleton",
+      "symbol": "Skeleton",
+      "pagerank": 0.0117,
+      "inbound_refs": 4
+    },
+    {
+      "rank": 8,
+      "name": "ThinkingIcon",
+      "symbol": "ThinkingIcon",
+      "pagerank": 0.0107,
+      "inbound_refs": 2
+    },
+    {
+      "rank": 9,
+      "name": "CheckIcon",
+      "symbol": "CheckIcon",
+      "pagerank": 0.0102,
+      "inbound_refs": 4
+    },
+    {
+      "rank": 10,
+      "name": "CommandMenuIcon",
+      "symbol": "CommandMenuIcon",
+      "pagerank": 0.0102,
+      "inbound_refs": 1
+    }
+  ],
+  "module_dependency_order": []
+}

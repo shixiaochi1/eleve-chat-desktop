@@ -1,0 +1,22 @@
+project:  eleve-chat-desktop
+what:     本地 AI 智能助手桌面客户端，内置前后端，一键安装即用。
+
+critical:
+  Codicon                       0.04  (8 refs)
+  Button                        0.03  (16 refs)
+  Input                         0.03  (14 refs)
+  Switch                        0.02  (6 refs)
+  SessionManagerHandle          0.01  (2 refs)
+  SearchIcon                    0.01  (4 refs)
+  Skeleton                      0.01  (4 refs)
+
+scale:    191 files — typescript 69%  html 3%
+
+core:
+  src/
+    utils/                    Shared utilities
+  public/
+  docs/                       Documentation
+
+context:  (reference projects)
+  src-tauri/  (46 files)

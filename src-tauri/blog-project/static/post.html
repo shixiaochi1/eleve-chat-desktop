@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文章详情 - 我的博客</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <nav class="navbar">
+            <div class="container">
+                <h1><a href="/">我的博客</a></h1>
+                <a href="/editor" class="btn">写文章</a>
+            </div>
+        </nav>
+    </header>
+
+    <main class="container">
+        <article class="post-detail" id="postDetail">
+            <div id="loading">加载中...</div>
+        </article>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>© 2026 个人博客系统 - 测试项目</p>
+        </div>
+    </footer>
+
+    <script src="/static/app.js"></script>
+    <script>
+        const path = window.location.pathname;
+        const postId = path.split('/post/')[1];
+        if (postId) {
+            loadPost(postId);
+        }
+    </script>
+</body>
+</html>

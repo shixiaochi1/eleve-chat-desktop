@@ -1,0 +1,6 @@
+[
+  {"category": "前端", "name": "测试项目A", "score": 85},
+  {"category": "后端", "name": "测试项目B", "score": 92},
+  {"category": "测试", "name": "测试项目C", "score": 78},
+  {"category": "运维", "name": "测试项目D", "score": 88}
+]

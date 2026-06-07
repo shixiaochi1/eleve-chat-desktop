@@ -1,0 +1,26 @@
+[package]
+name = "eleve-chat-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tauri = { version = "2", features = ["unstable", "tray-icon"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "5"
+image = "0.25"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winreg = "0.55"
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+libc = "0.2"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }

@@ -1,0 +1,642 @@
+//! Eleve Chat Desktop — Tauri v2 入口
+//!
+//! 架构：Tauri 只负责 UI 壳，Agent 运行在独立 eleved 子进程中。
+//! setup() 闭包内启动 eleved 子进程（CREATE_NO_WINDOW，无黑窗口），
+//! 轮询 gateway_state.json 发现端口，前端通过 get_gateway_port 获取端口后走 HTTP SSE。
+//!
+//! 对比旧架构：不再内嵌 Agent/Gateway/Tokio Runtime，彻底消除同进程 CPU 争抢。
+//!
+//! Sidecar 说明（问题 A）：
+//!   - Tauri v2 的 externalBin（sidecar）方式需要 tauri-plugin-shell 依赖
+//!   - 当前 Cargo.toml 无此依赖，故保留 bundle.resources 打包方式
+//!   - eleved.exe 通过 bundle.resources 打包到 app 目录，启动时从同目录查找
+//!   - 如需迁移到 sidecar：加 tauri-plugin-shell 依赖 + 改 externalBin 配置 + 二进制命名含 target triple
+//!
+//! 平台说明（问题 B）：
+//!   - agent-browser-win32-x64.exe 仅为 Windows 平台，通过 bundle.resources 打包
+//!   - 当前只打 Windows 包，暂不处理跨平台条件配置
+
+use tauri::Manager;
+use tauri::menu::{MenuBuilder, MenuItem};
+use tauri::tray::TrayIconBuilder;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::time::Duration;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TAURI STATE — 仅存端口、子进程句柄、关闭标志
+// ═══════════════════════════════════════════════════════════════════════════
+
+pub struct TauriAppState {
+    /// HTTP server 绑定的端口号（0 = 尚未就绪）
+    pub gateway_port: Arc<AtomicU16>,
+    /// eleved 子进程 PID
+    pub eleved_pid: std::sync::Mutex<Option<u32>>,
+    /// 是否正在关闭（防止重复 kill）
+    pub shutting_down: AtomicBool,
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPER: RESOLVE ELEVE_HOME (Tauri 前端侧)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// 解析 Eleve Home 目录（Tauri 前端侧使用）。
+///
+/// 优先级与 eleve-core::bootstrap::get_eleve_home() 一致：
+///   1. ELEVE_HOME 环境变量（非空）
+///   2. exe 同级 data/ 目录
+///   3. ~/.eleve/
+///
+/// ⚠️ 不再使用 set_var 污染进程环境变量。
+/// eleved 子进程通过 --home CLI 参数接收路径（L251-252），不依赖 env var。
+fn resolve_eleve_home() -> PathBuf {
+    // 1. ELEVE_HOME 环境变量（用户显式配置）
+    if let Ok(home) = std::env::var("ELEVE_HOME") {
+        if !home.is_empty() {
+            return PathBuf::from(home);
+        }
+    }
+    // 2. Tauri 安装模式: exe 同级 data/ 目录
+    //    ⚠️ debug 构建跳过此步：tauri dev 时 exe 在 target/debug/，
+    //    同级 data/ 是临时构建产物，不应作为持久数据目录
+    #[cfg(not(debug_assertions))]
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let data_dir = parent.join("data");
+            if data_dir.is_dir() {
+                return data_dir;
+            }
+        }
+    }
+    // 3. 平台标准目录（与 get_eleve_home() 第3步对齐）
+    //    Windows: %APPDATA%/Eleve
+    //    Linux: ~/.local/share/eleve
+    //    macOS: ~/Library/Application Support/Eleve
+    if let Some(platform_dir) = dirs::data_dir() {
+        let eleve_data = platform_dir.join("Eleve");
+        if eleve_data.is_dir() {
+            return eleve_data;
+        }
+    }
+    // 4. 传统 fallback: ~/.eleve/
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".eleve")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TAURI COMMANDS — 3 个（保持前端兼容）
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[tauri::command]
+async fn get_gateway_port(state: tauri::State<'_, TauriAppState>) -> Result<u16, String> {
+    // 优先从原子变量读（快速路径）
+    let cached = state.gateway_port.load(Ordering::SeqCst);
+    if cached != 0 {
+        // 验证缓存端口是否仍然有效（TCP connect 探测，短超时避免误判）
+        if let Ok(stream) = std::net::TcpStream::connect_timeout(
+            &format!("127.0.0.1:{}", cached).parse().unwrap(),
+            std::time::Duration::from_millis(500),
+        ) {
+            drop(stream);
+            return Ok(cached);
+        }
+        // 缓存端口失效——重新从 gateway_state.json 读取
+        eprintln!("[TAURI] Cached port {} is stale, re-discovering...", cached);
+    }
+
+    // 从 ELEVE_HOME 解析路径，再读 gateway_state.json
+    let eleve_home = resolve_eleve_home();
+    match discover_gateway_port(&eleve_home) {
+        Ok(port) => {
+            state.gateway_port.store(port, Ordering::SeqCst);
+            eprintln!("[TAURI] Re-discovered gateway port: {}", port);
+            Ok(port)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[tauri::command]
+fn get_auto_start() -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::enums::*;
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let run_key = hkcu
+            .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+            .map_err(|e| format!("Failed to open Run key: {}", e))?;
+        Ok(run_key.get_value::<String, _>("EleveChat").is_ok())
+    }
+    #[cfg(not(target_os = "windows"))]
+    { Ok(false) }
+}
+
+#[tauri::command]
+fn set_auto_start(enable: bool) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::enums::*;
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let run_key = hkcu
+            .create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+            .map_err(|e| format!("Failed to open Run key: {}", e))?;
+        let (key, _) = run_key;
+        if enable {
+            let exe_path = std::env::current_exe()
+                .map_err(|e| format!("Failed to get exe path: {}", e))?;
+            key.set_value("EleveChat", &exe_path.to_string_lossy().to_string())
+                .map_err(|e| format!("Failed to set auto-start: {}", e))?;
+            Ok(true)
+        } else {
+            match key.delete_value("EleveChat") {
+                Ok(()) => Ok(false),
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::NotFound { Ok(false) }
+                    else { Err(format!("Failed to remove auto-start: {}", e)) }
+                }
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    { let _ = enable; Err("Auto-start is only supported on Windows".into()) }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ELEVED 子进程管理
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// 定位 eleved 二进制文件
+/// 
+/// 策略（优先级递减）：
+/// 1. ELEVED_PATH 环境变量
+/// 2. 当前 exe 同目录（Release 模式：eleved.exe 作为资源已打包在同目录）
+/// 3. Dev 模式：从当前 exe 路径向上遍历查找 workspace root（含 Cargo.toml），
+///    然后在 target/debug/ 下找 eleved
+fn find_eleved_binary() -> Option<PathBuf> {
+    // 0. 环境变量优先（方便开发调试）
+    if let Ok(path) = std::env::var("ELEVED_PATH") {
+        let p = PathBuf::from(&path);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+
+    let name = if cfg!(target_os = "windows") {
+        "eleved.exe"
+    } else {
+        "eleved"
+    };
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            // Release 模式：同目录
+            let candidate = dir.join(name);
+            if candidate.exists() {
+                return Some(candidate);
+            }
+
+            // Release 模式：同目录/binaries/ 子目录（NSIS 安装后 resources 打包位置）
+            let binaries_candidate = dir.join("binaries").join(name);
+            if binaries_candidate.exists() {
+                return Some(binaries_candidate);
+            }
+
+            // Dev 模式：从 exe 目录向上查找 workspace root（含 Cargo.toml）
+            // 然后去 target/debug/ 下找 eleved
+            if let Some(workspace_root) = find_workspace_root(dir) {
+                let dev_path = workspace_root.join("target/debug").join(name);
+                if dev_path.exists() {
+                    return Some(std::fs::canonicalize(&dev_path).unwrap_or(dev_path));
+                }
+                // 也尝试 target/release/
+                let release_path = workspace_root.join("target/release").join(name);
+                if release_path.exists() {
+                    return Some(std::fs::canonicalize(&release_path).unwrap_or(release_path));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 从路径开始向上遍历，找到工作区根目录（含 Cargo.toml 且有 [workspace] 段）
+///
+/// 跳过非 workspace 的 Cargo.toml（如 src-tauri/Cargo.toml 是 Tauri 子项目），
+/// 确保定位到 Eleve Agent workspace root。
+fn find_workspace_root(start: &std::path::Path) -> Option<PathBuf> {
+    let mut current = Some(start.to_path_buf());
+    let mut last_workspace_root: Option<PathBuf> = None;
+    while let Some(dir) = current {
+        let cargo_toml = dir.join("Cargo.toml");
+        if cargo_toml.exists() {
+            // 检查是否是 workspace root（含 [workspace] 段）
+            if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
+                if content.contains("[workspace]") {
+                    last_workspace_root = Some(dir.clone());
+                }
+            }
+            // 即使没有 [workspace]，也记录为候选（单 crate 场景）
+            if last_workspace_root.is_none() {
+                last_workspace_root = Some(dir.clone());
+            }
+        }
+        current = dir.parent().map(|p| p.to_path_buf());
+    }
+    // 优先返回 workspace root，否则返回最深层的 Cargo.toml 目录
+    last_workspace_root
+}
+
+/// 启动 eleved 子进程
+/// 
+/// - Windows: CREATE_NO_WINDOW 防止黑窗口
+/// - 传入 --home 参数指定数据目录
+/// - 传入 --no-banner 静默模式
+/// - stderr 重定向到日志文件
+fn start_eleved_process(eleve_home: &PathBuf) -> Result<std::process::Child, String> {
+    let binary = find_eleved_binary()
+        .ok_or_else(|| {
+            let name = if cfg!(target_os = "windows") { "eleved.exe" } else { "eleved" };
+            format!(
+                "未找到 {} — 请先编译: cargo build -p eleve-bin (查找路径: 同目录 或 target/debug/)",
+                name
+            )
+        })?;
+
+    let mut cmd = std::process::Command::new(&binary);
+    cmd.arg("--home")
+        .arg(eleve_home.to_string_lossy().as_ref())
+        .arg("--no-banner");
+
+    // stdout/stderr 重定向到 runtime/ 目录下的独立捕获文件
+    // 与 eleved 自身的 logs/eleved.log (tracing) 分离，避免双写争用
+    let runtime_dir = eleve_home.join("runtime");
+    std::fs::create_dir_all(&runtime_dir).ok();
+    let stdout_log_path = runtime_dir.join("eleved-stdout.log");
+    let stdout_log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&stdout_log_path)
+        .map_err(|e| format!("无法创建 stdout 日志文件 {:?}: {}", stdout_log_path, e))?;
+
+    cmd.stdout(std::process::Stdio::from(stdout_log.try_clone().unwrap()));
+    cmd.stderr(std::process::Stdio::from(stdout_log));
+
+    // Windows: 不弹黑窗口
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let child = cmd.spawn()
+        .map_err(|e| format!("启动 eleved 失败: {} (binary={:?})", e, binary))?;
+
+    let pid = child.id();
+    eprintln!("[TAURI] eleved 子进程已启动 (PID={}, binary={:?})", pid, binary);
+
+    Ok(child)
+}
+
+/// 轮询 gateway_state.json 获取 eleved 的 HTTP 端口
+///
+/// eleved 启动后会写入 runtime/gateway_state.json 包含端口号。
+/// 自适应退避：前 50 次 100ms（5s）+ 后 30 次 300ms（9s）= 共 14s。
+/// eleved 通常 2-5s 内就绪，14s 足覆盖慢启动场景。
+fn discover_gateway_port(eleve_home: &PathBuf) -> Result<u16, String> {
+    let state_file = eleve_home.join("runtime").join("gateway_state.json");
+    let fast_attempts = 50;  // 前 50 次 100ms = 5s
+    let slow_attempts = 30;  // 后 30 次 300ms = 9s
+    let fast_delay = Duration::from_millis(100);
+    let slow_delay = Duration::from_millis(300);
+    let total = fast_attempts + slow_attempts;
+
+    for i in 0..total {
+        if state_file.exists() {
+            if let Ok(content) = std::fs::read_to_string(&state_file) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    // 兼容两种 key：gateway_port（新）和 port（旧）
+                    let port_val = json.get("gateway_port")
+                        .or_else(|| json.get("port"))
+                        .and_then(|v| v.as_u64());
+                    if let Some(port) = port_val {
+                        if port > 0 && port <= 65535 {
+                            eprintln!("[TAURI] 端口发现成功: {} (尝试 {}/{})", port, i + 1, total);
+                            return Ok(port as u16);
+                        }
+                    }
+                }
+            }
+        }
+        let delay = if i < fast_attempts { fast_delay } else { slow_delay };
+        std::thread::sleep(delay);
+    }
+
+    let total_secs = fast_attempts as u64 * 200 / 1000 + slow_attempts as u64 * 500 / 1000;
+    Err(format!(
+        "端口发现超时 ({}s) — 请检查 eleved 是否正常启动，日志: {}/logs/eleved.log 或 {}/runtime/eleved-stdout.log",
+        total_secs,
+        eleve_home.display(),
+        eleve_home.display()
+    ))
+}
+
+/// 检查 PID 是否存活
+fn is_pid_alive(pid: u32) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let output = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        if let Ok(out) = output {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            return stdout.contains(&pid.to_string());
+        }
+        false
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsafe { libc::kill(pid as i32, 0) == 0 }
+    }
+}
+
+/// 强杀 PID（无日志输出兜底）
+fn force_kill_pid(pid: u32) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsafe { libc::kill(pid as i32, libc::SIGKILL); }
+    }
+}
+
+/// 通过原始 TCP 发送 HTTP POST /api/shutdown（无 reqwest 依赖）
+fn http_post_shutdown(port: u16) {
+    use std::io::{Write, Read};
+    let addr = format!("127.0.0.1:{}", port);
+    if let Ok(addr) = addr.parse() {
+        if let Ok(mut stream) = std::net::TcpStream::connect_timeout(
+            &addr,
+            std::time::Duration::from_secs(2),
+        ) {
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+            let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(2)));
+            let request = format!(
+                "POST /api/shutdown HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                port
+            );
+            let _ = stream.write_all(request.as_bytes());
+            let _ = stream.read(&mut [0; 256]); // 读响应（忽略内容）
+        }
+    }
+}
+
+/// 优雅关闭 eleved 子进程
+///
+/// 1. 尝试 HTTP POST /api/shutdown（超时 2s）
+/// 2. 等待 PID 退出（最多 5s，每 500ms 检查）
+/// 3. 超时后 taskkill /F 强杀兜底
+fn graceful_shutdown_eleved(state: &TauriAppState) {
+    if state.shutting_down.swap(true, Ordering::SeqCst) {
+        return; // 已经在关闭中
+    }
+
+    let pid = state.eleved_pid.lock()
+        .ok()
+        .and_then(|g| *g);
+    let Some(pid) = pid else { return; };
+
+    eprintln!("[TAURI] 优雅关闭 eleved (PID={})...", pid);
+
+    // Step 1: 尝试 HTTP /api/shutdown
+    let port = state.gateway_port.load(Ordering::SeqCst);
+    if port > 0 {
+        eprintln!("[TAURI] 发送 HTTP POST /api/shutdown (port={})...", port);
+        http_post_shutdown(port);
+    }
+
+    // Step 2: 等待进程退出（最多 5 秒，每 500ms 检查）
+    for i in 0..10 {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if !is_pid_alive(pid) {
+            eprintln!("[TAURI] eleved 已优雅退出 (等待约 {}ms)", (i + 1) * 500);
+            return;
+        }
+    }
+
+    // Step 3: 超时，强杀兜底
+    eprintln!("[TAURI] 优雅关闭超时 (5s)，强制终止...");
+    force_kill_pid(pid);
+
+    // 确认已死
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    if !is_pid_alive(pid) {
+        eprintln!("[TAURI] eleved 已强制终止");
+    } else {
+        eprintln!("[TAURI] 警告：eleved 进程仍存活 (PID={})", pid);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CLEANUP & EXIT
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn cleanup_and_exit(app: &tauri::AppHandle) {
+    // 防重入：关闭对话框 + 托盘退出可能同时触发
+    if let Some(state) = app.try_state::<TauriAppState>() {
+        graceful_shutdown_eleved(&state);
+    }
+    // 先关闭所有子窗口（看板等），防止残留
+    for win in app.webview_windows().values() {
+        if win.label() != "main" {
+            let _ = win.close();
+        }
+    }
+    // 清理 gateway_state.json，防止下次启动读到残留端口
+    let eleve_home = resolve_eleve_home();
+    let state_file = eleve_home.join("runtime").join("gateway_state.json");
+    let _ = std::fs::remove_file(&state_file);
+    app.exit(0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// APPLICATION ENTRY POINT
+// ═══════════════════════════════════════════════════════════════════════════
+
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.set_focus();
+                let _ = w.unminimize();
+            }
+        }))
+        .invoke_handler(tauri::generate_handler![
+            get_gateway_port,
+            get_auto_start,
+            set_auto_start,
+        ])
+        .setup(|app| {
+            let window = app.get_webview_window("main").unwrap();
+            window.set_title("Eleve Chat").ok();
+
+            // Window icon
+            let icon_bytes = include_bytes!("../icons/128x128.png");
+            if let Ok(img) = image::load_from_memory(icon_bytes) {
+                let rgba = img.to_rgba8();
+                let (w, h) = rgba.dimensions();
+                let icon = tauri::image::Image::new_owned(rgba.into_vec(), w, h);
+                let _ = window.set_icon(icon);
+            }
+
+            // System tray
+            let show_item = MenuItem::with_id(app, "show", "\u{663e}\u{793a}\u{7a97}\u{53e3}", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "\u{9000}\u{51fa}", true, None::<&str>)?;
+            let menu = MenuBuilder::new(app)
+                .item(&show_item)
+                .separator()
+                .item(&quit_item)
+                .build()?;
+
+            let tray_icon_bytes = include_bytes!("../icons/32x32.png");
+            let tray_img = image::load_from_memory(tray_icon_bytes).expect("Failed to load tray icon");
+            let tray_rgba = tray_img.to_rgba8();
+            let (tw, th) = tray_rgba.dimensions();
+            let tray_icon = tauri::image::Image::new_owned(tray_rgba.into_vec(), tw, th);
+
+            let _tray = TrayIconBuilder::new()
+                .icon(tray_icon)
+                .tooltip("Eleve Chat")
+                .menu(&menu)
+                .on_menu_event(|app, event| {
+                    match event.id.as_ref() {
+                        "show" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
+                        }
+                        "quit" => { cleanup_and_exit(app); }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click { .. } = event {
+                        let app = tray.app_handle();
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
+            // ════════════════════════════════════════════════════════════
+            // BOOTSTRAP: 启动 eleved 子进程 + 端口发现
+            // ════════════════════════════════════════════════════════════
+
+            let eleve_home = resolve_eleve_home();
+            eprintln!("[TAURI] eleve_home = {:?}", eleve_home);
+
+            // 确保目录结构存在
+            std::fs::create_dir_all(&eleve_home).ok();
+            let subdirs = ["cron", "sessions", "logs", "skills", "memories", "boards", "cache/images", "cache/audio", "cache/terminal", "cache/sandbox", "cache/vision", "cache/voice", "cache/results", "credentials", "mcp-tokens", "hooks", "pairing", "runtime", "app-data"];
+            for sub in &subdirs { std::fs::create_dir_all(eleve_home.join(sub)).ok(); }
+
+            // 🔑 关键：删除旧 gateway_state.json，防止端口发现读到上次运行的残留端口
+            let stale_state = eleve_home.join("runtime").join("gateway_state.json");
+            if stale_state.exists() {
+                if let Err(e) = std::fs::remove_file(&stale_state) {
+                    eprintln!("[TAURI] Warning: failed to delete stale gateway_state.json: {}", e);
+                } else {
+                    eprintln!("[TAURI] Deleted stale gateway_state.json (will be recreated by new eleved)");
+                }
+            }
+
+            // 启动 eleved 子进程
+            let mut child = start_eleved_process(&eleve_home)
+                .map_err(|e| {
+                    eprintln!("[TAURI] FATAL: {}", e);
+                    e
+                })?;
+            let pid = child.id();
+
+            // 注册 Tauri managed state
+            let tauri_state = TauriAppState {
+                gateway_port: Arc::new(AtomicU16::new(0)),
+                eleved_pid: std::sync::Mutex::new(Some(pid)),
+                shutting_down: AtomicBool::new(false),
+            };
+            app.manage(tauri_state);
+
+            // 在后台线程中轮询端口发现（不阻塞 Tauri setup）
+            let port_atomic = app.state::<TauriAppState>().gateway_port.clone();
+            let home_for_discovery = eleve_home.clone();
+            std::thread::spawn(move || {
+                match discover_gateway_port(&home_for_discovery) {
+                    Ok(port) => {
+                        port_atomic.store(port, Ordering::SeqCst);
+                        eprintln!("[TAURI] Gateway 就绪: http://127.0.0.1:{}", port);
+                    }
+                    Err(e) => {
+                        eprintln!("[TAURI] 端口发现失败: {}", e);
+                    }
+                }
+            });
+
+            // 后台线程：监控 eleved 子进程是否意外退出
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let status = child.wait();
+                match status {
+                    Ok(exit_status) => {
+                        eprintln!("[TAURI] eleved 子进程已退出 (status={})", exit_status);
+                    }
+                    Err(e) => {
+                        eprintln!("[TAURI] eleved 子进程异常: {}", e);
+                    }
+                }
+                // 如果不在关闭中，说明是意外退出
+                if let Some(state) = app_handle.try_state::<TauriAppState>() {
+                    if !state.shutting_down.load(Ordering::SeqCst) {
+                        eprintln!("[TAURI] eleved 意外退出！前端将无法连接。");
+                        // TODO: 可通过 Tauri event 通知前端显示错误
+                    }
+                }
+            });
+
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let label = window.label().to_string();
+                // 只有主窗口关闭才退出应用，其他窗口（如看板）只关闭窗口本身
+                if label == "main" {
+                    let app = window.app_handle().clone();
+                    // 后台执行关闭流程，窗口立即消失（不等 eleved 优雅退出）
+                    std::thread::spawn(move || {
+                        cleanup_and_exit(&app);
+                    });
+                }
+                // 非主窗口（kanban 等）：默认行为即关闭该窗口，不退出应用
+            }
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

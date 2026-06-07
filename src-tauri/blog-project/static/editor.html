@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>写文章 - 我的博客</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <nav class="navbar">
+            <div class="container">
+                <h1><a href="/">我的博客</a></h1>
+                <a href="/" class="btn btn-secondary">返回首页</a>
+            </div>
+        </nav>
+    </header>
+
+    <main class="container">
+        <section class="editor">
+            <h2>写文章</h2>
+            <form id="postForm">
+                <div class="form-group">
+                    <label for="title">标题</label>
+                    <input type="text" id="title" name="title" required placeholder="请输入文章标题">
+                </div>
+                <div class="form-group">
+                    <label for="author">作者</label>
+                    <input type="text" id="author" name="author" required placeholder="请输入作者名称">
+                </div>
+                <div class="form-group">
+                    <label for="content">内容</label>
+                    <textarea id="content" name="content" required rows="15" placeholder="请输入文章内容"></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn">发布文章</button>
+                    <a href="/" class="btn btn-secondary">取消</a>
+                </div>
+            </form>
+            <div id="message"></div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>© 2026 个人博客系统 - 测试项目</p>
+        </div>
+    </footer>
+
+    <script src="/static/app.js"></script>
+    <script>
+        document.getElementById('postForm').addEventListener('submit', handleSubmit);
+    </script>
+</body>
+</html>

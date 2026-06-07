@@ -1,0 +1,53 @@
+{
+  "productName": "Eleve Chat",
+  "version": "0.1.0",
+  "identifier": "com.eleve.chat.desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:24242",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Eleve Chat",
+        "width": 900,
+        "height": 680,
+        "minWidth": 640,
+        "minHeight": 400,
+        "decorations": false,
+        "transparent": false,
+        "center": true,
+        "resizable": true,
+        "dragDropEnabled": true,
+        "devtools": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' tauri:; connect-src tauri: http://127.0.0.1:* ws://127.0.0.1:*; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline' 'self' 'unsafe-eval'; img-src 'self' data: tauri: http: https:; font-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "publisher": "Eleve",
+    "targets": [
+      "msi",
+      "nsis",
+      "dmg",
+      "deb",
+      "appimage"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "binaries/agent-browser-win32-x64.exe",
+      "binaries/eleved.exe"
+    ],
+    "windows": {}
+  }
+}

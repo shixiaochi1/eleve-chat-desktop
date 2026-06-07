@@ -1,0 +1,38 @@
+/**
+ * RightSidebarTabs — Tab switcher between Files and Terminal
+ */
+import { File, Terminal } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+const TABS = [
+  { key: 'files', label: '文件', Icon: File },
+  { key: 'terminal', label: '终端', Icon: Terminal },
+];
+
+interface RightSidebarTabsProps {
+  activeTab?: string;
+  onTabChange?: (key: string) => void;
+}
+
+export default function RightSidebarTabs({ activeTab, onTabChange }: RightSidebarTabsProps) {
+  return (
+    <div className={cn('flex bg-muted/50 border-b border-border')}>
+      {TABS.map(({ key, label, Icon }) => (
+        <button
+          key={key}
+          className={cn(
+            'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-b-2 border-transparent',
+            activeTab === key
+              ? 'text-foreground border-primary bg-background'
+              : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'
+          )}
+          onClick={() => onTabChange?.(key)}
+          title={label}
+        >
+          <Icon size={14} />
+          <span>{label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}

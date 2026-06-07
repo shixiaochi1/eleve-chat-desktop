@@ -1,0 +1,16 @@
+node_modules/
+dist/
+src-tauri/target/
+*.log
+.DS_Store
+Thumbs.db
+
+# Sidecar binaries (too large for git, built separately)
+src-tauri/binaries/*.exe
+*.bak-*
+src-slint/target/
+eleve-chat-desktop-new/
+node_modules/
+.ast-cache/
+.tree-sitter-cache/
+dist/
