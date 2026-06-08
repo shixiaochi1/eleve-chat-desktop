@@ -803,7 +803,7 @@ canvas {
      on Windows mouse wheels, whose coarse notches mount/measure several
      under-estimated turns per tick. Opt out so only the virtualizer
      compensates. */
-  [data-slot='thread-viewport'] {
+  [data-slot='aui_thread-viewport'] {
     overflow-anchor: none;
   }
 
@@ -978,5 +978,6 @@ canvas {
   flex-direction: column;
   background: transparent;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
 }

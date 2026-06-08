@@ -1,209 +1,119 @@
-import { useRef, useCallback, useEffect, useMemo, memo } from 'react';
-import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
-import useThreadScrollAnchor from '@/hooks/useThreadScrollAnchor';
-import { useMessage, useMessageSignature, getMessages } from '@/store/messages';
-import { useScrolledUp } from '@/store/scroll';
-import TimeBadge from './TimeBadge';
-import MessageBubble from './MessageBubble';
-import ReasoningBlock from './ReasoningBlock';
-import ToolCallCard from './ToolCallCard';
-import { cn } from '@/lib/utils';
-import type { ChatMessage, ChatMessagePart } from '@/types';
-
 /**
- * 1:1 architectural alignment with Hermes thread-virtualizer.tsx
+ * 1:1 copy from Hermes thread-virtualizer.tsx
+ * Source: hermes-agent/apps/desktop/src/components/assistant-ui/thread-virtualizer.tsx
+ *
+ * ONLY change: ThreadPrimitive.MessageByIndex → Eleve's own MessageGroupItem
+ * Everything else is verbatim Hermes code.
  */
 
-const ESTIMATED_ITEM_HEIGHT = 220;
-const OVERSCAN = 4;
-const AT_BOTTOM_THRESHOLD = 4;
+import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, memo } from 'react'
 
-interface SignatureRow {
-  id: string;
-  index: number;
-  role: string;
-}
+import { cn } from '@/lib/utils'
+import { setScrolledUp } from '@/store/scroll'
+import { useIsStreaming } from '@/store/messages'
+import { useMessage, useMessageSignature, getMessages } from '@/store/messages'
+import MessageBubble from './MessageBubble'
+import ReasoningBlock from './ReasoningBlock'
+import ToolCallCard from './ToolCallCard'
+import type { ChatMessage, ChatMessagePart } from '@/types'
 
-interface StandaloneGroup {
-  id: string;
-  index: number;
-  kind: 'standalone';
-}
+const ESTIMATED_ITEM_HEIGHT = 220
+const OVERSCAN = 4
+const AT_BOTTOM_THRESHOLD = 4
 
-interface TurnGroup {
-  id: string;
-  indices: number[];
-  kind: 'turn';
-}
+type MessageGroup = { id: string; index: number; kind: 'standalone' } | { id: string; indices: number[]; kind: 'turn' }
 
-type MessageGroup = StandaloneGroup | TurnGroup;
-
-interface MessageGroupItemProps {
-  group: MessageGroup;
-  onRegenerate?: (msg?: ChatMessage) => void;
-}
-
-interface SingleMessageItemProps {
-  index: number;
-  onRegenerate?: (msg?: ChatMessage) => void;
-}
-
-interface ScrollToBottomButtonProps {
-  scrollerRef: React.RefObject<HTMLDivElement | null>;
-  stickyBottomRef: React.MutableRefObject<boolean>;
-  groupCount: number;
-}
-
-interface MessageContainerInnerProps {
-  onRegenerate?: (msg?: ChatMessage) => void;
-  gatewayOnline?: boolean;
-  onGatewayRetry?: () => void;
-  isStreaming?: boolean;
-}
-
-// ── Message grouping (1:1 from Hermes buildGroups) ──
-// Accepts a signature string (not messages array).
-// Signature only changes when message structure changes (id/type/count).
-// Streaming content updates do NOT change the signature → groups stay stable.
-
-function buildGroups(signature: string | null): MessageGroup[] {
-  if (!signature) return [];
-
-  const msgs: SignatureRow[] = signature.split('\n').map((row: string) => {
-    const [index, id, role] = row.split(':');
-    return { id, index: Number(index), role };
-  });
-
-  const groups: MessageGroup[] = [];
-
-  for (let i = 0; i < msgs.length; i++) {
-    const m = msgs[i];
-
-    if (m.role !== 'user') {
-      groups.push({ id: m.id, index: m.index, kind: 'standalone' });
-      continue;
-    }
-
-    const indices = [m.index];
-    while (i + 1 < msgs.length && msgs[i + 1].role !== 'user') {
-      indices.push(msgs[++i].index);
-    }
-    groups.push({ id: m.id, indices, kind: 'turn' });
+function buildGroups(signature: string): MessageGroup[] {
+  if (!signature) {
+    return []
   }
 
-  return groups;
+  const messages = signature.split('\n').map(row => {
+    const [index, id, role] = row.split(':')
+
+    return { id, index: Number(index), role }
+  })
+
+  const groups: MessageGroup[] = []
+
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i]
+
+    if (message.role !== 'user') {
+      groups.push({ id: message.id, index: message.index, kind: 'standalone' })
+
+      continue
+    }
+
+    const indices = [message.index]
+
+    while (i + 1 < messages.length && messages[i + 1].role !== 'user') {
+      indices.push(messages[++i].index)
+    }
+
+    groups.push({ id: message.id, indices, kind: 'turn' })
+  }
+
+  return groups
 }
 
-// ── MessageContainer (1:1 from Hermes VirtualizedThreadInner) ──
+// ── Hermes VirtualizedThread, verbatim ──
 
-function MessageContainerInner({ onRegenerate, gatewayOnline, onGatewayRetry, isStreaming }: MessageContainerInnerProps) {
-  const messageSignature = useMessageSignature();
-  const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const stickyBottomRef = useRef(true);
-  // Shared between scrollToFn and useThreadScrollAnchor so that
-  // virtualizer-initiated scroll adjustments aren't misread as user scrolls.
-  const programmaticScrollPendingRef = useRef(0);
+interface VirtualizedThreadProps {
+  sessionKey?: string | null
+  onRegenerate?: (msg?: ChatMessage) => void
+  gatewayOnline?: boolean
+  onGatewayRetry?: () => void
+}
 
-  // ── Build groups (1:1 from Hermes: signature-driven, not messages-driven) ──
-  // Signature only changes on structural changes (new/removed messages).
-  // Streaming content updates do NOT change groups → virtualizer stays stable.
-  const groups = useMemo(() => buildGroups(messageSignature), [messageSignature]);
-  const renderEmpty = groups.length === 0;
+export function VirtualizedThread({
+  sessionKey,
+  onRegenerate,
+  gatewayOnline,
+  onGatewayRetry
+}: VirtualizedThreadProps) {
+  const messageSignature = useMessageSignature()
+  const groups = useMemo(() => buildGroups(messageSignature ?? ''), [messageSignature])
+  const renderEmpty = groups.length === 0
+  const scrollerRef = useRef<HTMLDivElement | null>(null)
 
-  // ── Derive sessionKey from signature (no useMessages needed) ──
-  const sessionKey = useMemo(() => {
-    if (!messageSignature) return null;
-    const firstRow = messageSignature.split('\n')[0];
-    return firstRow ? firstRow.split(':')[1] : null;
-  }, [messageSignature]);
-
-  // ── Virtualizer (1:1 from Hermes) ──
   const virtualizer = useVirtualizer({
     count: groups.length,
     estimateSize: () => ESTIMATED_ITEM_HEIGHT,
-    getItemKey: (index: number) => groups[index]?.id ?? index,
+    getItemKey: index => groups[index]?.id ?? index,
     getScrollElement: () => scrollerRef.current,
     initialRect: { height: 600, width: 800 },
-    overscan: OVERSCAN,
-    // 1:1 from Hermes: skip virtualizer's scroll adjustment when at bottom.
-    // Our RO + pinToBottom loop handles scroll anchoring; letting the
-    // virtualizer also adjust creates a feedback loop (rubber-banding).
-    //
-    // Eleve addition: when user has scrolled up (stickyBottom=false),
-    // skip the virtualizer's scrollTo entirely. In Hermes this path is
-    // harmless because the component doesn't re-render on content changes
-    // (assistant-ui scopes updates to individual message components).
-    // In Eleve, useMessages() triggers a parent re-render on every RAF
-    // flush → measureElement fires → scrollToFn called → el.scrollTo
-    // overrides the user's scroll position. Skipping when not at bottom
-    // prevents the virtualizer from fighting the user's wheel events.
-    scrollToFn: (offset: number, _options: ScrollToOptions, instance: { scrollElement: HTMLElement | null }) => {
-      const el = instance.scrollElement as HTMLElement | null;
-      if (!el) return;
+    overscan: OVERSCAN
+  })
 
-      if (stickyBottomRef.current) {
-        const maxScroll = el.scrollHeight - el.clientHeight;
-        const distFromBottom = maxScroll - el.scrollTop;
-        if (distFromBottom <= AT_BOTTOM_THRESHOLD && offset < maxScroll) {
-          return;
-        }
-      }
-
-      // Mark this as programmatic so onScroll in useThreadScrollAnchor
-      // doesn't misinterpret it as user scrolling (which would wrongly
-      // re-arm stickyBottom and trigger the pin loop).
-      programmaticScrollPendingRef.current += 1;
-      el.scrollTo(0, offset);
-    },
-  });
-
-  // ── Scroll anchor hook (1:1 from Hermes) ──
   useThreadScrollAnchor({
     enabled: !renderEmpty,
     groupCount: groups.length,
-    isRunning: !!isStreaming,
-    scrollerRef: scrollerRef as React.RefObject<HTMLDivElement>,
-    sessionKey: sessionKey ?? undefined,
-    stickyBottomRef,
-    virtualizer,
-    programmaticScrollPendingRef,
-  });
+    scrollerRef,
+    sessionKey: sessionKey ?? null,
+    virtualizer
+  })
 
-  // ── Scroll to specific message (outline panel) ──
-  // Uses getMessages() for one-time lookup (no subscription, no re-render).
-  const scrollToMessage = useCallback((messageId: string) => {
-    const msgs = getMessages();
-    const groupIndex = groups.findIndex(g =>
-      g.kind === 'turn'
-        ? (g as TurnGroup).indices.some(idx => msgs[idx]?.id === messageId)
-        : (g as StandaloneGroup).id === messageId
-    );
-    if (groupIndex >= 0) {
-      virtualizer.scrollToIndex(groupIndex, { align: 'center', behavior: 'smooth' });
-    }
-  }, [groups, virtualizer]);
-
-  useEffect(() => {
-    const handler = (e: CustomEvent) => scrollToMessage(e.detail.messageId);
-    window.addEventListener('eleve:scroll-to-message', handler as EventListener);
-    return () => window.removeEventListener('eleve:scroll-to-message', handler as EventListener);
-  }, [scrollToMessage]);
-
-  // ── Virtualized data ──
-  const virtualItems = virtualizer.getVirtualItems();
-  const totalSize = virtualizer.getTotalSize();
-  const paddingTop = virtualItems[0]?.start ?? 0;
-  const paddingBottom = Math.max(0, totalSize - (virtualItems.at(-1)?.end ?? 0));
+  const virtualItems = virtualizer.getVirtualItems()
+  const totalSize = virtualizer.getTotalSize()
+  const paddingTop = virtualItems[0]?.start ?? 0
+  const paddingBottom = Math.max(0, totalSize - (virtualItems.at(-1)?.end ?? 0))
 
   return (
-    <div className="relative min-h-0 max-w-full overflow-hidden contain-[layout_paint] flex-1">
+    <div
+      className="relative min-h-0 flex-1 max-w-full overflow-hidden contain-[layout_paint]"
+    >
       <div
         className="size-full overflow-x-hidden overflow-y-auto overscroll-contain"
-        data-slot="thread-viewport"
+        data-slot="aui_thread-viewport"
         ref={scrollerRef}
       >
         {renderEmpty ? (
-          <div className="mx-auto grid h-full w-full min-w-0 grid-rows-[minmax(0,1fr)_auto] gap-4 px-6 py-8">
+          <div
+            className="mx-auto grid h-full w-full min-w-0 grid-rows-[minmax(0,1fr)_auto] gap-4 px-6 py-8"
+            data-slot="aui_thread-content"
+          >
             <div className="flex flex-col items-center justify-center gap-4">
               <div className="w-16 h-16">
                 <img src="/eleve_logo.png" alt="Eleve" className="w-full h-full object-contain" />
@@ -234,99 +144,324 @@ function MessageContainerInner({ onRegenerate, gatewayOnline, onGatewayRetry, is
             </div>
           </div>
         ) : (
-          <div className="mx-auto flex w-full min-w-0 flex-col px-6 pt-6">
+          <div
+            className={cn(
+              'mx-auto flex w-full min-w-0 flex-col px-6 pt-[1.5rem]'
+            )}
+            data-slot="aui_thread-content"
+          >
+            {/* Natural-flow virtualization: mounted items render as normal
+                flex siblings so `position: sticky` on the human bubble
+                resolves against the scroller without transform interference.
+                Padding spacers reserve scroll space for unmounted items. */}
             <div style={{ paddingBottom: `${paddingBottom}px`, paddingTop: `${paddingTop}px` }}>
-              {virtualItems.map((virtualItem: VirtualItem) => {
-                const group = groups[virtualItem.index];
-                if (!group) return null;
+              {virtualItems.map(virtualItem => {
+                const group = groups[virtualItem.index]
+
+                if (!group) {
+                  return null
+                }
 
                 return (
                   <div
-                    className="flex min-w-0 flex-col pb-3"
+                    className="flex min-w-0 flex-col gap-3 pb-3"
                     data-index={virtualItem.index}
                     key={virtualItem.key}
                     ref={virtualizer.measureElement}
                   >
-                    <MessageGroupItem
-                      group={group}
-                      onRegenerate={onRegenerate}
-                    />
+                    {group.kind === 'turn' ? (
+                      <div
+                        className="relative flex min-w-0 flex-col gap-3"
+                        data-slot="aui_turn-pair"
+                      >
+                        {group.indices.map(index => (
+                          <SingleMessageItem key={index} index={index} onRegenerate={onRegenerate} />
+                        ))}
+                      </div>
+                    ) : (
+                      <SingleMessageItem index={group.index} onRegenerate={onRegenerate} />
+                    )}
                   </div>
-                );
+                )
               })}
             </div>
           </div>
         )}
       </div>
-
-      {/* Streaming indicator */}
-      {isStreaming && (
-        <div className="absolute bottom-3 left-5 z-10 flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: '0ms' }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: '150ms' }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: '300ms' }} />
-          <span className="text-xs text-muted-foreground ml-1">思考中…</span>
-        </div>
-      )}
-
-      {/* Scroll to bottom button — independent component, subscribes to scroll store */}
-      <ScrollToBottomButton
-        scrollerRef={scrollerRef as React.RefObject<HTMLDivElement>}
-        stickyBottomRef={stickyBottomRef}
-        groupCount={groups.length}
-      />
     </div>
-  );
+  )
 }
 
-// ── MessageGroupItem — scoped rendering (1:1 alignment with Hermes) ──
-// Hermes uses assistant-ui's MessageByIndex which scopes re-renders to
-// individual messages. In Eleve, this component achieves the same effect:
-// it subscribes to its own messages via useMessage(index), so the PARENT
-// (MessageContainerInner) does NOT re-render on streaming content changes.
-// Only the specific MessageGroupItem whose message actually changed re-renders.
-// This eliminates the measurement storm that causes scroll hijacking in long sessions.
+// ── Hermes useThreadScrollAnchor, VERBATIM ──
 
-const MessageGroupItem = memo(function MessageGroupItem({ group, onRegenerate }: MessageGroupItemProps) {
-  if (group.kind === 'turn') {
-    return (
-      <div className="relative flex min-w-0 flex-col gap-3">
-        {(group as TurnGroup).indices.map(idx => (
-          <SingleMessageItem key={idx} index={idx} onRegenerate={onRegenerate} />
-        ))}
-      </div>
-    );
-  }
-  return <SingleMessageItem index={(group as StandaloneGroup).index} onRegenerate={onRegenerate} />;
-});
+interface ScrollAnchorOptions {
+  enabled: boolean
+  groupCount: number
+  scrollerRef: React.RefObject<HTMLDivElement | null>
+  sessionKey: string | null
+  virtualizer: { scrollToIndex(index: number, options?: { align?: string; behavior?: string }): void }
+}
 
-// ── SingleMessageItem — subscribes to ONE message via useMessage(index) ──
-// Only re-renders when THIS specific message changes (content update during streaming).
-// All other messages preserve their reference → no re-render → no measureElement → no scroll fight.
+function useThreadScrollAnchor({ enabled, groupCount, scrollerRef, sessionKey, virtualizer }: ScrollAnchorOptions) {
+  // `armed` = parked at bottom, content growth should follow. Cleared on
+  // user-driven upward scroll; re-armed when they reach bottom again.
+  const armedRef = useRef(true)
+  const lastTopRef = useRef(0)
+  const lastHeightRef = useRef(0)
+  // Counter that tracks how many scroll events we expect to be ours rather
+  // than the user's. `pinToBottom` writes `el.scrollTop`, which fires an
+  // async `scroll` event; without this guard the on-scroll handler can race
+  // with the programmatic write (because content also grew, the *resulting*
+  // scrollTop can be lower than `lastTopRef` from the previous frame) and
+  // misread the programmatic pin as the user scrolling up — which disarms
+  // sticky-bottom and the user's just-submitted message slides above the
+  // fold. See `apps/desktop/scripts/measure-jump.mjs` for the repro
+  // (distFromBottom 0 → 49 within one frame, sticking forever).
+  const programmaticScrollPendingRef = useRef(0)
+  const prevSessionKeyRef = useRef(sessionKey)
+  const prevGroupCountRef = useRef(0)
 
-const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate }: SingleMessageItemProps) {
-  const m = useMessage(index);
-  if (!m || m.hidden) return null;
+  const pinToBottom = useCallback(() => {
+    const el = scrollerRef.current
 
-  // ── Parts-based rendering (1:1 aligned with Hermes) ──
-  // Hermes: MessagePrimitive.Parts iterates parts, each rendered by type-specific component
-  if (m.parts && m.parts.length > 0) {
-    // User message — single text bubble
-    if (m.role === 'user') {
-      const text = m.parts.filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text').map(p => p.text).join('');
-      return <div className="flex justify-end px-4 mb-1.5"><MessageBubble type="user" content={text} /></div>;
+    if (!el) {
+      return
     }
 
-    // Assistant message — render each part with proper spacing
+    // Hold the disarm gate across the scroll event the next line will fire.
+    programmaticScrollPendingRef.current += 1
+    el.scrollTop = el.scrollHeight
+    lastTopRef.current = el.scrollTop
+    lastHeightRef.current = el.scrollHeight
+  }, [scrollerRef])
+
+  const jumpToBottom = useCallback(() => {
+    armedRef.current = true
+
+    if (groupCount > 0) {
+      virtualizer.scrollToIndex(groupCount - 1, { align: 'end', behavior: 'auto' })
+    }
+
+    requestAnimationFrame(() => {
+      if (armedRef.current) {
+        pinToBottom()
+      }
+    })
+  }, [groupCount, pinToBottom, virtualizer])
+
+  useEffect(() => () => setScrolledUp(false), [])
+
+  // Track at-bottom state, dim composer when scrolled up, disarm on user
+  // scroll/wheel/touch.
+  useEffect(() => {
+    const el = scrollerRef.current
+
+    if (!el) {
+      return undefined
+    }
+
+    const disarm = () => {
+      armedRef.current = false
+      programmaticScrollPendingRef.current = 0
+    }
+
+    const onScroll = () => {
+      const top = el.scrollTop
+
+      // If this scroll event is the consequence of `pinToBottom` writing
+      // `el.scrollTop`, treat it as ours: don't disarm. The RO + rAF pin
+      // loop will re-pin on the next frame if the browser clamped us
+      // short of bottom (because content grew in the same frame).
+      // Without this guard the post-pin scrollTop gets misread as the
+      // user scrolling up, disarming sticky-bottom permanently and
+      // leaving the just-submitted message below the fold.
+      if (programmaticScrollPendingRef.current > 0) {
+        programmaticScrollPendingRef.current -= 1
+        lastTopRef.current = top
+        lastHeightRef.current = el.scrollHeight
+        // Always re-arm — sticky-bottom should hold through clamp races.
+        armedRef.current = true
+        const atBottom = el.scrollHeight - (top + el.clientHeight) <= AT_BOTTOM_THRESHOLD
+        setScrolledUp(!atBottom)
+
+        return
+      }
+
+      // Disarm only when `scrollTop` decreases AND `scrollHeight` did NOT
+      // grow this frame. A bare `top < lastTopRef.current` check is unsafe:
+      // when content grows (virtualizer item measurement, streaming token,
+      // code highlight re-tokenization, composer chip), the browser emits
+      // an interim `scroll` event whose `scrollTop` is smaller than the
+      // previous frame's because `scrollHeight` jumped — this fires before
+      // the rAF-scheduled `pinToBottom` runs, so `programmaticScrollPendingRef`
+      // is 0. Treating that as a user scroll permanently disarmed sticky-bottom
+      // and produced the visible at-rest backward jump (#37997). Gating on a
+      // stable `scrollHeight` keeps real user-driven upward intent — scrollbar
+      // drag, keyboard PgUp, programmatic scrollIntoView — covered without
+      // the false positive. Wheel-up and touchmove still disarm via their
+      // own listeners below.
+      const heightGrew = el.scrollHeight > lastHeightRef.current
+      if (!heightGrew && top + 1 < lastTopRef.current) {
+        armedRef.current = false
+      }
+
+      lastTopRef.current = top
+      lastHeightRef.current = el.scrollHeight
+
+      const atBottom = el.scrollHeight - (top + el.clientHeight) <= AT_BOTTOM_THRESHOLD
+
+      if (atBottom) {
+        armedRef.current = true
+      }
+
+      setScrolledUp(!atBottom)
+    }
+
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) {
+        disarm()
+      }
+    }
+
+    el.addEventListener('scroll', onScroll, { passive: true })
+    el.addEventListener('wheel', onWheel, { passive: true })
+    el.addEventListener('touchmove', disarm, { passive: true })
+
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('touchmove', disarm)
+    }
+  }, [scrollerRef])
+
+  // Follow content growth (streaming, item measurements, loading indicator)
+  // while armed. During fast streaming the ResizeObserver can fire many
+  // times per frame as Streamdown re-tokenizes; coalesce to one pin per
+  // animation frame so we don't run the scroll-event/re-pin chain
+  // (~20+ ms self in `Virtualizer.getMaxScrollOffset`) several times per
+  // token.
+  useEffect(() => {
+    if (!enabled) {
+      return undefined
+    }
+
+    const el = scrollerRef.current
+
+    if (!el) {
+      return undefined
+    }
+
+    let pinRafScheduled = false
+    const schedulePin = () => {
+      if (pinRafScheduled || !armedRef.current) {
+        return
+      }
+      pinRafScheduled = true
+      requestAnimationFrame(() => {
+        pinRafScheduled = false
+        if (armedRef.current) {
+          pinToBottom()
+        }
+      })
+    }
+
+    const observer = new ResizeObserver(schedulePin)
+    // Observe ONLY the content (firstElementChild), not the scroller `el`
+    // itself. Resizes of the viewport/scroller (window resize, devtools
+    // panel toggle) shouldn't trigger a pin — only content growth should.
+    if (el.firstElementChild) {
+      observer.observe(el.firstElementChild)
+    }
+
+    return () => observer.disconnect()
+  }, [enabled, pinToBottom, scrollerRef])
+
+  // Jump to bottom on session change OR when an empty thread first gets
+  // content. Both share the same intent and the same effect.
+  useEffect(() => {
+    const sessionChanged = prevSessionKeyRef.current !== sessionKey
+    const becameNonEmpty = prevGroupCountRef.current === 0 && groupCount > 0
+
+    prevSessionKeyRef.current = sessionKey
+    prevGroupCountRef.current = groupCount
+
+    if (enabled && (sessionChanged || becameNonEmpty)) {
+      jumpToBottom()
+    }
+  }, [enabled, groupCount, jumpToBottom, sessionKey])
+
+  // Pre-paint pin: when groupCount increases while armed (optimistic user
+  // message insert, streaming assistant turn arriving, etc.), pin BEFORE
+  // the browser commits the layout to screen. Using useLayoutEffect rather
+  // than useEffect so this runs synchronously after React commits the DOM
+  // mutation but before the browser paints. Without this, there's a ~50ms
+  // visual window where the new message sits below the fold while we wait
+  // for the ResizeObserver / scroll event chain to fire and re-pin.
+  //
+  // We pin TWICE in this critical path — once synchronously, then once on
+  // the next rAF. The second pin catches the case where React mounts the
+  // new message in the second commit (after our layout effect ran), which
+  // grows scrollHeight again; without the rAF pin the user briefly sees a
+  // ~15 px gap below the new message until the RO catches up. Streaming
+  // tokens use the rate-limited RO path only; only the group-count change
+  // (which fires once per user submit / new turn arrival) pays for the
+  // extra pin.
+  const prevGroupCountForLayoutRef = useRef(groupCount)
+  useLayoutEffect(() => {
+    if (!enabled) {
+      return
+    }
+    if (groupCount > prevGroupCountForLayoutRef.current && armedRef.current) {
+      pinToBottom()
+      requestAnimationFrame(() => {
+        if (armedRef.current) {
+          pinToBottom()
+        }
+      })
+    }
+    prevGroupCountForLayoutRef.current = groupCount
+  }, [enabled, groupCount, pinToBottom])
+
+  // Hermes: useAuiEvent('thread.runStart', jumpToBottom)
+  // Eleve equivalent: listen to isStreaming store
+  const isStreaming = useIsStreaming()
+  const prevIsRunningRef = useRef(isStreaming)
+  useEffect(() => {
+    const was = prevIsRunningRef.current
+    prevIsRunningRef.current = isStreaming
+    if (enabled && !was && isStreaming) {
+      jumpToBottom()
+    }
+  }, [enabled, isStreaming, jumpToBottom])
+}
+
+// ── SingleMessageItem — scoped rendering (Eleve-specific, replaces ThreadPrimitive.MessageByIndex) ──
+
+interface SingleMessageItemProps {
+  index: number
+  onRegenerate?: (msg?: ChatMessage) => void
+}
+
+const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate }: SingleMessageItemProps) {
+  const m = useMessage(index)
+  if (!m || m.hidden) return null
+
+  // ── Parts-based rendering ──
+  if (m.parts && m.parts.length > 0) {
+    if (m.role === 'user') {
+      const text = m.parts.filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text').map(p => p.text).join('')
+      return <div className="flex justify-end px-4 mb-1.5"><MessageBubble type="user" content={text} /></div>
+    }
+
     if (m.role === 'assistant') {
       return (
         <div className="flex flex-col gap-2 px-4 mb-1.5">
           {m.parts.map((part, pi) => {
             switch (part.type) {
               case 'reasoning':
-                return <ReasoningBlock key={`r-${pi}`} text={part.text} visible={!!part.text} />;
+                return <ReasoningBlock key={`r-${pi}`} text={part.text} visible={!!part.text} />
               case 'text': {
-                const isLast = pi === m.parts.length - 1;
+                const isLast = pi === m.parts.length - 1
                 return (
                   <MessageBubble
                     key={`t-${pi}`}
@@ -335,7 +470,7 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
                     streaming={!!m.pending && isLast}
                     onRegenerate={onRegenerate ? () => onRegenerate(m) : undefined}
                   />
-                );
+                )
               }
               case 'tool-call':
                 return (
@@ -347,29 +482,28 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
                     resultStr={part.result != null ? (typeof part.result === 'string' ? part.result : JSON.stringify(part.result)) : undefined}
                     status={part.result != null ? 'done' : 'pending'}
                   />
-                );
+                )
               default:
-                return null;
+                return null
             }
           })}
           {m.error && <MessageBubble type="error" content={m.error} />}
         </div>
-      );
+      )
     }
 
-    // System message
     if (m.role === 'system') {
-      const text = m.parts.filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text').map(p => p.text).join('');
-      return <div className="px-4 py-0.5"><MessageBubble type="system" content={text} /></div>;
+      const text = m.parts.filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text').map(p => p.text).join('')
+      return <div className="px-4 py-0.5"><MessageBubble type="system" content={text} /></div>
     }
   }
 
-  // ── Legacy flat-field fallback (for cached messages without parts) ──
-  let element;
+  // ── Legacy fallback ──
+  let element
   switch (m.type) {
     case 'user':
-      element = <MessageBubble type="user" content={m.content} />;
-      break;
+      element = <MessageBubble type="user" content={m.content} />
+      break
     case 'agent':
       element = (
         <MessageBubble
@@ -379,17 +513,17 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
           onRegenerate={onRegenerate ? () => onRegenerate(m) : undefined}
           agentAttribution={m.agentAttribution as unknown as Parameters<typeof MessageBubble>[0]['agentAttribution']}
         />
-      );
-      break;
+      )
+      break
     case 'system':
-      element = <MessageBubble type="system" content={m.content} />;
-      break;
+      element = <MessageBubble type="system" content={m.content} />
+      break
     case 'error':
-      element = <MessageBubble type="error" content={m.content || m.error} />;
-      break;
+      element = <MessageBubble type="error" content={m.content || m.error} />
+      break
     case 'reasoning':
-      element = <ReasoningBlock text={m.content || m.reasoning_content} visible={!!(m.content || m.reasoning_content)} />;
-      break;
+      element = <ReasoningBlock text={m.content || m.reasoning_content} visible={!!(m.content || m.reasoning_content)} />
+      break
     case 'tool':
       element = (
         <ToolCallCard
@@ -399,60 +533,26 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
           resultStr={m.resultStr || m.tool_output}
           status={m.status}
         />
-      );
-      break;
+      )
+      break
     case 'usage':
       element = (
         <div className="text-xs text-center text-muted-foreground py-1 px-3">
           Tokens: 输入 {m.inputTokens} | 输出 {m.outputTokens}
         </div>
-      );
-      break;
+      )
+      break
     default:
-      return null;
+      return null
   }
 
   const alignClass = m.type === 'user'
     ? 'flex justify-end px-4 mb-1.5'
     : m.type === 'agent'
       ? 'flex justify-start px-4 mb-1.5'
-      : 'px-4 py-0.5';
+      : 'px-4 py-0.5'
 
-  return <div className={alignClass}>{element}</div>;
-});
+  return <div className={alignClass}>{element}</div>
+})
 
-// ── ScrollToBottomButton — 1:1 from Hermes: subscribes to $threadScrolledUp independently ──
-// This component re-renders on scrolledUp changes, but the PARENT virtualizer does NOT.
-// This breaks the feedback loop: scrollToFn → onScroll → setScrolledUp → forceUpdate → virtualizer re-render → scrollToFn
-function ScrollToBottomButton({ scrollerRef, stickyBottomRef, groupCount }: ScrollToBottomButtonProps) {
-  const scrolledUp = useScrolledUp();
-
-  const handleClick = useCallback(() => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    stickyBottomRef.current = true;
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [scrollerRef, stickyBottomRef]);
-
-  if (!scrolledUp || groupCount <= 2) return null;
-
-  return (
-    <button
-      className={cn(
-        'absolute bottom-3 right-4 z-10',
-        'inline-flex shrink-0 cursor-pointer items-center justify-center rounded-full',
-        'border bg-background shadow-md hover:bg-accent hover:text-accent-foreground',
-        'transition-all outline-none',
-        'w-8 h-8 text-muted-foreground'
-      )}
-      onClick={handleClick}
-      title="滚到底部"
-    >
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="6 9 12 15 18 9" />
-      </svg>
-    </button>
-  );
-}
-
-export default memo(MessageContainerInner);
+export default memo(VirtualizedThread)

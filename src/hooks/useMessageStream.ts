@@ -185,23 +185,32 @@ export function useMessageStream({
 
   // ── flushQueuedDeltas — 1:1 from Hermes flushQueuedDeltas ──
   // Takes accumulated deltas from queue, applies them via mutateStream.
+  // [FIX] 合并 text + reasoning 为一次 mutateStream 调用，避免双次 React re-render
   const flushQueuedDeltas = useCallback(() => {
     const queued = queuedDeltasRef.current
     queuedDeltasRef.current = { assistant: '', reasoning: '' }
 
-    if (queued.assistant) {
-      mutateStream(
-        parts => appendTextPart(parts, queued.assistant),
-        () => [textPart(queued.assistant)],
-      )
-    }
+    if (!queued.assistant && !queued.reasoning) return
 
-    if (queued.reasoning) {
-      mutateStream(
-        parts => appendReasoningPart(parts, queued.reasoning),
-        () => [reasoningPart(queued.reasoning)],
-      )
-    }
+    // 合并：一次 mutateStream 同时处理 text 和 reasoning
+    mutateStream(
+      (parts) => {
+        let result = parts
+        if (queued.reasoning) {
+          result = appendReasoningPart(result, queued.reasoning)
+        }
+        if (queued.assistant) {
+          result = appendTextPart(result, queued.assistant)
+        }
+        return result
+      },
+      () => {
+        const seed: ChatMessagePart[] = []
+        if (queued.reasoning) seed.push(reasoningPart(queued.reasoning))
+        if (queued.assistant) seed.push(textPart(queued.assistant))
+        return seed
+      },
+    )
   }, [mutateStream])
 
   // ── scheduleDeltaFlush — 1:1 from Hermes scheduleDeltaFlush ──
@@ -341,19 +350,13 @@ export function useMessageStream({
     // [FIX #4] Reasoning replace — 1:1 with Hermes appendReasoningDelta(replace=true).
     // reasoning.available sends the COMPLETE reasoning text, not a delta.
     // Must flush first, then replace the reasoning part content.
-    // [FIX] 对齐 Hermes: 已有正文内容时，不再替换 reasoning，避免状态混乱
+    // 对齐 Hermes: replace 模式下，filter 掉所有旧 reasoning parts 再添加新的
     onReasoningReplace: (fullText: string) => {
       flushQueuedDeltas()
       mutateStream(
-        (parts, message) => {
-          // 对齐 Hermes: if (replace && chatMessageText(message).trim()) return parts
-          const hasText = message.parts
-            .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
-            .some(p => p.text.trim().length > 0)
-          if (hasText) {
-            return parts
-          }
-          return replaceReasoningPart(parts, fullText)
+        (parts) => {
+          // 对齐 Hermes L394-396: [...parts.filter(p => p.type !== 'reasoning'), reasoningPart(delta)]
+          return [...parts.filter(p => p.type !== 'reasoning'), reasoningPart(fullText)]
         },
         () => [reasoningPart(fullText)],
       )

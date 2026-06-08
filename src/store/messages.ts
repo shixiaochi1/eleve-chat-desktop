@@ -1,14 +1,13 @@
 /**
  * Messages atomic store — 1:1 alignment with Hermes store/session.ts
  *
- * Hermes uses nanostores atom<ChatMessage[]> with RAF-throttled sync.
- * We replicate the same pattern using useSyncExternalStore + manual pub/sub.
- *
  * Key design:
  * - RAF batch flush: same-frame updates coalesce into one React render
  * - getSnapshot returns the same reference until flushed (useSyncExternalStore optimization)
  * - updateMessage(id, patch) for incremental updates — only creates a new
  *   object for the changed message, preserving references for all others
+ * - isStreaming is a standalone atom — useSSE writes, MessageContainer reads
+ *     without going through App props (prevents parent re-render cascade)
  */
 
 import { useCallback, useSyncExternalStore } from 'react'
@@ -26,6 +25,31 @@ let messages: ChatMessage[] = []
 let listeners = new Set<ListenerCallback>()
 let pendingFlush = false
 let flushedSnapshot: ChatMessage[] = [] // stable reference returned to React between flushes
+
+// ── isStreaming standalone atom ──
+// Written by useSSE, read by MessageContainer via useIsStreaming().
+// This breaks the App → MessageContainer re-render cascade that caused scroll hijacking.
+let _isStreaming = false
+let _isStreamingListeners = new Set<ListenerCallback>()
+
+export function setIsStreaming(value: boolean): void {
+  if (_isStreaming === value) return
+  _isStreaming = value
+  _isStreamingListeners.forEach(cb => cb())
+}
+
+function getIsStreamingSnapshot(): boolean {
+  return _isStreaming
+}
+
+function subscribeIsStreaming(cb: ListenerCallback): Unsubscribe {
+  _isStreamingListeners.add(cb)
+  return () => { _isStreamingListeners.delete(cb) }
+}
+
+export function useIsStreaming(): boolean {
+  return useSyncExternalStore(subscribeIsStreaming, getIsStreamingSnapshot, getIsStreamingSnapshot)
+}
 
 function scheduleFlush(): void {
   if (pendingFlush) return

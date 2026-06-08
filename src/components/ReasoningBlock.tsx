@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ThinkingIcon } from './Icons';
 import { cn } from '@/lib/utils';
 
@@ -13,16 +13,12 @@ interface ReasoningBlockProps {
  * 对齐 Hermes ThinkingDisclosure:
  *   - 默认折叠，显示前几行 + .thinking-preview 渐隐遮罩
  *   - 点击展开完整内容
+ *   - 🔴 禁止 scrollIntoView — 虚拟化列表中 scrollIntoView 会造成
+ *     反馈循环：mount → scrollIntoView → viewport 移动 → virtualizer
+ *     重新计算 → 新 item mount → 又 scrollIntoView → 无限循环
  */
 export default function ReasoningBlock({ text, visible }: ReasoningBlockProps) {
-  const ref = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(false);
-
-  useEffect(() => {
-    if (visible && ref.current) {
-      ref.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-  }, [text, visible]);
 
   if (!visible || !text) return null;
 
@@ -30,7 +26,7 @@ export default function ReasoningBlock({ text, visible }: ReasoningBlockProps) {
   const isLong = lines.length > 4 || text.length > 200;
 
   return (
-    <div className="border-l-2 border-muted-foreground/30 pl-3 my-2" ref={ref}>
+    <div className="border-l-2 border-muted-foreground/30 pl-3 my-2">
       <button
         className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1 hover:text-foreground transition-colors"
         onClick={() => setExpanded(prev => !prev)}

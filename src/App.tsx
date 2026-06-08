@@ -471,7 +471,6 @@ export default function App() {
                     onRegenerate={handleRegenerate}
                     gatewayOnline={gatewayHealth.online}
                     onGatewayRetry={gatewayHealth.checkNow}
-                    isStreaming={isStreaming}
                   />
                   {activeClarify && (
                     <ClarifyCard

@@ -142,14 +142,18 @@ export function replaceTextPart(parts: ChatMessagePart[], fullText: string): Cha
 }
 
 export function appendReasoningPart(parts: ChatMessagePart[], delta: string): ChatMessagePart[] {
-  const next = [...parts]
-  const last = next.at(-1)
-
-  if (last?.type === 'reasoning') {
-    next[next.length - 1] = { ...last, text: `${last.text}${delta}` }
+  // 对齐 Hermes: reasoning 永远只有一个 part
+  // 找到现有的 reasoning part 并追加，而非只在 last 是 reasoning 时追加
+  const reasoningIdx = parts.findIndex(p => p.type === 'reasoning')
+  if (reasoningIdx >= 0) {
+    const next = [...parts]
+    const existing = next[reasoningIdx] as { type: 'reasoning'; text: string }
+    next[reasoningIdx] = { ...existing, text: `${existing.text}${delta}` }
     return next
   }
 
+  // 没有 reasoning part — 创建新的
+  const next = [...parts]
   next.push(reasoningPart(delta))
   return next
 }

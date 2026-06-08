@@ -1,6 +1,7 @@
-import { useState, useRef, useCallback } from 'react';
+import { useRef, useCallback } from 'react';
 import { getApiBase } from '../utils/api';
 import { call } from '../utils/bridge';
+import { useIsStreaming, setIsStreaming as storeSetIsStreaming } from '@/store/messages';
 
 // ── SSE callback types ──
 
@@ -132,7 +133,9 @@ export function useSSE(callbacks: SSECallbacks = {}): {
   send: (text: string, sessionId?: string | null) => Promise<void>
   abort: () => Promise<void>
 } {
-  const [isStreaming, setIsStreaming] = useState(false);
+  // isStreaming is now a STORE atom, not local useState.
+  // This prevents App → MessageContainer re-render cascade.
+  const isStreaming = useIsStreaming();
   const controllerRef = useRef<AbortController | null>(null);
   const currentSessionRef = useRef<string | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -248,17 +251,17 @@ export function useSSE(callbacks: SSECallbacks = {}): {
     }
 
     // ── ToolProgress (fallback — only reached for unnamed SSE lines) ──
+    // NOTE: reasoning.available is handled via named-event 'tool_progress' route
+    // with onReasoningReplace (not onReasoning). We must NOT re-handle it here
+    // with onReasoning (append) or it creates a second reasoning bubble.
     if (event.tool_progress !== undefined) {
       const tp = event.tool_progress as ToolProgressEvent;
       const ev = tp.event || tp.tool;
-      // Only handle sub-events not covered by named-event switch.
-      // tool.started / tool.completed are handled by tool_call_start / tool_call_end
-      // named events above — forwarding them here would double-fire.
       if (ev === 'tool.failed' || ev === 'tool_error') {
         cbs.onError?.(tp.error || `Tool ${tp.tool} failed`);
-      } else if (ev === 'reasoning.available') {
-        cbs.onReasoning?.(tp.text || '', tp.text || '');
       }
+      // reasoning.available intentionally NOT handled here — named-event route
+      // above handles it with onReasoningReplace (replace mode).
       return;
     }
 
@@ -280,19 +283,19 @@ export function useSSE(callbacks: SSECallbacks = {}): {
       return;
     }
 
-    // ── Text ──
-    if (event.text !== undefined) {
-      const t = (event.text as string) || '';
-      accumulators.fullText += t;
-      cbs.onText?.(t, accumulators.fullText);
-      return;
-    }
+    // ── No more 'text' fallback ──
+    // REMOVED: The old `if (event.text !== undefined)` fallback here
+    // caused DUPLICATE content. When the backend sends named SSE events
+    // (assistant.delta), the switch-case above already routes them.
+    // This fallback would fire for unnamed data lines that also contain
+    // a 'text' field, double-triggering onText. Hermes does NOT have
+    // this fallback — it only uses named events.
   }, []);
 
   const send = useCallback(async (text: string, sessionId?: string | null): Promise<void> => {
     console.log('🔍 useSSE.send called, text=', JSON.stringify(text), 'len=', text?.length);
     if (!text?.trim()) { console.warn('⚠️ useSSE.send blocked: empty text'); return; }
-    setIsStreaming(true);
+    storeSetIsStreaming(true);
     isStreamingRef.current = true;
 
     // 记录当前流式会话 ID，abort 时使用
@@ -449,10 +452,14 @@ export function useSSE(callbacks: SSECallbacks = {}): {
                   handled = true;
                   break;
                 case 'tool.progress':
-                  if (chunk.tool_name === '_thinking') {
-                    accumulators.fullReasoning += chunk.delta || '';
-                    cbs.onReasoning?.(chunk.delta || '', accumulators.fullReasoning);
-                  } else {
+                  // NOTE: Hermes does NOT handle _thinking via tool.progress.
+                  // Reasoning is handled by:
+                  //   - reasoning.delta (named event) → onReasoning (append)
+                  //   - tool_progress(reasoning.available) → onReasoningReplace (replace)
+                  // The old _thinking branch here would APPEND reasoning content
+                  // that the reasoning.delta path already appended, causing
+                  // duplicate reasoning bubbles.
+                  {
                     const tid = chunk.tool_id || 'unknown';
                     if (!accumulators.pendingTools[tid]) {
                       accumulators.pendingTools[tid] = { name: chunk.tool_name || '', argsStr: '' };
@@ -526,10 +533,13 @@ export function useSSE(callbacks: SSECallbacks = {}): {
                   handled = true;
                   break;
                 case 'assistant.completed':
-                  if (chunk.content && accumulators.fullText !== chunk.content) {
-                    accumulators.fullText = chunk.content;
-                    cbs.onText?.('', accumulators.fullText);
-                  }
+                  // REMOVED: Hermes does NOT process this event.
+                  // The 'done' event already triggers completeAssistantMessage
+                  // via onDone. Processing assistant.completed here would:
+                  // 1. Update fullTextRef with potentially stale content
+                  // 2. Call onText('', fullText) which is a no-op for delta
+                  //    but still touches fullTextRef, creating a race with onDone
+                  // Hermes only uses message.complete → completeAssistantMessage.
                   handled = true;
                   break;
                 case 'message.started':
@@ -552,7 +562,10 @@ export function useSSE(callbacks: SSECallbacks = {}): {
                   handled = true;
                   break;
                 case 'reasoning.completed':
-                  cbs.onReasoningComplete?.(chunk.reasoning || accumulators.fullReasoning);
+                  // REMOVED: Hermes does NOT have this event.
+                  // Reasoning lifecycle: reasoning.delta (append) + reasoning.available (replace).
+                  // Processing reasoning.completed would fire onReasoningComplete which
+                  // appends ANOTHER reasoning part, creating a second bubble.
                   handled = true;
                   break;
                 case 'finish_reason':
@@ -568,7 +581,7 @@ export function useSSE(callbacks: SSECallbacks = {}): {
               if (handled) {
                 lastEventName = '';
                 if (result === 'done' || result === 'error') {
-                  setIsStreaming(false);
+                  storeSetIsStreaming(false);
                   isStreamingRef.current = false;
                   controllerRef.current = null;
                   return;
@@ -582,7 +595,7 @@ export function useSSE(callbacks: SSECallbacks = {}): {
                 console.log(`🔍 [SSE] handleEvent result=${result} fullText="${accumulators.fullText.slice(0, 50)}"`);
               }
               if (result === 'done' || result === 'error') {
-                setIsStreaming(false);
+                storeSetIsStreaming(false);
                 isStreamingRef.current = false;
                 controllerRef.current = null;
                 return;
@@ -595,7 +608,7 @@ export function useSSE(callbacks: SSECallbacks = {}): {
         }
 
         // Stream ended naturally
-        setIsStreaming(false);
+        storeSetIsStreaming(false);
         isStreamingRef.current = false;
         controllerRef.current = null;
         return;
@@ -612,7 +625,7 @@ export function useSSE(callbacks: SSECallbacks = {}): {
       }
     }
 
-    setIsStreaming(false);
+    storeSetIsStreaming(false);
     isStreamingRef.current = false;
     controllerRef.current = null;
   }, [handleEvent]);
@@ -631,7 +644,7 @@ export function useSSE(callbacks: SSECallbacks = {}): {
       } catch { /* ignore */ }
       currentSessionRef.current = null;
     }
-    setIsStreaming(false);
+    storeSetIsStreaming(false);
     isStreamingRef.current = false;
 
     const cbs = cbsRef.current;

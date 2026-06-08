@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { memo, useState, useEffect, useRef, useCallback } from 'react';
 import { Plus, MessageSquareText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fetchSessionContext } from '../utils/api';
@@ -30,10 +30,14 @@ interface ContextBarProps {
  * 会话上下文指示条 — 每 3s 轮询 /api/sessions/:id/context
  *
  * 布局：[+ 新建会话] [💬 临时提问]  ···  [模型名 | 已用 token / 上限 | 百分比 | 进度条]
+ *
+ * IMPORTANT: This component uses direct DOM writes for the elapsed timer
+ * to avoid triggering React re-renders every second. This prevents layout
+ * thrashing that destabilizes the virtualizer's scroll position.
  */
-export default function ContextBar({ sessionId, sessionStartedAt, onNewSession, onBtw }: ContextBarProps) {
+const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNewSession, onBtw }: ContextBarProps) {
   const [ctx, setCtx] = useState<ContextData | null>(null);
-  const [elapsed, setElapsed] = useState(0);
+  const elapsedRef = useRef<HTMLSpanElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 每 3s 轮询上下文
@@ -43,24 +47,35 @@ export default function ContextBar({ sessionId, sessionStartedAt, onNewSession, 
       if (!sessionId) return;
       fetchSessionContext(sessionId).then((data: Record<string, unknown>) => {
         if (!cancelled && data) setCtx(data as ContextData);
-      }).catch((err: unknown) => { console.warn('[ContextBar] poll failed:', err instanceof Error ? err.message : String(err)); });
+      }).catch(() => {});
     };
     poll();
     const interval = setInterval(poll, 3000);
     return () => { clearInterval(interval); cancelled = true; };
   }, [sessionId]);
 
-  // 每秒更新 elapsed
+  // 每秒更新 elapsed — direct DOM write, NO React re-render
   useEffect(() => {
     if (!sessionStartedAt) return;
-    timerRef.current = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - sessionStartedAt!) / 1000));
-    }, 1000);
+
+    const fmtAgo = (s: number): string => {
+      if (s < 60) return `${s}秒前`;
+      const m = Math.floor(s / 60);
+      if (m < 60) return `${m}分钟前`;
+      const h = Math.floor(m / 60);
+      return `${h}小时${m % 60}分钟前`;
+    };
+
+    const update = () => {
+      const s = Math.floor((Date.now() - sessionStartedAt!) / 1000);
+      if (elapsedRef.current) {
+        elapsedRef.current.textContent = fmtAgo(s);
+      }
+    };
+    update();
+    timerRef.current = setInterval(update, 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [sessionStartedAt]);
-
-  // debug: 标记组件已加载
-  console.log('[ContextBar] rendered, sessionId=', sessionId, 'ctx=', ctx);
 
   const model = ctx?.model || '—';
   const total_tokens = ctx?.total_tokens ?? 0;
@@ -70,14 +85,6 @@ export default function ContextBar({ sessionId, sessionStartedAt, onNewSession, 
   const over80 = pct >= 80;
   const over95 = pct >= 95;
   const barColor = over95 ? 'color-mix(in srgb, var(--ui-red) 70%, white)' : over80 ? 'color-mix(in srgb, var(--ui-yellow) 70%, white)' : 'color-mix(in srgb, var(--ui-green) 70%, white)';
-
-  function fmtAgo(s: number): string {
-    if (s < 60) return `${s}秒前`;
-    const m = Math.floor(s / 60);
-    if (m < 60) return `${m}分钟前`;
-    const h = Math.floor(m / 60);
-    return `${h}小时${m % 60}分钟前`;
-  }
 
   return (
     <div>
@@ -110,7 +117,7 @@ export default function ContextBar({ sessionId, sessionStartedAt, onNewSession, 
           </span>
           <span className="font-medium" style={{ color: barColor }}>{pct.toFixed(1)}%</span>
           {sessionStartedAt && (
-            <span className="text-muted-foreground/50">开始: {fmtAgo(elapsed)}</span>
+            <span ref={elapsedRef} className="text-muted-foreground/50">开始: 0秒前</span>
           )}
         </div>
       </div>
@@ -125,4 +132,6 @@ export default function ContextBar({ sessionId, sessionStartedAt, onNewSession, 
       </div>
     </div>
   );
-}
+});
+
+export default ContextBar;
