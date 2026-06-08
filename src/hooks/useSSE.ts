@@ -397,6 +397,10 @@ export function useSSE(callbacks: SSECallbacks = {}): {
             const dataStr = trimmed.slice(5).trim();
             eventCount++;
 
+            // 防御: 空 data 行 (如旧版 keepalive event: keepalive + data:"")
+            // 对齐 Hermes: keepalive 用 SSE comment (`: keepalive\n\n`)，前端自动跳过
+            if (!dataStr) continue;
+
             if (eventCount <= 20) {
               console.log(`🔍 [SSE] event#${eventCount} eventName=${lastEventName} data=${dataStr.slice(0, 200)}`);
             }
