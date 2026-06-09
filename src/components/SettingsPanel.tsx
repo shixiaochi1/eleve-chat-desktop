@@ -80,6 +80,7 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
   const [saving, setSaving] = useState(false);
   const [activeSection, setActiveSection] = useState('providers');
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
+  const [modelSectionExpanded, setModelSectionExpanded] = useState<string | null>(null);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
 
   // ── 安全 ──
@@ -445,8 +446,8 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
             setDelMaxIterations={setDelMaxIterations}
             providers={providers}
             providerOptions={providerOptions}
-            expanded={null}
-            setExpanded={() => {}}
+            expanded={modelSectionExpanded}
+            setExpanded={setModelSectionExpanded}
           />
         );
       case 'appearance':

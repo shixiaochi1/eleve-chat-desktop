@@ -190,8 +190,8 @@ interface StaleThresholds {
 
 const COLUMNS: ColumnDef[] = [
   { key: 'triage',  label: 'Triage',  dotColor: 'var(--ui-purple)', emptyText: '暂无待甄别任务', canCreate: true },
-  { key: 'todo',    label: 'Todo',    dotColor: 'var(--ui-text-tertiary)', emptyText: '暂无待办任务', canCreate: true },
-  { key: 'ready',   label: 'Ready',   dotColor: 'var(--ui-yellow)', emptyText: '暂无就绪任务', canCreate: true },
+  { key: 'todo',    label: 'Todo',    dotColor: 'var(--ui-text-tertiary)', emptyText: '暂无待办任务', canCreate: false },
+  { key: 'ready',   label: 'Ready',   dotColor: 'var(--ui-yellow)', emptyText: '暂无就绪任务', canCreate: false },
   { key: 'running', label: 'Running', dotColor: 'var(--ui-green)', emptyText: '暂无运行中任务', canCreate: false },
   { key: 'blocked', label: 'Blocked', dotColor: 'var(--ui-red)', emptyText: '暂无阻塞任务', canCreate: false },
   { key: 'done',    label: 'Done',    dotColor: 'var(--ui-blue)', emptyText: '暂无已完成任务', canCreate: false },
@@ -348,14 +348,16 @@ function StatusDot({ status, size = 8 }: { status: string; size?: number }) {
   return <span className="shrink-0 rounded-full" style={{ width: size, height: size, backgroundColor: colorMap[s] || colorMap.todo }} />;
 }
 
-// ── 任务卡片（Trail 极简风格）──
-function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, justCreated, isDragging }: { task: KanbanTask; onSelect: (task: KanbanTask) => void; isSelected: boolean; onDragStart: (id: string) => void; checked: boolean; onCheck: (id: string) => void; justCreated: boolean; isDragging: boolean }) {
+// ── 任务卡片（Trail 极简风格 + 删除按钮）──
+function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, justCreated, isDragging, onDelete }: { task: KanbanTask; onSelect: (task: KanbanTask) => void; isSelected: boolean; onDragStart: (id: string) => void; checked: boolean; onCheck: (id: string) => void; justCreated: boolean; isDragging: boolean; onDelete?: (id: string) => void }) {
   const blocked = isBlocked(task);
   const done = isDone(task);
   const running = task.status === 'running';
   const staleness = getStaleness(task);
   const hasProgress = (task.child_total ?? 0) > 0;
   const progressFull = hasProgress && task.child_done === task.child_total;
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [hovered, setHovered] = useState(false);
 
   const priorityLevel = task.priority ? String(task.priority).replace(/^p/i, '') : null;
   const showBar = isSelected || (priorityLevel !== null && ['0', '1', '2', '3'].includes(priorityLevel));
@@ -369,6 +371,25 @@ function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, j
     }
   };
 
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setConfirmDelete(true);
+  };
+
+  const handleDeleteConfirm = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onDelete?.(task.id);
+    setConfirmDelete(false);
+  };
+
+  const handleDeleteCancel = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setConfirmDelete(false);
+  };
+
   return (
     <div
       draggable
@@ -378,6 +399,8 @@ function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, j
         onDragStart?.(task.id);
       }}
       onClick={handleClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => { setHovered(false); setConfirmDelete(false); }}
       style={showBar ? {
         borderLeftWidth: isSelected ? 3 : 2,
         borderLeftColor: isSelected ? 'var(--kanban-card-selected-bar)' : `var(--priority-${priorityLevel})`,
@@ -405,6 +428,27 @@ function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, j
       )}
     >
       {/* 优先级/选中态 左侧彩色竖条 — 通过 border-left inline style 实现 */}
+      {/* 删除按钮 — hover 出现，右上角 */}
+      {onDelete && (
+        <div className="absolute top-1 right-1.5 z-10">
+          {confirmDelete && (
+            <div className="flex items-center gap-0.5 bg-[var(--kanban-card-bg)] border border-[var(--color-accent)] rounded-md px-1 py-0.5 shadow-sm">
+              <span className="text-[0.65rem] text-[var(--ui-text-secondary)] mr-0.5">删除?</span>
+              <button onClick={handleDeleteConfirm} className="p-0.5 rounded hover:bg-[var(--ui-red)]/15 transition-colors" title="确认删除">
+                <CheckCircle2 size={12} strokeWidth={1.5} className="text-emerald-500" />
+              </button>
+              <button onClick={handleDeleteCancel} className="p-0.5 rounded hover:bg-[var(--ui-text-tertiary)]/15 transition-colors" title="取消">
+                <X size={12} strokeWidth={1.5} className="text-[var(--ui-text-tertiary)]" />
+              </button>
+            </div>
+          )}
+          {!confirmDelete && (
+            <button onClick={handleDeleteClick} className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[color-mix(in_srgb,var(--ui-red)_12%,transparent)] transition-colors" title="删除任务">
+              <Trash2 size={13} strokeWidth={1.5} className="text-[var(--ui-text-quaternary)] hover:text-[var(--ui-red)] transition-colors" />
+            </button>
+          )}
+        </div>
+      )}
       <div className="flex flex-col gap-1.5 px-3 py-2.5">
         {/* Row 1: 标题 + 进度药丸 + 阻塞警告 */}
         <div className="flex items-start gap-2">
@@ -459,9 +503,10 @@ interface KanbanColumnProps {
   onCreateSubmit: () => void;
   newTitle: string;
   setNewTitle: (v: string) => void;
+  onDelete: (taskId: string) => void;
 }
 
-function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart, onDrop, creatingIn, onCreateStart, onCreateCancel, checkedIds, onCheck, runningLanes, justCreatedIds, draggingTaskId, onCreateSubmit, newTitle, setNewTitle }: KanbanColumnProps) {
+function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart, onDrop, creatingIn, onCreateStart, onCreateCancel, checkedIds, onCheck, runningLanes, justCreatedIds, draggingTaskId, onCreateSubmit, newTitle, setNewTitle, onDelete }: KanbanColumnProps) {
   const [dragOver, setDragOver] = useState(false);
 
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true); };
@@ -508,7 +553,7 @@ function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart, onDrop
               <div className="flex flex-col gap-2 mt-1">
                 {(laneTasks).map((task: KanbanTask) => (
                   <TaskCard key={task.id} task={task} onSelect={onSelect} isSelected={selectedId === task.id} onDragStart={onDragStart}
-                    checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} />
+                    checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} onDelete={onDelete} />
                 ))}
               </div>
             </div>);
@@ -516,7 +561,7 @@ function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart, onDrop
         ) : (
           tasks.map((task: KanbanTask) => (
             <TaskCard key={task.id} task={task} onSelect={onSelect} isSelected={selectedId === task.id} onDragStart={onDragStart}
-              checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} />
+              checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} onDelete={onDelete} />
           ))
         )}
       </div>
@@ -1483,9 +1528,9 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
 
   const handleCreateSubmit = useCallback(async () => {
     if (!newTitle.trim()) return;
-    const status = COLUMN_STATUS[creatingIn ?? ''] || 'todo';
     try {
-      const payload: Record<string, unknown> = { title: newTitle.trim(), status, board: currentBoard };
+      // Hermes 仪表盘对齐：不发送 status 字段，只发 triage 标志，让后端决定状态
+      const payload: Record<string, unknown> = { title: newTitle.trim(), board: currentBoard };
       if (newBody.trim()) payload.body = newBody.trim();
       if (newAssignee.trim()) payload.assignee = newAssignee.trim();
       if (Number(newPriority)) payload.priority = Number(newPriority);
@@ -1612,6 +1657,17 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
       setWorkerLog('加载日志失败');
     }
   }, [currentBoard]);
+
+  // 删除任务
+  const handleDeleteTask = useCallback(async (taskId: string) => {
+    try {
+      await deleteKanbanTask(taskId, currentBoard);
+      setSelectedTask(null);
+      loadBoard();
+    } catch (err) {
+      console.error('[KanbanPanel] Delete task failed:', err);
+    }
+  }, [currentBoard, loadBoard]);
 
   // Phase 4.1: 切换看板
   const handleSwitchBoard = useCallback(async (slug: string) => {
@@ -2074,7 +2130,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
             onDrop={handleDrop}
             creatingIn={creatingIn} onCreateStart={setCreatingIn} onCreateCancel={() => setCreatingIn(null)}
             checkedIds={checkedIds} onCheck={handleCheck} justCreatedIds={justCreatedIds} draggingTaskId={draggingTaskId}
-            onCreateSubmit={handleCreateSubmit} newTitle={newTitle} setNewTitle={setNewTitle} />
+            onCreateSubmit={handleCreateSubmit} newTitle={newTitle} setNewTitle={setNewTitle} onDelete={handleDeleteTask} />
         ))}
       </div>
 
