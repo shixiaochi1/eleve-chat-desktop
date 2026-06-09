@@ -32,6 +32,18 @@ export interface SSECallbacks {
   onSystemNotice?: (data: { message: string; level?: string }) => void
   onClarify?: (data: { clarify_id: string; question: string; choices?: string[] }) => void
   onApproval?: (data: unknown) => void
+  onSudo?: (data: { request_id: string; prompt?: string }) => void
+  onSecret?: (data: { request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> }) => void
+  onSessionInfo?: (data: {
+    session_id: string
+    run_id: string
+    model: string
+    cwd: string
+    branch: string
+    running: boolean
+    usage?: { input_tokens?: number; output_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number }
+    credential_warning?: boolean
+  }) => void
   onDone?: (sessionId: string | null) => void
   onError?: (msg: string) => void
   onReasoningComplete?: (reasoning: string) => void
@@ -78,6 +90,18 @@ interface ClarifyQuestionEvent {
   clarify_id: string
   question: string
   choices?: string[]
+}
+
+interface SudoRequestEvent {
+  request_id: string
+  prompt?: string
+}
+
+interface SecretRequestEvent {
+  request_id: string
+  prompt: string
+  env_var: string
+  metadata?: Record<string, unknown>
 }
 
 interface ToolProgressEvent {
@@ -247,6 +271,20 @@ export function useSSE(callbacks: SSECallbacks = {}): {
     if (event.clarify_question !== undefined) {
       const { clarify_id, question, choices } = event.clarify_question as ClarifyQuestionEvent;
       cbs.onClarify?.({ clarify_id, question, choices });
+      return;
+    }
+
+    // ── SudoRequest ──
+    if (event.sudo_request !== undefined) {
+      const { request_id, prompt } = event.sudo_request as SudoRequestEvent;
+      cbs.onSudo?.({ request_id, prompt });
+      return;
+    }
+
+    // ── SecretRequest ──
+    if (event.secret_request !== undefined) {
+      const { request_id, prompt, env_var, metadata } = event.secret_request as SecretRequestEvent;
+      cbs.onSecret?.({ request_id, prompt, env_var, metadata });
       return;
     }
 
@@ -500,6 +538,27 @@ export function useSSE(callbacks: SSECallbacks = {}): {
                   break;
                 case 'approval.request':
                   cbs.onApproval?.(chunk);
+                  handled = true;
+                  break;
+                case 'sudo.request':
+                  cbs.onSudo?.({ request_id: chunk.request_id, prompt: chunk.prompt });
+                  handled = true;
+                  break;
+                case 'secret.request':
+                  cbs.onSecret?.({ request_id: chunk.request_id, prompt: chunk.prompt, env_var: chunk.env_var, metadata: chunk.metadata });
+                  handled = true;
+                  break;
+                case 'session.info':
+                  cbs.onSessionInfo?.({
+                    session_id: chunk.session_id,
+                    run_id: chunk.run_id,
+                    model: chunk.model,
+                    cwd: chunk.cwd,
+                    branch: chunk.branch,
+                    running: chunk.running,
+                    usage: chunk.usage,
+                    credential_warning: chunk.credential_warning,
+                  });
                   handled = true;
                   break;
                 case 'error':

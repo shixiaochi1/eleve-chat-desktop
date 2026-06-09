@@ -25,7 +25,6 @@ interface SidePanelProps {
   activePanel?: string | null;
   onPanelChange?: (panel: string | null) => void;
   gatewayOnline?: boolean;
-  monitorState?: Record<string, unknown>;
   [key: string]: unknown;
 }
 

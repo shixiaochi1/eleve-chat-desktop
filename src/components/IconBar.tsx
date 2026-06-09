@@ -60,14 +60,14 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
 
   const navItems: NavItem[] = [
     { id: 'sessions', icon: ChatIcon,    label: '会话' },
-    { id: 'kanban', icon: KanbanIcon, label: '看板', isWindow: true },
-    { id: 'channels', icon: ChannelsIcon, label: '频道' },
+    { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true },
     { id: 'agents',   icon: AgentIcon,   label: 'Agent 协作' },
+    { id: 'channels', icon: ChannelsIcon, label: '频道' },
     { id: 'memory',   icon: MemoryIcon,  label: '记忆' },
-    { id: 'cron',     icon: CronIcon,    label: '定时任务' },
-    { id: 'tools',    icon: ToolIcon,    label: '工具' },
-    { id: 'usage',    icon: UsageIcon,   label: '用量分析' },
-    { id: 'debug',    icon: DebugIcon,   label: '调试' },
+    { id: 'cron',     icon: CronIcon,     label: '定时任务' },
+    { id: 'tools',    icon: ToolIcon,     label: '工具' },
+    { id: 'usage',    icon: UsageIcon,    label: '用量分析' },
+    { id: 'debug',    icon: DebugIcon,    label: '调试' },
   ];
 
   const bottomItems: NavItem[] = [

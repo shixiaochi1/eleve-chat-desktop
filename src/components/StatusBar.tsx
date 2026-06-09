@@ -1,8 +1,8 @@
 /**
  * StatusBar — bottom status bar
  *
- * Displays connection status, gateway status, session info,
- * token usage, and model name at the bottom of the app window.
+ * Displays connection status, gateway status, and session info
+ * at the bottom of the app window.
  */
 import { useState, useCallback } from 'react';
 import { Circle, Copy, Check } from 'lucide-react';
@@ -13,11 +13,7 @@ interface StatusBarProps {
   gatewayOnline?: boolean;
   gatewayChecking?: boolean;
   sessionId?: string;
-  tokensIn?: number;
-  tokensOut?: number;
-  modelName?: string;
   onOpenSettings?: () => void;
-  onOpenModelPicker?: () => void;
 }
 
 export default function StatusBar({
@@ -25,11 +21,7 @@ export default function StatusBar({
   gatewayOnline = false,
   gatewayChecking = false,
   sessionId = '',
-  tokensIn = 0,
-  tokensOut = 0,
-  modelName = '',
   onOpenSettings,
-  onOpenModelPicker,
 }: StatusBarProps) {
   const [copied, setCopied] = useState(false);
 
@@ -58,8 +50,6 @@ export default function StatusBar({
   // Truncate session ID for display
   const shortSessionId = sessionId ? `${sessionId.slice(0, 8)}…` : '';
   const hasSessionInfo = !!sessionId;
-  const hasTokenInfo = tokensIn > 0 || tokensOut > 0;
-  const hasModelInfo = !!modelName;
 
   return (
     <div className="h-6 bg-background flex items-center justify-between px-3 text-xs text-muted-foreground select-none shrink-0" style={{ background: 'var(--eleve-surface-backboard)' }}>
@@ -73,26 +63,6 @@ export default function StatusBar({
       </div>
 
       <div className="flex items-center gap-3">
-        {/* Model name — clickable to open model picker */}
-        {hasModelInfo && (
-          <span
-            className="flex items-center gap-1 cursor-pointer hover:text-foreground transition-colors"
-            title={modelName}
-            onClick={() => onOpenModelPicker?.()}
-          >
-            <span className="text-[10px] text-muted-foreground/70">Model:</span>
-            <span className="text-muted-foreground">{modelName}</span>
-          </span>
-        )}
-
-        {/* Token usage */}
-        {hasTokenInfo && (
-          <span className="flex items-center gap-1" title={`Input: ${tokensIn} · Output: ${tokensOut}`}>
-            <span className="text-[10px] text-muted-foreground/70">Tokens:</span>
-            <span className="text-muted-foreground">↑{tokensIn} ↓{tokensOut}</span>
-          </span>
-        )}
-
         {/* Session ID — clickable to copy */}
         {hasSessionInfo && (
           <span

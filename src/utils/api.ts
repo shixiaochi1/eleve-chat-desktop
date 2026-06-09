@@ -40,6 +40,10 @@ export async function fetchSessionContext(sessionId: string | null | undefined):
   }
 }
 
+export async function searchSessions(query: string, limit: number = 20): Promise<any> {
+  return call('search_sessions', { query, limit });
+}
+
 // ====== 聊天 ======
 
 /**

@@ -80,6 +80,8 @@ export default function App() {
   const [sessionListVersion, setSessionListVersion] = useState<number>(0);  // 刷新会话列表
   const [activeClarify, setActiveClarify] = useState<{ clarify_id: string; question: string; choices: string[] } | null>(null);
   const [activeApproval, setActiveApproval] = useState<{ command: string; description: string; pattern: string; choices: string[]; session_id: string } | null>(null);
+  const [activeSudo, setActiveSudo] = useState<{ request_id: string; prompt?: string } | null>(null);
+  const [activeSecret, setActiveSecret] = useState<{ request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> } | null>(null);
 
   // ── overlay panel state (settings, about) ──
   const [overlayPanel, setOverlayPanel] = useState<string | null>(null);
@@ -155,6 +157,8 @@ export default function App() {
     setMonitorState,
     setActiveClarify,
     setActiveApproval,
+    setActiveSudo,
+    setActiveSecret,
     sess,
     drainQueueRef,
     setSessionListVersion,
@@ -337,6 +341,18 @@ export default function App() {
     setActiveApproval(null);
   }, []);
 
+  // ── sudo done (TODO: implement dialog response) ──
+  const handleSudoDone = useCallback(() => {
+    setActiveSudo(null);
+    // TODO: 打开密码输入弹窗, 调用 POST /api/sudo-respond
+  }, []);
+
+  // ── secret done (TODO: implement dialog response) ──
+  const handleSecretDone = useCallback(() => {
+    setActiveSecret(null);
+    // TODO: 打开秘密值输入弹窗, 调用 POST /api/secret-respond
+  }, []);
+
   // ── command center navigation ──
   const handleNavigate = useCallback((panel: string) => {
     setActivePanel(panel);
@@ -397,11 +413,7 @@ export default function App() {
         gatewayOnline={gatewayHealth.online}
         gatewayChecking={gatewayHealth.checking}
         sessionId={debugInfo.sessionId}
-        tokensIn={debugInfo.tokensIn}
-        tokensOut={debugInfo.tokensOut}
-        modelName={monitorState.modelName}
         onOpenSettings={() => handleOpenOverlay('settings')}
-        onOpenModelPicker={handleOpenModelPicker}
       >
         {/* ===== PaneShell 三栏布局：图标栏 + 侧边面板 + 聊天区 ===== */}
         <ErrorBoundary>
@@ -441,7 +453,6 @@ export default function App() {
                   gatewayOnline={gatewayHealth.online}
                   gatewayChecking={gatewayHealth.checking}
                   onGatewayRetry={gatewayHealth.checkNow}
-                  monitorState={monitorState}
                   onAbort={handleAbort}
                   sessionListVersion={sessionListVersion}
                   debugEvents={debugEvents}
@@ -500,6 +511,22 @@ export default function App() {
                       session_id={activeApproval.session_id}
                       onDone={handleApprovalDone}
                     />
+                  )}
+                  {/* TODO: 实现 SudoCard 弹窗 — 密码输入框 + POST /api/sudo-respond */}
+                  {activeSudo && (
+                    <div className="sudo-card-placeholder" style={{ padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: 8, marginBottom: 8, border: '1px solid var(--border)' }}>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>🔐 Sudo 权限请求</div>
+                      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>{activeSudo.prompt || '需要 sudo 密码'}</div>
+                      <button onClick={handleSudoDone} style={{ padding: '4px 12px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>关闭 (TODO)</button>
+                    </div>
+                  )}
+                  {/* TODO: 实现 SecretCard 弹窗 — 秘密值输入框 + POST /api/secret-respond */}
+                  {activeSecret && (
+                    <div className="secret-card-placeholder" style={{ padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: 8, marginBottom: 8, border: '1px solid var(--border)' }}>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>🔑 Secret 请求</div>
+                      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>环境变量 <code>{activeSecret.env_var}</code>: {activeSecret.prompt}</div>
+                      <button onClick={handleSecretDone} style={{ padding: '4px 12px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>关闭 (TODO)</button>
+                    </div>
                   )}
                   <ContextBar sessionId={sess.sessionId} sessionStartedAt={debugInfo.sessionStartedAt} onNewSession={handleNewSession} onBtw={handleBtw} />
                 </>

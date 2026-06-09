@@ -5,6 +5,7 @@ import {
   setMessages as storeSetMessages,
   getMessages,
   updateMessage,
+  setIsStreaming as storeSetIsStreaming,
 } from '../store/messages';
 import {
   textPart,
@@ -55,6 +56,8 @@ export interface UseMessageStreamProps {
   setMonitorState: React.Dispatch<React.SetStateAction<{ modelName: string | null; delegateTasks: Record<string, unknown>; tokensIn?: number; tokensOut?: number; lastSent?: string; sessionStartedAt?: number | null }>>
   setActiveClarify: React.Dispatch<React.SetStateAction<{ clarify_id: string; question: string; choices: string[] } | null>>
   setActiveApproval: React.Dispatch<React.SetStateAction<{ command: string; description: string; pattern: string; choices: string[]; session_id: string } | null>>
+  setActiveSudo?: React.Dispatch<React.SetStateAction<{ request_id: string; prompt?: string } | null>>
+  setActiveSecret?: React.Dispatch<React.SetStateAction<{ request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> } | null>>
   sess: SessionManagerHandle
   drainQueueRef: MutableRefObject<(() => void) | null>
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
@@ -105,6 +108,8 @@ export function useMessageStream({
   setMonitorState,
   setActiveClarify,
   setActiveApproval,
+  setActiveSudo,
+  setActiveSecret,
   sess,
   drainQueueRef,
   setSessionListVersion,
@@ -453,6 +458,42 @@ export function useMessageStream({
       const d = data as { command?: string };
       addDebugEvent('approval', (d.command?.slice(0, 60)) ?? '');
       setActiveApproval(data as any);
+    },
+
+    onSudo: (data: { request_id: string; prompt?: string }) => {
+      addDebugEvent('sudo', `request_id=${data.request_id} prompt=${(data.prompt?.slice(0, 40)) ?? ''}`);
+      setActiveSudo?.(data);
+    },
+
+    onSecret: (data: { request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> }) => {
+      addDebugEvent('secret', `request_id=${data.request_id} env_var=${data.env_var}`);
+      setActiveSecret?.(data);
+    },
+
+    onSessionInfo: (data: {
+      session_id: string
+      run_id: string
+      model: string
+      cwd: string
+      branch: string
+      running: boolean
+      usage?: { input_tokens?: number; output_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number }
+      credential_warning?: boolean
+    }) => {
+      addDebugEvent('session_info', `model=${data.model} running=${data.running} branch=${data.branch}`);
+      // 更新 monitorState
+      setMonitorState((prev) => ({
+        ...prev,
+        modelName: data.model,
+      }));
+      // 同步 store 中的 streaming 状态
+      if (!data.running) {
+        storeSetIsStreaming(false);
+        setConnectionStatus('idle');
+      } else {
+        storeSetIsStreaming(true);
+        setConnectionStatus('streaming');
+      }
     },
 
     // ── Done — 1:1 with Hermes message.complete ──

@@ -10,23 +10,23 @@
  * Props:
  *   sessionId, onSwitchSession, onDeleteSession, sessionTitles,
  *   connectionStatus, isStreaming, gatewayOnline,
- *   gatewayChecking, onGatewayRetry, monitorState, onAbort
+ *   gatewayChecking, onGatewayRetry, onAbort
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { Skeleton } from './ui/skeleton';
-import { deleteSession } from '../utils/api';
+import { deleteSession, searchSessions } from '../utils/api';
 import { call } from '../utils/bridge';
 import * as storage from '../utils/storage';
 import { notifyError, notifySuccess, notifyInfo } from '../utils/notifications';
 import {
   CheckSquare, Square, Trash2, Download, Pin, PinOff,
-  Archive, ArchiveRestore, Edit3, Copy, MoreHorizontal
+  Archive, ArchiveRestore, Edit3, Copy, MoreHorizontal,
+  List, MessageSquare
 } from 'lucide-react';
 import { DeleteIcon, DotIcon } from './Icons';
 import OutlinePanel from './OutlinePanel';
-import { List, MessageSquare } from 'lucide-react';
 interface Session {
   id: string;
   title?: string;
@@ -46,10 +46,8 @@ interface SessionsPanelProps {
   gatewayOnline?: boolean;
   gatewayChecking?: boolean;
   onGatewayRetry?: () => void;
-  monitorState?: { modelName?: string; tokensIn?: number; tokensOut?: number };
   onAbort?: () => void;
   sessionListVersion?: string;
-  initialTab?: 'sessions' | 'outline';
 }
 
 interface ContextMenuProps {
@@ -211,15 +209,16 @@ export default function SessionsPanel({
   gatewayOnline,
   gatewayChecking,
   onGatewayRetry,
-  monitorState,
   onAbort,
-  initialTab = 'sessions',
 }: SessionsPanelProps) {
   const [search, setSearch] = useState('');
+  const [activeTab, setActiveTab] = useState<'sessions' | 'outline'>('sessions');
+  const [searchResults, setSearchResults] = useState<Session[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<'sessions' | 'outline'>(initialTab);
 
   // ── 置顶/归档状态 ──
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => loadSet(PINNED_KEY));
@@ -236,6 +235,38 @@ export default function SessionsPanel({
   // 持久化置顶/归档
   useEffect(() => { saveSet(PINNED_KEY, pinnedIds); }, [pinnedIds]);
   useEffect(() => { saveSet(ARCHIVED_KEY, archivedIds); }, [archivedIds]);
+
+  // ── 后端搜索（防抖）──
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    const q = search.trim();
+    if (!q) {
+      setSearchResults(null);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const data = await searchSessions(q);
+        const results = data?.results || [];
+        setSearchResults(results.map((r: any) => ({
+          id: r.id,
+          title: r.title,
+          preview: r.preview,
+          last_active: r.last_active,
+          started_at: r.started_at,
+        })));
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, [search]);
 
   const handleSwitch = (s: Session) => {
     const id = s.id || s as any;
@@ -370,16 +401,18 @@ export default function SessionsPanel({
     navigator.clipboard.writeText(ids).catch(() => {});
   };
 
-  // ── 搜索过滤 ──
-  const allFiltered = search.trim()
-    ? sessions.filter((s) => {
-        const id = s.id || s as any;
-        const title = (typeof s === 'object' ? s.title : sessionTitles?.[id]) || '';
-        const preview = typeof s === 'object' ? s.preview : '';
-        const q = search.toLowerCase();
-        return title.toLowerCase().includes(q) || (preview && preview.toLowerCase().includes(q)) || id.toLowerCase().includes(q);
-      })
-    : sessions;
+  // ── 搜索过滤（后端优先，fallback 到前端过滤）──
+  const allFiltered = searchResults !== null
+    ? searchResults
+    : search.trim()
+      ? sessions.filter((s) => {
+          const id = s.id || s as any;
+          const title = (typeof s === 'object' ? s.title : sessionTitles?.[id]) || '';
+          const preview = typeof s === 'object' ? s.preview : '';
+          const q = search.toLowerCase();
+          return title.toLowerCase().includes(q) || (preview && preview.toLowerCase().includes(q)) || id.toLowerCase().includes(q);
+        })
+      : sessions;
 
   // 分区：置顶 / 普通 / 归档
   const pinnedSessions = allFiltered.filter((s) => pinnedIds.has(s.id || s as any) && !archivedIds.has(s.id || s as any));
@@ -454,43 +487,43 @@ export default function SessionsPanel({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Tab 切换：会话列表 | 消息大纲 */}
+      {/* ── 顶部Tab切换 ── */}
       <div className="flex items-center border-b border-border shrink-0">
         <button
           className={cn(
-            'flex items-center gap-1.5 flex-1 justify-center px-3 py-2 text-xs font-medium transition-colors',
+            'flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2',
             activeTab === 'sessions'
-              ? 'text-foreground border-b-2 border-accent'
-              : 'text-muted-foreground hover:text-foreground'
+              ? 'text-accent border-accent'
+              : 'text-muted-foreground border-transparent hover:text-foreground'
           )}
           onClick={() => setActiveTab('sessions')}
         >
-          <MessageSquare size={13} />
-          会话列表
+          <MessageSquare size={14} />
+          会话
         </button>
         <button
           className={cn(
-            'flex items-center gap-1.5 flex-1 justify-center px-3 py-2 text-xs font-medium transition-colors',
+            'flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2',
             activeTab === 'outline'
-              ? 'text-foreground border-b-2 border-accent'
-              : 'text-muted-foreground hover:text-foreground'
+              ? 'text-accent border-accent'
+              : 'text-muted-foreground border-transparent hover:text-foreground'
           )}
           onClick={() => setActiveTab('outline')}
         >
-          <List size={13} />
-          消息大纲
+          <List size={14} />
+          大纲
         </button>
       </div>
 
-      {/* ── 会话列表 Tab 内容 ── */}
+      {/* ── 会话列表 ── */}
       {activeTab === 'sessions' && (
-      <div className="flex flex-col min-h-0">
+      <div className="flex flex-col min-h-0 flex-1">
         {/* 搜索 + 批量操作 */}
         <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0">
           <input
             className="flex-1 px-2 py-1 text-xs bg-background border border-input rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
             type="text"
-            placeholder="搜索会话…"
+            placeholder={searchLoading ? '搜索中…' : '搜索会话…'}
             value={search}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
           />
@@ -561,6 +594,8 @@ export default function SessionsPanel({
           </>
         )}
       </div>
+      </div>
+      )}
 
       {/* 批量操作栏 */}
       {batchMode && (
@@ -583,13 +618,11 @@ export default function SessionsPanel({
           </button>
         </div>
       )}
-      </div>
-      )}
 
-      {/* ── 消息大纲 Tab 内容 ── */}
+      {/* ── 消息大纲 ── */}
       {activeTab === 'outline' && (
-        <div className="flex-1 overflow-y-auto">
-          <OutlinePanel />
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <OutlinePanel embedded />
         </div>
       )}
 

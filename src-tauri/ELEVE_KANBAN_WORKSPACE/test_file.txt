@@ -1,0 +1,5 @@
+这是测试文件内容
+用于验证 read_file 工具功能
+Line 3: 测试中文内容
+Line 4: Testing English content
+Line 5: 1234567890
