@@ -24,7 +24,7 @@ export async function openKanbanWindow(): Promise<void> {
   const existing = await WebviewWindow.getByLabel(KANBAN_WINDOW_LABEL);
   if (existing) {
     try {
-      await existing.setFocus();
+      await existing.close();
       return;
     } catch {
       // 窗口可能已关闭，继续创建新的

@@ -24,8 +24,9 @@ import {
   CheckSquare, Square, Trash2, Download, Pin, PinOff,
   Archive, ArchiveRestore, Edit3, Copy, MoreHorizontal
 } from 'lucide-react';
-import { RetryIcon, RestartIcon, StopIcon, DeleteIcon, ModelIcon, DotIcon } from './Icons';
-
+import { DeleteIcon, DotIcon } from './Icons';
+import OutlinePanel from './OutlinePanel';
+import { List, MessageSquare } from 'lucide-react';
 interface Session {
   id: string;
   title?: string;
@@ -48,6 +49,7 @@ interface SessionsPanelProps {
   monitorState?: { modelName?: string; tokensIn?: number; tokensOut?: number };
   onAbort?: () => void;
   sessionListVersion?: string;
+  initialTab?: 'sessions' | 'outline';
 }
 
 interface ContextMenuProps {
@@ -211,12 +213,13 @@ export default function SessionsPanel({
   onGatewayRetry,
   monitorState,
   onAbort,
+  initialTab = 'sessions',
 }: SessionsPanelProps) {
   const [search, setSearch] = useState('');
   const listRef = useRef<HTMLDivElement | null>(null);
-  const [restarting, setRestarting] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<'sessions' | 'outline'>(initialTab);
 
   // ── 置顶/归档状态 ──
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => loadSet(PINNED_KEY));
@@ -246,16 +249,6 @@ export default function SessionsPanel({
       await deleteSession(id);
       onDeleteSession?.(id);
     } catch { /* ignore */ }
-  };
-
-  const handleRestart = async () => {
-    setRestarting(true);
-    try {
-      await call('restart_service', {});
-    } catch (err) {
-      console.error('Restart failed:', err);
-    }
-    setRestarting(false);
   };
 
   // ── 置顶 ──
@@ -406,16 +399,6 @@ export default function SessionsPanel({
     }
   }, [hasMore]);
 
-  // 状态指示
-  const statusDot = connectionStatus === 'connected' ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.6)]'
-    : connectionStatus === 'error' ? 'bg-red-500'
-    : gatewayOnline ? 'bg-green-500'
-    : 'bg-red-500';
-  const statusText = connectionStatus === 'connected' ? 'Agent 工作中…'
-    : connectionStatus === 'error' ? '连接失败'
-    : gatewayOnline ? '就绪'
-    : '网关未连接';
-
   // ── 渲染会话项 ──
   const renderSession = (s: Session, extra?: string) => {
     const id = s.id || s as any;
@@ -452,7 +435,7 @@ export default function SessionsPanel({
             {isPinned && <Pin size={10} className="shrink-0 text-accent" />}
             <span className="text-sm truncate text-foreground flex-1" title={title}>{title}</span>
             {timeStr && <span className="text-[10px] text-muted-foreground/60 shrink-0">{timeStr}</span>}
-            {isCurrent && <span className="shrink-0"><DotIcon /></span>}
+            {isCurrent && <span className="shrink-0 text-accent"><DotIcon /></span>}
           </div>
           {preview && <div className="text-[11px] text-muted-foreground/50 truncate mt-0.5">{preview}</div>}
         </div>
@@ -470,68 +453,68 @@ export default function SessionsPanel({
   };
 
   return (
-    <>
-      {/* 状态条 */}
-      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-muted/20 shrink-0">
-        <span className={cn('w-2 h-2 rounded-full shrink-0', statusDot)} />
-        <span className="text-[11px] text-muted-foreground/80 flex-1">{gatewayChecking ? '检测中…' : statusText}</span>
-        {!gatewayOnline && !gatewayChecking && (
-          <button className="p-0.5 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors" title="重试连接" onClick={onGatewayRetry}>
-            <RetryIcon size={14} />
-          </button>
-        )}
-        <button className="p-0.5 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors" title="重启后端" onClick={handleRestart} disabled={restarting}>
-          <RestartIcon size={14} className={restarting ? 'animate-spin' : ''} />
-        </button>
-        {isStreaming && (
-          <button className="p-0.5 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors" title="停止生成" onClick={onAbort}>
-            <StopIcon size={10} />
-          </button>
-        )}
-      </div>
-
-      {/* 搜索 + 批量操作 */}
-      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0">
-        <input
-          className="flex-1 px-2 py-1 text-xs bg-background border border-input rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
-          type="text"
-          placeholder="搜索会话…"
-          value={search}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-        />
+    <div className="flex flex-col h-full">
+      {/* Tab 切换：会话列表 | 消息大纲 */}
+      <div className="flex items-center border-b border-border shrink-0">
         <button
-          className={cn('p-1 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors', batchMode && 'bg-accent text-accent-foreground')}
-          title="批量操作"
-          onClick={toggleBatchMode}
+          className={cn(
+            'flex items-center gap-1.5 flex-1 justify-center px-3 py-2 text-xs font-medium transition-colors',
+            activeTab === 'sessions'
+              ? 'text-foreground border-b-2 border-accent'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+          onClick={() => setActiveTab('sessions')}
         >
-          {batchMode ? <Square size={14} /> : <CheckSquare size={14} />}
+          <MessageSquare size={13} />
+          会话列表
+        </button>
+        <button
+          className={cn(
+            'flex items-center gap-1.5 flex-1 justify-center px-3 py-2 text-xs font-medium transition-colors',
+            activeTab === 'outline'
+              ? 'text-foreground border-b-2 border-accent'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+          onClick={() => setActiveTab('outline')}
+        >
+          <List size={13} />
+          消息大纲
         </button>
       </div>
 
-      {/* 全选/取消栏 — 批量模式 */}
-      {batchMode && (
-        <div className="flex items-center gap-2 px-3 py-1 border-b border-border bg-muted/20 shrink-0">
-          <span className="text-[11px] text-muted-foreground/70">
-            {selectedIds.size > 0 ? `已选 ${selectedIds.size} 项` : '选择会话'}
-          </span>
-          <button className="text-[11px] text-accent hover:underline" onClick={selectAll}>全选</button>
-          <button className="text-[11px] text-accent hover:underline" onClick={deselectAll}>取消全选</button>
+      {/* ── 会话列表 Tab 内容 ── */}
+      {activeTab === 'sessions' && (
+      <div className="flex flex-col min-h-0">
+        {/* 搜索 + 批量操作 */}
+        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0">
+          <input
+            className="flex-1 px-2 py-1 text-xs bg-background border border-input rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
+            type="text"
+            placeholder="搜索会话…"
+            value={search}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
+          />
+          <button
+            className={cn('p-1 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors', batchMode && 'bg-accent text-accent-foreground')}
+            title="批量操作"
+            onClick={toggleBatchMode}
+          >
+            {batchMode ? <Square size={14} /> : <CheckSquare size={14} />}
+          </button>
         </div>
-      )}
 
-      {/* 实时数据 */}
-      <div className="flex items-center gap-3 px-3 py-1 border-b border-border bg-muted/10 shrink-0">
-        <span className="flex items-center gap-1 text-[10px] text-muted-foreground/70" title="当前模型">
-          <ModelIcon size={12} className="text-muted-foreground/50" />
-          {monitorState?.modelName || '—'}
-        </span>
-        <span className="text-[10px] text-muted-foreground/70" title="Token 用量">
-          ↑{(monitorState?.tokensIn || 0).toLocaleString()} ↓{(monitorState?.tokensOut || 0).toLocaleString()}
-        </span>
-      </div>
+        {/* 全选/取消栏 — 批量模式 */}
+        {batchMode && (
+          <div className="flex items-center gap-2 px-3 py-1 border-b border-border bg-muted/20 shrink-0">
+            <span className="text-[11px] text-muted-foreground/70">
+              {selectedIds.size > 0 ? `已选 ${selectedIds.size} 项` : '选择会话'}
+            </span>
+            <button className="text-[11px] text-accent hover:underline" onClick={selectAll}>全选</button>
+            <button className="text-[11px] text-accent hover:underline" onClick={deselectAll}>取消全选</button>
+          </div>
+        )}
 
-      {/* 会话列表 */}
-      <div className="flex-1 overflow-y-auto" ref={listRef} onScroll={handleScroll}>
+        <div className="flex-1 overflow-y-auto" ref={listRef} onScroll={handleScroll}>
         {sessions === null ? (
           <div className="px-3 py-2 space-y-2">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -600,6 +583,15 @@ export default function SessionsPanel({
           </button>
         </div>
       )}
+      </div>
+      )}
+
+      {/* ── 消息大纲 Tab 内容 ── */}
+      {activeTab === 'outline' && (
+        <div className="flex-1 overflow-y-auto">
+          <OutlinePanel />
+        </div>
+      )}
 
       {/* 右键菜单 */}
       {ctxMenu && createPortal(
@@ -630,6 +622,6 @@ export default function SessionsPanel({
         />,
         document.body
       )}
-    </>
+    </div>
   );
 }

@@ -6,7 +6,6 @@
 import { cn } from '@/lib/utils';
 import SessionsPanel from './SessionsPanel';
 import CronPanel from './CronPanel';
-import SkillsPanel from './SkillsPanel';
 import DebugPanel from './DebugPanel';
 import ToolsPanel from './ToolsPanel';
 import GatewayPanel from './GatewayPanel';
@@ -14,12 +13,11 @@ import MemoryPanel from './MemoryPanel';
 import UsagePanel from './UsagePanel';
 import ChannelsPanel from './ChannelsPanel';
 // kanban 移至 OverlayView 弹出（需要更大空间展示5列看板）
-import OutlinePanel from './OutlinePanel';
 import AgentPanel from './AgentPanel';
 import {
-  ChatIcon, CronIcon, SkillsIcon,
+  ChatIcon, CronIcon,
   DebugIcon, ToolIcon, MemoryIcon,
-  UsageIcon, ChannelsIcon, OutlineIcon, AgentIcon,
+  UsageIcon, ChannelsIcon, AgentIcon,
 } from './Icons';
 import { Radio } from 'lucide-react';
 
@@ -41,11 +39,9 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
     channels: { title: '频道',     Icon: ChannelsIcon, component: ChannelsPanel },
     cron:     { title: '定时任务', Icon: CronIcon,    component: CronPanel },
     memory:   { title: '记忆',     Icon: MemoryIcon,  component: MemoryPanel },
-    skills:   { title: '技能管理', Icon: SkillsIcon,  component: SkillsPanel },
     tools:    { title: '工具',     Icon: ToolIcon,    component: ToolsPanel },
     debug:    { title: '调试',     Icon: DebugIcon,   component: DebugPanel },
     usage:    { title: '用量分析', Icon: UsageIcon,   component: UsagePanel },
-    outline:  { title: '消息大纲', Icon: OutlineIcon, component: OutlinePanel },
   };
 
   const cfg = panels[activePanel];
@@ -65,9 +61,9 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
       )}
 
       {/* 面板内容 — 用 key 触发 panel-enter 动画 */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-hidden min-h-0">
         {PanelComponent ? (
-          <div key={activePanel} className="panel-enter">
+          <div key={activePanel} className="panel-enter h-full">
             <PanelComponent {...props} activePanel={activePanel} onPanelChange={onPanelChange} gatewayOnline={props.gatewayOnline} />
           </div>
         ) : (

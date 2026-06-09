@@ -168,7 +168,7 @@ function buildOutline(messages: ChatMessage[]): OutlineItem[] {
   return items;
 }
 
-export default function OutlinePanel() {
+export default function OutlinePanel({ embedded = false }: { embedded?: boolean }) {
   const messages = useMessages();
   const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({});
 
@@ -291,11 +291,27 @@ export default function OutlinePanel() {
   }, [expandedAgents, handleScrollTo, toggleAgent]);
 
   if (messages.length === 0) {
+    if (embedded) return null;
     return (
       <div className="flex flex-col h-full p-3">
         <div className="flex flex-col items-center py-8 text-muted-foreground gap-2">
           <List size={16} {...STROKE_PROPS} />
           <span className="text-xs">对话为空</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (embedded) {
+    return (
+      <div className="px-2 py-1.5 max-h-[40vh] overflow-y-auto">
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1">
+          <List size={10} {...STROKE_PROPS} />
+          <span>消息大纲</span>
+          <span className="ml-auto">{stats.total} 条</span>
+        </div>
+        <div className="space-y-0.5">
+          {outline.map((item: OutlineItem, idx: number) => renderItem(item, idx))}
         </div>
       </div>
     );

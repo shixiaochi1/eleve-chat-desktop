@@ -342,6 +342,16 @@ export default function App() {
     setActivePanel(panel);
   }, []);
 
+  // ── restart backend ──
+  const handleRestartService = useCallback(async () => {
+    try {
+      const { call } = await import('./utils/bridge');
+      await call('restart_service', {});
+    } catch (err) {
+      console.error('Restart failed:', err);
+    }
+  }, []);
+
   // ── keyboard shortcuts ──
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -419,6 +429,7 @@ export default function App() {
                   activePanel={activePanel}
                   onPanelChange={setActivePanel}
                   onOpenSettings={() => handleOpenOverlay('settings')}
+                  onRestart={handleRestartService}
                   sessionId={sess.sessionId}
                   sessions={sess.sessions}
                   onSwitchSession={handleSwitchSession}

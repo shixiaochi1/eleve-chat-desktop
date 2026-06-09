@@ -167,7 +167,7 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
       );
     }
     return (
-      <div className="bg-primary text-primary-foreground rounded-2xl rounded-br-sm px-3 py-2 text-sm max-w-[80%] ml-auto relative group">
+      <div className="bg-primary text-primary-foreground rounded-2xl rounded-br-sm px-3 py-2 text-sm max-w-[80%] ml-auto relative group select-text">
         <span className="whitespace-pre-wrap break-words">{content}</span>
         <button
           className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded p-0.5 text-primary-foreground/70 hover:text-primary-foreground hover:bg-white/10"
@@ -175,6 +175,13 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
           onClick={() => { setEditText(content || ''); setEditing(true); }}
         >
           <Edit3Icon size={12} />
+        </button>
+        <button
+          className="absolute bottom-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded p-0.5 text-primary-foreground/70 hover:text-primary-foreground hover:bg-white/10"
+          title={copied ? '已复制' : '复制'}
+          onClick={handleCopy}
+        >
+          {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
         </button>
       </div>
     );
@@ -185,17 +192,31 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
   // 流式结束：完整 Markdown 渲染（含代码高亮 + 复制按钮）
   if (streaming) {
     return (
-      <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-3 py-2 text-sm border border-border shadow-sm">
+      <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-3 py-2 text-sm border border-border shadow-sm max-w-[85%] overflow-hidden min-w-0 select-text group">
         <span ref={textRef} className="whitespace-pre-wrap break-words">
           {displayContent || ''}
         </span>
+        <div className="flex gap-1 mt-1.5 justify-end">
+          <button
+            className={cn(
+              'inline-flex shrink-0 cursor-pointer items-center justify-center rounded text-xs',
+              'transition-all outline-none opacity-50 hover:opacity-100',
+              'text-muted-foreground hover:text-foreground',
+              copied && 'opacity-100'
+            )}
+            title={copied ? '已复制' : '复制'}
+            onClick={handleCopy}
+          >
+            {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+          </button>
+        </div>
       </div>
     );
   }
 
   // 非流式：完整 Markdown 渲染（useMemo 缓存）
   return (
-    <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-3 py-2 text-sm border border-border shadow-sm">
+    <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-3 py-2 text-sm border border-border shadow-sm max-w-[85%] overflow-hidden min-w-0 select-text">
       {agentAttribution && (
         <div
           className="flex items-center gap-1 text-xs text-muted-foreground mb-1.5"
@@ -208,7 +229,7 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
           )}
         </div>
       )}
-      <span ref={textRef} className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: renderedHtml || '<em>(无内容)</em>' }} />
+      <span ref={textRef} className="prose prose-sm max-w-none [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_img]:max-w-full" dangerouslySetInnerHTML={{ __html: renderedHtml || '<em>(无内容)</em>' }} />
       <div className="flex gap-1 mt-1.5 justify-end">
         <button
           className={cn(

@@ -31,13 +31,14 @@ interface GatewayPanelProps {
   gatewayOnline?: boolean;
   gatewayChecking?: boolean;
   onGatewayRetry?: () => void;
+  onRestart?: () => void;
 }
 
 /**
  * 网关状态面板 — 点击 Logo 显示
  * 布局：Logo → 心跳状态 → 运行时长 → 平台 → Agent → 详情 → 刷新
  */
-export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGatewayRetry }: GatewayPanelProps) {
+export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGatewayRetry, onRestart }: GatewayPanelProps) {
   const [status, setStatus] = useState<GatewayStatusData | null>(null);
   const [elapsed, setElapsed] = useState(0);    // 客户端计时
   const [serverUptime, setServerUptime] = useState(0); // 服务端运行时长
@@ -180,6 +181,11 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
         {gatewayOnline && (
           <button className="p-1.5 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors" onClick={fetchStatus} title="刷新状态">
             <RefreshCw size={14} strokeWidth={1.5} />
+          </button>
+        )}
+        {onRestart && (
+          <button className="p-1.5 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors" onClick={onRestart} title="重启后端">
+            <RefreshCw size={14} strokeWidth={1.5} className="rotate-180" />
           </button>
         )}
         {!gatewayOnline && onGatewayRetry && (

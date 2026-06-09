@@ -43,9 +43,9 @@ export default function ToolCallCard({ name, callId, argsStr, status, resultStr 
   return (
     <div
       className={cn(
-        'border border-border rounded-lg p-2 bg-card mb-1.5 cursor-pointer',
+        'border border-border rounded-lg p-2 bg-card mb-1.5 cursor-pointer max-w-fit min-w-[120px]',
         'hover:bg-accent/50 transition-colors',
-        expanded && 'ring-1 ring-border'
+        expanded && 'ring-1 ring-border max-w-full'
       )}
       role="button"
       tabIndex={0}
