@@ -20,7 +20,7 @@
         "transparent": false,
         "center": true,
         "resizable": true,
-        "dragDropEnabled": true,
+        "dragDropEnabled": false,
         "devtools": true
       }
     ],

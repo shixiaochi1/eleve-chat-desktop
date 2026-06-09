@@ -72,6 +72,7 @@ export async function openKanbanWindow(): Promise<void> {
     center: false,
     alwaysOnTop: false,
     skipTaskbar: false,
+    dragDropEnabled: false,  // 关闭 Tauri 文件拖放，让 HTML5 drag-and-drop 正常工作
   });
 
   // 监听窗口创建错误
