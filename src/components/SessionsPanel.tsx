@@ -12,8 +12,9 @@
  *   connectionStatus, isStreaming, gatewayOnline,
  *   gatewayChecking, onGatewayRetry, onAbort
  */
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import { Skeleton } from './ui/skeleton';
 import { deleteSession, searchSessions } from '../utils/api';
@@ -81,7 +82,17 @@ interface RenameTarget {
 // ── 持久化键 ──
 const PINNED_KEY = 'eleve.pinned-sessions';
 const ARCHIVED_KEY = 'eleve.archived-sessions';
-const PAGE_SIZE = 40;
+
+// ── 系统会话来源（对齐后端 exclude_sources + Hermes _HIDDEN_SESSION_SOURCES）──
+const HIDDEN_SOURCES = new Set(['tool', 'cron']);
+
+// ── 虚拟列表行类型 ──
+type VirtualRow =
+  | { kind: 'header'; label: string; icon?: React.ReactNode }
+  | { kind: 'session'; session: any; section: 'p' | 'a' | '' }
+  | { kind: 'archive-toggle'; count: number }
+
+const ESTIMATED_ROW_HEIGHT = 44;
 
 // ── 持久化 helpers ──
 function loadSet(key: string): Set<string> {
@@ -229,8 +240,7 @@ export default function SessionsPanel({
   const [ctxMenu, setCtxMenu] = useState<CtxMenuState | null>(null);
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
 
-  // ── 分页 ──
-  const [page, setPage] = useState(1);
+  // ── 虚拟列表（替代分页）──
 
   // 持久化置顶/归档
   useEffect(() => { saveSet(PINNED_KEY, pinnedIds); }, [pinnedIds]);
@@ -250,11 +260,16 @@ export default function SessionsPanel({
       try {
         const data = await searchSessions(q);
         const results = data?.results || [];
-        setSearchResults(results.map((r: any) => ({
-          id: r.id,
-          title: r.title,
-          preview: r.preview,
-          last_active: r.last_active,
+        setSearchResults(results
+          .filter((r: any) => {
+            const src = r.source as string | undefined;
+            return !src || !HIDDEN_SOURCES.has(src);
+          })
+          .map((r: any) => ({
+            id: r.id,
+            title: r.title,
+            preview: r.preview,
+            last_active: r.last_active,
           started_at: r.started_at,
         })));
       } catch {
@@ -401,36 +416,61 @@ export default function SessionsPanel({
     navigator.clipboard.writeText(ids).catch(() => {});
   };
 
+  // ── 系统会话 fallback 过滤（后端已排除，前端兜底防止漏网）──
+  const visibleSessions = useMemo(() =>
+    sessions.filter((s) => {
+      const src = (s as any).source as string | undefined;
+      return !src || !HIDDEN_SOURCES.has(src);
+    }),
+    [sessions]
+  );
+
   // ── 搜索过滤（后端优先，fallback 到前端过滤）──
   const allFiltered = searchResults !== null
     ? searchResults
     : search.trim()
-      ? sessions.filter((s) => {
+      ? visibleSessions.filter((s) => {
           const id = s.id || s as any;
           const title = (typeof s === 'object' ? s.title : sessionTitles?.[id]) || '';
           const preview = typeof s === 'object' ? s.preview : '';
           const q = search.toLowerCase();
           return title.toLowerCase().includes(q) || (preview && preview.toLowerCase().includes(q)) || id.toLowerCase().includes(q);
         })
-      : sessions;
+      : visibleSessions;
 
   // 分区：置顶 / 普通 / 归档
   const pinnedSessions = allFiltered.filter((s) => pinnedIds.has(s.id || s as any) && !archivedIds.has(s.id || s as any));
   const activeSessions = allFiltered.filter((s) => !pinnedIds.has(s.id || s as any) && !archivedIds.has(s.id || s as any));
   const archivedSessions = allFiltered.filter((s) => archivedIds.has(s.id || s as any));
 
-  // 分页
-  const paginatedActive = activeSessions.slice(0, page * PAGE_SIZE);
-  const hasMore = activeSessions.length > page * PAGE_SIZE;
-
-  // 滚动加载更多
-  const handleScroll = useCallback(() => {
-    if (!listRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = listRef.current;
-    if (scrollHeight - scrollTop - clientHeight < 100 && hasMore) {
-      setPage((p) => p + 1);
+  // 构建扁平虚拟列表行
+  const virtualRows = useMemo<VirtualRow[]>(() => {
+    const rows: VirtualRow[] = [];
+    if (pinnedSessions.length > 0) {
+      rows.push({ kind: 'header', label: '置顶' });
+      pinnedSessions.forEach(s => rows.push({ kind: 'session', session: s, section: 'p' }));
     }
-  }, [hasMore]);
+    activeSessions.forEach(s => rows.push({ kind: 'session', session: s, section: '' }));
+    if (archivedSessions.length > 0) {
+      rows.push({ kind: 'archive-toggle', count: archivedSessions.length });
+      if (showArchived) {
+        archivedSessions.forEach(s => rows.push({ kind: 'session', session: s, section: 'a' }));
+      }
+    }
+    return rows;
+  }, [pinnedSessions, activeSessions, archivedSessions, showArchived]);
+
+  // 虚拟化
+  const virtualizer = useVirtualizer({
+    count: virtualRows.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: (i) => {
+      const row = virtualRows[i];
+      if (!row) return ESTIMATED_ROW_HEIGHT;
+      return row.kind === 'header' ? 28 : row.kind === 'archive-toggle' ? 36 : ESTIMATED_ROW_HEIGHT;
+    },
+    overscan: 8,
+  });
 
   // ── 渲染会话项 ──
   const renderSession = (s: Session, extra?: string) => {
@@ -547,7 +587,7 @@ export default function SessionsPanel({
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto" ref={listRef} onScroll={handleScroll}>
+        <div className="flex-1 overflow-y-auto" ref={listRef}>
         {sessions === null ? (
           <div className="px-3 py-2 space-y-2">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -565,33 +605,48 @@ export default function SessionsPanel({
             <span className="text-xs text-muted-foreground/60">试试其他关键词</span>
           </div>
         ) : (
-          <>
-            {pinnedSessions.length > 0 && (
-              <>
-                <div className="flex items-center gap-1 px-3 py-1 text-[10px] text-muted-foreground/60 uppercase tracking-wider"><Pin size={10} /> 置顶</div>
-                {pinnedSessions.map((s) => renderSession(s, 'p'))}
-              </>
-            )}
-            {paginatedActive.map((s) => renderSession(s))}
-            {hasMore && (
-              <div className="text-center py-2 text-xs text-muted-foreground/50 cursor-pointer hover:text-accent transition-colors" onClick={() => setPage((p) => p + 1)}>
-                加载更多…
-              </div>
-            )}
-            {archivedSessions.length > 0 && (
-              <div className="border-t border-border/50 mt-1">
-                <button
-                  className="flex items-center gap-1.5 w-full px-3 py-1.5 text-xs text-muted-foreground/70 hover:text-foreground hover:bg-accent/20 transition-colors"
-                  onClick={() => setShowArchived((v) => !v)}
+          <div
+            style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}
+          >
+            {virtualizer.getVirtualItems().map(vItem => {
+              const row = virtualRows[vItem.index];
+              if (!row) return null;
+              return (
+                <div
+                  key={vItem.key}
+                  data-index={vItem.index}
+                  ref={virtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${vItem.start}px)`,
+                  }}
                 >
-                  <Archive size={12} />
-                  已归档 ({archivedSessions.length})
-                  <span className="ml-auto text-[10px]">{showArchived ? '▲' : '▼'}</span>
-                </button>
-                {showArchived && archivedSessions.map((s) => renderSession(s, 'a'))}
-              </div>
-            )}
-          </>
+                  {row.kind === 'header' && (
+                    <div className="flex items-center gap-1 px-3 py-1 text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+                      {row.label === '置顶' && <Pin size={10} />}
+                      {row.label}
+                    </div>
+                  )}
+                  {row.kind === 'session' && renderSession(row.session, row.section)}
+                  {row.kind === 'archive-toggle' && (
+                    <div className="border-t border-border/50 mt-1">
+                      <button
+                        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-xs text-muted-foreground/70 hover:text-foreground hover:bg-accent/20 transition-colors"
+                        onClick={() => setShowArchived((v) => !v)}
+                      >
+                        <Archive size={12} />
+                        已归档 ({row.count})
+                        <span className="ml-auto text-[10px]">{showArchived ? '▲' : '▼'}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
       </div>

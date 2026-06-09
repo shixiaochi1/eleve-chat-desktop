@@ -15,7 +15,8 @@ import { useIsStreaming } from '@/store/messages'
 import { useMessage, useMessageSignature, getMessages } from '@/store/messages'
 import MessageBubble from './MessageBubble'
 import ReasoningBlock from './ReasoningBlock'
-import ToolCallCard from './ToolCallCard'
+import ToolCallGroup, { isSpecialTool, type ToolCallItem } from './ToolCallGroup'
+import HoistedTodoPanel, { todosFromMessageParts } from './HoistedTodoPanel'
 import type { ChatMessage, ChatMessagePart } from '@/types'
 
 const ESTIMATED_ITEM_HEIGHT = 220
@@ -454,37 +455,98 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
     }
 
     if (m.role === 'assistant') {
+      // ── 分组渲染：连续 tool-call 合并为一组（对齐 Hermes groupToolParts）──
+      type RenderItem =
+        | { kind: 'reasoning'; key: string; text: string }
+        | { kind: 'text'; key: string; text: string; isLast: boolean }
+        | { kind: 'tool-group'; key: string; tools: ToolCallItem[] }
+        | { kind: 'special-tool'; key: string; tool: ToolCallItem }
+
+      const renderItems: RenderItem[] = []
+      let toolBuffer: ToolCallItem[] = []
+      let bufferKey = ''
+
+      const flushToolBuffer = () => {
+        if (toolBuffer.length === 0) return
+        if (toolBuffer.length === 1) {
+          // 单工具 — 也走 ToolCallGroup（内部会渲染为独立卡片）
+          renderItems.push({ kind: 'tool-group', key: bufferKey, tools: [...toolBuffer] })
+        } else {
+          renderItems.push({ kind: 'tool-group', key: bufferKey, tools: [...toolBuffer] })
+        }
+        toolBuffer = []
+        bufferKey = ''
+      }
+
+      for (let pi = 0; pi < m.parts.length; pi++) {
+        const part = m.parts[pi]
+
+        if (part.type === 'tool-call') {
+          // 特殊工具（todo/image_generate/clarify）不参与分组
+          if (isSpecialTool(part.toolName)) {
+            flushToolBuffer()
+            renderItems.push({
+              kind: 'special-tool',
+              key: `st-${part.toolCallId || pi}`,
+              tool: {
+                name: part.toolName,
+                callId: part.toolCallId,
+                argsStr: part.argsText,
+                resultStr: part.result != null ? (typeof part.result === 'string' ? part.result : JSON.stringify(part.result)) : undefined,
+                status: part.result != null ? 'done' : 'pending',
+              },
+            })
+            continue
+          }
+
+          // 加入工具缓冲区
+          if (toolBuffer.length === 0) bufferKey = `tg-${pi}`
+          toolBuffer.push({
+            name: part.toolName,
+            callId: part.toolCallId,
+            argsStr: part.argsText,
+            resultStr: part.result != null ? (typeof part.result === 'string' ? part.result : JSON.stringify(part.result)) : undefined,
+            status: part.result != null ? 'done' : 'pending',
+          })
+          continue
+        }
+
+        // 非 tool-call → 先刷出缓冲区
+        flushToolBuffer()
+
+        if (part.type === 'reasoning') {
+          renderItems.push({ kind: 'reasoning', key: `r-${pi}`, text: part.text })
+        } else if (part.type === 'text') {
+          renderItems.push({ kind: 'text', key: `t-${pi}`, text: part.text, isLast: pi === m.parts.length - 1 })
+        }
+      }
+      flushToolBuffer()
+
+      // 从 parts 中提取 todo 列表（对齐 Hermes HoistedTodoPanel）
+      const hoistedTodos = todosFromMessageParts(m.parts)
+
       return (
         <div className="flex flex-col gap-2 px-4 mb-1.5">
-          {m.parts.map((part, pi) => {
-            switch (part.type) {
+          {hoistedTodos.length > 0 && <HoistedTodoPanel todos={hoistedTodos} />}
+          {renderItems.map(item => {
+            switch (item.kind) {
               case 'reasoning':
-                return <ReasoningBlock key={`r-${pi}`} text={part.text} visible={!!part.text} />
-              case 'text': {
-                const isLast = pi === m.parts.length - 1
+                return <ReasoningBlock key={item.key} text={item.text} visible={!!item.text} messageId={m.id} pending={!!m.pending} />
+              case 'text':
                 return (
                   <MessageBubble
-                    key={`t-${pi}`}
+                    key={item.key}
                     type="agent"
-                    content={part.text}
-                    streaming={!!m.pending && isLast}
+                    content={item.text}
+                    streaming={!!m.pending && item.isLast}
                     onRegenerate={onRegenerate ? () => onRegenerate(m) : undefined}
                   />
                 )
-              }
-              case 'tool-call':
-                return (
-                  <ToolCallCard
-                    key={`tc-${part.toolCallId || pi}`}
-                    name={part.toolName}
-                    callId={part.toolCallId}
-                    argsStr={part.argsText}
-                    resultStr={part.result != null ? (typeof part.result === 'string' ? part.result : JSON.stringify(part.result)) : undefined}
-                    status={part.result != null ? 'done' : 'pending'}
-                  />
-                )
-              default:
-                return null
+              case 'tool-group':
+                return <ToolCallGroup key={item.key} tools={item.tools} />
+              case 'special-tool':
+                // 特殊工具暂用 ToolCallGroup 单工具渲染
+                return <ToolCallGroup key={item.key} tools={[item.tool]} />
             }
           })}
           {m.error && <MessageBubble type="error" content={m.error} />}
@@ -522,16 +584,18 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
       element = <MessageBubble type="error" content={m.content || m.error} />
       break
     case 'reasoning':
-      element = <ReasoningBlock text={m.content || m.reasoning_content} visible={!!(m.content || m.reasoning_content)} />
+      element = <ReasoningBlock text={m.content || m.reasoning_content} visible={!!(m.content || m.reasoning_content)} messageId={m.id} pending={!!m.pending} />
       break
     case 'tool':
       element = (
-        <ToolCallCard
-          name={m.toolName || m.tool_name}
-          callId={m.callId || m.tool_call_id}
-          argsStr={m.argsStr || m.tool_input}
-          resultStr={m.resultStr || m.tool_output}
-          status={m.status}
+        <ToolCallGroup
+          tools={[{
+            name: m.toolName || m.tool_name,
+            callId: m.callId || m.tool_call_id,
+            argsStr: m.argsStr || m.tool_input,
+            resultStr: m.resultStr || m.tool_output,
+            status: m.status,
+          }]}
         />
       )
       break

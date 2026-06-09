@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import * as api from '../utils/api';
+
+// ── 系统会话来源（对齐 SessionsPanel HIDDEN_SOURCES）──
+const HIDDEN_SOURCES = new Set(['tool', 'cron']);
 import {
   Search,
   MessageCircle,
@@ -94,13 +97,17 @@ export default function CommandCenter({
     const q = query.toLowerCase().trim();
     const results: FlatResult[] = [];
 
-    // 1. Sessions
+    // 1. Sessions（过滤系统会话）
+    const visibleSessions = sessions.filter((s: any) => {
+      const src = s.source as string | undefined;
+      return !src || !HIDDEN_SOURCES.has(src);
+    });
     const matchedSessions = q
-      ? sessions.filter((s) => {
+      ? visibleSessions.filter((s) => {
           const title = sessionTitles[s.id] || s.title || s.id || '';
           return title.toLowerCase().includes(q);
         })
-      : sessions.slice(0, 5); // show at most 5 recent
+      : visibleSessions.slice(0, 5); // show at most 5 recent
 
     if (matchedSessions.length > 0) {
       results.push({ type: 'label', text: 'Sessions' });
