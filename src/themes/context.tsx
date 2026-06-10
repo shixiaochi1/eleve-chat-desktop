@@ -1,204 +1,91 @@
 /**
- * Desktop theme context.
+ * 主题上下文 — 支持自定义颜色覆盖
  *
- * Applies the active theme as CSS custom properties on :root so every
- * Tailwind utility that references a color or font-family token picks up
- * the change automatically.
- *
- * Mode (light/dark/system) controls brightness; skin controls accent.
- * The two are persisted independently. Shift+X toggles light/dark.
+ * 7 套预设主题 + 自定义颜色覆盖
+ * 用户选择预设主题后可逐变量调颜色，自定义颜色覆盖预设值
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import * as storage from '../utils/storage'
 
 import { BUILTIN_THEME_LIST, BUILTIN_THEMES, DEFAULT_SKIN_NAME, DEFAULT_TYPOGRAPHY, nousTheme } from './presets'
-import type { DesktopTheme } from './types'
+import type { DesktopTheme, DesktopThemeColors } from './types'
 
 const SKIN_KEY = 'eleve-desktop-theme-v2'
-const MODE_KEY = 'eleve-desktop-mode-v1'
-const RETIRED_SKINS = new Set<string>()
+const CUSTOM_COLORS_KEY = 'custom-theme-colors'
 
 const INJECTED_FONT_URLS = new Set<string>()
 
-// ─── Minimal useMediaQuery replacement (no dependecy) ────────────────────────
-
-/** Simple media query check — no SSR guard needed for desktop. */
-function matchesQuery(query: string): boolean {
-  if (typeof window === 'undefined') return false
-  return window.matchMedia(query).matches
-}
-
-/** React hook that re-renders when the query matches toggles. */
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => matchesQuery(query))
-
-  useEffect(() => {
-    const mql = window.matchMedia(query)
-    const onChange = () => setMatches(mql.matches)
-    mql.addEventListener('change', onChange)
-    return () => mql.removeEventListener('change', onChange)
-  }, [query])
-
-  return matches
-}
-
-// ─── Theme mode / skin helpers ──────────────────────────────────────────────
-
-const resolveMode = (mode: string, systemDark: boolean): string =>
-  mode === 'system' ? (systemDark ? 'dark' : 'light') : mode
-
-const normalizeSkin = (name: string | null): string =>
-  name && BUILTIN_THEMES[name] && !RETIRED_SKINS.has(name) ? name : DEFAULT_SKIN_NAME
-
-// ─── Color math (for synthesised light variants of dark-only skins) ─────────
+// ─── 工具函数 ───────────────────────────────────────────────────────────────
 
 function hexToRgb(hex: string): [number, number, number] | null {
   const clean = hex.trim().replace(/^#/, '')
-
-  if (!/^[0-9a-f]{6}$/i.test(clean)) {
-    return null
-  }
-
+  if (!/^[0-9a-f]{6}$/i.test(clean)) return null
   return [0, 2, 4].map(i => parseInt(clean.slice(i, i + 2), 16)) as [number, number, number]
 }
 
-const rgbToHex = ([r, g, b]: [number, number, number]): string =>
-  `#${[r, g, b].map(n => Math.round(n).toString(16).padStart(2, '0')).join('')}`
-
-function mix(a: string, b: string, amount: number): string {
-  const ar = hexToRgb(a)
-  const br = hexToRgb(b)
-
-  return ar && br
-    ? rgbToHex([ar[0] + (br[0] - ar[0]) * amount, ar[1] + (br[1] - ar[1]) * amount, ar[2] + (br[2] - ar[2]) * amount])
-    : a
+/** 根据背景色亮度判断是否为暗色模式 */
+function isDarkColor(hex: string): boolean {
+  const rgb = hexToRgb(hex)
+  if (!rgb) return false
+  const [r, g, b] = rgb.map(v => v / 255)
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b <= 0.5
 }
 
 function readableOn(hex: string): string {
-  const rgb = hexToRgb(hex)
-
-  if (!rgb) {
-    return '#ffffff'
-  }
-
-  const [r, g, b] = rgb.map(v => {
-    const c = v / 255
-
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-  })
-
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.58 ? '#161616' : '#ffffff'
+  return isDarkColor(hex) ? '#ffffff' : '#161616'
 }
 
-function synthLightColors(seed: DesktopTheme) {
-  const accent = seed.colors.ring || seed.colors.primary
-  const soft = mix('#ffffff', accent, 0.1)
-  const softer = mix('#ffffff', accent, 0.06)
-  const border = mix('#ececef', accent, 0.14)
-  const midground = seed.colors.midground ?? accent
+// ─── 自定义颜色加载/保存 ────────────────────────────────────────────────────
 
-  return {
-    background: '#ffffff',
-    foreground: '#161616',
-    card: '#ffffff',
-    cardForeground: '#161616',
-    muted: softer,
-    mutedForeground: mix('#6b6b70', accent, 0.16),
-    popover: '#ffffff',
-    popoverForeground: '#161616',
-    primary: accent,
-    primaryForeground: readableOn(accent),
-    secondary: soft,
-    secondaryForeground: mix('#2a2a2a', accent, 0.34),
-    accent: soft,
-    accentForeground: mix('#2a2a2a', accent, 0.34),
-    border,
-    input: mix('#e2e2e6', accent, 0.18),
-    ring: accent,
-    midground,
-    midgroundForeground: readableOn(midground),
-    composerRing: accent,
-    destructive: '#b94a3a',
-    destructiveForeground: '#ffffff',
-    sidebarBackground: mix('#fafafa', accent, 0.05),
-    sidebarBorder: border,
-    userBubble: soft,
-    userBubbleBorder: border
-  }
+function loadCustomColors(): Partial<DesktopThemeColors> {
+  try {
+    const saved = storage.load(CUSTOM_COLORS_KEY)
+    if (saved && typeof saved === 'object') return saved as Partial<DesktopThemeColors>
+  } catch { /* ignore */ }
+  return {}
 }
 
-/** Returns the seed palette for a given skin + mode (no overrides applied). */
-export function getBaseColors(skinName: string, mode: string) {
-  const seed = BUILTIN_THEMES[skinName] ?? nousTheme
-
-  if (mode === 'dark') {
-    return seed.darkColors ?? seed.colors
-  }
-
-  return seed.darkColors ? seed.colors : synthLightColors(seed)
+function saveCustomColors(colors: Partial<DesktopThemeColors>): void {
+  storage.save(CUSTOM_COLORS_KEY, colors)
 }
 
-function deriveTheme(skinName: string, mode: string) {
-  const seed = BUILTIN_THEMES[skinName] ?? nousTheme
-
-  return {
-    ...seed,
-    name: `${skinName}-${mode}`,
-    label: `${seed.label} ${mode === 'light' ? 'Light' : 'Dark'}`,
-    description: `${seed.label} ${mode} palette`,
-    colors: getBaseColors(skinName, mode)
-  }
+function clearCustomColors(): void {
+  storage.remove(CUSTOM_COLORS_KEY)
 }
 
-/**
- * Some palettes intentionally keep a bright background even when
- * `mode === 'dark'`, so we shouldn't apply the `.dark` class. Decide from
- * the actual background luminance.
- */
-function renderedModeFor(colors: Record<string, string | undefined>, mode: string): string {
-  const rgb = hexToRgb(colors.background!)
+// ─── CSS 注入 ───────────────────────────────────────────────────────────────
 
-  if (!rgb) {
-    return mode
-  }
-
-  const [r, g, b] = rgb.map(v => v / 255)
-
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.5 ? 'light' : 'dark'
-}
-
-// ─── CSS application ────────────────────────────────────────────────────────
-
-// Per-mode mix knobs. Light/dark fallbacks live in styles.css `:root` /
-// `:root.dark`; setting them inline keeps active-skin overrides surviving
-// the boot-time paint.
 const mixesFor = (isDark: boolean) => ({
   '--theme-mix-chrome': isDark ? '74%' : '92%',
   '--theme-mix-sidebar': '100%',
   '--theme-mix-card': isDark ? '38%' : '22%',
   '--theme-mix-elevated': isDark ? '46%' : '28%',
-  '--theme-mix-bubble': isDark ? '46%' : '0%'
+  '--theme-mix-bubble': isDark ? '46%' : '0%',
 })
 
-function applyTheme(theme: ReturnType<typeof deriveTheme>, mode: string) {
-  if (typeof document === 'undefined') {
-    return
-  }
+/** 合并预设主题颜色和自定义覆盖 */
+function mergeColors(base: DesktopThemeColors, overrides: Partial<DesktopThemeColors>): DesktopThemeColors {
+  return { ...base, ...overrides }
+}
+
+function applyThemeCSS(theme: DesktopTheme, customOverrides: Partial<DesktopThemeColors> = {}) {
+  if (typeof document === 'undefined') return
 
   const root = document.documentElement
-  const c = theme.colors
-  const typo = { ...DEFAULT_TYPOGRAPHY, ...nousTheme.typography, ...theme.typography }
-  const rendered = renderedModeFor(c as unknown as Record<string, string | undefined>, mode)
-  const isDark = rendered === 'dark'
+  // 合并自定义颜色
+  const c = mergeColors(theme.colors, customOverrides)
+  const typo = { ...DEFAULT_TYPOGRAPHY, ...theme.typography }
+  const isDark = isDarkColor(c.background)
   const midground = c.midground ?? c.ring
-  const skinName = theme.name.endsWith(`-${mode}`) ? theme.name.slice(0, -mode.length - 1) : theme.name
 
-  root.style.setProperty('color-scheme', rendered)
-  root.dataset.hermesTheme = skinName
-  root.dataset.hermesMode = rendered
+  // 1. Dark class + color-scheme
   root.classList.toggle('dark', isDark)
+  root.style.setProperty('color-scheme', isDark ? 'dark' : 'light')
+  root.dataset.hermesTheme = theme.name
+  root.dataset.hermesMode = isDark ? 'dark' : 'light'
 
-  // Brand seeds feed every glass + shadcn token via `color-mix()` in styles.css.
+  // 2. Brand seeds
   const seeds: Record<string, string> = {
     '--theme-foreground': c.foreground,
     '--theme-primary': c.primary,
@@ -210,10 +97,10 @@ function applyTheme(theme: ReturnType<typeof deriveTheme>, mode: string) {
     '--theme-sidebar-seed': c.sidebarBackground ?? c.background,
     '--theme-card-seed': c.card,
     '--theme-elevated-seed': c.popover,
-    '--theme-bubble-seed': c.userBubble ?? c.popover
+    '--theme-bubble-seed': c.userBubble ?? c.popover,
   }
 
-  // shadcn/Tailwind tokens that aren't derived from the seed chain.
+  // 3. Direct palette tokens
   const palette: Record<string, string> = {
     '--dt-primary-foreground': c.primaryForeground,
     '--dt-secondary-foreground': c.secondaryForeground,
@@ -230,34 +117,65 @@ function applyTheme(theme: ReturnType<typeof deriveTheme>, mode: string) {
     '--dt-user-bubble-border': c.userBubbleBorder ?? c.border,
     '--dt-font-sans': typo.fontSans,
     '--dt-font-mono': typo.fontMono,
-    '--noise-opacity-mul': isDark ? 'calc(0.04 / 0.21)' : 'calc(0.34 / 0.21)'
+    '--noise-opacity-mul': isDark ? 'calc(0.04 / 0.21)' : 'calc(0.34 / 0.21)',
+
+    // ── 直接覆盖语义层 — 防止 CSS 硬编码覆盖 ──
+    '--eleve-surface-backboard': c.background,
+    '--eleve-surface-card1': c.sidebarBackground ?? c.background,
+    '--eleve-surface-card2': c.card,
+    '--ui-bg-chrome': c.background,
+    '--ui-bg-sidebar': c.sidebarBackground ?? c.background,
+    '--ui-bg-editor': c.card,
+    '--ui-bg-elevated': c.popover,
+    '--ui-bg-backboard': c.background,
+    '--ui-surface-background': c.card,
+    '--ui-sidebar-surface-background': c.sidebarBackground ?? c.background,
+    '--ui-chat-surface-background': c.background,
+    '--ui-editor-surface-background': c.background,
+    '--theme-neutral-chrome': c.background,
+    '--theme-neutral-sidebar': c.sidebarBackground ?? c.background,
+    '--theme-neutral-card': c.card,
+
+    // ── 暗色模式特有变量 ──
+    '--sidebar-edge-border': isDark
+      ? `color-mix(in srgb, ${c.foreground} 12%, transparent)`
+      : `color-mix(in srgb, ${c.foreground} 7.5%, transparent)`,
+    '--composer-ring-strength': isDark ? '1.3' : '1',
+    '--backdrop-invert-mul': isDark ? '0' : '1',
+
+    // ── 暗色模式语义色调整 ──
+    '--ui-red': isDark ? '#e75e78' : '#cf2d56',
+    '--ui-green': isDark ? '#55a583' : '#1f8a65',
+    '--ui-cyan': isDark ? '#6f9ba6' : '#4c7f8c',
+
+    // ── 内联代码和选区（暗色用白色半透明，浅色用黑色半透明） ──
+    '--ui-inline-code-background': isDark
+      ? 'color-mix(in srgb, #ffffff 7%, transparent)'
+      : 'color-mix(in srgb, #141414 5%, transparent)',
+    '--ui-inline-code-border': isDark
+      ? 'color-mix(in srgb, #ffffff 10%, transparent)'
+      : 'color-mix(in srgb, #141414 8%, transparent)',
+    '--ui-inline-code-foreground': isDark
+      ? 'color-mix(in srgb, #ffffff 88%, transparent)'
+      : 'color-mix(in srgb, #141414 88%, transparent)',
+    '--ui-selection-background': isDark
+      ? 'color-mix(in srgb, #ffd24a 38%, transparent)'
+      : 'color-mix(in srgb, #ffd24a 55%, transparent)',
+
+    // ── 幻影变量别名 ──
+    '--text-secondary': 'var(--ui-text-secondary)',
+    '--text': 'var(--ui-text-primary)',
+    '--success': 'var(--ui-green)',
+    '--error': 'var(--ui-red)',
+    '--danger': 'var(--dt-destructive)',
+    '--accent': 'var(--dt-accent-foreground)',
   }
 
   for (const [k, v] of Object.entries({ ...seeds, ...mixesFor(isDark), ...palette })) {
     root.style.setProperty(k, v)
   }
 
-  // Tauri title bar integration (no-op if not in Tauri context)
-  try {
-    const tauriWindow = (window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__
-    // Title bar colors are set via Tauri's window API
-    if (tauriWindow) {
-      const setTitleBar = async () => {
-        try {
-          const { getCurrentWindow } = await import('@tauri-apps/api/window')
-          const win = getCurrentWindow()
-          if (win && (win as any).setTitleBarStyle) {
-            ;(win as any).setTitleBarStyle({
-              background: c.background,
-              foreground: c.foreground
-            })
-          }
-        } catch { /* ignore */ }
-      }
-      setTitleBar()
-    }
-  } catch { /* ignore */ }
-
+  // 4. Font injection
   if (typo.fontUrl && !INJECTED_FONT_URLS.has(typo.fontUrl)) {
     const link = document.createElement('link')
     link.rel = 'stylesheet'
@@ -268,12 +186,17 @@ function applyTheme(theme: ReturnType<typeof deriveTheme>, mode: string) {
   }
 }
 
-// Boot-time paint to avoid a flash before <ThemeProvider> mounts.
+// ─── Boot-time paint (避免闪烁) ─────────────────────────────────────────────
+
+function normalizeSkin(name: string | null): string {
+  return name && BUILTIN_THEMES[name] ? name : DEFAULT_SKIN_NAME
+}
+
 if (typeof window !== 'undefined') {
   const skin = normalizeSkin(window.localStorage.getItem(SKIN_KEY))
-  const mode = window.localStorage.getItem(MODE_KEY) ?? 'light'
-  const resolved = resolveMode(mode, matchesQuery('(prefers-color-scheme: dark)'))
-  applyTheme(deriveTheme(skin, resolved), resolved)
+  const theme = BUILTIN_THEMES[skin] ?? nousTheme
+  const custom = loadCustomColors()
+  applyThemeCSS(theme, custom)
 }
 
 // ─── Context ────────────────────────────────────────────────────────────────
@@ -283,21 +206,27 @@ const SKIN_LIST = BUILTIN_THEME_LIST.map(({ name, label, description }) => ({ na
 interface ThemeContextValue {
   theme: DesktopTheme
   themeName: string
-  mode: string
-  resolvedMode: string
+  isDark: boolean
+  customColors: Partial<DesktopThemeColors>
+  hasCustomColors: boolean
   availableThemes: { name: string; label: string; description: string }[]
   setTheme: (name: string) => void
-  setMode: (mode: string) => void
+  setCustomColor: (key: keyof DesktopThemeColors, value: string) => void
+  setCustomColors: (colors: Partial<DesktopThemeColors>) => void
+  resetCustomColors: () => void
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
   theme: nousTheme,
   themeName: DEFAULT_SKIN_NAME,
-  mode: 'light',
-  resolvedMode: 'light',
+  isDark: false,
+  customColors: {},
+  hasCustomColors: false,
   availableThemes: SKIN_LIST,
   setTheme: () => {},
-  setMode: () => {}
+  setCustomColor: () => {},
+  setCustomColors: () => {},
+  resetCustomColors: () => {},
 })
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -305,15 +234,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     typeof window === 'undefined' ? DEFAULT_SKIN_NAME : normalizeSkin(window.localStorage.getItem(SKIN_KEY))
   )
 
-  const [mode, setModeState] = useState(() =>
-    typeof window === 'undefined' ? 'light' : (window.localStorage.getItem(MODE_KEY) ?? 'light')
+  const [customColors, setCustomColorsState] = useState<Partial<DesktopThemeColors>>(() =>
+    typeof window === 'undefined' ? {} : loadCustomColors()
   )
 
-  const systemDark = useMediaQuery('(prefers-color-scheme: dark)')
-  const resolvedMode = resolveMode(mode, systemDark)
-  const activeTheme = useMemo(() => deriveTheme(themeName, resolvedMode), [themeName, resolvedMode])
+  const baseTheme = useMemo(() => BUILTIN_THEMES[themeName] ?? nousTheme, [themeName])
 
-  useEffect(() => { applyTheme(activeTheme, resolvedMode) }, [activeTheme, resolvedMode])
+  // 合并后的主题（预设 + 自定义覆盖）
+  const activeTheme = useMemo((): DesktopTheme => {
+    if (Object.keys(customColors).length === 0) return baseTheme
+    return {
+      ...baseTheme,
+      colors: mergeColors(baseTheme.colors, customColors),
+    }
+  }, [baseTheme, customColors])
+
+  const isDark = useMemo(() => isDarkColor(activeTheme.colors.background), [activeTheme])
+
+  useEffect(() => { applyThemeCSS(baseTheme, customColors) }, [baseTheme, customColors])
 
   const setTheme = useCallback((name: string) => {
     const next = normalizeSkin(name)
@@ -321,39 +259,38 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     window.localStorage.setItem(SKIN_KEY, next)
   }, [])
 
-  const setMode = useCallback((next: string) => {
-    setModeState(next)
-    window.localStorage.setItem(MODE_KEY, next)
+  const setCustomColor = useCallback((key: keyof DesktopThemeColors, value: string) => {
+    setCustomColorsState(prev => {
+      const next = { ...prev, [key]: value }
+      saveCustomColors(next)
+      return next
+    })
   }, [])
 
-  // Shift+X toggles light/dark anywhere outside an editable field.
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const t = event.target as HTMLElement | null
+  const setCustomColors = useCallback((colors: Partial<DesktopThemeColors>) => {
+    setCustomColorsState(colors)
+    saveCustomColors(colors)
+  }, [])
 
-      const editing =
-        t?.isContentEditable ||
-        t instanceof HTMLInputElement ||
-        t instanceof HTMLTextAreaElement ||
-        t instanceof HTMLSelectElement
-
-      if (editing || event.repeat || event.altKey || event.ctrlKey || event.metaKey) {
-        return
-      }
-
-      if (event.shiftKey && event.code === 'KeyX') {
-        setMode(resolvedMode === 'dark' ? 'light' : 'dark')
-      }
-    }
-
-    window.addEventListener('keydown', onKeyDown)
-
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [resolvedMode, setMode])
+  const resetCustomColors = useCallback(() => {
+    setCustomColorsState({})
+    clearCustomColors()
+  }, [])
 
   const value = useMemo(
-    () => ({ theme: activeTheme, themeName, mode, resolvedMode, availableThemes: SKIN_LIST, setTheme, setMode }),
-    [activeTheme, themeName, mode, resolvedMode, setTheme, setMode]
+    () => ({
+      theme: activeTheme,
+      themeName,
+      isDark,
+      customColors,
+      hasCustomColors: Object.keys(customColors).length > 0,
+      availableThemes: SKIN_LIST,
+      setTheme,
+      setCustomColor,
+      setCustomColors,
+      resetCustomColors,
+    }),
+    [activeTheme, themeName, isDark, customColors, setTheme, setCustomColor, setCustomColors, resetCustomColors]
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
@@ -361,11 +298,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
 export const useTheme = () => useContext(ThemeContext)
 
-/** Sync the desktop skin with the active Hermes backend theme on connect. */
-export function useSyncThemeFromBackend(backendThemeName: string | null | undefined, setTheme: (name: string) => void) {
-  useEffect(() => {
-    if (backendThemeName && BUILTIN_THEMES[backendThemeName]) {
-      setTheme(backendThemeName)
-    }
-  }, [backendThemeName, setTheme])
+/** @deprecated 保留兼容 */
+export function useSyncThemeFromBackend(_backendThemeName: string | null | undefined, _setTheme: (name: string) => void) {
+  // no-op
 }

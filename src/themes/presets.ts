@@ -1,9 +1,11 @@
 /**
- * Built-in desktop themes. Names match the CLI skins / dashboard presets.
- * Add new themes here — no code changes needed elsewhere.
+ * 7 套主题定义
+ *
+ * 每套主题自带固定明暗属性（由背景色亮度自动判定）。
+ * 用户只需选主题，不需要单独切 light/dark。
  */
 
-import type { DesktopTheme, DesktopThemeColors, DesktopThemeTypography } from './types'
+import type { DesktopTheme, DesktopThemeTypography } from './types'
 
 const SYSTEM_SANS =
   '"Segoe WPC", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif'
@@ -12,273 +14,281 @@ const SYSTEM_MONO = '"Cascadia Code", "JetBrains Mono", "SF Mono", ui-monospace,
 
 export const DEFAULT_TYPOGRAPHY: DesktopThemeTypography = { fontSans: SYSTEM_SANS, fontMono: SYSTEM_MONO }
 
-const NOUS_BLUE = '#0053FD'
-const PSYCHE_BLUE = '#1540B1'
-const PSYCHE_WARM = '#FFE6CB'
-
-const nousTint = (pct: number) => `color-mix(in srgb, ${NOUS_BLUE} ${pct}%, #FFFFFF)`
-const nousTintTransparent = (pct: number) => `color-mix(in srgb, ${NOUS_BLUE} ${pct}%, transparent)`
-
-/**
- * Nous — canonical Hermes desktop identity. The palette keeps the current
- * glass geometry neutral, then lets the old bb/gui blue and psyche cream
- * return as accent seeds.
- */
+// ════════════════════════════════════════════════════════════
+//  1. Default — 经典蓝（浅色）
+// ════════════════════════════════════════════════════════════
 export const nousTheme: DesktopTheme = {
-  name: 'nous',
-  label: 'Nous',
-  description: 'Glass neutrals with Nous blue accents',
+  name: 'default',
+  label: 'Default',
+  description: '经典蓝色调',
   colors: {
-    background: '#F8FAFF',
-    foreground: '#17171A',
-    card: '#FFFFFF',
-    cardForeground: '#17171A',
-    muted: nousTint(5),
+    background: '#f8faff',
+    foreground: '#17171a',
+    card: '#ffffff',
+    cardForeground: '#17171a',
+    muted: 'color-mix(in srgb, #0053fd 5%, #ffffff)',
     mutedForeground: '#666678',
-    popover: '#FFFFFF',
-    popoverForeground: '#17171A',
-    primary: NOUS_BLUE,
-    primaryForeground: '#FCFCFC',
-    secondary: nousTint(7),
+    popover: '#ffffff',
+    popoverForeground: '#17171a',
+    primary: '#0053fd',
+    primaryForeground: '#fcfcfc',
+    secondary: 'color-mix(in srgb, #0053fd 7%, #ffffff)',
     secondaryForeground: '#242432',
-    accent: nousTint(10),
+    accent: 'color-mix(in srgb, #0053fd 10%, #ffffff)',
     accentForeground: '#202030',
-    border: nousTintTransparent(22),
-    input: nousTintTransparent(30),
-    ring: NOUS_BLUE,
-    midground: NOUS_BLUE,
-    composerRing: NOUS_BLUE,
-    destructive: '#C72E4D',
-    destructiveForeground: '#FFFFFF',
-    sidebarBackground: '#F3F7FF',
-    sidebarBorder: nousTintTransparent(18),
-    userBubble: nousTint(6),
-    userBubbleBorder: nousTintTransparent(24)
+    border: 'color-mix(in srgb, #0053fd 22%, transparent)',
+    input: 'color-mix(in srgb, #0053fd 30%, transparent)',
+    ring: '#0053fd',
+    midground: '#0053fd',
+    composerRing: '#0053fd',
+    destructive: '#cf2d56',
+    destructiveForeground: '#ffffff',
+    sidebarBackground: '#f0f4fb',
+    sidebarBorder: 'color-mix(in srgb, #0053fd 18%, transparent)',
+    userBubble: 'color-mix(in srgb, #0053fd 6%, #ffffff)',
+    userBubbleBorder: 'color-mix(in srgb, #0053fd 24%, transparent)',
   },
-  darkColors: {
-    background: '#0D2F86',
-    foreground: PSYCHE_WARM,
-    card: '#12378F',
-    cardForeground: PSYCHE_WARM,
-    muted: '#183F9A',
-    mutedForeground: '#B5C7F3',
-    popover: '#123A96',
-    popoverForeground: PSYCHE_WARM,
-    primary: PSYCHE_WARM,
-    primaryForeground: '#0D2F86',
-    secondary: '#1B45A4',
-    secondaryForeground: '#E0E8FF',
-    accent: PSYCHE_BLUE,
-    accentForeground: '#F0F4FF',
-    border: '#3158AD',
-    input: '#0B2566',
-    ring: PSYCHE_WARM,
-    midground: NOUS_BLUE,
-    composerRing: PSYCHE_WARM,
-    destructive: '#C0473A',
-    destructiveForeground: '#FEF2F2',
-    sidebarBackground: '#09286F',
-    sidebarBorder: '#234A9C',
-    userBubble: '#143B91',
-    userBubbleBorder: '#3A63BD'
-  },
-  typography: {
-    fontSans: SYSTEM_SANS,
-    fontMono: `"Courier Prime", ${SYSTEM_MONO}`,
-    fontUrl: 'https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap'
-  }
 }
 
-/** Deep blue-violet with cool accents. Matches the dashboard midnight theme. */
+// ════════════════════════════════════════════════════════════
+//  2. Ocean — 深蓝
+// ════════════════════════════════════════════════════════════
+export const oceanTheme: DesktopTheme = {
+  name: 'ocean',
+  label: 'Ocean',
+  description: '深蓝色调',
+  colors: {
+    background: '#0a1628',
+    foreground: '#e0f2fe',
+    card: '#0f1f38',
+    cardForeground: '#e0f2fe',
+    muted: '#132848',
+    mutedForeground: '#7dd3fc',
+    popover: '#132848',
+    popoverForeground: '#e0f2fe',
+    primary: '#38bdf8',
+    primaryForeground: '#0a1628',
+    secondary: '#0c2a4a',
+    secondaryForeground: '#bae6fd',
+    accent: 'rgba(56, 189, 248, 0.12)',
+    accentForeground: '#bae6fd',
+    border: '#1e3a5f',
+    input: '#0c2a4a',
+    ring: '#38bdf8',
+    midground: '#38bdf8',
+    composerRing: '#38bdf8',
+    destructive: '#e75e78',
+    destructiveForeground: '#fef2f2',
+    sidebarBackground: '#0c1a30',
+    sidebarBorder: '#1e3a5f',
+    userBubble: '#0f2848',
+    userBubbleBorder: '#1e4a7f',
+  },
+}
+
+// ════════════════════════════════════════════════════════════
+//  3. Forest — 深绿
+// ════════════════════════════════════════════════════════════
+export const forestTheme: DesktopTheme = {
+  name: 'forest',
+  label: 'Forest',
+  description: '深绿色调',
+  colors: {
+    background: '#0a1a12',
+    foreground: '#d6f3e0',
+    card: '#0f2418',
+    cardForeground: '#d6f3e0',
+    muted: '#133020',
+    mutedForeground: '#6ebe96',
+    popover: '#133020',
+    popoverForeground: '#d6f3e0',
+    primary: '#52b788',
+    primaryForeground: '#0a1a12',
+    secondary: '#0f2e1e',
+    secondaryForeground: '#95d5b2',
+    accent: 'rgba(82, 183, 136, 0.12)',
+    accentForeground: '#95d5b2',
+    border: '#1e4a32',
+    input: '#0f2e1e',
+    ring: '#52b788',
+    midground: '#52b788',
+    composerRing: '#52b788',
+    destructive: '#e75e78',
+    destructiveForeground: '#fef2f2',
+    sidebarBackground: '#0c1f15',
+    sidebarBorder: '#1e4a32',
+    userBubble: '#0f2e20',
+    userBubbleBorder: '#1e5a3e',
+  },
+}
+
+// ════════════════════════════════════════════════════════════
+//  4. Sunset — 暖橙
+// ════════════════════════════════════════════════════════════
+export const sunsetTheme: DesktopTheme = {
+  name: 'sunset',
+  label: 'Sunset',
+  description: '暖橙色调',
+  colors: {
+    background: '#1a0f0a',
+    foreground: '#fef3eb',
+    card: '#24160f',
+    cardForeground: '#fef3eb',
+    muted: '#2e1c14',
+    mutedForeground: '#f4a261',
+    popover: '#2e1c14',
+    popoverForeground: '#fef3eb',
+    primary: '#f4845f',
+    primaryForeground: '#1a0f0a',
+    secondary: '#341c10',
+    secondaryForeground: '#f4a261',
+    accent: 'rgba(244, 132, 95, 0.12)',
+    accentForeground: '#f4a261',
+    border: '#4a2818',
+    input: '#341c10',
+    ring: '#f4845f',
+    midground: '#f4845f',
+    composerRing: '#f4845f',
+    destructive: '#e75e78',
+    destructiveForeground: '#fef2f2',
+    sidebarBackground: '#1f120c',
+    sidebarBorder: '#4a2818',
+    userBubble: '#2e1c14',
+    userBubbleBorder: '#5a3420',
+  },
+}
+
+// ════════════════════════════════════════════════════════════
+//  5. Midnight — 纯黑深色
+// ════════════════════════════════════════════════════════════
 export const midnightTheme: DesktopTheme = {
   name: 'midnight',
   label: 'Midnight',
-  description: 'Deep blue-violet with cool accents',
+  description: '纯黑深色',
   colors: {
-    background: '#08081c',
-    foreground: '#ddd6ff',
-    card: '#0d0d28',
-    cardForeground: '#ddd6ff',
-    muted: '#13133a',
-    mutedForeground: '#7c7ab0',
-    popover: '#0f0f2e',
-    popoverForeground: '#ddd6ff',
-    primary: '#ddd6ff',
-    primaryForeground: '#08081c',
-    secondary: '#1a1a4a',
-    secondaryForeground: '#c4bff0',
-    accent: '#1a1a44',
-    accentForeground: '#d0c8ff',
-    border: '#1e1e52',
-    input: '#1e1e52',
-    ring: '#8b80e8',
-    midground: '#8b80e8',
-    destructive: '#b03060',
-    destructiveForeground: '#fef2f2',
-    sidebarBackground: '#06061a',
-    sidebarBorder: '#12123a',
-    userBubble: '#14143a',
-    userBubbleBorder: '#242466'
-  },
-  typography: {
-    fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`,
-    fontUrl: 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap'
-  }
-}
-
-/** Warm crimson and bronze — forge vibes. Matches the CLI ares skin. */
-export const emberTheme: DesktopTheme = {
-  name: 'ember',
-  label: 'Ember',
-  description: 'Warm crimson and bronze — forge vibes',
-  colors: {
-    background: '#160800',
-    foreground: '#ffd8b0',
-    card: '#1e0e04',
-    cardForeground: '#ffd8b0',
-    muted: '#2a1408',
-    mutedForeground: '#aa7a56',
-    popover: '#221008',
-    popoverForeground: '#ffd8b0',
-    primary: '#ffd8b0',
-    primaryForeground: '#160800',
-    secondary: '#341800',
-    secondaryForeground: '#f0c090',
-    accent: '#301600',
-    accentForeground: '#e8c080',
-    border: '#3a1c08',
-    input: '#3a1c08',
-    ring: '#d97316',
-    midground: '#d97316',
-    destructive: '#c43010',
-    destructiveForeground: '#fef2f2',
-    sidebarBackground: '#100600',
-    sidebarBorder: '#2a1004',
-    userBubble: '#2a1000',
-    userBubbleBorder: '#4a2010'
-  },
-  typography: {
-    fontMono: `"IBM Plex Mono", ${SYSTEM_MONO}`,
-    fontUrl: 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&display=swap'
-  }
-}
-
-/** Clean grayscale. Matches the CLI mono skin and dashboard mono theme. */
-export const monoTheme: DesktopTheme = {
-  name: 'mono',
-  label: 'Mono',
-  description: 'Clean grayscale — minimal and focused',
-  colors: {
-    background: '#0e0e0e',
-    foreground: '#eaeaea',
-    card: '#141414',
-    cardForeground: '#eaeaea',
-    muted: '#1e1e1e',
-    mutedForeground: '#808080',
-    popover: '#181818',
-    popoverForeground: '#eaeaea',
-    primary: '#eaeaea',
-    primaryForeground: '#0e0e0e',
-    secondary: '#262626',
+    background: '#000000',
+    foreground: '#e8e8e8',
+    card: '#0a0a0a',
+    cardForeground: '#e8e8e8',
+    muted: '#141414',
+    mutedForeground: '#888888',
+    popover: '#111111',
+    popoverForeground: '#e8e8e8',
+    primary: '#818cf8',
+    primaryForeground: '#000000',
+    secondary: '#1a1a1a',
     secondaryForeground: '#c8c8c8',
-    accent: '#222222',
-    accentForeground: '#d8d8d8',
+    accent: 'rgba(129, 140, 248, 0.12)',
+    accentForeground: '#c8c8f8',
     border: '#2a2a2a',
-    input: '#2a2a2a',
-    ring: '#9a9a9a',
-    midground: '#9a9a9a',
-    destructive: '#a84040',
+    input: '#1a1a1a',
+    ring: '#818cf8',
+    midground: '#818cf8',
+    composerRing: '#818cf8',
+    destructive: '#e75e78',
     destructiveForeground: '#fef2f2',
-    sidebarBackground: '#0a0a0a',
-    sidebarBorder: '#202020',
-    userBubble: '#1a1a1a',
-    userBubbleBorder: '#363636'
-  }
-}
-
-/** Neon green on black. Matches the CLI cyberpunk skin and dashboard theme. */
-export const cyberpunkTheme: DesktopTheme = {
-  name: 'cyberpunk',
-  label: 'Cyberpunk',
-  description: 'Neon green on black — matrix terminal',
-  colors: {
-    background: '#000a00',
-    foreground: '#00ff41',
-    card: '#001200',
-    cardForeground: '#00ff41',
-    muted: '#001a00',
-    mutedForeground: '#1a8a30',
-    popover: '#001000',
-    popoverForeground: '#00ff41',
-    primary: '#00ff41',
-    primaryForeground: '#000a00',
-    secondary: '#002800',
-    secondaryForeground: '#00cc34',
-    accent: '#002000',
-    accentForeground: '#00e038',
-    border: '#003000',
-    input: '#003000',
-    ring: '#00ff41',
-    midground: '#00ff41',
-    destructive: '#ff003c',
-    destructiveForeground: '#000a00',
-    sidebarBackground: '#000600',
-    sidebarBorder: '#001800',
-    userBubble: '#001400',
-    userBubbleBorder: '#004800'
+    sidebarBackground: '#050505',
+    sidebarBorder: '#222222',
+    userBubble: '#0f0f0f',
+    userBubbleBorder: '#2a2a2a',
   },
-  typography: {
-    fontMono: `"Courier New", Courier, monospace`,
-    fontSans: `"Courier New", Courier, monospace`
-  }
 }
 
-/** Cool slate blue for developers. Matches the CLI slate skin. */
+// ════════════════════════════════════════════════════════════
+//  6. Rose — 粉红
+// ════════════════════════════════════════════════════════════
+export const roseTheme: DesktopTheme = {
+  name: 'rose',
+  label: 'Rose',
+  description: '粉红色调',
+  colors: {
+    background: '#1a0a10',
+    foreground: '#fde8f0',
+    card: '#240f18',
+    cardForeground: '#fde8f0',
+    muted: '#2e1420',
+    mutedForeground: '#f8a5c2',
+    popover: '#2e1420',
+    popoverForeground: '#fde8f0',
+    primary: '#fb71a6',
+    primaryForeground: '#1a0a10',
+    secondary: '#34101e',
+    secondaryForeground: '#f8a5c2',
+    accent: 'rgba(251, 113, 166, 0.12)',
+    accentForeground: '#f8a5c2',
+    border: '#4a1830',
+    input: '#34101e',
+    ring: '#fb71a6',
+    midground: '#fb71a6',
+    composerRing: '#fb71a6',
+    destructive: '#e75e78',
+    destructiveForeground: '#fef2f2',
+    sidebarBackground: '#1f0c14',
+    sidebarBorder: '#4a1830',
+    userBubble: '#2e1420',
+    userBubbleBorder: '#5a2040',
+  },
+}
+
+// ════════════════════════════════════════════════════════════
+//  7. Slate — 白灰
+// ════════════════════════════════════════════════════════════
 export const slateTheme: DesktopTheme = {
   name: 'slate',
   label: 'Slate',
-  description: 'Cool slate blue — focused developer theme',
+  description: '白灰色调',
   colors: {
-    background: '#0d1117',
-    foreground: '#c9d1d9',
-    card: '#161b22',
-    cardForeground: '#c9d1d9',
-    muted: '#21262d',
-    mutedForeground: '#8b949e',
-    popover: '#1c2128',
-    popoverForeground: '#c9d1d9',
-    primary: '#c9d1d9',
-    primaryForeground: '#0d1117',
-    secondary: '#2a3038',
-    secondaryForeground: '#adb5bf',
-    accent: '#1e2530',
-    accentForeground: '#c0c8d0',
-    border: '#30363d',
-    input: '#30363d',
-    ring: '#58a6ff',
-    midground: '#58a6ff',
-    destructive: '#cf4848',
-    destructiveForeground: '#fef2f2',
-    sidebarBackground: '#090d13',
-    sidebarBorder: '#1c2228',
-    userBubble: '#1e2a38',
-    userBubbleBorder: '#2e4060'
+    background: '#f1f5f9',
+    foreground: '#1e293b',
+    card: '#f8fafc',
+    cardForeground: '#1e293b',
+    muted: '#e2e8f0',
+    mutedForeground: '#64748b',
+    popover: '#ffffff',
+    popoverForeground: '#1e293b',
+    primary: '#475569',
+    primaryForeground: '#f8fafc',
+    secondary: '#e2e8f0',
+    secondaryForeground: '#334155',
+    accent: 'rgba(71, 85, 105, 0.10)',
+    accentForeground: '#334155',
+    border: '#cbd5e1',
+    input: '#e2e8f0',
+    ring: '#475569',
+    midground: '#475569',
+    composerRing: '#475569',
+    destructive: '#cf2d56',
+    destructiveForeground: '#ffffff',
+    sidebarBackground: '#edf0f4',
+    sidebarBorder: '#cbd5e1',
+    userBubble: '#e8ecf1',
+    userBubbleBorder: '#cbd5e1',
   },
-  typography: {
-    fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`
-  }
 }
+
+// ════════════════════════════════════════════════════════════
+//  导出
+// ════════════════════════════════════════════════════════════
 
 export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
-  nous: nousTheme,
+  default: nousTheme,
+  ocean: oceanTheme,
+  forest: forestTheme,
+  sunset: sunsetTheme,
   midnight: midnightTheme,
-  ember: emberTheme,
-  mono: monoTheme,
-  cyberpunk: cyberpunkTheme,
-  slate: slateTheme
+  rose: roseTheme,
+  slate: slateTheme,
 }
 
-export const BUILTIN_THEME_LIST: DesktopTheme[] = Object.values(BUILTIN_THEMES)
+export const BUILTIN_THEME_LIST: DesktopTheme[] = [
+  nousTheme,
+  oceanTheme,
+  forestTheme,
+  sunsetTheme,
+  midnightTheme,
+  roseTheme,
+  slateTheme,
+]
 
-/** Skin used when nothing is persisted or the persisted name is retired. */
-export const DEFAULT_SKIN_NAME = 'nous'
+/** 默认主题 */
+export const DEFAULT_SKIN_NAME = 'default'

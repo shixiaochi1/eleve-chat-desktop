@@ -380,46 +380,6 @@
     --kanban-col-header-bar-radius: 1.5px;
   }
 
-  :root.dark {
-    /* Per-mode mix knobs — overridden inline by `applyTheme()` per skin. */
-    --theme-mix-chrome: 74%;
-    --theme-mix-card: 38%;
-    --theme-mix-elevated: 46%;
-    --theme-mix-bubble: 46%;
-
-    --ui-bg-backboard: var(--theme-neutral-chrome);
-    --theme-neutral-chrome: #0d0d0e;
-    --theme-neutral-sidebar: #0a0a0b;
-    --theme-neutral-card: #161618;
-
-    /* ── Eleve 暗色语义映射 — 换颜色只改这3行 ── */
-    --eleve-surface-backboard: var(--theme-neutral-chrome);
-    --eleve-surface-card1: var(--ui-bg-sidebar);
-    --eleve-surface-card2: var(--ui-bg-editor);
-
-    /* Dark-only accent palette overrides. */
-    --ui-red: #e75e78;
-    --ui-green: #55a583;
-    --ui-cyan: #6f9ba6;
-
-    --sidebar-edge-border: color-mix(in srgb, var(--ui-base) 12%, transparent);
-    --composer-ring-strength: 1.3;
-    --backdrop-invert-mul: 0;
-
-    --ui-inline-code-background: color-mix(in srgb, #ffffff 7%, transparent);
-    --ui-inline-code-border: color-mix(in srgb, #ffffff 10%, transparent);
-    --ui-inline-code-foreground: color-mix(in srgb, #ffffff 88%, transparent);
-    --ui-selection-background: color-mix(in srgb, #ffd24a 38%, transparent);
-
-    /* 幻影变量别名 — 暗色模式自动跟随 */
-    --text-secondary: var(--ui-text-secondary);
-    --text: var(--ui-text-primary);
-    --success: var(--ui-green);
-    --error: var(--ui-red);
-    --danger: var(--dt-destructive);
-    --accent: var(--dt-accent-foreground);
-  }
-
   * {
     box-sizing: border-box;
     border-color: var(--dt-border);

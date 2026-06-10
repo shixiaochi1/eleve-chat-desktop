@@ -2,15 +2,13 @@
  * 图标栏 — Apple 风格左侧竖向导航
  * Logo 按钮和其它工具栏一样，点击切换面板
  */
-import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import {
   ChatIcon, CronIcon,
   DebugIcon, SettingsIcon, AboutIcon,
-  ThemeDarkIcon, ThemeLightIcon, ToolIcon, FileIcon, MemoryIcon,
+  PaletteIcon, ToolIcon, FileIcon, MemoryIcon,
   UsageIcon, ChannelsIcon, KanbanIcon, AgentIcon,
 } from './Icons';
-import * as storage from '../utils/storage';
 import { openKanbanWindow } from '../utils/kanban-window';
 
 interface NavItem {
@@ -29,59 +27,7 @@ interface IconBarProps {
   onToggleFiles?: () => void;
 }
 
-const THEME_KEY = 'eleve-theme';
-
 export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gatewayOnline, onToggleFiles }: IconBarProps) {
-  const [theme, setTheme] = useState(() => {
-    // 优先从 storage 读取，否则使用系统偏好
-    const saved = storage.load('theme') || localStorage.getItem(THEME_KEY);
-    if (saved) return saved;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
-
-  // 初始化时设置正确的 class
-  useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-    document.documentElement.dataset.theme = theme;
-  }, []);
-
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: light)');
-    const handler = (e: MediaQueryListEvent) => {
-      if (!storage.load('theme') && !localStorage.getItem(THEME_KEY)) {
-        const sysTheme = e.matches ? 'light' : 'dark';
-        setTheme(sysTheme);
-        if (sysTheme === 'dark') {
-          document.documentElement.classList.add('dark');
-        } else {
-          document.documentElement.classList.remove('dark');
-        }
-        document.documentElement.dataset.theme = sysTheme;
-      }
-    };
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-
-  const toggleTheme = () => {
-    const next = theme === 'dark' ? 'light' : 'dark';
-    setTheme(next);
-    // CSS 使用 :root.dark 选择器，需要添加/移除 class
-    if (next === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-    document.documentElement.dataset.theme = next;
-    storage.save('theme', next);
-    // 向后兼容：同时清理旧 localStorage 值
-    localStorage.removeItem(THEME_KEY);
-  };
-
   const navItems: NavItem[] = [
     { id: 'sessions', icon: ChatIcon,    label: '会话' },
     { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true },
@@ -170,11 +116,11 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
           className={cn(
             'flex items-center justify-center w-10 h-10 rounded-lg text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground transition-colors'
           )}
-          title={theme === 'dark' ? '浅色主题' : '深色主题'}
+          title="主题"
           aria-label="切换主题"
-          onClick={toggleTheme}
+          onClick={() => onOpenOverlay?.('theme')}
         >
-          {theme === 'dark' ? <ThemeLightIcon className="w-5 h-5" /> : <ThemeDarkIcon className="w-5 h-5" />}
+          <PaletteIcon className="w-5 h-5" />
         </button>
         <button
           className="flex items-center justify-center w-10 h-10 rounded-lg text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground transition-colors"

@@ -28,6 +28,7 @@ import {
   Brain,
   Cpu,
   Circle,
+  Palette,
   Check,
   Loader,
   Play,
@@ -101,6 +102,7 @@ export const RestartIcon: IconComponent = (props) => <Power size={ICON_SIZE_SM} 
 // ── 主题图标 ──
 export const ThemeDarkIcon: IconComponent = (props) => <Moon size={ICON_SIZE_MD} {...strokeProps} {...props} />;
 export const ThemeLightIcon: IconComponent = (props) => <Sun size={ICON_SIZE_MD} {...strokeProps} {...props} />;
+export const PaletteIcon: IconComponent = (props) => <Palette size={ICON_SIZE_MD} {...strokeProps} {...props} />;
 
 // ── UI 装饰图标 ──
 export const ExpandIcon: IconComponent = (props) => <ChevronRight size={ICON_SIZE_SM} {...strokeProps} {...props} />;

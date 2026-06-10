@@ -18,6 +18,7 @@ import { ThemeProvider } from './themes/index';
 import IconBar from './components/IconBar';
 import SidePanel from './components/SidePanel';
 import OverlayView from './components/OverlayView';
+import ThemePanel from './components/ThemePanel';
 import SettingsPanel from './components/SettingsPanel';
 import AboutPanel from './components/AboutPanel';
 import ModelPickerPanel from './components/ModelPickerPanel';
@@ -562,6 +563,11 @@ export default function App() {
         {overlayPanel === 'settings' && (
           <OverlayView onClose={handleCloseOverlay} title="设置">
             <SettingsPanel onBack={handleCloseOverlay} />
+          </OverlayView>
+        )}
+        {overlayPanel === 'theme' && (
+          <OverlayView onClose={handleCloseOverlay} title="主题">
+            <ThemePanel onClose={handleCloseOverlay} />
           </OverlayView>
         )}
         {overlayPanel === 'about' && (
