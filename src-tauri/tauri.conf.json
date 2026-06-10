@@ -48,6 +48,13 @@
       "binaries/agent-browser-win32-x64.exe",
       "binaries/eleved.exe"
     ],
-    "windows": {}
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "languages": ["SimpChinese", "English"],
+        "installerHooks": "nsis-uninstall-hook.nsh",
+        "deleteAppDataOnUninstall": true
+      }
+    }
   }
 }

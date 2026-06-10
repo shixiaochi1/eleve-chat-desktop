@@ -1,0 +1,82 @@
+# Eleve Agent 默认配置模板
+# 首次启动时，eleved bootstrap 会在 data/ 目录生成实际 config.yaml
+# 此文件仅供开发参考，不包含真实凭证
+
+agent:
+  max_turns: 90
+  streaming: true
+
+auxiliary:
+  approval:
+    provider: auto
+    timeout: 30
+  compression:
+    provider: auto
+    timeout: 120
+  curator:
+    provider: auto
+    timeout: 600
+  kanban_decomposer:
+    provider: auto
+    timeout: 180
+  mcp:
+    provider: auto
+    timeout: 30
+  profile_describer:
+    provider: auto
+    timeout: 60
+  session_search:
+    provider: auto
+    timeout: 30
+  skills_hub:
+    provider: auto
+    timeout: 30
+  title_generation:
+    provider: auto
+    timeout: 30
+  triage_specifier:
+    provider: auto
+    timeout: 120
+  vision:
+    provider: auto
+    timeout: 120
+  web_extract:
+    provider: auto
+    timeout: 360
+
+# === Model Configuration ===
+# 首次启动时，eleved onboarding 会引导用户配置 provider
+# 或在设置面板中配置
+# model:
+#   provider: "your-provider"
+#   default: "your-model"
+
+providers:
+  openai:
+    name: OpenAI
+    transport: openai_chat
+    base_url: https://api.openai.com/v1
+    model: gpt-4o-mini
+    key_env: OPENAI_API_KEY
+  # 示例：添加自定义 provider
+  # my-provider:
+  #   name: 我的 Provider
+  #   transport: openai_chat
+  #   base_url: https://api.example.com/v1
+  #   model: my-model
+  #   api_key: sk-xxx  # 或使用 key_env: MY_API_KEY
+
+server:
+  host: 127.0.0.1
+  port: 0  # 0 = 自动分配空闲端口
+
+shell:
+  active: ""  # 空 = 自动发现
+
+# === Memory Configuration ===
+memory:
+  enabled: true
+  user_profile_enabled: true
+  memory_dir: ""  # 留空 = 使用 ELEVE_HOME/memories/
+  nudge_interval: 10
+  flush_min_turns: 6
