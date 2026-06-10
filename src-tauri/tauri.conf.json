@@ -52,8 +52,7 @@
       "nsis": {
         "installMode": "perMachine",
         "languages": ["SimpChinese", "English"],
-        "installerHooks": "nsis-uninstall-hook.nsh",
-        "deleteAppDataOnUninstall": true
+        "installerHooks": "nsis-uninstall-hook.nsh"
       }
     }
   }
