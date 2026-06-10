@@ -84,7 +84,7 @@ const PINNED_KEY = 'eleve.pinned-sessions';
 const ARCHIVED_KEY = 'eleve.archived-sessions';
 
 // ── 系统会话来源（对齐后端 exclude_sources + Hermes _HIDDEN_SESSION_SOURCES）──
-const HIDDEN_SOURCES = new Set(['tool', 'cron']);
+const HIDDEN_SOURCES = new Set(['tool', 'cron', 'api']);
 
 // ── 虚拟列表行类型 ──
 type VirtualRow =

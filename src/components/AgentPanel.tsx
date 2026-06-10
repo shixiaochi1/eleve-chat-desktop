@@ -2,9 +2,11 @@
  * AgentPanel — 多 Agent 协作面板
  *
  * 展示当前 Agent 身份、活跃的委托子任务，
- * 通过 SSE 被动更新，无手动 spawn 操作。
+ * 支持向 running 任务发送 /steer 指令或中断。
  */
+import { useState, useCallback } from 'react';
 import useAgents from '../hooks/useAgents';
+import { call } from '../utils/bridge';
 import {
   Bot,
   Users,
@@ -15,6 +17,9 @@ import {
   Hash,
   Wrench,
   Layers,
+  Send,
+  StopCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -36,6 +41,8 @@ interface MonitorState {
 
 interface DelegateCardProps {
   task: DelegateTaskData;
+  onCancel?: (taskId: string) => void;
+  cancelling?: boolean;
 }
 
 // ── 格式化时长 ──
@@ -52,7 +59,7 @@ function fmtDuration(durationSec: number | null | undefined): string | null {
 }
 
 // ── 单条委托任务卡片 ──
-function DelegateCard({ task }: DelegateCardProps) {
+function DelegateCard({ task, onCancel, cancelling }: DelegateCardProps) {
   const isRunning = task.status === 'running';
   const isFailed = task.status === 'failed' || task.status === 'error';
   const isDone = !isRunning && !isFailed;
@@ -68,6 +75,17 @@ function DelegateCard({ task }: DelegateCardProps) {
       <div className="flex items-center gap-1 text-[10px] text-muted-foreground/50" title={`任务 ID: ${task.id}`}>
         <Hash size={10} strokeWidth={1.5} />
         <span>{task.id ? task.id.slice(0, 12) : '—'}</span>
+        {/* 取消按钮 — 仅 running 状态显示 */}
+        {isRunning && onCancel && (
+          <button
+            className="ml-auto p-0.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+            onClick={() => onCancel(task.id)}
+            disabled={cancelling}
+            title="中断此任务"
+          >
+            <StopCircle size={12} strokeWidth={1.5} className={cancelling ? 'animate-spin' : ''} />
+          </button>
+        )}
       </div>
 
       {/* 目标 */}
@@ -150,11 +168,41 @@ function EmptyState() {
 
 interface AgentPanelProps {
   monitorState?: MonitorState;
+  sessionId?: string | null;
 }
 
 // ── 主面板 ──
-export default function AgentPanel({ monitorState }: AgentPanelProps) {
+export default function AgentPanel({ monitorState, sessionId }: AgentPanelProps) {
   const { mainAgent, activeDelegates, completedDelegates, totalActive, totalAll } = useAgents(monitorState!);
+  const [steerText, setSteerText] = useState('');
+  const [steering, setSteering] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  // 发送 /steer 指令
+  const handleSteer = useCallback(async () => {
+    if (!steerText.trim() || !sessionId) return;
+    setSteering(true);
+    try {
+      await call('steer_session', { session_id: sessionId, text: steerText.trim() });
+      setSteerText('');
+    } catch (e) {
+      console.error('[AgentPanel] steer failed:', e);
+    } finally {
+      setSteering(false);
+    }
+  }, [steerText, sessionId]);
+
+  // 中断指定委托任务
+  const handleCancel = useCallback(async (taskId: string) => {
+    setCancellingId(taskId);
+    try {
+      await call('abort_chat', { session_id: taskId });
+    } catch (e) {
+      console.error('[AgentPanel] cancel failed:', e);
+    } finally {
+      setCancellingId(null);
+    }
+  }, []);
 
   return (
     <div className="flex flex-col h-full p-3 gap-3">
@@ -194,7 +242,7 @@ export default function AgentPanel({ monitorState }: AgentPanelProps) {
             <div className="space-y-1">
               <div className="text-[10px] font-medium text-accent">活跃中</div>
               {activeDelegates.map((t: DelegateTaskData) => (
-                <DelegateCard key={t.id} task={t} />
+                <DelegateCard key={t.id} task={t} onCancel={handleCancel} cancelling={cancellingId === t.id} />
               ))}
             </div>
           )}
@@ -213,6 +261,33 @@ export default function AgentPanel({ monitorState }: AgentPanelProps) {
 
       {/* ===== 空状态 ===== */}
       {totalAll === 0 && <EmptyState />}
+
+      {/* ===== Steer 指令输入 ===== */}
+      <div className="mt-auto pt-2 border-t border-border">
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1">
+          <Send size={10} strokeWidth={1.5} />
+          <span>向 Agent 发送指令</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <input
+            type="text"
+            value={steerText}
+            onChange={(e) => setSteerText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSteer(); } }}
+            placeholder={sessionId ? '输入 /steer 指令…' : '无活跃会话'}
+            disabled={!sessionId || steering}
+            className="flex-1 min-w-0 px-2 py-1 text-xs rounded border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-accent/50 disabled:opacity-50"
+          />
+          <button
+            onClick={handleSteer}
+            disabled={!steerText.trim() || !sessionId || steering}
+            className="shrink-0 p-1.5 rounded text-accent hover:bg-accent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            title="发送"
+          >
+            {steering ? <Loader size={14} strokeWidth={1.5} className="animate-spin" /> : <Send size={14} strokeWidth={1.5} />}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

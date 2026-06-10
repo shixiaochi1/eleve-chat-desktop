@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import * as api from '../utils/api';
 
 // ── 系统会话来源（对齐 SessionsPanel HIDDEN_SOURCES）──
-const HIDDEN_SOURCES = new Set(['tool', 'cron']);
+const HIDDEN_SOURCES = new Set(['tool', 'cron', 'api']);
 import {
   Search,
   MessageCircle,

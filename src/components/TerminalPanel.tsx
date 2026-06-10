@@ -9,6 +9,7 @@ import { Terminal as TerminalIcon, Trash2, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import useTerminal from '../hooks/useTerminal';
 import type { ChatMessage, ChatMessagePart } from '@/types';
+import { call } from '../utils/bridge';
 
 // Import xterm CSS
 import '@xterm/xterm/css/xterm.css';
@@ -18,13 +19,15 @@ import { useMessages } from '@/store/messages';
 interface TerminalPanelProps {
   onSend?: (text: string) => void;
   isStreaming?: boolean;
+  sessionId?: string;
 }
 
-export default function TerminalPanel({ onSend, isStreaming = false }: TerminalPanelProps) {
+export default function TerminalPanel({ onSend, isStreaming = false, sessionId }: TerminalPanelProps) {
   const messages = useMessages();
   const term = useTerminal({ lazy: true });
   const [ready, setReady] = useState(false);
   const [inputValue, setInputValue] = useState('');
+  const [executing, setExecuting] = useState(false);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const writtenCallIdsRef = useRef(new Set<string>());
@@ -169,27 +172,57 @@ export default function TerminalPanel({ onSend, isStreaming = false }: TerminalP
     term.write('\x1b[32m╚══════════════════════════════════════════╝\x1b[0m\r\n');
   }, [term]);
 
-  const handleSendCommand = useCallback(() => {
+  const handleSendCommand = useCallback(async () => {
     const cmd = inputValue.trim();
-    if (!cmd || isStreaming) return;
+    if (!cmd || isStreaming || executing) return;
     setInputValue('');
+    setExecuting(true);
 
-    // If it doesn't start with /, prefix with /terminal
-    const fullCmd = cmd.startsWith('/') ? cmd : `/terminal ${cmd}`;
-
-    // Write to local terminal immediately for responsiveness
+    // Write command to local terminal
     if (term.write) {
       term.write(`\r\n\x1b[1;33m$ ${cmd}\x1b[0m\r\n`);
-      term.write('\x1b[90m等待 Agent 执行...\x1b[0m\r\n');
     }
 
-    if (onSend) {
-      onSend(fullCmd);
+    // 直接执行模式：通过 execute_command API
+    if (sessionId) {
+      try {
+        // 解析命令：支持 /command args 和裸命令
+        const isSlash = cmd.startsWith('/');
+        const commandName = isSlash ? cmd.slice(1).split(/\s+/)[0] : 'terminal';
+        const commandArgs = isSlash ? cmd.slice(1).substring(commandName.length).trim() : cmd;
+
+        const resp = await call('execute_command', {
+          command: commandName,
+          args: commandArgs,
+          session_id: sessionId,
+        }) as { result?: string; session_id?: string };
+
+        if (term.write && resp.result) {
+          const output = resp.result.length > 5000
+            ? resp.result.slice(0, 5000) + '\n... (truncated)'
+            : resp.result;
+          term.write(`\x1b[90m${output}\x1b[0m\r\n`);
+        }
+      } catch (err: unknown) {
+        if (term.write) {
+          term.write(`\x1b[31m执行失败: ${(err as Error).message}\x1b[0m\r\n`);
+        }
+      } finally {
+        setExecuting(false);
+      }
+    } else {
+      // 无 sessionId 时回退到 onSend（走聊天消息）
+      setExecuting(false);
+      if (term.write) {
+        term.write('\x1b[90m等待 Agent 执行...\x1b[0m\r\n');
+      }
+      const fullCmd = cmd.startsWith('/') ? cmd : `/terminal ${cmd}`;
+      onSend?.(fullCmd);
     }
 
     // Focus back to input
     setTimeout(() => inputRef.current?.focus(), 50);
-  }, [inputValue, isStreaming, onSend, term]);
+  }, [inputValue, isStreaming, executing, onSend, term, sessionId]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -241,13 +274,13 @@ export default function TerminalPanel({ onSend, isStreaming = false }: TerminalP
           value={inputValue}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="输入命令（例如: ls -la）…"
-          disabled={isStreaming}
+          placeholder={executing ? '执行中...' : '输入命令（例如: ls -la）…'}
+          disabled={isStreaming || executing}
         />
         <button
           className="p-1.5 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-40"
           onClick={handleSendCommand}
-          disabled={!inputValue.trim() || isStreaming}
+          disabled={!inputValue.trim() || isStreaming || executing}
           title="发送命令给 Agent 执行"
         >
           <Send size={12} />

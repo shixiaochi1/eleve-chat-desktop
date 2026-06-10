@@ -1,11 +1,11 @@
 /**
  * useFileTree — 文件树 Hook
  *
- * 使用 Tauri fs API 或 HTTP backend 列出目录内容
+ * 统一通过后端 HTTP API `/api/files/list` 列出目录内容
  * 支持缓存、排序（目录优先，按字母序）、展开/折叠
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { isDesktop } from '../utils/bridge';
+import { call } from '../utils/bridge';
 
 interface FileEntry {
   name: string;
@@ -22,130 +22,28 @@ interface OpenStateMap {
   [dirPath: string]: boolean;
 }
 
-/** Minimal typed shape for raw directory entries returned by Tauri APIs */
-interface TauriDirEntry {
-  name?: string;
-  path?: string;
-  isDirectory?: boolean;
-  is_dir?: boolean;
-  kind?: string;
-  children?: FileEntry[];
-}
-
 /**
- * 尝试用 Tauri 的原生 fs API 读取目录
- * 优先 Tauri invoke IPC，回退 HTTP API
+ * 通过后端 HTTP API 读取目录
  */
-async function readDirViaTauri(dirPath: string): Promise<TauriDirEntry[]> {
-  // 方式 1: 通过 Tauri invoke 调用 fs 插件 (v2 plugin-fs)
-  // @tauri-apps/plugin-fs 不是 npm 依赖，但 plugin:fs|read_dir 命令在 Rust 端注册后可用
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    const entries = await invoke('plugin:fs|read_dir', { path: dirPath });
-    if (entries && Array.isArray(entries)) {
-      return entries;
-    }
-  } catch { /* 继续 fallback */ }
-
-  // 方式 2: 通过 Tauri invoke 调用自定义命令
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    const entries = await invoke('list_files', { path: dirPath });
-    if (entries && Array.isArray(entries)) {
-      return entries;
-    }
-  } catch { /* 继续 fallback */ }
-
-  // 方式 3: 直接通过 TAURI_INTERNALS IPC 调用
-  try {
-    const wi = window as unknown as { __TAURI_INTERNALS__?: { invoke: (cmd: string, args: Record<string, unknown>) => Promise<unknown> } };
-    if (wi.__TAURI_INTERNALS__) {
-      const entries = await wi.__TAURI_INTERNALS__.invoke('plugin:fs|read_dir', {
-        path: dirPath,
-      });
-      if (entries && Array.isArray(entries)) {
-        return entries;
-      }
-    }
-  } catch { /* 全部失败 */ }
-
-  throw new Error('Tauri filesystem API not available');
-}
-
-/**
- * 尝试用 HTTP API 读取目录
- */
-async function readDirViaHTTP(dirPath: string): Promise<unknown[]> {
-  const encoded = encodeURIComponent(dirPath);
-
-  // 动态获取 base URL
-  let base = 'http://127.0.0.1:3001';
-  try {
-    const { getHttpBase } = await import('../utils/bridge');
-    base = getHttpBase();
-  } catch { /* 默认值 */ }
-
-  // 尝试多个可能的端点
-  const endpoints = [
-    `/api/files/list?path=${encoded}`,
-    `/v1/files?path=${encoded}`,
-    `/v1/files/list?path=${encoded}`,
-    `/api/fs/readdir?path=${encoded}`,
-  ];
-
-  for (const endpoint of endpoints) {
-    try {
-      const resp = await fetch(`${base}${endpoint}`, { signal: AbortSignal.timeout(5000) });
-      if (resp.ok) {
-        const data = await resp.json();
-        // 后端可能返回 { files: [...] } 或直接数组
-        const entries = Array.isArray(data) ? data
-          : (data.files || data.entries || data.children || data.result || []);
-        return entries;
-      }
-    } catch { /* 尝试下一个 */ }
-  }
-
-  throw new Error('No file API endpoint available');
-}
-
-/**
- * 标准化文件条目格式
- */
-function normalizeEntries(entries: unknown[]): FileEntry[] {
+async function fetchDir(dirPath: string): Promise<FileEntry[]> {
+  const data = await call('files_list', { path: dirPath });
+  // 后端返回 { files: [...] }
+  const entries = (data as { files?: unknown[] }).files ?? [];
   if (!Array.isArray(entries)) return [];
-  return entries.map((e) => {
-    const entry = e as TauriDirEntry;
-    return {
-    name: entry.name || '',
-    path: entry.path || entry.name || '',
-    isDirectory: !!(entry.isDirectory || entry.is_dir || entry.kind === 'directory' || entry.children !== undefined),
-    children: entry.children || null,
-  };
-  });
-}
 
-/**
- * 排序：目录优先，再按字母序
- */
-function sortEntries(entries: FileEntry[]): FileEntry[] {
-  return [...entries].sort((a, b) => {
-    if (a.isDirectory && !b.isDirectory) return -1;
-    if (!a.isDirectory && b.isDirectory) return 1;
-    return (a.name || '').localeCompare(b.name || '');
-  });
+  return (entries as FileEntry[]).filter(e => e.name && !e.name.startsWith('.'));
 }
 
 /**
  * useFileTree Hook
  */
 export function useFileTree(initialPath: string | null = null) {
-  const [data, setData] = useState<FileEntry[] | null>(null);        // 当前根目录的子条目
+  const [data, setData] = useState<FileEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [openState, setOpenState] = useState<OpenStateMap>({}); // { [dirPath]: true/false }
+  const [openState, setOpenState] = useState<OpenStateMap>({});
   const [rootPath, setRootPath] = useState<string | null>(initialPath);
-  const cacheRef = useRef<CacheMap>({});                    // { [dirPath]: [entries] }
+  const cacheRef = useRef<CacheMap>({});
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -163,31 +61,11 @@ export function useFileTree(initialPath: string | null = null) {
       return cacheRef.current[dirPath];
     }
 
-    let entries: unknown[];
+    const entries = await fetchDir(dirPath);
 
-    if (isDesktop()) {
-      try {
-        entries = await readDirViaTauri(dirPath);
-      } catch (err) {
-        // Tauri 不可用时尝试 HTTP
-        try {
-          entries = await readDirViaHTTP(dirPath);
-        } catch (httpErr: unknown) {
-          throw new Error(`无法读取目录: ${(httpErr as Error).message}`);
-        }
-      }
-    } else {
-      // 浏览器开发模式
-      try {
-        entries = await readDirViaHTTP(dirPath);
-      } catch {
-        throw new Error('浏览器开发模式不支持文件系统操作');
-      }
-    }
-
-    const sorted = sortEntries(normalizeEntries(entries));
-    cacheRef.current[dirPath] = sorted;
-    return sorted;
+    // 后端已排序（目录优先+字母序），直接缓存
+    cacheRef.current[dirPath] = entries;
+    return entries;
   }, []);
 
   /**
@@ -250,8 +128,7 @@ export function useFileTree(initialPath: string | null = null) {
     // 如果打开时还没缓存，预加载子目录
     if (!cacheRef.current[dirPath]) {
       try {
-        const entries = await listDir(dirPath);
-        cacheRef.current[dirPath] = entries;
+        await listDir(dirPath);
       } catch { /* 静默失败 */ }
     }
   }, [listDir]);
@@ -264,8 +141,7 @@ export function useFileTree(initialPath: string | null = null) {
       return cacheRef.current[dirPath];
     }
     try {
-      const entries = await listDir(dirPath);
-      return entries;
+      return await listDir(dirPath);
     } catch {
       return [];
     }

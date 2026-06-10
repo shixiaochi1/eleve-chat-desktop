@@ -226,6 +226,13 @@ const COMMAND_HTTP_MAP: Record<string, CommandMapping> = {
   unsubscribe_kanban_home:   { method: 'DELETE', path: (a) => `/api/kanban/tasks/${a.task_id}/home-subscribe/${a.platform}` },
   get_kanban_config:         { method: 'GET',  path: '/api/kanban/config' },
 
+  // 文件浏览
+  files_list:               { method: 'GET',  path: (a) => `/api/files/list?path=${encodeURIComponent(a.path)}` },
+
+  // sudo / secret 响应
+  sudo_respond:             { method: 'POST', path: '/api/sudo-respond' },
+  secret_respond:           { method: 'POST', path: '/api/secret-respond' },
+
   // 其他
   list_models:            { method: 'GET',  path: '/v1/models' },
 

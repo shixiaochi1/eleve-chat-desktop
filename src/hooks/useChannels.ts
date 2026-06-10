@@ -13,7 +13,6 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { call } from '../utils/bridge';
-import { getApiBase } from '../utils/api';
 import type { PlatformStatus } from '@/types/hermes';
 
 interface ChannelItem {
@@ -122,63 +121,24 @@ export function useChannels({ gatewayOnline = false }: { gatewayOnline?: boolean
     setError(null);
 
     try {
-      // 1. 尝试 GET /v1/channels
-      const base = getApiBase();
-      const resp1 = await fetch(`${base}/v1/channels`, {
-        signal: AbortSignal.timeout(3000),
-      });
-      if (resp1.ok) {
-        const data = await resp1.json();
-        const list = Array.isArray(data) ? data : (data.channels || data.data || []);
-        if (mountedRef.current) {
-          setChannels(list.map(normalizeChannel));
-          setLoading(false);
-          return;
-        }
-      }
-    } catch {
-      // fall through
-    }
-
-    try {
-      // 2. 尝试 GET /api/channels
-      const base = getApiBase();
-      const resp2 = await fetch(`${base}/api/channels`, {
-        signal: AbortSignal.timeout(3000),
-      });
-      if (resp2.ok) {
-        const data = await resp2.json();
-        const list = Array.isArray(data) ? data : (data.channels || data.data || []);
-        if (mountedRef.current) {
-          setChannels(list.map(normalizeChannel));
-          setLoading(false);
-          return;
-        }
-      }
-    } catch {
-      // fall through
-    }
-
-    try {
-      // 3. 尝试从网关状态获取平台信息
+      // 直接从 gateway_status 获取平台信息（后端 /api/gateway/status 返回 platforms 字段）
       const status: GatewayStatusResponse = await call('gateway_status', {});
       if (status && status.platforms) {
         const inferred = inferFromPlatforms(status.platforms);
-        if (inferred.length > 0) {
-          if (mountedRef.current) {
-            setChannels(inferred);
-            setLoading(false);
-            return;
-          }
+        if (mountedRef.current) {
+          setChannels(inferred.length > 0 ? inferred : fallbackWeChatChannel(gatewayOnline));
+          setLoading(false);
+          return;
         }
       }
-    } catch {
-      // fall through
+    } catch (e) {
+      // gateway_status 调用失败
     }
 
-    // 4. 最终回退
+    // 回退：基于网关在线状态展示 WeChat
     if (mountedRef.current) {
       setChannels(fallbackWeChatChannel(gatewayOnline));
+      setError('无法获取渠道状态');
       setLoading(false);
     }
   }, [gatewayOnline]);

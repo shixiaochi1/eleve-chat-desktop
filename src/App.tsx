@@ -10,9 +10,10 @@ import { useMediaQuery } from './hooks/use-media-query';
 import { loadMarkdownDeps } from './utils/markdown';
 import * as storage from './utils/storage';
 import { loadSettingsFromRust } from './utils/settings-store';
-import { discoverPort } from './utils/bridge';
+import { discoverPort, call } from './utils/bridge';
 import type { ChatMessage } from './types';
 import ErrorBoundary from './components/ErrorBoundary';
+import CredentialCard from './components/CredentialCard';
 import { ThemeProvider } from './themes/index';
 import IconBar from './components/IconBar';
 import SidePanel from './components/SidePanel';
@@ -342,16 +343,22 @@ export default function App() {
   }, []);
 
   // ── sudo done (TODO: implement dialog response) ──
-  const handleSudoDone = useCallback(() => {
+  const handleSudoDone = useCallback(async (password: string) => {
+    if (!activeSudo) return;
+    try {
+      await call('sudo_respond', { request_id: activeSudo.request_id, password });
+    } catch { /* 静默处理 */ }
     setActiveSudo(null);
-    // TODO: 打开密码输入弹窗, 调用 POST /api/sudo-respond
-  }, []);
+  }, [activeSudo]);
 
-  // ── secret done (TODO: implement dialog response) ──
-  const handleSecretDone = useCallback(() => {
+  // ── secret done
+  const handleSecretDone = useCallback(async (value: string) => {
+    if (!activeSecret) return;
+    try {
+      await call('secret_respond', { request_id: activeSecret.request_id, value });
+    } catch { /* 静默处理 */ }
     setActiveSecret(null);
-    // TODO: 打开秘密值输入弹窗, 调用 POST /api/secret-respond
-  }, []);
+  }, [activeSecret]);
 
   // ── command center navigation ──
   const handleNavigate = useCallback((panel: string) => {
@@ -512,21 +519,25 @@ export default function App() {
                       onDone={handleApprovalDone}
                     />
                   )}
-                  {/* TODO: 实现 SudoCard 弹窗 — 密码输入框 + POST /api/sudo-respond */}
+                  {/* SudoCard — 密码输入 */}
                   {activeSudo && (
-                    <div className="sudo-card-placeholder" style={{ padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: 8, marginBottom: 8, border: '1px solid var(--border)' }}>
-                      <div style={{ fontWeight: 600, marginBottom: 4 }}>🔐 Sudo 权限请求</div>
-                      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>{activeSudo.prompt || '需要 sudo 密码'}</div>
-                      <button onClick={handleSudoDone} style={{ padding: '4px 12px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>关闭 (TODO)</button>
-                    </div>
+                    <CredentialCard
+                      type="sudo"
+                      title="Sudo 权限请求"
+                      description={activeSudo.prompt || '需要 sudo 密码'}
+                      onSubmit={handleSudoDone}
+                      onDismiss={() => setActiveSudo(null)}
+                    />
                   )}
-                  {/* TODO: 实现 SecretCard 弹窗 — 秘密值输入框 + POST /api/secret-respond */}
+                  {/* SecretCard — 凭据输入 */}
                   {activeSecret && (
-                    <div className="secret-card-placeholder" style={{ padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: 8, marginBottom: 8, border: '1px solid var(--border)' }}>
-                      <div style={{ fontWeight: 600, marginBottom: 4 }}>🔑 Secret 请求</div>
-                      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>环境变量 <code>{activeSecret.env_var}</code>: {activeSecret.prompt}</div>
-                      <button onClick={handleSecretDone} style={{ padding: '4px 12px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>关闭 (TODO)</button>
-                    </div>
+                    <CredentialCard
+                      type="secret"
+                      title="Secret 请求"
+                      description={`环境变量 ${activeSecret.env_var}: ${activeSecret.prompt}`}
+                      onSubmit={handleSecretDone}
+                      onDismiss={() => setActiveSecret(null)}
+                    />
                   )}
                   <ContextBar sessionId={sess.sessionId} sessionStartedAt={debugInfo.sessionStartedAt} onNewSession={handleNewSession} onBtw={handleBtw} />
                 </>
@@ -542,7 +553,7 @@ export default function App() {
             {rightOpen && (rightTab === 'files' ? (
               <FileBrowserPanel onFileAttach={(path: string) => handleSend(`/file ${path}`)} />
             ) : (
-              <TerminalPanel onSend={handleSend} isStreaming={isStreaming} />
+              <TerminalPanel onSend={handleSend} isStreaming={isStreaming} sessionId={debugInfo.sessionId} />
             ))}
           </Pane>
         </PaneShell>
