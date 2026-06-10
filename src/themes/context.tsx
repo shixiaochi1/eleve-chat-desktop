@@ -40,6 +40,10 @@ function readableOn(hex: string): string {
 
 function loadCustomColors(): Partial<DesktopThemeColors> {
   try {
+    // 优先从 localStorage 读取（同步可靠）
+    const local = localStorage.getItem(CUSTOM_COLORS_KEY)
+    if (local) return JSON.parse(local) as Partial<DesktopThemeColors>
+    // 降级：从 AppService storage 读取
     const saved = storage.load(CUSTOM_COLORS_KEY)
     if (saved && typeof saved === 'object') return saved as Partial<DesktopThemeColors>
   } catch { /* ignore */ }
@@ -47,11 +51,29 @@ function loadCustomColors(): Partial<DesktopThemeColors> {
 }
 
 function saveCustomColors(colors: Partial<DesktopThemeColors>): void {
+  // 双写：localStorage + AppService
+  localStorage.setItem(CUSTOM_COLORS_KEY, JSON.stringify(colors))
   storage.save(CUSTOM_COLORS_KEY, colors)
 }
 
 function clearCustomColors(): void {
+  localStorage.removeItem(CUSTOM_COLORS_KEY)
   storage.remove(CUSTOM_COLORS_KEY)
+}
+
+/** 主题名持久化 — 双写 */
+function loadThemeName(): string {
+  // 优先 localStorage
+  const local = localStorage.getItem(SKIN_KEY)
+  if (local) return local
+  // 降级 storage
+  const saved = storage.load(SKIN_KEY) as string | null
+  return saved ?? DEFAULT_SKIN_NAME
+}
+
+function saveThemeName(name: string): void {
+  localStorage.setItem(SKIN_KEY, name)
+  storage.save(SKIN_KEY, name)
 }
 
 // ─── CSS 注入 ───────────────────────────────────────────────────────────────
@@ -193,7 +215,7 @@ function normalizeSkin(name: string | null): string {
 }
 
 if (typeof window !== 'undefined') {
-  const skin = normalizeSkin(window.localStorage.getItem(SKIN_KEY))
+  const skin = normalizeSkin(loadThemeName())
   const theme = BUILTIN_THEMES[skin] ?? nousTheme
   const custom = loadCustomColors()
   applyThemeCSS(theme, custom)
@@ -231,7 +253,7 @@ const ThemeContext = createContext<ThemeContextValue>({
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [themeName, setThemeNameState] = useState(() =>
-    typeof window === 'undefined' ? DEFAULT_SKIN_NAME : normalizeSkin(window.localStorage.getItem(SKIN_KEY))
+    typeof window === 'undefined' ? DEFAULT_SKIN_NAME : normalizeSkin(loadThemeName())
   )
 
   const [customColors, setCustomColorsState] = useState<Partial<DesktopThemeColors>>(() =>
@@ -256,7 +278,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const setTheme = useCallback((name: string) => {
     const next = normalizeSkin(name)
     setThemeNameState(next)
-    window.localStorage.setItem(SKIN_KEY, next)
+    saveThemeName(next)
   }, [])
 
   const setCustomColor = useCallback((key: keyof DesktopThemeColors, value: string) => {
