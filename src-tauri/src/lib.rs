@@ -559,6 +559,24 @@ pub fn run() {
             let subdirs = ["cron", "sessions", "logs", "skills", "memories", "boards", "cache/images", "cache/audio", "cache/terminal", "cache/sandbox", "cache/vision", "cache/voice", "cache/results", "credentials", "mcp-tokens", "hooks", "pairing", "runtime", "app-data"];
             for sub in &subdirs { std::fs::create_dir_all(eleve_home.join(sub)).ok(); }
 
+            // 初始化 tracing — 对齐 CLI main.rs 的日志基础设施
+            // Tauri 壳的日志写到 logs/tauri.log，与 eleved 子进程的 logs/eleved.log 分离
+            {
+                use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+                let log_dir = eleve_home.join("logs");
+                let log_file = log_dir.join("tauri.log");
+                if let Ok(file) = std::fs::OpenOptions::new().create(true).append(true).open(&log_file) {
+                    let _ = tracing_subscriber::registry()
+                        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+                        .with(tracing_subscriber::fmt::layer().with_writer(std::sync::Mutex::new(file)).with_ansi(false))
+                        .with(tracing_subscriber::EnvFilter::from_default_env())
+                        .try_init();
+                } else {
+                    let _ = tracing_subscriber::fmt::try_init();
+                }
+                tracing::info!("[TAURI] Tracing initialized, log file: {:?}", log_file);
+            }
+
             // 🔑 关键：删除旧 gateway_state.json，防止端口发现读到上次运行的残留端口
             let stale_state = eleve_home.join("runtime").join("gateway_state.json");
             if stale_state.exists() {
