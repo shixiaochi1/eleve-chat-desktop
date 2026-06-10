@@ -197,7 +197,11 @@ function applyThemeCSS(theme: DesktopTheme, customOverrides: Partial<DesktopThem
     root.style.setProperty(k, v)
   }
 
-  // 4. Font injection
+  // 4. Radius scalar — ensure border-radius works on fresh installs
+  root.style.setProperty('--radius-scalar', '0.6')
+  root.style.setProperty('--radius', '0.75rem')
+
+  // 5. Font injection
   if (typo.fontUrl && !INJECTED_FONT_URLS.has(typo.fontUrl)) {
     const link = document.createElement('link')
     link.rel = 'stylesheet'

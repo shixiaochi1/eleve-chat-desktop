@@ -84,13 +84,16 @@ export default function InputArea({ onSend, onCommand, onAbort, isStreaming, por
         e.preventDefault();
         const cmd = filtered[selectedIndex];
         if (cmd) {
+          const currentValue = inputRef.current?.value || '';
+          const argsPart = currentValue.replace(/^\/\S*\s*/, ' ').trim();
+          const newValue = `/${cmd.name}` + (argsPart ? ' ' + argsPart : '');
+          
           if (inputRef.current) {
-            const argsPart = inputRef.current.value.replace(/^\/\S*\s*/, ' ').trim();
-            inputRef.current.value = `/${cmd.name}` + (argsPart ? ' ' + argsPart : '');
+            inputRef.current.value = newValue;
           }
+          
           if (e.key === 'Enter') {
-            const args = inputRef.current?.value.replace(/^\/\S+\s*/, '') || '';
-            handleCommandExec(cmd.name, args);
+            handleCommandExec(cmd.name, argsPart);
           }
         }
         return;

@@ -245,7 +245,7 @@ export default function App() {
     loadSettingsFromRust();
     loadMarkdownDeps().then(() => setDepsReady(true));
 
-    if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ || (window as any).__TAUI__) {
+    if (typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) {
       const portPromise = discoverPort();
 
       storage.init().then(() => {
