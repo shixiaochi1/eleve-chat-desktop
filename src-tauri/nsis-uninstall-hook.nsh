@@ -82,6 +82,8 @@ Var LOCALAPPDATA_PATH
 ;   R6-R10 用户数据      → U1 处理
 ;   R11 临时文件         → U4 处理
 ;   R12 .eleve/         → U1 处理（旧版 pairing.rs 遗留，已修复但兜底清理）
+;   R13 %APPDATA%/Eleve → U5 处理（ELEVE_HOME 第3优先级）
+;   R14 %USERPROFILE%/.eleve → U6 处理（ELEVE_HOME 第4优先级）
 ;
 !macro NSIS_HOOK_POSTUNINSTALL
   ; ── U1: 清理安装目录下的 data/ 和 .eleve/ ──
@@ -115,7 +117,30 @@ Var LOCALAPPDATA_PATH
   ; ── U4: 清理临时文件 ──
   Delete "$TEMP\eleve-cwd-*.txt"
 
-  ; ── U5: 删除安装目录本身 ──
+  ; ── U5: 清理 %APPDATA%/Eleve（ELEVE_HOME 第3优先级）──
+  ; 对齐 eleve-core::bootstrap::get_eleve_home() 第3步
+  ${If} $DeleteAppDataCheckboxState = 1
+    RmDir /r "$APPDATA\Eleve"
+  ${Else}
+    ; 未勾选：仅清理运行时临时文件
+    RmDir /r "$APPDATA\Eleve\runtime"
+    RmDir /r "$APPDATA\Eleve\logs"
+  ${EndIf}
+
+  ; ── U6: 清理 %USERPROFILE%/.eleve（ELEVE_HOME 第4优先级）──
+  ; 对齐 eleve-core::bootstrap::get_eleve_home() 第4步
+  ReadEnvStr $0 "USERPROFILE"
+  ${If} $0 != ""
+    ${If} $DeleteAppDataCheckboxState = 1
+      RmDir /r "$0\.eleve"
+    ${Else}
+      ; 未勾选：仅清理运行时临时文件
+      RmDir /r "$0\.eleve\runtime"
+      RmDir /r "$0\.eleve\logs"
+    ${EndIf}
+  ${EndIf}
+
+  ; ── U7: 删除安装目录本身 ──
   ; RmDir 仅删空目录，非空时安全跳过（data/ 残留时 $INSTDIR 非空）
   RmDir "$INSTDIR"
 !macroend
