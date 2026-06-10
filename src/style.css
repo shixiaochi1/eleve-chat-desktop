@@ -942,25 +942,12 @@ canvas {
   overflow: hidden;
 }
 
-/* ── Reasoning shimmer animation（对齐 Hermes tw-shimmer）── */
-@keyframes reasoning-shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
+/* ── Reasoning pulse animation（简洁呼吸脉动）── */
+@keyframes reasoning-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.75; }
 }
 
 .reasoning-shimmer {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in srgb, var(--foreground) 8%, transparent) 40%,
-    color-mix(in srgb, var(--foreground) 15%, transparent) 50%,
-    color-mix(in srgb, var(--foreground) 8%, transparent) 60%,
-    transparent 100%
-  );
-  background-size: 200% 100%;
-  animation: reasoning-shimmer 2s ease-in-out infinite;
+  animation: reasoning-pulse 2.5s ease-in-out infinite;
 }
