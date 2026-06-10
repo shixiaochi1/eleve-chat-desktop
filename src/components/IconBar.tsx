@@ -33,8 +33,21 @@ const THEME_KEY = 'eleve-theme';
 
 export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gatewayOnline, onToggleFiles }: IconBarProps) {
   const [theme, setTheme] = useState(() => {
-    return document.documentElement.dataset.theme || 'dark';
+    // 优先从 storage 读取，否则使用系统偏好
+    const saved = storage.load('theme') || localStorage.getItem(THEME_KEY);
+    if (saved) return saved;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
+
+  // 初始化时设置正确的 class
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    document.documentElement.dataset.theme = theme;
+  }, []);
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: light)');
@@ -42,6 +55,11 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
       if (!storage.load('theme') && !localStorage.getItem(THEME_KEY)) {
         const sysTheme = e.matches ? 'light' : 'dark';
         setTheme(sysTheme);
+        if (sysTheme === 'dark') {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
         document.documentElement.dataset.theme = sysTheme;
       }
     };
@@ -52,6 +70,12 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
     setTheme(next);
+    // CSS 使用 :root.dark 选择器，需要添加/移除 class
+    if (next === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
     document.documentElement.dataset.theme = next;
     storage.save('theme', next);
     // 向后兼容：同时清理旧 localStorage 值
