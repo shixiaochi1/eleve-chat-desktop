@@ -408,7 +408,7 @@ fn http_post_shutdown(port: u16) {
 /// 优雅关闭 eleved 子进程
 ///
 /// 1. 尝试 HTTP POST /api/shutdown（超时 2s）
-/// 2. 等待 PID 退出（最多 5s，每 500ms 检查）
+/// 2. 等待 PID 退出（最多 15s，每 500ms 检查）
 /// 3. 超时后 taskkill /F 强杀兜底
 fn graceful_shutdown_eleved(state: &TauriAppState) {
     if state.shutting_down.swap(true, Ordering::SeqCst) {
@@ -429,8 +429,9 @@ fn graceful_shutdown_eleved(state: &TauriAppState) {
         http_post_shutdown(port);
     }
 
-    // Step 2: 等待进程退出（最多 5 秒，每 500ms 检查）
-    for i in 0..10 {
+    // Step 2: 等待进程退出（最多 15 秒，每 500ms 检查）
+    // 15s 覆盖大部分正常关闭场景（runner.stop drain 最多 30s，但通常很快完成）
+    for i in 0..30 {
         std::thread::sleep(std::time::Duration::from_millis(500));
         if !is_pid_alive(pid) {
             eprintln!("[TAURI] eleved 已优雅退出 (等待约 {}ms)", (i + 1) * 500);
@@ -439,7 +440,7 @@ fn graceful_shutdown_eleved(state: &TauriAppState) {
     }
 
     // Step 3: 超时，强杀兜底
-    eprintln!("[TAURI] 优雅关闭超时 (5s)，强制终止...");
+    eprintln!("[TAURI] 优雅关闭超时 (15s)，强制终止...");
     force_kill_pid(pid);
 
     // 确认已死
@@ -456,20 +457,26 @@ fn graceful_shutdown_eleved(state: &TauriAppState) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 fn cleanup_and_exit(app: &tauri::AppHandle) {
-    // 防重入：关闭对话框 + 托盘退出可能同时触发
-    if let Some(state) = app.try_state::<TauriAppState>() {
-        graceful_shutdown_eleved(&state);
-    }
-    // 先关闭所有子窗口（看板等），防止残留
+    // 1. 先关闭所有子窗口（看板等），防止残留
+    //    close() 是异步信号，但 eleved 关闭需要时间，窗口会在此期间释放
     for win in app.webview_windows().values() {
         if win.label() != "main" {
             let _ = win.close();
         }
     }
-    // 清理 gateway_state.json，防止下次启动读到残留端口
+
+    // 2. 优雅关闭 eleved（阻塞等待，确保 SQLite 连接正常关闭）
+    //    这是关键步骤——必须等 eleved 完全退出，文件句柄释放
+    if let Some(state) = app.try_state::<TauriAppState>() {
+        graceful_shutdown_eleved(&state);
+    }
+
+    // 3. 清理 gateway_state.json，防止下次启动读到残留端口
     let eleve_home = resolve_eleve_home();
     let state_file = eleve_home.join("runtime").join("gateway_state.json");
     let _ = std::fs::remove_file(&state_file);
+
+    // 4. 最后退出 Tauri（此时 eleved 已死，文件句柄已释放）
     app.exit(0);
 }
 
@@ -647,10 +654,9 @@ pub fn run() {
                 // 只有主窗口关闭才退出应用，其他窗口（如看板）只关闭窗口本身
                 if label == "main" {
                     let app = window.app_handle().clone();
-                    // 后台执行关闭流程，窗口立即消失（不等 eleved 优雅退出）
-                    std::thread::spawn(move || {
-                        cleanup_and_exit(&app);
-                    });
+                    // 同步执行关闭流程（阻塞直到 eleved 完全退出）
+                    // 不能用 std::thread::spawn — app.exit(0) 会抢在 cleanup 之前
+                    cleanup_and_exit(&app);
                 }
                 // 非主窗口（kanban 等）：默认行为即关闭该窗口，不退出应用
             }

@@ -1,17 +1,8 @@
-; NSIS 卸载钩子 — 卸载前 kill 进程，卸载后清理所有数据
-
-; ── 通用变量定义 ──
-; NSIS 不内置 $LOCALAPPDATA，需手动解析
+; NSIS uninstall hook - kill processes then clean all data
 Var LOCALAPPDATA_PATH
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; 解析 LOCALAPPDATA 路径（安装时初始化，确保变量可用）
   ReadEnvStr $LOCALAPPDATA_PATH "LOCALAPPDATA"
-
-  ; 创建数据根目录及子目录结构
-  ; 对齐 Hermes ensure_hermes_home(): mkdir(parents=True, exist_ok=True)
-  ; 用户选 D:\Eleve Chat\ 安装 → 数据在 D:\Eleve Chat\data\
-  ; Tauri 启动时 resolve_and_set_eleve_home() 会设 ELEVE_HOME=$INSTDIR\data
   CreateDirectory "$INSTDIR\data"
   CreateDirectory "$INSTDIR\data\cron"
   CreateDirectory "$INSTDIR\data\sessions"
@@ -35,112 +26,65 @@ Var LOCALAPPDATA_PATH
   CreateDirectory "$INSTDIR\data\mcp-tokens"
 !macroend
 
-; ── 卸载前：强制终止所有相关进程 + 清理注册表 ──
 !macro NSIS_HOOK_PREUNINSTALL
-  ; 解析 LOCALAPPDATA 路径（卸载时也需要）
   ReadEnvStr $LOCALAPPDATA_PATH "LOCALAPPDATA"
-
-  ; 清理开机自启注册表（无论是否启用都尝试删除）
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "EleveChat"
-
-  ; 按优先级尝试安全终止进程：
-  ; 1. 读取 PID 文件（更精确，不误杀同名进程）
-  ; 2. Fallback 到按映像名杀进程
   ClearErrors
   FileOpen $0 "$INSTDIR\data\runtime\gateway.pid" r
   FileRead $0 $1
   FileClose $0
   ${If} ${Errors}
-    ; PID 文件不存在或不可读，fallback 到 /IM
     nsExec::Exec "taskkill /IM eleved.exe /F"
   ${Else}
-    ; 按 PID 杀进程（更安全，不误杀同名进程）
-    StrCpy $1 $1 -1 0  ; trim trailing newline
+    StrCpy $1 $1 -1 0
     nsExec::Exec "taskkill /PID $1 /F"
   ${EndIf}
-
-  ; Kill Tauri 主进程（无 PID 文件，只能 /IM）
   nsExec::Exec "taskkill /IM eleve-chat-desktop.exe /F"
-  ; Kill agent-browser sidecar
   nsExec::Exec "taskkill /IM agent-browser-win32-x64.exe /F"
-  ; 等待进程完全退出（Windows 文件锁需要时间释放）
-  Sleep 3000
+  Sleep 5000
 !macroend
 
-; ── 卸载后：清理所有运行时数据、缓存、临时文件 ──
-;
-; 闭环清单（安装/运行写入 → 卸载清理）：
-;   A1 卸载注册表        → Tauri 框架自动清
-;   A2 安装目录(exe等)   → Tauri 框架自动清
-;   A3 data/ 子目录树    → U1 处理
-;   A4 开始菜单快捷方式   → Tauri 框架自动清
-;   R1 开机自启注册表    → PREUNINSTALL 已清
-;   R2 WebView2 缓存    → U2 处理
-;   R3 Tauri 配置目录    → U3 处理
-;   R4 runtime/         → U1 处理
-;   R5 logs/            → U1 处理
-;   R6-R10 用户数据      → U1 处理
-;   R11 临时文件         → U4 处理
-;   R12 .eleve/         → U1 处理（旧版 pairing.rs 遗留，已修复但兜底清理）
-;   R13 %APPDATA%/Eleve → U5 处理（ELEVE_HOME 第3优先级）
-;   R14 %USERPROFILE%/.eleve → U6 处理（ELEVE_HOME 第4优先级）
-;
 !macro NSIS_HOOK_POSTUNINSTALL
-  ; ── U1: 清理安装目录下的 data/ 和 .eleve/ ──
-  ; Tauri v2 NSIS 提供 $DeleteAppDataCheckboxState 变量：
-  ;   值为 1 表示用户勾选了"删除应用数据"，为 0 表示未勾选
-  ${If} $DeleteAppDataCheckboxState = 1
-    ; 用户明确要求删除全部数据
-    RmDir /r "$INSTDIR\data"
-    RmDir /r "$INSTDIR\.eleve"
-  ${Else}
-    ; 未勾选：保留用户数据，仅清理运行时临时文件
-    RmDir /r "$INSTDIR\data\runtime"
-    RmDir /r "$INSTDIR\data\logs"
-    RmDir /r "$INSTDIR\.eleve"
-  ${EndIf}
+  ReadEnvStr $LOCALAPPDATA_PATH "LOCALAPPDATA"
+  ReadEnvStr $R1 "USERPROFILE"
+  ReadEnvStr $R2 "WINDIR"
 
-  ; ── U2: 清理 WebView2 缓存（AppData\Local\com.eleve.chat.desktop\）──
-  ; NSIS 不内置 $LOCALAPPDATA，用 ReadEnvStr 解析的变量
-  ${If} $LOCALAPPDATA_PATH != ""
-    RmDir /r "$LOCALAPPDATA_PATH\com.eleve.chat.desktop"
-  ${EndIf}
+  ; Always clean runtime/cache/logs (safe to delete)
+  RmDir /r "$INSTDIR\data\runtime"
+  RmDir /r "$INSTDIR\data\logs"
+  RmDir /r "$INSTDIR\data\cache\sandbox"
+  RmDir /r "$INSTDIR\data\cache\terminal"
+  RmDir /r "$INSTDIR\.eleve"
 
-  ; ── U3: 清理 Tauri 配置目录（AppData\Roaming\com.eleve.chat.desktop\）──
-  ; $APPDATA 是 NSIS 内置变量
+  ; Always clean binaries (non-user data, blocks $INSTDIR removal)
+  RmDir /r "$INSTDIR\binaries"
+
+  ; If user chose to delete app data, clean everything
+  ; IntCmp: val1 val2 jump_equal jump_less jump_greater
+  ; If != 1, skip 8 instructions forward
+  IntCmp $DeleteAppDataCheckboxState 1 "" +8 +8
+  RmDir /r "$INSTDIR\data"
+  RmDir /r "$LOCALAPPDATA_PATH\com.eleve.chat.desktop"
   RmDir /r "$APPDATA\com.eleve.chat.desktop"
+  RmDir /r "$APPDATA\Eleve"
+  RmDir /r "$R1\.eleve"
+  RmDir /r "$LOCALAPPDATA_PATH\eleve"
+  RmDir /r "$R2\.eleve"
+  RmDir /r "$R1\voice-memos"
 
-  ; ── 注册表残留 ──
+  ; Always clean temp files
+  Delete "$TEMP\eleve-cwd-*.txt"
+  RmDir /r "$TEMP\eleve-results"
+  RmDir /r "$TEMP\eleve_test"
+  RmDir /r "$TEMP\eleve_demo_project"
+  RmDir /r "$TEMP\eleve_vision_images"
+  nsExec::Exec 'cmd /c rd /s /q "%TEMP%\eleve_sandbox_*" 2>nul'
+  nsExec::Exec 'cmd /c rd /s /q "%TEMP%\eleve_exec_*" 2>nul'
+
+  ; Always clean registry
   DeleteRegKey HKCU "Software\Eleve Chat"
   DeleteRegKey HKCU "Software\com.eleve.chat.desktop"
 
-  ; ── U4: 清理临时文件 ──
-  Delete "$TEMP\eleve-cwd-*.txt"
-
-  ; ── U5: 清理 %APPDATA%/Eleve（ELEVE_HOME 第3优先级）──
-  ; 对齐 eleve-core::bootstrap::get_eleve_home() 第3步
-  ${If} $DeleteAppDataCheckboxState = 1
-    RmDir /r "$APPDATA\Eleve"
-  ${Else}
-    ; 未勾选：仅清理运行时临时文件
-    RmDir /r "$APPDATA\Eleve\runtime"
-    RmDir /r "$APPDATA\Eleve\logs"
-  ${EndIf}
-
-  ; ── U6: 清理 %USERPROFILE%/.eleve（ELEVE_HOME 第4优先级）──
-  ; 对齐 eleve-core::bootstrap::get_eleve_home() 第4步
-  ReadEnvStr $0 "USERPROFILE"
-  ${If} $0 != ""
-    ${If} $DeleteAppDataCheckboxState = 1
-      RmDir /r "$0\.eleve"
-    ${Else}
-      ; 未勾选：仅清理运行时临时文件
-      RmDir /r "$0\.eleve\runtime"
-      RmDir /r "$0\.eleve\logs"
-    ${EndIf}
-  ${EndIf}
-
-  ; ── U7: 删除安装目录本身 ──
-  ; RmDir 仅删空目录，非空时安全跳过（data/ 残留时 $INSTDIR 非空）
+  ; Remove install directory (only works if empty)
   RmDir "$INSTDIR"
 !macroend
