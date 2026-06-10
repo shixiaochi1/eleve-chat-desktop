@@ -213,8 +213,6 @@ export default function ThemePanel({ onClose }: ThemePanelProps) {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {BUILTIN_THEME_LIST.map((t) => {
               const selected = themeName === t.name;
-              const isDark = t.colors.background.startsWith('#') &&
-                parseInt(t.colors.background.slice(1), 16) < 0x808080;
               return (
                 <div
                   key={t.name}
@@ -246,9 +244,6 @@ export default function ThemePanel({ onClose }: ThemePanelProps) {
                   <div className="p-3 flex flex-col gap-2">
                     <div className="text-center">
                       <span className="font-semibold text-sm">{t.label}</span>
-                      <span className="text-[10px] text-muted-foreground/60 ml-1.5">
-                        {isDark ? '深色' : '浅色'}
-                      </span>
                     </div>
 
                     <div className="flex gap-1.5">
