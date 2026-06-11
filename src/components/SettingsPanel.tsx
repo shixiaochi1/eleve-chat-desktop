@@ -383,7 +383,8 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
           transport,
         };
         if (p.apiKey) provObj[p.id].api_key = p.apiKey;
-        if (p.keyEnv) provObj[p.id].key_env = p.keyEnv;
+        // key_env: 优先用已有值，否则从 id 自动生成
+        provObj[p.id].key_env = p.keyEnv || `${p.id.toUpperCase().replace(/-/g, '_')}_API_KEY`;
       }
       if (Object.keys(provObj).length) backendCfg.providers = provObj;
     }
