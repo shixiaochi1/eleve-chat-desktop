@@ -376,11 +376,15 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       const provObj: Record<string, any> = {};
       for (const p of providers) {
         const transport = p.baseUrl && p.baseUrl.includes('anthropic') ? 'anthropic_messages' : 'openai_chat';
+        // models: HashMap<String, ModelEntry> 格式（对齐 Rust ProviderConfig.models）
+        const modelsMap: Record<string, Record<string, unknown>> = {};
+        for (const m of p.models) { modelsMap[m] = {}; }
         provObj[p.id] = {
           name: p.name,
           base_url: p.baseUrl,
           model: p.models[0] || '',
           transport,
+          models: modelsMap,
         };
         if (p.apiKey) provObj[p.id].api_key = p.apiKey;
         // key_env: 优先用已有值，否则从 id 自动生成
