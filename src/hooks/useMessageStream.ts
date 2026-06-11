@@ -32,6 +32,7 @@ export interface SessionManagerHandle {
   saveTitles: (updater: ((prev: Record<string, string>) => Record<string, string>) | Record<string, string>) => void
   refresh: () => void
   create: () => Promise<void>
+  reset: () => Promise<void>
   remove: (id: string) => Promise<void>
   switchTo: (id: string) => void
   setTitle: (id: string, text: string) => void
@@ -547,7 +548,9 @@ export function useMessageStream({
     onError: (msg: string) => {
       addDebugEvent('error', msg);
       const errorStreamId = streamIdRef.current || `assistant-error-${Date.now()}`
+
       streamIdRef.current = null
+
       fullTextRef.current = ''
       if (getMessages().some(m => m.id === errorStreamId)) {
         updateMessage(errorStreamId, { error: msg, pending: false })
@@ -560,6 +563,18 @@ export function useMessageStream({
       });
       if (drainQueueRef.current) drainQueueRef.current();
       setTimeout(() => setConnectionStatus((s) => (s === 'error' ? 'idle' : s)), 3000);
+    },
+
+    // ── Session reset — aligned with Hermes /new /reset ──
+    // When backend resets session (via /new command), update UI session_id + clear messages.
+    onSessionReset: ({ new_session_id }: { old_session_id: string; new_session_id: string }) => {
+      addDebugEvent('session_reset', `new: ${new_session_id?.slice(0, 8)}`);
+      sess.setSessionId(new_session_id);
+      storage.save('session_id', new_session_id);
+      storeSetMessages([]);
+      sess.refresh();
+      if (setSessionListVersion) setSessionListVersion(v => v + 1);
+      setDebugInfo((prev) => ({ ...prev, sessionId: new_session_id, sessionStartedAt: Date.now() }));
     },
   } satisfies SSECallbacks;
 

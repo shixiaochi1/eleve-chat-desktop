@@ -19,6 +19,11 @@ export async function createSession(): Promise<any> {
   return call('create_session', {});
 }
 
+/** 重置当前会话（对齐 Hermes reset_session：新 ID + 清消息 + 保留记忆） */
+export async function resetSession(sessionId: string): Promise<any> {
+  return call('reset_session', { session_id: sessionId });
+}
+
 export async function deleteSession(id: string): Promise<any> {
   return call('delete_session', { session_id: id });
 }

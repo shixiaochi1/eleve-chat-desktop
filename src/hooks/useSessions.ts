@@ -13,6 +13,7 @@ export function useSessions(): {
   titles: Record<string, string>
   refresh: () => Promise<void>
   create: () => Promise<void>
+  reset: () => Promise<void>
   remove: (id: string) => Promise<void>
   switchTo: (id: string) => void
   setTitle: (id: string, text: string) => void
@@ -65,6 +66,20 @@ export function useSessions(): {
     } catch { /* offline */ }
   }, [refresh]);
 
+  /** 重置当前会话（对齐 Hermes reset_session：新 ID + 清消息 + 保留记忆） */
+  const reset = useCallback(async (): Promise<void> => {
+    if (!sessionId) { await create(); return; }
+    try {
+      const data = await api.resetSession(sessionId) as { session_id?: string; id?: string };
+      if (data?.session_id || data?.id) {
+        const newId = data.session_id || data.id!;
+        setSessionId(newId);
+        storage.save('session_id', newId);
+        await refresh();
+      }
+    } catch { /* offline */ }
+  }, [sessionId, create, refresh]);
+
   const remove = useCallback(async (id: string): Promise<void> => {
     try { await api.deleteSession(id); } catch { /* ignore */ }
     setSessions((prev) => prev.filter((s) => s.id !== id));
@@ -106,7 +121,7 @@ export function useSessions(): {
 
   return {
     sessionId, setSessionId, sessions, msgCache, titles,
-    refresh, create, remove, switchTo,
+    refresh, create, reset, remove, switchTo,
     setTitle, getTitle, saveCache, saveTitles, loadHistory,
   };
 }

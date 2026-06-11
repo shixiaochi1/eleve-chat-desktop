@@ -47,6 +47,7 @@ export interface SSECallbacks {
   onDone?: (sessionId: string | null) => void
   onError?: (msg: string) => void
   onReasoningComplete?: (reasoning: string) => void
+  onSessionReset?: (data: { old_session_id: string; new_session_id: string }) => void
 }
 
 // ── Raw SSE event shapes (snake_case from Rust StreamEvent) ──
@@ -589,6 +590,10 @@ export function useSSE(callbacks: SSECallbacks = {}): {
                 case 'error':
                   cbs.onError?.(chunk.message || 'Unknown error');
                   result = 'error';
+                  handled = true;
+                  break;
+                case 'session_reset':
+                  cbs.onSessionReset?.({ old_session_id: chunk.old_session_id, new_session_id: chunk.new_session_id });
                   handled = true;
                   break;
                 case 'done':

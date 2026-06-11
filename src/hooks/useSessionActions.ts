@@ -85,13 +85,13 @@ export function useSessionActions({
     if (setSessionListVersion) setSessionListVersion(v => v + 1);
   }, [sess, setSessionListVersion]);
 
-  // ── new session ──
+  // ── new session（对齐 Hermes reset_session）──
   const handleNewSession = useCallback(async () => {
     resetSendingLock?.();
     if (sess.sessionId) {
       sess.saveCache((cache) => ({ ...cache, [sess.sessionId!]: getMessages() }));
     }
-    await sess.create();
+    await sess.reset();
     storeSetMessages([]);
     setDebugInfo((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
     if (lastTimeRef) lastTimeRef.current = '';
