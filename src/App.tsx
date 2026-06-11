@@ -198,6 +198,7 @@ export default function App() {
   } = useSessionActions({
     sess,
     genId,
+    send,
     setDebugInfo: setDebugInfo as any,
     setSessionListVersion,
     lastTimeRef,

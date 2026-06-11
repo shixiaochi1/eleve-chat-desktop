@@ -23,6 +23,7 @@ function shortId(id: string): string {
 export function useSessionActions({
   sess,
   genId,
+  send,
   setDebugInfo,
   setSessionListVersion,
   lastTimeRef,
@@ -30,6 +31,7 @@ export function useSessionActions({
 }: {
   sess: SessionManagerHandle
   genId: () => string
+  send: (message: string) => void
   setDebugInfo: React.Dispatch<React.SetStateAction<Record<string, unknown>>>
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
   lastTimeRef?: MutableRefObject<string>
@@ -85,18 +87,17 @@ export function useSessionActions({
     if (setSessionListVersion) setSessionListVersion(v => v + 1);
   }, [sess, setSessionListVersion]);
 
-  // ── new session（对齐 Hermes reset_session）──
+  // ── new session — 统一走 /new 命令路径（与用户输入 /new 完全一致）
+  // 对齐 Hermes：按钮和 /new 走同一后端入口，SSE session_reset 事件触发 UI 更新
   const handleNewSession = useCallback(async () => {
     resetSendingLock?.();
     if (sess.sessionId) {
       sess.saveCache((cache) => ({ ...cache, [sess.sessionId!]: getMessages() }));
     }
-    await sess.reset();
-    storeSetMessages([]);
-    setDebugInfo((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
-    if (lastTimeRef) lastTimeRef.current = '';
-    if (setSessionListVersion) setSessionListVersion(v => v + 1);
-  }, [sess, setDebugInfo, lastTimeRef, setSessionListVersion, resetSendingLock]);
+    // 发送 /new 命令走 chat_stream，后端完整清理 + reset_session + SSE 事件
+    // 不再走独立的 api.resetSession() 路径
+    send('/new');
+  }, [sess, send, resetSendingLock]);
 
   return {
     handleSwitchSession,
