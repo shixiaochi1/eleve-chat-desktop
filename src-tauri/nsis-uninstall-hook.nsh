@@ -29,19 +29,12 @@ Var LOCALAPPDATA_PATH
 !macro NSIS_HOOK_PREUNINSTALL
   ReadEnvStr $LOCALAPPDATA_PATH "LOCALAPPDATA"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "EleveChat"
-  ClearErrors
-  FileOpen $0 "$INSTDIR\data\runtime\gateway.pid" r
-  FileRead $0 $1
-  FileClose $0
-  ${If} ${Errors}
-    nsExec::Exec "taskkill /IM eleved.exe /F"
-  ${Else}
-    StrCpy $1 $1 -1 0
-    nsExec::Exec "taskkill /PID $1 /F"
-  ${EndIf}
+  ; 直接按进程名杀，不读 gateway.pid（它是 JSON 格式，NSIS 无法解析）
+  nsExec::Exec "taskkill /IM eleved.exe /F"
   nsExec::Exec "taskkill /IM eleve-chat-desktop.exe /F"
   nsExec::Exec "taskkill /IM agent-browser-win32-x64.exe /F"
-  Sleep 5000
+  ; 等待进程退出（Job Object 兜底，正常 500ms 内退出）
+  Sleep 2000
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL

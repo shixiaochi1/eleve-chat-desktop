@@ -18,6 +18,7 @@ import ReasoningBlock from './ReasoningBlock'
 import ToolCallGroup, { isSpecialTool, type ToolCallItem } from './ToolCallGroup'
 import HoistedTodoPanel, { todosFromMessageParts } from './HoistedTodoPanel'
 import type { ChatMessage, ChatMessagePart } from '@/types'
+import { loadSettings } from '@/utils/settings-store'
 
 const ESTIMATED_ITEM_HEIGHT = 220
 const OVERSCAN = 4
@@ -66,13 +67,15 @@ interface VirtualizedThreadProps {
   onRegenerate?: (msg?: ChatMessage) => void
   gatewayOnline?: boolean
   onGatewayRetry?: () => void
+  onOpenSettings?: () => void
 }
 
 export function VirtualizedThread({
   sessionKey,
   onRegenerate,
   gatewayOnline,
-  onGatewayRetry
+  onGatewayRetry,
+  onOpenSettings
 }: VirtualizedThreadProps) {
   const messageSignature = useMessageSignature()
   const groups = useMemo(() => buildGroups(messageSignature ?? ''), [messageSignature])
@@ -120,11 +123,11 @@ export function VirtualizedThread({
                 <img src="/eleve_logo.png" alt="Eleve" className="w-full h-full object-contain" />
               </div>
               <h2 className="text-lg font-semibold">Eleve Agent</h2>
-              <p className="text-sm text-muted-foreground">你的 AI 智能助手 · 开始对话吧</p>
-              {!gatewayOnline && (
-                <div className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border bg-card text-center">
-                  <span className="text-sm font-medium">网关未连接</span>
-                  <p className="text-xs text-muted-foreground">请先启动 Eleve Gateway：<code className="bg-muted/50 px-1 rounded">eleved</code></p>
+              {!gatewayOnline ? (
+                // ── 网关未连接 ──
+                <div className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border bg-card text-center max-w-xs">
+                  <span className="text-sm font-medium text-destructive">网关未连接</span>
+                  <p className="text-xs text-muted-foreground">后端服务未启动，请检查后重试</p>
                   <button
                     className={cn(
                       'inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md text-xs font-medium',
@@ -136,7 +139,40 @@ export function VirtualizedThread({
                     ↻ 重新检测
                   </button>
                 </div>
-              )}
+              ) : (() => {
+                // ── 检测是否已配置主模型和 API Key ──
+                const settings = loadSettings();
+                const hasMainProvider = !!settings.main.providerId;
+                const hasApiKey = settings.providers.some(p => p.id === settings.main.providerId && !!p.apiKey);
+                if (!hasMainProvider || !hasApiKey) {
+                  return (
+                    <div className="flex flex-col items-center gap-3 p-5 rounded-xl border border-border bg-card text-center max-w-xs">
+                      <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center">
+                        <span className="text-lg">⚠</span>
+                      </div>
+                      <span className="text-sm font-medium">尚未配置模型</span>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {hasMainProvider && !hasApiKey
+                          ? '主模型已选择，但 API Key 未设置，无法连接'
+                          : '请先选择主模型提供商并设置 API Key'}
+                      </p>
+                      <button
+                        className={cn(
+                          'inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md text-xs font-medium',
+                          'transition-all outline-none h-9 px-4',
+                          'bg-primary text-primary-foreground shadow-xs hover:bg-primary/90'
+                        )}
+                        onClick={onOpenSettings}
+                      >
+                        打开设置
+                      </button>
+                    </div>
+                  );
+                }
+                return (
+                  <p className="text-sm text-muted-foreground">你的 AI 智能助手 · 开始对话吧</p>
+                );
+              })()}
               <div className="flex gap-4 text-xs text-muted-foreground">
                 <span>Ctrl+N 新建会话</span>
                 <span>Enter 发送</span>

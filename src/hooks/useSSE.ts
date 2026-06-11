@@ -373,7 +373,32 @@ export function useSSE(callbacks: SSECallbacks = {}): {
 
         console.log('🔍 [SSE] Response received, status=', resp.status, 'ok=', resp.ok, 'body=', !!resp.body);
 
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        if (!resp.ok) {
+          // 人性化错误消息
+          let userMsg: string;
+          switch (resp.status) {
+            case 401:
+              userMsg = 'API Key 无效或未配置，请在设置中检查';
+              break;
+            case 403:
+              userMsg = '访问被拒绝，请检查 API Key 权限';
+              break;
+            case 404:
+              userMsg = '模型不存在或 API 地址不正确';
+              break;
+            case 429:
+              userMsg = '请求过于频繁，请稍后再试';
+              break;
+            case 500:
+            case 502:
+            case 503:
+              userMsg = '服务端错误，请稍后重试';
+              break;
+            default:
+              userMsg = `请求失败 (HTTP ${resp.status})`;
+          }
+          throw new Error(userMsg);
+        }
         if (!resp.body) throw new Error('不支持流式响应');
 
         const reader = resp.body.getReader();
@@ -679,7 +704,17 @@ export function useSSE(callbacks: SSECallbacks = {}): {
         if ((err as Error).name === 'AbortError') break;
         attempt++;
         if (attempt > MAX_RETRIES) {
-          cbs.onError?.((err as Error).message || '连接失败');
+          // 人性化连接错误
+          const errMsg = (err as Error).message || '';
+          let userMsg: string;
+          if (errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError') || errMsg.includes('ECONNREFUSED') || errMsg.includes('fetch failed')) {
+            userMsg = '无法连接 Agent 服务，请检查是否已配置 API Key 和主模型';
+          } else if (errMsg.includes('API Key') || errMsg.includes('无效')) {
+            userMsg = errMsg; // 已经是人性的消息
+          } else {
+            userMsg = errMsg || '连接失败，请检查配置';
+          }
+          cbs.onError?.(userMsg);
           break;
         }
         const delay = Math.pow(2, attempt - 1) * 1000;

@@ -30,6 +30,8 @@
 
   --spacing-mul: var(--dt-spacing-mul, 1);
 
+  --radius-scalar: 0.6;
+
   --radius-xs: calc(var(--radius-scalar) * 0.125rem);
   --radius-sm: calc(var(--radius-scalar) * 0.5rem);
   --radius-md: calc(var(--radius-scalar) * 0.625rem);

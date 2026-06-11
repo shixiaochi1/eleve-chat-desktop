@@ -21,16 +21,10 @@ export default function ModelSelector({ portReady, portVersion, onModelChange }:
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
   const FALLBACK_MODELS: string[] = [
-    'anthropic/claude-sonnet-4.6',
-    'anthropic/claude-sonnet-4',
-    'anthropic/claude-haiku-3.5',
-    'anthropic/claude-opus-4',
-    'gemini/gemini-2.5-flash',
-    'gemini/gemini-2.5-pro',
-    'openai/gpt-4o',
-    'openai/gpt-4o-mini',
-    'deepseek/deepseek-chat',
-    'deepseek/deepseek-reasoner',
+    'cmcc/cm-code-latest',
+    'bailian/qwen-plus',
+    'bailian/qwen-max',
+    'bailian/qwen-turbo',
     'eleve-agent',
   ];
 

@@ -501,6 +501,7 @@ export default function App() {
                     onRegenerate={handleRegenerate}
                     gatewayOnline={gatewayHealth.online}
                     onGatewayRetry={gatewayHealth.checkNow}
+                    onOpenSettings={() => handleOpenOverlay('settings')}
                   />
                   {activeClarify && (
                     <ClarifyCard

@@ -349,17 +349,23 @@ fn discover_gateway_port(eleve_home: &PathBuf) -> Result<u16, String> {
 fn is_pid_alive(pid: u32) -> bool {
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        let output = std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {}", pid), "/NH"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
-        if let Ok(out) = output {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            return stdout.contains(&pid.to_string());
+        // 用 Windows API OpenProcess + GetExitCodeProcess 替代 tasklist 命令
+        // tasklist 每次 spawn 进程要 50-100ms，OpenProcess 是内核调用，微秒级
+        use windows_sys::Win32::System::Threading::{OpenProcess, GetExitCodeProcess};
+        const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x0400;
+        const STILL_ACTIVE: u32 = 259;
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() {
+                return false; // 进程不存在或无权限 → 视为已退出
+            }
+            let mut exit_code: u32 = 0;
+            GetExitCodeProcess(handle, &mut exit_code);
+            // CloseHandle — 直接 FFI 声明避免额外 feature 依赖
+            extern "system" { fn CloseHandle(h: *mut std::ffi::c_void); }
+            CloseHandle(handle);
+            exit_code == STILL_ACTIVE
         }
-        false
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -408,7 +414,7 @@ fn http_post_shutdown(port: u16) {
 /// 优雅关闭 eleved 子进程
 ///
 /// 1. 尝试 HTTP POST /api/shutdown（超时 2s）
-/// 2. 等待 PID 退出（最多 15s，每 500ms 检查）
+/// 2. 等待 PID 退出（最多 3s，每 200ms 检查）
 /// 3. 超时后 taskkill /F 强杀兜底
 fn graceful_shutdown_eleved(state: &TauriAppState) {
     if state.shutting_down.swap(true, Ordering::SeqCst) {
@@ -429,22 +435,23 @@ fn graceful_shutdown_eleved(state: &TauriAppState) {
         http_post_shutdown(port);
     }
 
-    // Step 2: 等待进程退出（最多 15 秒，每 500ms 检查）
-    // 15s 覆盖大部分正常关闭场景（runner.stop drain 最多 30s，但通常很快完成）
-    for i in 0..30 {
-        std::thread::sleep(std::time::Duration::from_millis(500));
+    // Step 2: 等待进程退出（最多 3 秒，每 200ms 检查）
+    // 正常情况下 eleved 在收到 shutdown 后 500ms 内退出
+    // 3s 足够覆盖 axum graceful shutdown + SQLite 关闭，超出则强杀
+    for i in 0..15 {
+        std::thread::sleep(std::time::Duration::from_millis(200));
         if !is_pid_alive(pid) {
-            eprintln!("[TAURI] eleved 已优雅退出 (等待约 {}ms)", (i + 1) * 500);
+            eprintln!("[TAURI] eleved 已优雅退出 (等待约 {}ms)", (i + 1) * 200);
             return;
         }
     }
 
     // Step 3: 超时，强杀兜底
-    eprintln!("[TAURI] 优雅关闭超时 (15s)，强制终止...");
+    eprintln!("[TAURI] 优雅关闭超时 (3s)，强制终止...");
     force_kill_pid(pid);
 
     // 确认已死
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    std::thread::sleep(std::time::Duration::from_millis(200));
     if !is_pid_alive(pid) {
         eprintln!("[TAURI] eleved 已强制终止");
     } else {
@@ -457,26 +464,31 @@ fn graceful_shutdown_eleved(state: &TauriAppState) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 fn cleanup_and_exit(app: &tauri::AppHandle) {
-    // 1. 先关闭所有子窗口（看板等），防止残留
-    //    close() 是异步信号，但 eleved 关闭需要时间，窗口会在此期间释放
+    // 1. 立即隐藏所有窗口 — 用户点击关闭后窗口瞬间消失，不卡顿
+    //    必须在等 eleved 退出之前，否则窗口冻住 3s 很傻
+    for win in app.webview_windows().values() {
+        let _ = win.hide();
+    }
+
+    // 2. 关闭所有子窗口（看板等），防止残留
     for win in app.webview_windows().values() {
         if win.label() != "main" {
             let _ = win.close();
         }
     }
 
-    // 2. 优雅关闭 eleved（阻塞等待，确保 SQLite 连接正常关闭）
-    //    这是关键步骤——必须等 eleved 完全退出，文件句柄释放
+    // 3. 优雅关闭 eleved（阻塞等待，确保 SQLite 连接正常关闭）
+    //    此时窗口已隐藏，用户看不到任何卡顿
     if let Some(state) = app.try_state::<TauriAppState>() {
         graceful_shutdown_eleved(&state);
     }
 
-    // 3. 清理 gateway_state.json，防止下次启动读到残留端口
+    // 4. 清理 gateway_state.json，防止下次启动读到残留端口
     let eleve_home = resolve_eleve_home();
     let state_file = eleve_home.join("runtime").join("gateway_state.json");
     let _ = std::fs::remove_file(&state_file);
 
-    // 4. 最后退出 Tauri（此时 eleved 已死，文件句柄已释放）
+    // 5. 最后退出 Tauri（此时 eleved 已死，文件句柄已释放）
     app.exit(0);
 }
 
