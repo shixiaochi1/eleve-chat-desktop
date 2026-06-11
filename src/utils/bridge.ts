@@ -148,6 +148,9 @@ const COMMAND_HTTP_MAP: Record<string, CommandMapping> = {
   update_settings:        { method: 'PUT',  path: '/api/settings' },
   save_api_key:           { method: 'PUT',  path: (a) => `/api/api-key/${a.provider_id}` },
   load_api_key:           { method: 'GET',  path: (a) => `/api/api-key/${a.provider_id}` },
+  slugify:                { method: 'POST', path: '/api/slugify' },
+  models_dev_query:       { method: 'GET',  path: (a) => `/api/models-dev?provider=${a.provider}&model=${a.model}` },
+  models_dev_list:        { method: 'GET',  path: (a) => `/api/models-dev/list?provider=${a.provider}` },
 
   // 存储
   get_app_data:           { method: 'GET',  path: (a) => `/api/app-data/${a.key}` },

@@ -40,8 +40,8 @@ export interface SettingsV2 {
 
 // ====== 提供商注册表预设（含 Base URL 和模型，无 Key） ======
 export const PROVIDER_REGISTRY: ProviderEntry[] = [
-  { id: 'cmcc',     name: '中国移动',   baseUrl: 'https://zhenze-huhehaote.cmecloud.cn/api/coding/v1', models: ['cm-code-latest'] },
-  { id: 'bailian',  name: '阿里云百炼', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',  models: ['qwen-plus', 'qwen-max', 'qwen-turbo'] },
+  { id: 'zhongguo-yidong', name: '中国移动',   baseUrl: 'https://zhenze-huhehaote.cmecloud.cn/api/coding/v1', models: ['cm-code-latest'] },
+  { id: 'aliyun-bailian',  name: '阿里云百炼', baseUrl: 'https://coding.dashscope.aliyuncs.com/v1',  models: ['qwen3-coder-plus', 'qwen3.5-plus', 'qwen3-coder-next'] },
 ];
 
 export const AUX_TASKS: AuxTaskEntry[] = [
@@ -174,4 +174,33 @@ export function findProvider(providers: ProviderEntry[], id: string): ProviderEn
 export function getProviderModels(providers: ProviderEntry[], id: string): string[] {
   const p = findProvider(providers, id);
   return p ? p.models : [];
+}
+
+
+// ====== Slugify & Models.dev API ======
+
+/** 调后端 slugify_provider_name — 中文显示名 → 英文配置ID */
+export async function slugifyProviderName(name: string): Promise<{ slug: string; key_env: string }> {
+  const res = await call('slugify', { name });
+  return res as { slug: string; key_env: string };
+}
+
+/** 查询 models.dev 获取模型能力参数 */
+export async function lookupModelCapabilities(provider: string, model: string): Promise<Record<string, unknown> | null> {
+  try {
+    const res = await call('models_dev_query', { provider, model });
+    return res as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** 列出指定 provider 在 models.dev 上的所有模型 */
+export async function listProviderModels(provider: string): Promise<string[]> {
+  try {
+    const res = await call('models_dev_list', { provider });
+    return Array.isArray(res) ? res : [];
+  } catch {
+    return [];
+  }
 }

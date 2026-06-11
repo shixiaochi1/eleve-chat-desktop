@@ -26,6 +26,7 @@ export default function ProviderSettings({
   newProvider,
   setNewProvider,
   handleAddProvider,
+  onProviderNameChange,
 }: {
   providers: (Partial<ModelOptionProvider> & { id: string; name: string; apiKey?: string; baseUrl?: string; models: string[] })[];
   expandedProvider: string | null;
@@ -39,9 +40,10 @@ export default function ProviderSettings({
   handleSave: () => void;
   addProviderOpen: boolean;
   setAddProviderOpen: (v: boolean) => void;
-  newProvider: { name: string; apiKey: string; baseUrl: string; modelsRaw: string };
-  setNewProvider: (v: { name: string; apiKey: string; baseUrl: string; modelsRaw: string }) => void;
+  newProvider: { name: string; slug: string; keyEnv: string; apiKey: string; baseUrl: string; modelsRaw: string };
+  setNewProvider: (v: { name: string; slug: string; keyEnv: string; apiKey: string; baseUrl: string; modelsRaw: string }) => void;
   handleAddProvider: () => void;
+  onProviderNameChange: (name: string) => void;
 }) {
   return (
     <div>
@@ -77,10 +79,19 @@ export default function ProviderSettings({
         <div className="flex flex-col gap-2 p-3 mt-2 border border-border rounded-lg bg-muted/20">
           <Input
             className="h-7 text-xs"
-            placeholder="厂商名称"
+            placeholder="厂商名称（如：阿里云百炼）"
             value={newProvider.name}
-            onChange={e => setNewProvider({ ...newProvider, name: e.target.value })}
+            onChange={e => onProviderNameChange(e.target.value)}
           />
+          {newProvider.slug && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>配置ID:</span>
+              <code className="bg-muted px-1.5 py-0.5 rounded text-[11px]">{newProvider.slug}</code>
+              <span className="text-muted-foreground/50">|</span>
+              <span>密钥:</span>
+              <code className="bg-muted px-1.5 py-0.5 rounded text-[11px]">{newProvider.keyEnv}</code>
+            </div>
+          )}
           <Input
             className="h-7 text-xs"
             type="password"
@@ -103,7 +114,7 @@ export default function ProviderSettings({
           />
           <div className="flex justify-end gap-2 mt-2">
             <Button variant="outline" size="sm" onClick={() => setAddProviderOpen(false)}>取消</Button>
-            <Button variant="default" size="sm" onClick={handleAddProvider} disabled={!newProvider.name.trim()}>添加</Button>
+            <Button variant="default" size="sm" onClick={handleAddProvider} disabled={!newProvider.name.trim() || !newProvider.slug.trim()}>添加</Button>
           </div>
         </div>
       )}

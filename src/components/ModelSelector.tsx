@@ -21,10 +21,10 @@ export default function ModelSelector({ portReady, portVersion, onModelChange }:
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
   const FALLBACK_MODELS: string[] = [
-    'cmcc/cm-code-latest',
-    'bailian/qwen-plus',
-    'bailian/qwen-max',
-    'bailian/qwen-turbo',
+    'zhongguo-yidong/cm-code-latest',
+    'aliyun-bailian/qwen3-coder-plus',
+    'aliyun-bailian/qwen3.5-plus',
+    'aliyun-bailian/qwen3-coder-next',
     'eleve-agent',
   ];
 

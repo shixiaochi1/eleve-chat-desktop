@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { call } from '../utils/bridge';
-import { loadSettings, saveSettings, saveApiKey, AUX_TASKS, findProvider } from '../utils/settings-store';
+import { loadSettings, saveSettings, saveApiKey, slugifyProviderName, AUX_TASKS, findProvider } from '../utils/settings-store';
 import type { ProviderEntry, AuxTaskEntry } from '../utils/settings-store';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { AlertTriangle, Upload, Download } from 'lucide-react';
@@ -45,6 +45,8 @@ interface AuxEntry {
 
 interface NewProviderForm {
   name: string;
+  slug: string;      // 配置ID（自动从name生成，可编辑）
+  keyEnv: string;    // 环境变量名（自动生成）
   apiKey: string;
   baseUrl: string;
   modelsRaw: string;
@@ -136,7 +138,7 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
   };
 
   // ── 新建提供商表单 ──
-  const [newProvider, setNewProvider] = useState<NewProviderForm>({ name: '', apiKey: '', baseUrl: '', modelsRaw: '' });
+  const [newProvider, setNewProvider] = useState<NewProviderForm>({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', modelsRaw: '' });
 
   // ====== 加载 ======
   useEffect(() => {
@@ -281,21 +283,35 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
 
   // ====== 添加提供商 ======
   const handleAddProvider = () => {
-    if (!newProvider.name.trim()) return;
-    const id = 'custom_' + Date.now();
+    if (!newProvider.name.trim() || !newProvider.slug.trim()) return;
     const models = newProvider.modelsRaw
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
     setProviders(prev => [...prev, {
-      id,
+      id: newProvider.slug.trim(),
       name: newProvider.name.trim(),
       apiKey: newProvider.apiKey.trim(),
       baseUrl: newProvider.baseUrl.trim(),
       models: models.length > 0 ? models : [],
     }]);
-    setNewProvider({ name: '', apiKey: '', baseUrl: '', modelsRaw: '' });
+    setNewProvider({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', modelsRaw: '' });
     setAddProviderOpen(false);
+  };
+
+  // 显示名变化时自动生成 slug（异步调后端）
+  const handleProviderNameChange = async (name: string) => {
+    setNewProvider(prev => ({ ...prev, name }));
+    if (name.trim()) {
+      try {
+        const result = await slugifyProviderName(name.trim());
+        setNewProvider(prev => ({ ...prev, slug: result.slug, keyEnv: result.key_env }));
+      } catch {
+        // fallback: 简易英文slugify
+        const fallback = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        setNewProvider(prev => ({ ...prev, slug: fallback || 'provider', keyEnv: (fallback || 'provider').toUpperCase().replace(/-/g, '_') + '_API_KEY' }));
+      }
+    }
   };
 
   // ====== Fallback / Aux / Del 操作 ======
@@ -431,6 +447,7 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
             newProvider={newProvider}
             setNewProvider={setNewProvider}
             handleAddProvider={handleAddProvider}
+            onProviderNameChange={handleProviderNameChange}
           />
         );
       case 'models':

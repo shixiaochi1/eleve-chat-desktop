@@ -143,8 +143,7 @@ export function VirtualizedThread({
                 // ── 检测是否已配置主模型和 API Key ──
                 const settings = loadSettings();
                 const hasMainProvider = !!settings.main.providerId;
-                const hasApiKey = settings.providers.some(p => p.id === settings.main.providerId && !!p.apiKey);
-                if (!hasMainProvider || !hasApiKey) {
+                if (!hasMainProvider) {
                   return (
                     <div className="flex flex-col items-center gap-3 p-5 rounded-xl border border-border bg-card text-center max-w-xs">
                       <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center">
@@ -152,7 +151,7 @@ export function VirtualizedThread({
                       </div>
                       <span className="text-sm font-medium">尚未配置模型</span>
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        {hasMainProvider && !hasApiKey
+                        {false
                           ? '主模型已选择，但 API Key 未设置，无法连接'
                           : '请先选择主模型提供商并设置 API Key'}
                       </p>
