@@ -339,12 +339,20 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       delegation: { providerId: delProvider, model: delModel, maxIterations: delMaxIterations },
       settingsPasswordHash: passwordHash,
     };
-    saveSettings(data);
+    await saveSettings(data);
 
+    const keyErrors: string[] = [];
     for (const p of providers) {
       if (p.apiKey) {
-        try { await saveApiKey(p.id, p.apiKey); } catch { /* ignore */ }
+        try { await saveApiKey(p.id, p.apiKey); } catch (e: unknown) {
+          keyErrors.push(`${p.name || p.id}: ${(e as Error).message}`);
+        }
       }
+    }
+    if (keyErrors.length > 0) {
+      setStatus({ text: `密钥保存失败: ${keyErrors.join('; ')}`, className: 'text-destructive text-xs' });
+      setSaving(false);
+      return;
     }
 
     const backendCfg: Record<string, unknown> = {};

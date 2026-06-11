@@ -41,7 +41,7 @@ export interface SettingsV2 {
 // ====== 提供商注册表预设（含 Base URL 和模型，无 Key） ======
 export const PROVIDER_REGISTRY: ProviderEntry[] = [
   { id: 'cmcc',     name: '中国移动',   baseUrl: 'https://zhenze-huhehaote.cmecloud.cn/api/coding/v1', models: ['cm-code-latest'] },
-  { id: 'bailian',  name: '阿里云百炼', baseUrl: 'https://coding.dashscope.aliyuncs.com/v1',  models: ['qwen3.6-plus'] },
+  { id: 'bailian',  name: '阿里云百炼', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',  models: ['qwen-plus', 'qwen-max', 'qwen-turbo'] },
 ];
 
 export const AUX_TASKS: AuxTaskEntry[] = [
@@ -138,23 +138,24 @@ export async function loadSettingsFromRust(): Promise<SettingsV2> {
 }
 
 // ====== 保存 ======
-export function saveSettings(data: SettingsV2): void {
+// 🔧 修复：改为 async 并 await，确保 settings.json 写入后再调用 save_api_key
+// 根治"首次配置后必须重启"问题：save_api_key 依赖 settings.json 中的 base_url
+export async function saveSettings(data: SettingsV2): Promise<void> {
   const withVersion = { ...data, version: 2 };
   _settingsCache = withVersion;
   storage.save(STORAGE_KEY, withVersion);
-  // 异步持久化到 AppService
-  call('update_settings', withVersion)
-    .catch(e => console.warn('[settings-store] update_settings failed:', e));
+  // 异步持久化到 AppService — 必须等待完成，否则后续 save_api_key 读不到 base_url
+  try {
+    await call('update_settings', withVersion);
+  } catch (e) {
+    console.warn('[settings-store] update_settings failed:', e);
+  }
 }
 
 // ====== API Key 安全存储（加密） ======
 
 export async function saveApiKey(providerId: string, apiKey: string): Promise<void> {
-  try {
-    await call('save_api_key', { provider_id: providerId, api_key: apiKey });
-  } catch (e) {
-    console.warn('[settings-store] saveApiKey failed:', e);
-  }
+  await call('save_api_key', { provider_id: providerId, api_key: apiKey });
 }
 
 export async function loadApiKey(providerId: string): Promise<string | null> {
