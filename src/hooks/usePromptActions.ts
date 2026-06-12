@@ -1,5 +1,5 @@
 import { useRef, useCallback, type MutableRefObject } from 'react';
-import { executeCommand } from '../utils/api';
+import { executeCommand, setSessionTitle } from '../utils/api';
 import * as storage from '../utils/storage';
 import { setMessages as storeSetMessages, getMessages } from '../store/messages';
 import { textPart } from '@/lib/chat-messages'
@@ -25,6 +25,7 @@ export function usePromptActions({
   setSessionListVersion,
   send,
   abort,
+  handleNewSession,
 }: {
   sess: SessionManagerHandle
   addTimeBadge: () => void
@@ -35,6 +36,7 @@ export function usePromptActions({
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
   send: (text: string, sessionId?: string | null) => Promise<void>
   abort?: () => Promise<void>
+  handleNewSession: (title?: string) => Promise<void>
 }): {
   handleSend: (text: string) => void
   handleAbort: () => void
@@ -52,7 +54,7 @@ export function usePromptActions({
   const isSendingRef = useRef(false);
   const drainQueueRef = useRef<(() => void) | null>(null);
 
-  const drainQueue = useCallback(() => {
+  const drainQueue = useCallback(async () => {
     isSendingRef.current = false;
     const next = pendingQueue.current.shift();
     if (!next) return;
@@ -60,6 +62,22 @@ export function usePromptActions({
 
     addTimeBadge();
     storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(next)] } as ChatMessage]);
+
+    // ── 懒创建 session — 对齐 Hermes createBackendSessionForSend ──
+    if (sess.freshDraftReady) {
+      await sess.create();
+      sess.setFreshDraftReady(false);
+      // 对齐 Hermes: /new <title> 时在懒创建后设置标题
+      if (sess.pendingTitle && sess.sessionId) {
+        try {
+          await setSessionTitle(sess.sessionId, sess.pendingTitle);
+          sess.setTitle(sess.sessionId, sess.pendingTitle);
+        } catch (e) {
+          console.warn('[drainQueue] setSessionTitle failed', e);
+        }
+        sess.setPendingTitle(null);
+      }
+    }
 
     if (sess.sessionId && !sess.titles[sess.sessionId]) {
       sess.setTitle(sess.sessionId, next.slice(0, 30));
@@ -105,13 +123,18 @@ export function usePromptActions({
   }, [sess, addTimeBadge, genId, setDebugInfo, setSessionListVersion]);
 
   // ── send message ──
-  const handleSend = useCallback((text: string) => {
+  const handleSend = useCallback(async (text: string) => {
     if (!text.trim()) return;
 
     // 拦截以 / 开头的消息 → 走命令路径
     if (text.trimStart().startsWith('/')) {
       const cmdPart = text.trimStart().replace(/^\//, '').split(/\s/)[0].toLowerCase();
       const args = text.trimStart().replace(/^\/\S+\s*/, '').trim();
+      // 对齐 Hermes：/new [title] 走前端纯重置（startFreshSessionDraft），不走后端 executeCommand
+      if (cmdPart === 'new') {
+        handleNewSession(args || undefined);
+        return;
+      }
       handleCommand(cmdPart, args);
       return;
     }
@@ -128,15 +151,38 @@ export function usePromptActions({
     addTimeBadge();
     storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)] } as ChatMessage]);
 
-    if (sess.sessionId && !sess.titles[sess.sessionId]) {
-      sess.setTitle(sess.sessionId, text.slice(0, 30));
+    // ── 懒创建 session — 对齐 Hermes createBackendSessionForSend ──
+    // freshDraftReady=true 说明用户已点"新建"但后端 session 还没创建
+    // 先调 sess.create() 拿到新 session_id，再发消息
+    const ensureSession = async (): Promise<string | null> => {
+      if (sess.freshDraftReady) {
+        await sess.create();
+        sess.setFreshDraftReady(false);
+        // 对齐 Hermes: /new <title> 时在懒创建后设置标题
+        if (sess.pendingTitle && sess.sessionId) {
+          try {
+            await setSessionTitle(sess.sessionId, sess.pendingTitle);
+            sess.setTitle(sess.sessionId, sess.pendingTitle);
+          } catch (e) {
+            console.warn('[ensureSession] setSessionTitle failed', e);
+          }
+          sess.setPendingTitle(null);
+        }
+      }
+      return sess.sessionId;
+    };
+
+    const sessionId = await ensureSession();
+
+    if (sessionId && !sess.titles[sessionId]) {
+      sess.setTitle(sessionId, text.slice(0, 30));
     }
 
     setConnectionStatus('connected');
     setDebugInfo((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: text.slice(0, 40) }));
     addDebugEvent('text', `user: ${text.slice(0, 60)}`);
-    send(text, sess.sessionId as null | undefined);
-  }, [sess, addTimeBadge, genId, send, addDebugEvent, handleCommand, setConnectionStatus, setDebugInfo]);
+    send(text, sessionId as null | undefined);
+  }, [sess, addTimeBadge, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, setDebugInfo]);
 
   // ── abort streaming ──
   const handleAbort = useCallback(() => {

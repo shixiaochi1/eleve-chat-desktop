@@ -105,6 +105,7 @@ const COMMAND_HTTP_MAP: Record<string, CommandMapping> = {
   get_session_context:    { method: 'GET',  path: (a) => `/api/sessions/${a.session_id}/context` },
   get_session_messages:   { method: 'GET',  path: (a) => `/api/sessions/${a.session_id}/messages` },
   set_session_context:    { method: 'POST', path: (a) => `/v1/sessions/${a.session_id}/context` },
+  set_session_title:      { method: 'POST', path: (a) => `/v1/sessions/${a.session_id}/title` },
   search_sessions:        { method: 'GET',  path: (a) => `/api/sessions/search?q=${encodeURIComponent(a.query || '')}` },
   steer_session:          { method: 'POST', path: (a) => `/api/sessions/${a.session_id}/steer` },
   rename_session:         { method: 'PUT',  path: (a) => `/api/sessions/${a.session_id}/rename` },

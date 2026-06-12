@@ -32,6 +32,10 @@ export async function activateSession(id: string): Promise<any> {
   return call('activate_session', { session_id: id });
 }
 
+export async function setSessionTitle(sessionId: string, title: string): Promise<any> {
+  return call('set_session_title', { session_id: sessionId, title });
+}
+
 export async function getSessionHistory(id: string): Promise<any> {
   return call('get_session_messages', { session_id: id });
 }

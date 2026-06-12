@@ -166,6 +166,21 @@ export default function App() {
     setSessionListVersion,
   });
 
+  // ── useSessionActions: session switch/delete/new ──
+  // 先于 usePromptActions 调用，因为 handleNewSession 需要传给 usePromptActions
+  const {
+    handleSwitchSession,
+    handleDeleteSession,
+    handleNewSession,
+  } = useSessionActions({
+    sess,
+    genId,
+    setDebugInfo: setDebugInfo as any,
+    setSessionListVersion,
+    lastTimeRef,
+    resetSendingLock: undefined, // will be wired after usePromptActions
+  });
+
   // ── usePromptActions: send/regenerate/abort/queue ──
   const {
     handleSend,
@@ -185,25 +200,11 @@ export default function App() {
     setSessionListVersion,
     send,
     abort,
+    handleNewSession,
   });
 
   // Wire up drainQueueRef after drainQueue is created
   drainQueueRef.current = drainQueue;
-
-  // ── useSessionActions: session switch/delete/new ──
-  const {
-    handleSwitchSession,
-    handleDeleteSession,
-    handleNewSession,
-  } = useSessionActions({
-    sess,
-    genId,
-    send,
-    setDebugInfo: setDebugInfo as any,
-    setSessionListVersion,
-    lastTimeRef,
-    resetSendingLock,
-  });
 
   // ── 禁用右键菜单 + 键盘刷新（聊天面板不是网页）──
   useEffect(() => {

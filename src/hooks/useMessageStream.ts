@@ -27,7 +27,11 @@ export interface SessionManagerHandle {
   sessions: { id: string; title: string; created_at: string; updated_at: string; message_count?: number }[]
   msgCache: Record<string, ChatMessage[]>
   titles: Record<string, string>
-  setSessionId: (id: string) => void
+  freshDraftReady: boolean
+  setFreshDraftReady: React.Dispatch<React.SetStateAction<boolean>>
+  pendingTitle: string | null
+  setPendingTitle: React.Dispatch<React.SetStateAction<string | null>>
+  setSessionId: (id: string | null) => void
   saveCache: (updater: ((cache: Record<string, ChatMessage[]>) => Record<string, ChatMessage[]>) | Record<string, ChatMessage[]>) => void
   saveTitles: (updater: ((prev: Record<string, string>) => Record<string, string>) | Record<string, string>) => void
   refresh: () => void

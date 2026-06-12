@@ -1,6 +1,7 @@
 import { useCallback, type MutableRefObject } from 'react';
 import { activateSession } from '../utils/api';
 import { setMessages as storeSetMessages, getMessages } from '../store/messages';
+import * as storage from '../utils/storage';
 import type { SessionManagerHandle } from './useMessageStream';
 import { textPart } from '@/lib/chat-messages'
 import type { ChatMessage } from '@/types';
@@ -23,7 +24,6 @@ function shortId(id: string): string {
 export function useSessionActions({
   sess,
   genId,
-  send,
   setDebugInfo,
   setSessionListVersion,
   lastTimeRef,
@@ -31,7 +31,6 @@ export function useSessionActions({
 }: {
   sess: SessionManagerHandle
   genId: () => string
-  send: (message: string) => void
   setDebugInfo: React.Dispatch<React.SetStateAction<Record<string, unknown>>>
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
   lastTimeRef?: MutableRefObject<string>
@@ -39,7 +38,7 @@ export function useSessionActions({
 }): {
   handleSwitchSession: (id: string) => Promise<void>
   handleDeleteSession: (id: string) => Promise<void>
-  handleNewSession: () => Promise<void>
+  handleNewSession: (title?: string) => Promise<void>
 } {
   // ── session switch handler ──
   const handleSwitchSession = useCallback(async (id: string) => {
@@ -87,17 +86,32 @@ export function useSessionActions({
     if (setSessionListVersion) setSessionListVersion(v => v + 1);
   }, [sess, setSessionListVersion]);
 
-  // ── new session — 统一走 /new 命令路径（与用户输入 /new 完全一致）
-  // 对齐 Hermes：按钮和 /new 走同一后端入口，SSE session_reset 事件触发 UI 更新
-  const handleNewSession = useCallback(async () => {
+  // ── new session — 对齐 Hermes startFreshSessionDraft()
+  // 纯前端重置：清消息 + 释放锁 + 设 freshDraftReady
+  // 后端 session 懒创建 — 首条消息发送时通过 createSession() 创建
+  const handleNewSession = useCallback(async (title?: string) => {
     resetSendingLock?.();
+    // 保存当前会话消息到缓存
     if (sess.sessionId) {
       sess.saveCache((cache) => ({ ...cache, [sess.sessionId!]: getMessages() }));
     }
-    // 发送 /new 命令走 chat_stream，后端完整清理 + reset_session + SSE 事件
-    // 不再走独立的 api.resetSession() 路径
-    send('/new');
-  }, [sess, send, resetSendingLock]);
+    // 清空前端状态（不触发后端请求）
+    storeSetMessages([]);
+    // 清除 session ID，标记为 fresh draft
+    sess.setSessionId(null);
+    storage.save('session_id', null);
+    sess.setFreshDraftReady(true);
+    // 对齐 Hermes: /new <title> 时暂存标题，懒创建后设置
+    if (title?.trim()) {
+      sess.setPendingTitle(title.trim());
+    } else {
+      sess.setPendingTitle(null);
+    }
+    // 刷新会话列表（旧会话仍在列表中）
+    sess.refresh();
+    setDebugInfo((prev) => ({ ...prev, sessionId: null, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
+    if (setSessionListVersion) setSessionListVersion(v => v + 1);
+  }, [sess, setDebugInfo, setSessionListVersion, resetSendingLock]);
 
   return {
     handleSwitchSession,

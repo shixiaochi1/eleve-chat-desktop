@@ -11,6 +11,10 @@ export function useSessions(): {
   sessions: Session[]
   msgCache: Record<string, ChatMessage[]>
   titles: Record<string, string>
+  freshDraftReady: boolean
+  setFreshDraftReady: React.Dispatch<React.SetStateAction<boolean>>
+  pendingTitle: string | null
+  setPendingTitle: React.Dispatch<React.SetStateAction<string | null>>
   refresh: () => Promise<void>
   create: () => Promise<void>
   reset: () => Promise<void>
@@ -26,6 +30,11 @@ export function useSessions(): {
   const [sessions, setSessions] = useState<Session[]>(() => (storage.load('sessions', null) as Session[]) || []);
   const [msgCache, setMsgCache] = useState<Record<string, ChatMessage[]>>(() => (storage.load('msg_cache', null) as Record<string, ChatMessage[]>) || {});
   const [titles, setTitles] = useState<Record<string, string>>(() => (storage.load('titles', null) as Record<string, string>) || {});
+  // ── freshDraftReady — 对齐 Hermes startFreshSessionDraft 懒创建标记
+  // true = 用户点了"新建会话"但还没发首条消息，后端 session 尚未创建
+  const [freshDraftReady, setFreshDraftReady] = useState<boolean>(false);
+  // ── pendingTitle — 对齐 Hermes /new <title> 暂存标题，懒创建后 set_session_title
+  const [pendingTitle, setPendingTitle] = useState<string | null>(null);
 
   // ── persistence ──
   const saveCache = useCallback((updater: ((cache: Record<string, ChatMessage[]>) => Record<string, ChatMessage[]>) | Record<string, ChatMessage[]>): void => {
@@ -121,6 +130,8 @@ export function useSessions(): {
 
   return {
     sessionId, setSessionId, sessions, msgCache, titles,
+    freshDraftReady, setFreshDraftReady,
+    pendingTitle, setPendingTitle,
     refresh, create, reset, remove, switchTo,
     setTitle, getTitle, saveCache, saveTitles, loadHistory,
   };
