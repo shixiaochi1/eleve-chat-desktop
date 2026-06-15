@@ -520,6 +520,17 @@ export function useSSE(callbacks: SSECallbacks = {}): {
                   handled = true;
                   break;
                 case 'tool.progress':
+                  // 对齐 Hermes: reasoning 通过 tool.progress + tool_name="_thinking" 发送
+                  if (chunk.tool_name === '_thinking') {
+                    // Reasoning delta — 路由到 onReasoning (append)
+                    const delta = typeof chunk.delta === 'string' ? chunk.delta : (typeof chunk.delta === 'object' ? JSON.stringify(chunk.delta) : String(chunk.delta || ''));
+                    if (delta) {
+                      accumulators.fullReasoning += delta;
+                      cbs.onReasoning?.(delta, accumulators.fullReasoning);
+                    }
+                    handled = true;
+                    break;
+                  }
                   // NOTE: Hermes does NOT handle _thinking via tool.progress.
                   // Reasoning is handled by:
                   //   - reasoning.delta (named event) → onReasoning (append)
