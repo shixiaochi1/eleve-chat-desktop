@@ -63,6 +63,22 @@ interface SettingsPanelProps {
 }
 
 // ====== 常量 ======
+
+/**
+ * 对齐 Hermes determine_api_mode (providers.py L502-548)
+ * URL 启发式推断 transport 协议
+ */
+function inferTransport(providerId: string, baseUrl?: string): string {
+  if (!baseUrl) return 'openai_chat';
+  const url = baseUrl.replace(/\/+$/, '').toLowerCase();
+  // URL-based heuristics — 对齐 Hermes
+  if (url.includes('api.kimi.com/coding')) return 'anthropic_messages';
+  if (url.endsWith('/anthropic') || url.includes('api.anthropic.com')) return 'anthropic_messages';
+  if (url.includes('api.openai.com')) return 'openai_chat';
+  // provider name fallback
+  if (providerId === 'anthropic' || providerId === 'claude') return 'anthropic_messages';
+  return 'openai_chat';
+}
 const KEY_VISIBLE_DURATION = 60_000; // 60 秒
 
 export default function SettingsPanel({ onBack }: SettingsPanelProps) {
@@ -173,8 +189,23 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       if (bc.model) {
         if (typeof bc.model === 'object' && bc.model !== null) {
           const modelObj = bc.model as Record<string, string>;
-          setMainProvider(modelObj.provider || '');
-          setMainModel(modelObj.default || '');
+          const cfgProvider = modelObj.provider || '';
+          const cfgModel = modelObj.default || '';
+          setMainProvider(cfgProvider);
+          setMainModel(cfgModel);
+          // ── R3 修复：config.yaml 的 provider/model 自动同步到 settings.json ──
+          // 如果 settings.json 里 main 为空但 config.yaml 有值，自动保存
+          // 否则前端展示选中了但实际没存盘，重启后丢失
+          if (cfgProvider || cfgModel) {
+            const current = loadSettings();
+            if (!current.main?.providerId && !current.main?.model) {
+              const merged = {
+                ...current,
+                main: { providerId: cfgProvider, model: cfgModel, port: 0 },
+              };
+              saveSettings(merged);
+            }
+          }
         } else if (typeof bc.model === 'string') {
           setMainModel(bc.model);
         }
@@ -358,8 +389,10 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     await saveSettings(data);
 
     const keyErrors: string[] = [];
+    const isPlaceholder = (k: string) => k.includes('...') || k.includes('••') || k.includes('***') || k.length < 8;
     for (const p of providers) {
-      if (p.apiKey) {
+      // 只保存真实 key，跳过脱敏占位符
+      if (p.apiKey && !isPlaceholder(p.apiKey)) {
         try { await saveApiKey(p.id, p.apiKey); } catch (e: unknown) {
           keyErrors.push(`${p.name || p.id}: ${(e as Error).message}`);
         }
@@ -375,7 +408,9 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     if (providers.length > 0) {
       const provObj: Record<string, any> = {};
       for (const p of providers) {
-        const transport = p.baseUrl && p.baseUrl.includes('anthropic') ? 'anthropic_messages' : 'openai_chat';
+        // 对齐 Hermes determine_api_mode URL 启发式
+        // 后端 sync_settings_to_config_yaml 会用 determine_api_mode_from_url 再次确认
+        const transport = inferTransport(p.id, p.baseUrl);
         // models: HashMap<String, ModelEntry> 格式（对齐 Rust ProviderConfig.models）
         const modelsMap: Record<string, Record<string, unknown>> = {};
         for (const m of p.models) { modelsMap[m] = {}; }
@@ -386,7 +421,8 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
           transport,
           models: modelsMap,
         };
-        if (p.apiKey) provObj[p.id].api_key = p.apiKey;
+        // api_key 不写入 config.yaml——真实 key 只走 save_api_key 专用通道
+        // config.yaml 只保留 key_env 引用，避免脱敏值污染
         // key_env: 优先用已有值，否则从 id 自动生成
         provObj[p.id].key_env = p.keyEnv || `${p.id.toUpperCase().replace(/-/g, '_')}_API_KEY`;
       }
