@@ -80,8 +80,8 @@ function processEvent(
   cbs: SSECallbacks,
 ): string | undefined {
   switch (eventName) {
-    // ── 文本 delta ──
-    case 'message.delta':
+    // ── 文本 delta（对齐 Hermes 通道 A: assistant.delta）──
+    case 'assistant.delta':
       acc.fullText += (chunk.delta as string) || '';
       cbs.onText?.((chunk.delta as string) || '', acc.fullText);
       break;
@@ -102,8 +102,8 @@ function processEvent(
       cbs.onThinking?.((chunk.text as string) || '');
       break;
 
-    // ── 工具 ──
-    case 'tool.start':
+    // ── 工具（对齐 Hermes 通道 A: tool.started / tool.completed）──
+    case 'tool.started':
       cbs.onToolStart?.({ id: (chunk.tool_id as string) || null, name: chunk.tool_name as string });
       break;
 
@@ -112,19 +112,17 @@ function processEvent(
       cbs.onToolGenerating?.((chunk.name as string) || '');
       break;
 
-    case 'tool.complete':
+    case 'tool.completed':
       cbs.onToolEnd?.({ id: (chunk.tool_id as string) || null, name: chunk.tool_name as string });
       break;
 
     case 'tool.progress': {
-      // 子事件分发：tool.error
+      // 子事件分发：tool.failed（对齐 Hermes 通道 A）
       const ev = chunk.event || chunk.tool;
-      if (ev === 'tool.error' || ev === 'tool_error') {
+      if (ev === 'tool.failed') {
         cbs.onError?.((chunk.error as string) || `Tool ${chunk.tool} failed`);
         break;
       }
-      // [P1 清理] reasoning.available 和 _thinking hack 已移除
-      // reasoning 走独立的 reasoning.delta 事件，thinking 走 thinking.delta 事件
       // 普通 tool args 累积
       const tid = (chunk.tool_id as string) || 'unknown';
       if (!acc.pendingTools[tid]) {
@@ -135,10 +133,6 @@ function processEvent(
       cbs.onToolArgs?.({ id: tid, delta: deltaStr, accumulated: acc.pendingTools[tid].argsStr });
       break;
     }
-
-    case 'tool.error':
-      cbs.onError?.((chunk.error as string) || `Tool ${chunk.tool_name} failed`);
-      break;
 
     // ── 委托 ──
     case 'delegate.start':
@@ -258,9 +252,9 @@ function processEvent(
       cbs.onText?.((chunk.text as string) || '', '');
       break;
 
-    // ── 静默事件（Hermes 标准名，WS/SSE 路由中不需要额外处理）──
-    case 'message.start':
-    case 'message.complete':
+    // ── 静默事件（Hermes 通道 A 标准名，WS/SSE 路由中不需要额外处理）──
+    case 'message.started':
+    case 'assistant.completed':
     case 'reasoning.completed':
     case 'usage':
     case 'finish_reason':
