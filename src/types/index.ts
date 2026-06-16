@@ -86,7 +86,7 @@ export interface SignatureRow {
 
 // ── SSE event types (from gateway /stream endpoint) ──
 
-export type SSEEventType = 'message' | 'reasoning' | 'tool_start' | 'tool_end' | 'done' | 'error'
+export type SSEEventType = 'message' | 'reasoning' | 'tool_start' | 'tool_complete' | 'done' | 'error'
 
 export interface SSEEvent {
   type: SSEEventType

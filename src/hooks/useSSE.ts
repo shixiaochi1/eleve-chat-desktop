@@ -1,7 +1,8 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { getApiBase } from '../utils/api';
 import { call } from '../utils/bridge';
 import { useIsStreaming, setIsStreaming as storeSetIsStreaming } from '@/store/messages';
+import { getWsClient } from '@/services/ws-client';
 
 // ── SSE callback types ──
 
@@ -16,6 +17,7 @@ export interface SSECallbacks {
   onReasoning?: (delta: string, fullText: string) => void
   onReasoningReplace?: (fullText: string) => void
   onToolStart?: (data: { id: string | null; name: string }) => void
+  onToolGenerating?: (name: string) => void
   onToolArgs?: (data: { id: string; delta: string; accumulated: string }) => void
   onToolEnd?: (data: { id: string | null; name: string }) => void
   onUsage?: (data: { input: number; output: number; cacheRead?: number; cacheWrite?: number }) => void
@@ -30,6 +32,7 @@ export interface SSECallbacks {
     progressSummary?: string; depth?: number
   }) => void
   onSystemNotice?: (data: { message: string; level?: string }) => void
+  onStatusUpdate?: (data: { kind: string; text: string }) => void
   onClarify?: (data: { clarify_id: string; question: string; choices?: string[] }) => void
   onApproval?: (data: unknown) => void
   onSudo?: (data: { request_id: string; prompt?: string }) => void
@@ -48,93 +51,11 @@ export interface SSECallbacks {
   onError?: (msg: string) => void
   onReasoningComplete?: (reasoning: string) => void
   onSessionReset?: (data: { old_session_id: string; new_session_id: string }) => void
+  // 对齐 Hermes thinking_callback → thinking.delta 事件（Agent 思考状态，如"正在思考..."）
+  onThinking?: (text: string) => void
 }
 
-// ── Raw SSE event shapes (snake_case from Rust StreamEvent) ──
-
-interface ToolCallStartEvent {
-  id: string
-  name: string
-}
-
-interface ToolCallArgumentsEvent {
-  id: string
-  arguments_delta: string
-}
-
-interface ToolCallEndEvent {
-  id: string
-}
-
-interface DelegateStartEvent {
-  task_id: string
-  goal?: string
-  model?: string
-}
-
-interface DelegateEndEvent {
-  task_id: string
-  status?: string
-  summary?: string
-  model?: string
-  tokens_input?: number
-  tokens_output?: number
-  duration_secs?: number
-}
-
-interface SystemNoticeEvent {
-  message: string
-  level?: string
-}
-
-interface ClarifyQuestionEvent {
-  clarify_id: string
-  question: string
-  choices?: string[]
-}
-
-interface SudoRequestEvent {
-  request_id: string
-  prompt?: string
-}
-
-interface SecretRequestEvent {
-  request_id: string
-  prompt: string
-  env_var: string
-  metadata?: Record<string, unknown>
-}
-
-interface ToolProgressEvent {
-  event?: string
-  tool?: string
-  error?: string
-  text?: string
-  preview?: string
-}
-
-interface RunStartedEvent {
-  session_id: string
-}
-
-interface RunCompletedEvent {
-  session_id: string
-  completed?: boolean
-  interrupted?: boolean
-}
-
-interface UsageEvent {
-  input_tokens: number
-  output_tokens: number
-  cache_read_tokens?: number
-  cache_write_tokens?: number
-}
-
-interface ToolProgressChunk {
-  tool_name?: string
-  tool_id?: string
-  delta?: string
-}
+// ── Chunk types (from Rust StreamChunk / api_server) ──
 
 interface RunCompleteChunk {
   session_id?: string
@@ -148,192 +69,280 @@ interface RunCompleteChunk {
   }
 }
 
+// ── 统一事件路由函数 ──
+// SSE 和 WS 共用，事件名已统一为 Hermes 标准
+// 返回 'done' | 'error' | undefined
+
+function processEvent(
+  eventName: string,
+  chunk: Record<string, unknown>,
+  acc: SSEAccumulators,
+  cbs: SSECallbacks,
+): string | undefined {
+  switch (eventName) {
+    // ── 文本 delta ──
+    case 'message.delta':
+      acc.fullText += (chunk.delta as string) || '';
+      cbs.onText?.((chunk.delta as string) || '', acc.fullText);
+      break;
+
+    // ── 推理 ──
+    case 'reasoning.delta':
+      acc.fullReasoning += (chunk.delta as string) || '';
+      cbs.onReasoning?.((chunk.delta as string) || '', acc.fullReasoning);
+      break;
+
+    case 'reasoning.available':
+      // 对齐 Hermes: reasoning.available = REPLACE, not append
+      cbs.onReasoningReplace?.((chunk.text as string) || '');
+      break;
+
+    // ── Agent 思考状态（对齐 Hermes thinking_callback → thinking.delta）──
+    case 'thinking.delta':
+      cbs.onThinking?.((chunk.text as string) || '');
+      break;
+
+    // ── 工具 ──
+    case 'tool.start':
+      cbs.onToolStart?.({ id: (chunk.tool_id as string) || null, name: chunk.tool_name as string });
+      break;
+
+    // 对齐 Hermes: 流式响应中工具名确定、参数还在生成时触发（drafting spinner）
+    case 'tool.generating':
+      cbs.onToolGenerating?.((chunk.name as string) || '');
+      break;
+
+    case 'tool.complete':
+      cbs.onToolEnd?.({ id: (chunk.tool_id as string) || null, name: chunk.tool_name as string });
+      break;
+
+    case 'tool.progress': {
+      // 子事件分发：tool.error
+      const ev = chunk.event || chunk.tool;
+      if (ev === 'tool.error' || ev === 'tool_error') {
+        cbs.onError?.((chunk.error as string) || `Tool ${chunk.tool} failed`);
+        break;
+      }
+      // [P1 清理] reasoning.available 和 _thinking hack 已移除
+      // reasoning 走独立的 reasoning.delta 事件，thinking 走 thinking.delta 事件
+      // 普通 tool args 累积
+      const tid = (chunk.tool_id as string) || 'unknown';
+      if (!acc.pendingTools[tid]) {
+        acc.pendingTools[tid] = { name: (chunk.tool_name as string) || '', argsStr: '' };
+      }
+      const deltaStr = typeof chunk.delta === 'string' ? chunk.delta : JSON.stringify(chunk.delta);
+      acc.pendingTools[tid].argsStr += deltaStr;
+      cbs.onToolArgs?.({ id: tid, delta: deltaStr, accumulated: acc.pendingTools[tid].argsStr });
+      break;
+    }
+
+    case 'tool.error':
+      cbs.onError?.((chunk.error as string) || `Tool ${chunk.tool_name} failed`);
+      break;
+
+    // ── 委托 ──
+    case 'delegate.start':
+      cbs.onDelegateStart?.({ taskId: chunk.task_id as string, goal: chunk.goal as string | undefined, model: chunk.model as string | undefined });
+      break;
+
+    case 'delegate.end':
+      cbs.onDelegateEnd?.({
+        taskId: chunk.task_id as string,
+        status: chunk.status as string | undefined,
+        summary: chunk.summary as string | undefined,
+        model: chunk.model as string | undefined,
+        tokensInput: chunk.tokens_input as number | undefined,
+        tokensOutput: chunk.tokens_output as number | undefined,
+        duration: chunk.duration_secs as number | undefined,
+      });
+      break;
+
+    case 'delegate.progress':
+      cbs.onDelegateProgress?.({
+        subagentId: chunk.subagent_id as string | undefined,
+        eventType: chunk.event_type as string | undefined,
+        taskIndex: chunk.task_index as number | undefined,
+        taskCount: chunk.task_count as number | undefined,
+        goal: chunk.goal as string | undefined,
+        toolName: chunk.tool_name as string | undefined,
+        toolPreview: chunk.tool_preview as string | undefined,
+        thinkingText: chunk.thinking_text as string | undefined,
+        progressSummary: chunk.progress_summary as string | undefined,
+        depth: chunk.depth as number | undefined,
+      });
+      break;
+
+    // ── 模型 / 系统 ──
+    case 'model.name': {
+      const name = typeof chunk.name === 'string' ? chunk.name : (typeof chunk === 'object' && chunk !== null && chunk.name ? String(chunk.name) : String(chunk));
+      cbs.onModelName?.(name);
+      break;
+    }
+
+    case 'system.notice':
+      cbs.onSystemNotice?.({ message: chunk.message as string, level: chunk.level as string | undefined });
+      break;
+
+    case 'status.update':
+      cbs.onStatusUpdate?.({ kind: chunk.kind as string, text: chunk.text as string });
+      break;
+
+    // ── 交互 ──
+    case 'clarify.request':
+      cbs.onClarify?.({ clarify_id: chunk.clarify_id as string, question: chunk.question as string, choices: chunk.choices as string[] | undefined });
+      break;
+
+    case 'approval.request':
+      cbs.onApproval?.(chunk);
+      break;
+
+    case 'sudo.request':
+      cbs.onSudo?.({ request_id: chunk.request_id as string, prompt: chunk.prompt as string | undefined });
+      break;
+
+    case 'secret.request':
+      cbs.onSecret?.({ request_id: chunk.request_id as string, prompt: chunk.prompt as string, env_var: chunk.env_var as string, metadata: chunk.metadata as Record<string, unknown> | undefined });
+      break;
+
+    // ── 会话 ──
+    case 'session.info':
+      cbs.onSessionInfo?.({
+        session_id: chunk.session_id as string,
+        run_id: chunk.run_id as string,
+        model: chunk.model as string,
+        cwd: chunk.cwd as string,
+        branch: chunk.branch as string,
+        running: chunk.running as boolean,
+        usage: chunk.usage as any,
+        credential_warning: chunk.credential_warning as boolean | undefined,
+      });
+      break;
+
+    case 'session_reset':
+      cbs.onSessionReset?.({ old_session_id: chunk.old_session_id as string, new_session_id: chunk.new_session_id as string });
+      break;
+
+    // ── 流生命周期 ──
+    case 'error':
+      cbs.onError?.((chunk.message as string) || 'Unknown error');
+      return 'error';
+
+    case 'done':
+      cbs.onDone?.(chunk.session_id as string | null);
+      return 'done';
+
+    case 'run.started':
+      cbs.onRunStart?.(chunk.session_id as string);
+      break;
+
+    case 'run.completed': {
+      const rc = chunk as RunCompleteChunk;
+      if (rc.usage) {
+        cbs.onUsage?.({
+          input: rc.usage.input_tokens,
+          output: rc.usage.output_tokens,
+          cacheRead: rc.usage.cache_read_tokens,
+          cacheWrite: rc.usage.cache_write_tokens,
+        });
+      }
+      cbs.onRunComplete?.({
+        sessionId: rc.session_id || '',
+        completed: rc.completed,
+        interrupted: rc.interrupted,
+        usage: rc.usage,
+      });
+      break;
+    }
+
+    case 'dequeue':
+      cbs.onText?.((chunk.text as string) || '', '');
+      break;
+
+    // ── 静默事件（Hermes 标准名，WS/SSE 路由中不需要额外处理）──
+    case 'message.start':
+    case 'message.complete':
+    case 'reasoning.completed':
+    case 'usage':
+    case 'finish_reason':
+    case 'rate_limit':
+      break;
+
+    default:
+      console.warn('[useSSE] Unknown event:', eventName, chunk);
+      break;
+  }
+
+  return undefined;
+}
+
 /**
- * SSE streaming hook v2 — HTTP 版
- * 
- * 桌面模式 & 浏览器模式统一走 HTTP SSE
+ * SSE streaming hook v2 — 统一事件路由
+ *
+ * WS 和 SSE 路径共用 processEvent()，事件名已统一为 Hermes 标准。
  */
 export function useSSE(callbacks: SSECallbacks = {}): {
   isStreaming: boolean
   send: (text: string, sessionId?: string | null) => Promise<void>
   abort: () => Promise<void>
 } {
-  // isStreaming is now a STORE atom, not local useState.
-  // This prevents App → MessageContainer re-render cascade.
   const isStreaming = useIsStreaming();
   const controllerRef = useRef<AbortController | null>(null);
   const currentSessionRef = useRef<string | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isStreamingRef = useRef(false);
   const cbsRef = useRef<SSECallbacks>(callbacks);
   cbsRef.current = callbacks;
 
-  /**
-   * 处理单个 StreamEvent（从 HTTP SSE 解析）
-   */
-  const handleEvent = useCallback((event: Record<string, unknown>, accumulators: SSEAccumulators): string | undefined => {
+  // ── WS accumulator ref — WS 事件与 SSE 共享累加器 ──
+  const wsAccumulatorsRef = useRef<SSEAccumulators>({
+    fullText: '',
+    fullReasoning: '',
+    pendingTools: {},
+  });
+
+  // ── WS 事件 → 统一路由 ──
+  const routeWsEvent = useCallback((eventName: string, data: unknown) => {
     const cbs = cbsRef.current;
-    if (!event) return;
+    const acc = wsAccumulatorsRef.current;
+    const chunk = data as Record<string, unknown>;
+    if (!chunk) return;
 
-    // ── Done ──
-    if (event.done !== undefined) {
-      const doneVal = event.done as (Record<string, unknown> | undefined)
-      const sessionId = (doneVal?.session_id as string) || (event.session_id as string) || null;
-      cbs.onDone?.(sessionId);
-      return 'done';
+    const result = processEvent(eventName, chunk, acc, cbs);
+
+    // done/error 清理流式状态
+    if (result === 'done' || result === 'error') {
+      storeSetIsStreaming(false);
+      isStreamingRef.current = false;
+      controllerRef.current = null;
     }
-
-    // ── Error ──
-    if (event.error !== undefined) {
-      const msg = typeof event.error === 'string' ? event.error : JSON.stringify(event.error);
-      cbs.onError?.(msg);
-      return 'error';
-    }
-
-    // ── Usage ──
-    if (event.usage !== undefined) {
-      const usage = event.usage as UsageEvent;
-      cbs.onUsage?.({
-        input: usage.input_tokens,
-        output: usage.output_tokens,
-      });
-      return;
-    }
-
-    // ── Reasoning ──
-    if (event.reasoning !== undefined) {
-      const r = typeof event.reasoning === 'string' ? event.reasoning : String(event.reasoning);
-      accumulators.fullReasoning += r;
-      cbs.onReasoning?.(r, accumulators.fullReasoning);
-      return;
-    }
-
-    // ── ToolCallStart ──
-    if (event.tool_call_start !== undefined) {
-      const { id, name } = event.tool_call_start as ToolCallStartEvent;
-      accumulators.pendingTools[id] = { name, argsStr: '' };
-      cbs.onToolStart?.({ id, name });
-      return;
-    }
-
-    // ── ToolCallArguments ──
-    if (event.tool_call_arguments !== undefined) {
-      const { id, arguments_delta } = event.tool_call_arguments as ToolCallArgumentsEvent;
-      const pending = accumulators.pendingTools[id];
-      const delta = typeof arguments_delta === 'string'
-        ? arguments_delta
-        : JSON.stringify(arguments_delta);
-      if (pending) pending.argsStr += delta;
-      cbs.onToolArgs?.({ id, delta, accumulated: pending?.argsStr ?? delta });
-      return;
-    }
-
-    // ── ToolCallEnd ──
-    if (event.tool_call_end !== undefined) {
-      const { id } = event.tool_call_end as ToolCallEndEvent;
-      const pending = accumulators.pendingTools[id];
-      delete accumulators.pendingTools[id];
-      cbs.onToolEnd?.({ id, name: pending?.name ?? 'tool' });
-      return;
-    }
-
-    // ── ModelName ──
-    if (event.model_name !== undefined) {
-      const modelNameVal = event.model_name;
-      const name = typeof modelNameVal === 'object' && modelNameVal !== null
-        ? (modelNameVal as Record<string, unknown>).name as string || String(modelNameVal)
-        : String(modelNameVal);
-      cbs.onModelName?.(name);
-      return;
-    }
-
-    // ── DelegateStart ──
-    if (event.delegate_start !== undefined) {
-      const { task_id, goal, model } = event.delegate_start as DelegateStartEvent;
-      cbs.onDelegateStart?.({ taskId: task_id, goal, model });
-      return;
-    }
-
-    // ── DelegateEnd ──
-    if (event.delegate_end !== undefined) {
-      const { task_id, status, summary, model, tokens_input, tokens_output, duration_secs } = event.delegate_end as DelegateEndEvent;
-      cbs.onDelegateEnd?.({ taskId: task_id, status, summary, model, tokensInput: tokens_input, tokensOutput: tokens_output, duration: duration_secs });
-      return;
-    }
-
-    // ── SystemNotice ──
-    if (event.system_notice !== undefined) {
-      const { message, level } = event.system_notice as SystemNoticeEvent;
-      cbs.onSystemNotice?.({ message, level });
-      return;
-    }
-
-    // ── ClarifyQuestion ──
-    if (event.clarify_question !== undefined) {
-      const { clarify_id, question, choices } = event.clarify_question as ClarifyQuestionEvent;
-      cbs.onClarify?.({ clarify_id, question, choices });
-      return;
-    }
-
-    // ── SudoRequest ──
-    if (event.sudo_request !== undefined) {
-      const { request_id, prompt } = event.sudo_request as SudoRequestEvent;
-      cbs.onSudo?.({ request_id, prompt });
-      return;
-    }
-
-    // ── SecretRequest ──
-    if (event.secret_request !== undefined) {
-      const { request_id, prompt, env_var, metadata } = event.secret_request as SecretRequestEvent;
-      cbs.onSecret?.({ request_id, prompt, env_var, metadata });
-      return;
-    }
-
-    // ── ToolProgress (fallback — only reached for unnamed SSE lines) ──
-    // NOTE: reasoning.available is handled via named-event 'tool_progress' route
-    // with onReasoningReplace (not onReasoning). We must NOT re-handle it here
-    // with onReasoning (append) or it creates a second reasoning bubble.
-    if (event.tool_progress !== undefined) {
-      const tp = event.tool_progress as ToolProgressEvent;
-      const ev = tp.event || tp.tool;
-      if (ev === 'tool.failed' || ev === 'tool_error') {
-        cbs.onError?.(tp.error || `Tool ${tp.tool} failed`);
-      }
-      // reasoning.available intentionally NOT handled here — named-event route
-      // above handles it with onReasoningReplace (replace mode).
-      return;
-    }
-
-    // ── RunStarted ──
-    if (event.run_started !== undefined) {
-      const rs = event.run_started as RunStartedEvent;
-      cbs.onRunStart?.(rs.session_id);
-      return;
-    }
-
-    // ── RunCompleted ──
-    if (event.run_completed !== undefined) {
-      const rc = event.run_completed as RunCompletedEvent;
-      cbs.onRunComplete?.({
-        sessionId: rc.session_id,
-        completed: rc.completed,
-        interrupted: rc.interrupted,
-      });
-      return;
-    }
-
-    // ── No more 'text' fallback ──
-    // REMOVED: The old `if (event.text !== undefined)` fallback here
-    // caused DUPLICATE content. When the backend sends named SSE events
-    // (assistant.delta), the switch-case above already routes them.
-    // This fallback would fire for unnamed data lines that also contain
-    // a 'text' field, double-triggering onText. Hermes does NOT have
-    // this fallback — it only uses named events.
   }, []);
 
+  // ── WS 连接生命周期 ──
+  useEffect(() => {
+    const wsClient = getWsClient();
+
+    // 注册事件监听器 — WS 推送 → routeWsEvent → processEvent → SSECallbacks
+    wsClient.addEventListener(routeWsEvent);
+
+    // 重连恢复回调：WS 重连成功后请求 session.info
+    // 对齐 Hermes: gateway.ready → session.resume
+    const handleWsOpen = (wasReconnect: boolean) => {
+      if (wasReconnect) {
+        const sid = currentSessionRef.current;
+        if (sid) {
+          wsClient.sendRpc('session.info', { session_id: sid }).catch(() => {});
+        }
+      }
+    };
+    wsClient.setReconnectCallback(handleWsOpen);
+
+    return () => {
+      wsClient.removeEventListener(routeWsEvent);
+      wsClient.setReconnectCallback(null);
+    };
+  }, [routeWsEvent]);
+
   const send = useCallback(async (text: string, sessionId?: string | null): Promise<void> => {
-    console.log('🔍 useSSE.send called, text=', JSON.stringify(text), 'len=', text?.length);
-    if (!text?.trim()) { console.warn('⚠️ useSSE.send blocked: empty text'); return; }
+    if (!text?.trim()) return;
     storeSetIsStreaming(true);
     isStreamingRef.current = true;
 
@@ -342,14 +351,28 @@ export function useSSE(callbacks: SSECallbacks = {}): {
 
     const cbs = cbsRef.current;
 
-    // Accumulators for multi-chunk fields
+    // ── WS 优先：通过 JSON-RPC prompt.submit 发送 ──
+    const wsClient = getWsClient();
+    if (wsClient.state === 'connected') {
+      // 重置 WS 累加器
+      wsAccumulatorsRef.current = { fullText: '', fullReasoning: '', pendingTools: {} };
+
+      try {
+        await wsClient.promptSubmit(text, sessionId || undefined);
+        return; // WS 发送成功，事件通过 routeWsEvent 回调
+      } catch (wsErr) {
+        console.warn('[useSSE] WS prompt.submit failed, falling back to SSE:', wsErr);
+        // 降级到 HTTP SSE
+      }
+    }
+
+    // ── 降级：HTTP SSE ──
     const accumulators: SSEAccumulators = {
       fullText: '',
       fullReasoning: '',
       pendingTools: {},
     };
 
-    // ── 统一走 HTTP SSE ──
     const MAX_RETRIES = 3;
     const SSE_IDLE_TIMEOUT_MS = 60_000;
     const SSE_TOTAL_TIMEOUT_MS = 600_000;
@@ -371,8 +394,6 @@ export function useSSE(callbacks: SSECallbacks = {}): {
           body: JSON.stringify({ message: text, session_id: sessionId || null }),
           signal: controller.signal,
         });
-
-        console.log('🔍 [SSE] Response received, status=', resp.status, 'ok=', resp.ok, 'body=', !!resp.body);
 
         if (!resp.ok) {
           // 人性化错误消息
@@ -407,6 +428,7 @@ export function useSSE(callbacks: SSECallbacks = {}): {
         let buffer = '';
         let lastEventName = '';
         let eventCount = 0;
+        let doneReceived = false;
         let lastDataTime = Date.now();
         const streamStartTime = Date.now();
 
@@ -433,7 +455,6 @@ export function useSSE(callbacks: SSECallbacks = {}): {
           try {
             readResult = await Promise.race([readPromise, timeoutPromise]);
           } catch (timeoutErr) {
-            console.warn(`[SSE] ${(timeoutErr as Error).message}, aborting session=${sessionId}`);
             controller.abort();
             cbs.onError?.((timeoutErr as Error).message);
             break;
@@ -441,7 +462,6 @@ export function useSSE(callbacks: SSECallbacks = {}): {
 
           const { done, value } = readResult;
           if (done) {
-            console.log('🔍 [SSE] ReadableStream done, total events=', eventCount);
             buffer += decoder.decode();
             break;
           }
@@ -461,244 +481,17 @@ export function useSSE(callbacks: SSECallbacks = {}): {
             const dataStr = trimmed.slice(5).trim();
             eventCount++;
 
-            // 防御: 空 data 行 (如旧版 keepalive event: keepalive + data:"")
-            // 对齐 Hermes: keepalive 用 SSE comment (`: keepalive\n\n`)，前端自动跳过
+            // 防御: 空 data 行
             if (!dataStr) continue;
-
-            if (eventCount <= 20) {
-              console.log(`🔍 [SSE] event#${eventCount} eventName=${lastEventName} data=${dataStr.slice(0, 200)}`);
-            }
 
             try {
               const chunk = JSON.parse(dataStr);
 
-              if (eventCount <= 20) {
-                console.log(`🔍 [SSE] parsed keys=${Object.keys(chunk).join(',')} typeof=${typeof chunk}`, chunk);
-              }
+              // ── 统一路由：SSE 事件名已与 WS 一致 ──
+              const result = processEvent(lastEventName, chunk, accumulators, cbs);
 
-              // ── Route by named event (Hermes format) ──
-              let handled = false;
-              let result: string | undefined = '';
-              switch (lastEventName) {
-                case 'assistant.delta':
-                  accumulators.fullText += chunk.delta || '';
-                  cbs.onText?.(chunk.delta || '', accumulators.fullText);
-                  handled = true;
-                  break;
-                case 'reasoning.delta':
-                  accumulators.fullReasoning += chunk.delta || '';
-                  cbs.onReasoning?.(chunk.delta || '', accumulators.fullReasoning);
-                  handled = true;
-                  break;
-                case 'tool.started':
-                  cbs.onToolStart?.({ id: chunk.tool_id || null, name: chunk.tool_name });
-                  handled = true;
-                  break;
-                case 'tool.completed':
-                  cbs.onToolEnd?.({ id: chunk.tool_id || null, name: chunk.tool_name });
-                  handled = true;
-                  break;
-                case 'tool_progress':
-                  {
-                    // NOTE: tool_progress is a legacy path.  The structured
-                    // tool_call_start / tool_call_end events (routed above via
-                    // the named-event switch) already fire onToolStart/onToolEnd.
-                    // We only handle sub-events that the structured path does
-                    // NOT cover: reasoning.available and tool.failed.
-                    const ev = chunk.event || chunk.tool;
-                    if (ev === 'reasoning.available') {
-                      // [FIX #4] reasoning.available = REPLACE, not append.
-                      // Same as Hermes appendReasoningDelta(sessionId, text, replace=true).
-                      cbs.onReasoningReplace?.(chunk.text || '');
-                    } else if (ev === 'tool.failed' || ev === 'tool_error') {
-                      cbs.onError?.(chunk.error || `Tool ${chunk.tool} failed`);
-                    }
-                    // Intentionally NOT forwarding tool.started / tool.completed
-                    // here to avoid double-firing onToolStart/onToolEnd — the
-                    // named-event switch above already handles those.
-                  }
-                  handled = true;
-                  break;
-                case 'tool.progress':
-                  // 对齐 Hermes: reasoning 通过 tool.progress + tool_name="_thinking" 发送
-                  if (chunk.tool_name === '_thinking') {
-                    // Reasoning delta — 路由到 onReasoning (append)
-                    const delta = typeof chunk.delta === 'string' ? chunk.delta : (typeof chunk.delta === 'object' ? JSON.stringify(chunk.delta) : String(chunk.delta || ''));
-                    if (delta) {
-                      accumulators.fullReasoning += delta;
-                      cbs.onReasoning?.(delta, accumulators.fullReasoning);
-                    }
-                    handled = true;
-                    break;
-                  }
-                  // NOTE: Hermes does NOT handle _thinking via tool.progress.
-                  // Reasoning is handled by:
-                  //   - reasoning.delta (named event) → onReasoning (append)
-                  //   - tool_progress(reasoning.available) → onReasoningReplace (replace)
-                  // The old _thinking branch here would APPEND reasoning content
-                  // that the reasoning.delta path already appended, causing
-                  // duplicate reasoning bubbles.
-                  {
-                    const tid = chunk.tool_id || 'unknown';
-                    if (!accumulators.pendingTools[tid]) {
-                      accumulators.pendingTools[tid] = { name: chunk.tool_name || '', argsStr: '' };
-                    }
-                    const deltaStr = typeof chunk.delta === 'string' ? chunk.delta : JSON.stringify(chunk.delta);
-                    accumulators.pendingTools[tid].argsStr += deltaStr;
-                    cbs.onToolArgs?.({ id: tid, delta: deltaStr, accumulated: accumulators.pendingTools[tid].argsStr });
-                  }
-                  handled = true;
-                  break;
-                case 'tool.failed':
-                  cbs.onError?.(chunk.error || `Tool ${chunk.tool_name} failed`);
-                  handled = true;
-                  break;
-                case 'delegate.start':
-                  cbs.onDelegateStart?.({ taskId: chunk.task_id, goal: chunk.goal });
-                  handled = true;
-                  break;
-                case 'delegate.end':
-                  cbs.onDelegateEnd?.({ taskId: chunk.task_id, status: chunk.status, summary: chunk.summary });
-                  handled = true;
-                  break;
-                case 'model.name':
-                  cbs.onModelName?.(chunk.name);
-                  handled = true;
-                  break;
-                case 'system.notice':
-                  cbs.onSystemNotice?.({ message: chunk.message, level: chunk.level });
-                  handled = true;
-                  break;
-                case 'clarify.question':
-                  cbs.onClarify?.({ clarify_id: chunk.clarify_id, question: chunk.question, choices: chunk.choices });
-                  handled = true;
-                  break;
-                case 'approval.request':
-                  cbs.onApproval?.(chunk);
-                  handled = true;
-                  break;
-                case 'sudo.request':
-                  cbs.onSudo?.({ request_id: chunk.request_id, prompt: chunk.prompt });
-                  handled = true;
-                  break;
-                case 'secret.request':
-                  cbs.onSecret?.({ request_id: chunk.request_id, prompt: chunk.prompt, env_var: chunk.env_var, metadata: chunk.metadata });
-                  handled = true;
-                  break;
-                case 'session.info':
-                  cbs.onSessionInfo?.({
-                    session_id: chunk.session_id,
-                    run_id: chunk.run_id,
-                    model: chunk.model,
-                    cwd: chunk.cwd,
-                    branch: chunk.branch,
-                    running: chunk.running,
-                    usage: chunk.usage,
-                    credential_warning: chunk.credential_warning,
-                  });
-                  handled = true;
-                  break;
-                case 'error':
-                  cbs.onError?.(chunk.message || 'Unknown error');
-                  result = 'error';
-                  handled = true;
-                  break;
-                case 'session_reset':
-                  cbs.onSessionReset?.({ old_session_id: chunk.old_session_id, new_session_id: chunk.new_session_id });
-                  handled = true;
-                  break;
-                case 'done':
-                  cbs.onDone?.(chunk.session_id);
-                  result = 'done';
-                  handled = true;
-                  break;
-                case 'run.started':
-                  cbs.onRunStart?.(chunk.session_id);
-                  handled = true;
-                  break;
-                case 'run.completed':
-                  {
-                    const runChunk = chunk as RunCompleteChunk;
-                    if (runChunk.usage) {
-                      cbs.onUsage?.({
-                        input: runChunk.usage.input_tokens,
-                        output: runChunk.usage.output_tokens,
-                        cacheRead: runChunk.usage.cache_read_tokens,
-                        cacheWrite: runChunk.usage.cache_write_tokens,
-                      });
-                    }
-                    cbs.onRunComplete?.({
-                      sessionId: runChunk.session_id || '',
-                      completed: runChunk.completed,
-                      interrupted: runChunk.interrupted,
-                      usage: runChunk.usage,
-                    });
-                  }
-                  handled = true;
-                  break;
-                case 'assistant.completed':
-                  // REMOVED: Hermes does NOT process this event.
-                  // The 'done' event already triggers completeAssistantMessage
-                  // via onDone. Processing assistant.completed here would:
-                  // 1. Update fullTextRef with potentially stale content
-                  // 2. Call onText('', fullText) which is a no-op for delta
-                  //    but still touches fullTextRef, creating a race with onDone
-                  // Hermes only uses message.complete → completeAssistantMessage.
-                  handled = true;
-                  break;
-                case 'message.started':
-                case 'usage':
-                  handled = true;
-                  break;
-                case 'delegate.progress':
-                  cbs.onDelegateProgress?.({
-                    subagentId: chunk.subagent_id,
-                    eventType: chunk.event_type,
-                    taskIndex: chunk.task_index,
-                    taskCount: chunk.task_count,
-                    goal: chunk.goal,
-                    toolName: chunk.tool_name,
-                    toolPreview: chunk.tool_preview,
-                    thinkingText: chunk.thinking_text,
-                    progressSummary: chunk.progress_summary,
-                    depth: chunk.depth,
-                  });
-                  handled = true;
-                  break;
-                case 'reasoning.completed':
-                  // REMOVED: Hermes does NOT have this event.
-                  // Reasoning lifecycle: reasoning.delta (append) + reasoning.available (replace).
-                  // Processing reasoning.completed would fire onReasoningComplete which
-                  // appends ANOTHER reasoning part, creating a second bubble.
-                  handled = true;
-                  break;
-                case 'finish_reason':
-                  handled = true;
-                  break;
-                default:
-                  if (lastEventName) {
-                    console.warn('[SSE] Unknown event:', lastEventName, chunk);
-                  }
-                  break;
-              }
-
-              if (handled) {
-                lastEventName = '';
-                if (result === 'done' || result === 'error') {
-                  storeSetIsStreaming(false);
-                  isStreamingRef.current = false;
-                  controllerRef.current = null;
-                  return;
-                }
-                continue;
-              }
-
-              // ── Fallback: unnamed events ──
-              result = handleEvent(chunk, accumulators);
-              if (eventCount <= 20) {
-                console.log(`🔍 [SSE] handleEvent result=${result} fullText="${accumulators.fullText.slice(0, 50)}"`);
-              }
               if (result === 'done' || result === 'error') {
+                if (result === 'done') doneReceived = true;
                 storeSetIsStreaming(false);
                 isStreamingRef.current = false;
                 controllerRef.current = null;
@@ -706,12 +499,15 @@ export function useSSE(callbacks: SSECallbacks = {}): {
               }
               lastEventName = '';
             } catch (e) {
-              console.warn(`🔍 [SSE] JSON parse error: dataStr="${dataStr.slice(0, 100)}" err=${(e as Error).message}`);
+              console.warn(`[SSE] JSON parse error: ${(e as Error).message}`);
             }
           }
         }
 
-        // Stream ended naturally
+        // Stream ended naturally — 可能未收到 done
+        if (!doneReceived) {
+          cbs.onDone?.(null);
+        }
         storeSetIsStreaming(false);
         isStreamingRef.current = false;
         controllerRef.current = null;
@@ -720,13 +516,12 @@ export function useSSE(callbacks: SSECallbacks = {}): {
         if ((err as Error).name === 'AbortError') break;
         attempt++;
         if (attempt > MAX_RETRIES) {
-          // 人性化连接错误
           const errMsg = (err as Error).message || '';
           let userMsg: string;
           if (errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError') || errMsg.includes('ECONNREFUSED') || errMsg.includes('fetch failed')) {
             userMsg = '无法连接 Agent 服务，请检查是否已配置 API Key 和主模型';
           } else if (errMsg.includes('API Key') || errMsg.includes('无效')) {
-            userMsg = errMsg; // 已经是人性的消息
+            userMsg = errMsg;
           } else {
             userMsg = errMsg || '连接失败，请检查配置';
           }
@@ -741,16 +536,23 @@ export function useSSE(callbacks: SSECallbacks = {}): {
 
     storeSetIsStreaming(false);
     isStreamingRef.current = false;
-    controllerRef.current = null;
-  }, [handleEvent]);
+  }, []);
 
   const abort = useCallback(async () => {
-    // 中止 HTTP SSE 流
+    // ── WS 优先：JSON-RPC abort ──
+    const wsClient = getWsClient();
+    if (wsClient.state === 'connected') {
+      try {
+        await wsClient.abortStream(currentSessionRef.current || undefined);
+      } catch { /* ignore */ }
+    }
+
+    // 中止 HTTP SSE 流（降级路径）
     if (controllerRef.current) {
       controllerRef.current.abort();
       controllerRef.current = null;
     }
-    // 通知后端中止
+    // 通知后端中止（SSE 路径）
     const sid = currentSessionRef.current;
     if (sid) {
       try {

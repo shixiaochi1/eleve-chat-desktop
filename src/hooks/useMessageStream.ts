@@ -58,7 +58,7 @@ export interface UseMessageStreamProps {
   setConnectionStatus: React.Dispatch<React.SetStateAction<string>>
   setDebugInfo: React.Dispatch<React.SetStateAction<{ sessionId: string; tokensIn: number; tokensOut: number; lastSent: string; sessionStartedAt: number | null }>>
   setDebugToolCalls: React.Dispatch<React.SetStateAction<DebugToolCall[]>>
-  setMonitorState: React.Dispatch<React.SetStateAction<{ modelName: string | null; delegateTasks: Record<string, unknown>; tokensIn?: number; tokensOut?: number; lastSent?: string; sessionStartedAt?: number | null }>>
+  setMonitorState: React.Dispatch<React.SetStateAction<{ modelName: string | null; delegateTasks: Record<string, unknown>; tokensIn?: number; tokensOut?: number; lastSent?: string; sessionStartedAt?: number | null; statusText?: string }>>
   setActiveClarify: React.Dispatch<React.SetStateAction<{ clarify_id: string; question: string; choices: string[] } | null>>
   setActiveApproval: React.Dispatch<React.SetStateAction<{ command: string; description: string; pattern: string; choices: string[]; session_id: string } | null>>
   setActiveSudo?: React.Dispatch<React.SetStateAction<{ request_id: string; prompt?: string } | null>>
@@ -397,7 +397,7 @@ export function useMessageStream({
 
     // ── Tool end — 1:1 with Hermes tool.complete ──
     onToolEnd: ({ id, name }: { id: string | null; name: string }) => {
-      addDebugEvent('tool_end', `${name || 'tool'} (${id?.slice(0, 8)})`);
+      addDebugEvent('tool_complete', `${name || 'tool'} (${id?.slice(0, 8)})`);
       setDebugToolCalls((prev) => prev.map((t) => t.callId === id ? { ...t, status: 'done' } : t));
       flushQueuedDeltas()
       const toolPayload: GatewayEventPayload = { tool_call_id: id || '', name };
@@ -429,6 +429,13 @@ export function useMessageStream({
         storage.save('session_id', sessionId);
         setDebugInfo((prev) => ({ ...prev, sessionId, sessionStartedAt: Date.now() }));
         if (setSessionListVersion) setSessionListVersion(v => v + 1);
+        // 同步 WS 连接到新 session
+        import('@/services/ws-client').then(({ getWsClient }) => {
+          const wsClient = getWsClient();
+          if (wsClient.state === 'connected') {
+            wsClient.switchSession(sessionId);
+          }
+        });
       }
       // Allocate streamId — if already set by lazy creation, keep it
       if (!streamIdRef.current) {
@@ -493,6 +500,19 @@ export function useMessageStream({
       }));
       // 同步 store 中的 streaming 状态
       if (!data.running) {
+        // 对齐 Hermes session.info running=false: 重置全部流式状态
+        // Hermes: streamId=null, busy=false, awaitingResponse=false,
+        //         pendingBranchGroup=null, turnStartedAt=null
+        // 先 flush 残留 delta，再 finalize pending 消息
+        if (flushHandleRef.current !== null) {
+          clearTimeout(flushHandleRef.current);
+          flushHandleRef.current = null;
+        }
+        flushQueuedDeltas();
+        // 如果还有活跃的 streamId，说明 agent 异常退出没发 done → finalize
+        if (streamIdRef.current) {
+          completeAssistantMessage(fullTextRef.current);
+        }
         storeSetIsStreaming(false);
         setConnectionStatus('idle');
       } else {
@@ -579,6 +599,115 @@ export function useMessageStream({
       sess.refresh();
       if (setSessionListVersion) setSessionListVersion(v => v + 1);
       setDebugInfo((prev) => ({ ...prev, sessionId: new_session_id, sessionStartedAt: Date.now() }));
+      // 同步 WS 连接到新 session
+      import('@/services/ws-client').then(({ getWsClient }) => {
+        const wsClient = getWsClient();
+        if (wsClient.state === 'connected') {
+          wsClient.switchSession(new_session_id);
+        }
+      });
+    },
+
+    // ── Run completed — aligned with Hermes session.info(running=false) ──
+    // Hermes doesn't explicitly handle run.completed in handleGatewayEvent,
+    // but the event carries usage data. Process it here for stats tracking.
+    onRunComplete: (data: { sessionId: string; completed?: boolean; interrupted?: boolean; usage?: unknown }) => {
+      addDebugEvent('run_complete', `session=${data.sessionId?.slice(0, 8)} completed=${data.completed} interrupted=${data.interrupted}`);
+      // 如果被中断，清理流式状态
+      if (data.interrupted && streamIdRef.current) {
+        flushQueuedDeltas();
+        completeAssistantMessage(fullTextRef.current);
+        storeSetIsStreaming(false);
+      }
+    },
+
+    // ── Delegate progress — aligned with Hermes upsertSubagent ──
+    // Hermes handles subagent events via upsertSubagent.
+    // Eleve routes delegate.* events through this callback for monitor display.
+    onDelegateProgress: (data: {
+      subagentId?: string; eventType?: string; taskIndex?: number; taskCount?: number
+      goal?: string; toolName?: string; toolPreview?: string; thinkingText?: string
+      progressSummary?: string; depth?: number
+    }) => {
+      addDebugEvent('delegate_progress', `${data.eventType || ''} ${data.goal?.slice(0, 40) || data.toolName || ''}`);
+      // 更新 monitorState 显示子代理进度
+      if (data.subagentId) {
+        setMonitorState((prev) => {
+          const tasks = { ...((prev.delegateTasks as Record<string, unknown>) || {}) };
+          tasks[data.subagentId!] = {
+            ...(tasks[data.subagentId!] as Record<string, unknown> || {}),
+            id: data.subagentId,
+            goal: data.goal,
+            eventType: data.eventType,
+            taskIndex: data.taskIndex,
+            taskCount: data.taskCount,
+            toolName: data.toolName,
+            progressSummary: data.progressSummary,
+            depth: data.depth,
+            status: data.eventType === 'subagent.complete' ? 'completed' : 'running',
+          };
+          return { ...prev, delegateTasks: tasks };
+        });
+      }
+    },
+
+    // ── System notice — display as toast notification ──
+    // Hermes has no direct equivalent; Eleve-specific event for backend notices.
+    onSystemNotice: (data: { message: string; level?: string }) => {
+      addDebugEvent('system_notice', `${data.level || 'info'}: ${data.message.slice(0, 60)}`);
+      import('../utils/notifications').then(({ notifyError }) => {
+        if (data.level === 'error' || data.level === 'warning') {
+          notifyError(data.message, data.level === 'error' ? '错误' : '警告');
+        }
+      });
+    },
+
+    // ── Status update — Hermes status.update (覆盖式状态，按 kind 分流) ──
+    // 对齐 Hermes TUI 前端 createGatewayEventHandler.ts L425-470:
+    //   kind=goal/compressing → sys(text)+setStatus(brief)
+    //   kind=lifecycle/warn/error → setStatus(text)+pushActivity(text, level)
+    //   kind=status → 仅 setStatus()
+    onStatusUpdate: (data: { kind: string; text: string }) => {
+      addDebugEvent('status_update', `${data.kind}: ${data.text.slice(0, 60)}`);
+      const { kind, text } = data;
+      switch (kind) {
+        case 'goal':
+        case 'compressing':
+          // 压缩/目标变更 → 追加系统提示到聊天流 + 更新状态栏
+          mutateStream(
+            (parts) => [...parts, textPart(text)],
+            () => [textPart(text)],
+          );
+          setMonitorState((prev) => ({ ...prev, modelName: prev.modelName, statusText: text }));
+          break;
+        case 'lifecycle':
+        case 'warn':
+        case 'error': {
+          // 生命周期/警告/错误 → 更新状态栏 + 错误通知
+          setMonitorState((prev) => ({ ...prev, modelName: prev.modelName, statusText: text }));
+          const level = kind === 'error' ? 'error' : kind === 'warn' ? 'warning' : 'info';
+          import('../utils/notifications').then(({ notifyError }) => {
+            if (level === 'error' || level === 'warning') {
+              notifyError(text, level === 'error' ? '错误' : '警告');
+            }
+          });
+          break;
+        }
+        case 'status':
+        default:
+          // 普通状态 → 仅更新状态栏
+          setMonitorState((prev) => ({ ...prev, modelName: prev.modelName, statusText: text }));
+          break;
+      }
+    },
+
+    // ── Reasoning completed — NOT wired, Hermes doesn't process this event ──
+    // reasoning.completed is explicitly silenced in useSSE (handled=true, no callback call).
+    // Hermes lifecycle: reasoning.delta (append) + reasoning.available (replace) — no .completed.
+    // Keep this no-op to satisfy SSECallbacks interface; the event is already
+    // handled by onReasoning + onReasoningReplace above.
+    onReasoningComplete: (_reasoning: string) => {
+      // Intentionally no-op — Hermes doesn't process reasoning.completed
     },
   } satisfies SSECallbacks;
 

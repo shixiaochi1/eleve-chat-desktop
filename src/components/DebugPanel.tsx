@@ -48,7 +48,7 @@ const EVENT_CONFIG: Record<string, EventConfig> = {
   reasoning: { label: '思考',    color: '#a78bfa',         Icon: ThinkingIcon },
   tool_start:{ label: '工具开始',color: '#f59e0b',         Icon: ToolIcon },
   tool_arg:  { label: '工具参数',color: '#f59e0b',         Icon: (s: Record<string, unknown>) => <Braces size={ICON_SIZE} {...strokeProps} {...s} /> },
-  tool_end:  { label: '工具完成',color: 'var(--success)',  Icon: CheckIcon },
+  tool_complete:  { label: '工具完成',color: 'var(--success)',  Icon: CheckIcon },
   usage:     { label: '用量',    color: 'var(--accent)',   Icon: ModelIcon },
   done:      { label: '完成',    color: 'var(--success)',  Icon: CheckIcon },
   error:     { label: '错误',    color: 'var(--error)',    Icon: (s: Record<string, unknown>) => <AlertCircle size={ICON_SIZE} {...strokeProps} {...s} /> },

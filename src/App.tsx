@@ -11,6 +11,7 @@ import { loadMarkdownDeps } from './utils/markdown';
 import * as storage from './utils/storage';
 import { loadSettingsFromRust } from './utils/settings-store';
 import { discoverPort, call } from './utils/bridge';
+import { getWsClient } from './services/ws-client';
 import type { ChatMessage } from './types';
 import ErrorBoundary from './components/ErrorBoundary';
 import CredentialCard from './components/CredentialCard';
@@ -121,7 +122,7 @@ export default function App() {
     sessionStartedAt: number | null;
   }
   const [debugInfo, setDebugInfo] = useState<DebugInfo>({ sessionId: '', tokensIn: 0, tokensOut: 0, lastSent: '(none)', sessionStartedAt: null });
-  const [monitorState, setMonitorState] = useState<{ modelName: string | null; delegateTasks: Record<string, any>; tokensIn?: number; tokensOut?: number; lastSent?: string; sessionStartedAt?: number | null }>({ modelName: null, delegateTasks: {} });
+  const [monitorState, setMonitorState] = useState<{ modelName: string | null; delegateTasks: Record<string, any>; tokensIn?: number; tokensOut?: number; lastSent?: string; sessionStartedAt?: number | null; statusText?: string }>({ modelName: null, delegateTasks: {} });
   const [debugEvents, setDebugEvents] = useState<Array<{ ts: number; type: string; detail: string }>>([]);
   const [debugToolCalls, setDebugToolCalls] = useState<any[]>([]);
 
@@ -320,6 +321,31 @@ export default function App() {
 
     }
   }, []);  // ← 只执行一次，不依赖 messages 或 sessionId
+
+  // ── WebSocket 连接管理 ──
+  // portReady + sessionId 就绪后建立 WS 长连接
+  // 事件分发由 useSSE 内部的 routeWsEvent（通过 addEventListener）处理
+  useEffect(() => {
+    if (!portReady || !sess.sessionId) return;
+
+    const wsClient = getWsClient();
+    // 只在未连接时建立连接
+    if (wsClient.state === 'disconnected') {
+      console.log('[App] Initiating WS connection for session:', sess.sessionId?.slice(0, 8));
+      wsClient.connect(sess.sessionId, {
+        onOpen: () => console.log('[App] WS connected'),
+        onClose: (code, reason) => console.log('[App] WS closed:', code, reason),
+        onError: (err) => console.error('[App] WS error:', err),
+      });
+    } else if (wsClient.state === 'connected') {
+      // session 变化但 WS 已连接 → 切换 session
+      wsClient.switchSession(sess.sessionId);
+    }
+
+    return () => {
+      // App unmount 时不 disconnect，WS 长连接跨组件
+    };
+  }, [portReady, sess.sessionId]);
 
   // ── beforeunload: 用 ref 拿最新 messages，避免依赖 [messages] 导致白屏 ──
   useEffect(() => {
