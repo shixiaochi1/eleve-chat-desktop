@@ -55,6 +55,7 @@ pub struct TauriAppState {
 /// GUI 应用从 Explorer 启动时继承登录时环境变量快照，setx 设置的变量不可见。
 #[cfg(target_os = "windows")]
 fn read_windows_user_env_var(name: &str) -> Option<String> {
+    use std::os::windows::process::CommandExt;
     let stdout = std::process::Command::new("reg")
         .args(["query", r"HKCU\Environment", "/v", name])
         .creation_flags(0x08000000) // CREATE_NO_WINDOW
