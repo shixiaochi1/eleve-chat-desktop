@@ -1,7 +1,7 @@
 /**
  * KanbanPanel v3 — 看板全功能版
  *
- * 对齐 Hermes Dashboard 全部交互：
+ * 对齐 Eleve Dashboard 全部交互：
  *   - 6列 (triage/todo/ready/running/blocked/done)
  *   - 陈旧度警告 (amber/red 内阴影)
  *   - 进度药丸 (3/5 子任务完成)
@@ -1506,14 +1506,14 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
     return Array.from(laneMap.entries());
   }, [grouped.running]);
 
-  // 拖拽 drop 处理 — 对齐 Hermes: 破坏性确认 + completion summary + 状态门控
+  // 拖拽 drop 处理 — 对齐 Eleve: 破坏性确认 + completion summary + 状态门控
   const handleDrop = useCallback(async (columnKey: string, taskId: string) => {
     const newStatus = COLUMN_STATUS[columnKey];
     if (!newStatus) return;
 
-    // 对齐 Hermes: done/blocked/archived 为破坏性操作，需确认
+    // 对齐 Eleve: done/blocked/archived 为破坏性操作，需确认
     if (newStatus === 'done') {
-      // 状态门控：只有 ready/running/blocked 可完成（对齐 Hermes complete_task WHERE 条件）
+      // 状态门控：只有 ready/running/blocked 可完成（对齐 Eleve complete_task WHERE 条件）
       const task = apiTasks.find(t => t.id === taskId);
       if (task && !['ready', 'running', 'blocked'].includes(task.status)) {
         alert(`无法完成该任务：当前状态为「${task.status}」，必须先提升到 ready/running/blocked。\n${task.status === 'todo' ? '提示：该任务有未完成的父任务，请先完成父任务。' : task.status === 'triage' ? '提示：该任务需要先进行细化（specify/decompose）。' : ''}`);
@@ -1562,10 +1562,10 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
   const handleCreateSubmit = useCallback(async () => {
     if (!newTitle.trim()) return;
     try {
-      // Hermes 仪表盘对齐：不发送 status 字段，只发 triage 标志，让后端决定状态
+      // Eleve 仪表盘对齐：不发送 status 字段，只发 triage 标志，让后端决定状态
       const payload: Record<string, unknown> = { title: newTitle.trim(), board: currentBoard };
       if (newBody.trim()) payload.body = newBody.trim();
-      // assignee: 用户指定 > default_profile > 'default'（对齐 Hermes kanban_create assignee 必填）
+      // assignee: 用户指定 > default_profile > 'default'（对齐 Eleve kanban_create assignee 必填）
       const effectiveAssignee = newAssignee.trim()
         || orchestration?.default_profile
         || 'default';

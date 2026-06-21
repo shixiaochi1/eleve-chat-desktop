@@ -22,7 +22,7 @@ const STATUS_CONFIG: Record<string, { icon: string; colorClass: string }> = {
 };
 
 /**
- * HoistedTodoPanel — 对齐 Hermes HoistedTodoPanel
+ * HoistedTodoPanel — 对齐 Eleve HoistedTodoPanel
  *
  * 将 AI 消息中的 todo 工具调用结果"提升"到消息正文上方独立展示。
  * 当前进行中的事项高亮，其余淡出。
@@ -65,7 +65,7 @@ export default function HoistedTodoPanel({ todos }: HoistedTodoPanelProps) {
 }
 
 /**
- * 从消息 parts 中提取 todo 列表（对齐 Hermes todosFromMessageContent）
+ * 从消息 parts 中提取 todo 列表（对齐 Eleve todosFromMessageContent）
  *
  * 遍历消息的 tool-call parts，找到 toolName === 'todo' 的，
  * 从其结果中提取 TodoItem 数组

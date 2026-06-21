@@ -1,5 +1,5 @@
 /**
- * Toast 通知组件 — 对齐 Hermes components/notifications.tsx
+ * Toast 通知组件 — 对齐 Eleve components/notifications.tsx
  *
  * Apple macOS 风格：
  *  - 毛玻璃背景 + 阴影

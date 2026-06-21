@@ -9,7 +9,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchModels, setModel as apiSetModel } from '../utils/api';
 import { loadSettings } from '../utils/settings-store';
-import type { ModelOptionProvider } from '@/types/hermes';
+import type { ModelOptionProvider } from '@/types/eleve';
 
 interface ModelItem {
   id: string;

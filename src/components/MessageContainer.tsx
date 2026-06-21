@@ -1,9 +1,9 @@
 /**
- * 1:1 copy from Hermes thread-virtualizer.tsx
- * Source: hermes-agent/apps/desktop/src/components/assistant-ui/thread-virtualizer.tsx
+ * 1:1 copy from Eleve thread-virtualizer.tsx
+ * Source: eleve-agent/apps/desktop/src/components/assistant-ui/thread-virtualizer.tsx
  *
  * ONLY change: ThreadPrimitive.MessageByIndex → Eleve's own MessageGroupItem
- * Everything else is verbatim Hermes code.
+ * Everything else is verbatim Eleve code.
  */
 
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual'
@@ -60,7 +60,7 @@ function buildGroups(signature: string): MessageGroup[] {
   return groups
 }
 
-// ── Hermes VirtualizedThread, verbatim ──
+// ── Eleve VirtualizedThread, verbatim ──
 
 interface VirtualizedThreadProps {
   sessionKey?: string | null
@@ -228,7 +228,7 @@ export function VirtualizedThread({
   )
 }
 
-// ── Hermes useThreadScrollAnchor, VERBATIM ──
+// ── Eleve useThreadScrollAnchor, VERBATIM ──
 
 interface ScrollAnchorOptions {
   enabled: boolean
@@ -458,7 +458,7 @@ function useThreadScrollAnchor({ enabled, groupCount, scrollerRef, sessionKey, v
     prevGroupCountForLayoutRef.current = groupCount
   }, [enabled, groupCount, pinToBottom])
 
-  // Hermes: useAuiEvent('thread.runStart', jumpToBottom)
+  // Eleve: useAuiEvent('thread.runStart', jumpToBottom)
   // Eleve equivalent: listen to isStreaming store
   const isStreaming = useIsStreaming()
   const prevIsRunningRef = useRef(isStreaming)
@@ -490,7 +490,7 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
     }
 
     if (m.role === 'assistant') {
-      // ── 分组渲染：连续 tool-call 合并为一组（对齐 Hermes groupToolParts）──
+      // ── 分组渲染：连续 tool-call 合并为一组（对齐 Eleve groupToolParts）──
       type RenderItem =
         | { kind: 'reasoning'; key: string; text: string }
         | { kind: 'text'; key: string; text: string; isLast: boolean }
@@ -557,7 +557,7 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
       }
       flushToolBuffer()
 
-      // 从 parts 中提取 todo 列表（对齐 Hermes HoistedTodoPanel）
+      // 从 parts 中提取 todo 列表（对齐 Eleve HoistedTodoPanel）
       const hoistedTodos = todosFromMessageParts(m.parts)
 
       return (

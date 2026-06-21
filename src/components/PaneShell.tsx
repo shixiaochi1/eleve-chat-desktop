@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 /**
  * PaneShell — CSS Grid pane system with resizable dividers and collapse support
  *
- * Simplified version inspired by Hermes Desktop's PaneShell. Provides a
+ * Simplified version inspired by Eleve Desktop's PaneShell. Provides a
  * CSS Grid layout with configurable left and right panes around a main area.
  * Supports resizable dividers with pointer capture drag, collapse/expand
  * animation, and CSS variable emission for pane widths.

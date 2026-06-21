@@ -86,7 +86,7 @@ export function useSessionActions({
     if (setSessionListVersion) setSessionListVersion(v => v + 1);
   }, [sess, setSessionListVersion]);
 
-  // ── new session — 对齐 Hermes startFreshSessionDraft()
+  // ── new session — 对齐 Eleve startFreshSessionDraft()
   // 纯前端重置：清消息 + 释放锁 + 设 freshDraftReady
   // 后端 session 懒创建 — 首条消息发送时通过 createSession() 创建
   const handleNewSession = useCallback(async (title?: string) => {
@@ -101,7 +101,7 @@ export function useSessionActions({
     sess.setSessionId(null);
     storage.save('session_id', null);
     sess.setFreshDraftReady(true);
-    // 对齐 Hermes: /new <title> 时暂存标题，懒创建后设置
+    // 对齐 Eleve: /new <title> 时暂存标题，懒创建后设置
     if (title?.trim()) {
       sess.setPendingTitle(title.trim());
     } else {

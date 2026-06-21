@@ -28,7 +28,7 @@ export function isSpecialTool(name?: string): boolean {
 }
 
 /**
- * 工具调用分组容器 — 对齐 Hermes ToolGroupSlot
+ * 工具调用分组容器 — 对齐 Eleve ToolGroupSlot
  *
  * - 单工具：直接展示工具名+状态（无组标题）
  * - 多工具：组标题 "工具操作 · N 步" / "浏览器操作 · N 步"，折叠展示
@@ -144,7 +144,7 @@ const SingleToolEntry = memo(function SingleToolEntry({
     try { return JSON.parse(tool.resultStr); } catch { return null; }
   }, [tool.resultStr]);
 
-  // 提取 inline_diff（对齐 Hermes：优先从 result.inline_diff 字段获取）
+  // 提取 inline_diff（对齐 Eleve：优先从 result.inline_diff 字段获取）
   const inlineDiff = useMemo(() => {
     // 先尝试从 parsedResult 提取
     const fromResult = inlineDiffFromResult(parsedResult);
@@ -262,7 +262,7 @@ const SingleToolEntry = memo(function SingleToolEntry({
           </div>
         </div>
       )}
-      {/* 内联 diff — 始终可见（对齐 Hermes：工具卡片底部直接展示 diff） */}
+      {/* 内联 diff — 始终可见（对齐 Eleve：工具卡片底部直接展示 diff） */}
       {inlineDiff && <DiffLines text={inlineDiff} />}
     </div>
   );

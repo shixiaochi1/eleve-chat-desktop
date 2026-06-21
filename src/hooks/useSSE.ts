@@ -51,7 +51,7 @@ export interface SSECallbacks {
   onError?: (msg: string) => void
   onReasoningComplete?: (reasoning: string) => void
   onSessionReset?: (data: { old_session_id: string; new_session_id: string }) => void
-  // 对齐 Hermes thinking_callback → thinking.delta 事件（Agent 思考状态，如"正在思考..."）
+  // 对齐 Eleve thinking_callback → thinking.delta 事件（Agent 思考状态，如"正在思考..."）
   onThinking?: (text: string) => void
 }
 
@@ -70,7 +70,7 @@ interface RunCompleteChunk {
 }
 
 // ── 统一事件路由函数 ──
-// SSE 和 WS 共用，事件名已统一为 Hermes 标准
+// SSE 和 WS 共用，事件名已统一为 Eleve 标准
 // 返回 'done' | 'error' | undefined
 
 function processEvent(
@@ -80,7 +80,7 @@ function processEvent(
   cbs: SSECallbacks,
 ): string | undefined {
   switch (eventName) {
-    // ── 文本 delta（对齐 Hermes 通道 A: assistant.delta）──
+    // ── 文本 delta（对齐 Eleve 通道 A: assistant.delta）──
     case 'assistant.delta':
       acc.fullText += (chunk.delta as string) || '';
       cbs.onText?.((chunk.delta as string) || '', acc.fullText);
@@ -93,21 +93,21 @@ function processEvent(
       break;
 
     case 'reasoning.available':
-      // 对齐 Hermes: reasoning.available = REPLACE, not append
+      // 对齐 Eleve: reasoning.available = REPLACE, not append
       cbs.onReasoningReplace?.((chunk.text as string) || '');
       break;
 
-    // ── Agent 思考状态（对齐 Hermes thinking_callback → thinking.delta）──
+    // ── Agent 思考状态（对齐 Eleve thinking_callback → thinking.delta）──
     case 'thinking.delta':
       cbs.onThinking?.((chunk.text as string) || '');
       break;
 
-    // ── 工具（对齐 Hermes 通道 A: tool.started / tool.completed）──
+    // ── 工具（对齐 Eleve 通道 A: tool.started / tool.completed）──
     case 'tool.started':
       cbs.onToolStart?.({ id: (chunk.tool_id as string) || null, name: chunk.tool_name as string });
       break;
 
-    // 对齐 Hermes: 流式响应中工具名确定、参数还在生成时触发（drafting spinner）
+    // 对齐 Eleve: 流式响应中工具名确定、参数还在生成时触发（drafting spinner）
     case 'tool.generating':
       cbs.onToolGenerating?.((chunk.name as string) || '');
       break;
@@ -117,7 +117,7 @@ function processEvent(
       break;
 
     case 'tool.progress': {
-      // 子事件分发：tool.failed（对齐 Hermes 通道 A）
+      // 子事件分发：tool.failed（对齐 Eleve 通道 A）
       const ev = chunk.event || chunk.tool;
       if (ev === 'tool.failed') {
         cbs.onError?.((chunk.error as string) || `Tool ${chunk.tool} failed`);
@@ -252,7 +252,7 @@ function processEvent(
       cbs.onText?.((chunk.text as string) || '', '');
       break;
 
-    // ── 静默事件（Hermes 通道 A 标准名，WS/SSE 路由中不需要额外处理）──
+    // ── 静默事件（Eleve 通道 A 标准名，WS/SSE 路由中不需要额外处理）──
     case 'message.started':
     case 'assistant.completed':
     case 'reasoning.completed':
@@ -272,7 +272,7 @@ function processEvent(
 /**
  * SSE streaming hook v2 — 统一事件路由
  *
- * WS 和 SSE 路径共用 processEvent()，事件名已统一为 Hermes 标准。
+ * WS 和 SSE 路径共用 processEvent()，事件名已统一为 Eleve 标准。
  */
 export function useSSE(callbacks: SSECallbacks = {}): {
   isStreaming: boolean
@@ -318,7 +318,7 @@ export function useSSE(callbacks: SSECallbacks = {}): {
     wsClient.addEventListener(routeWsEvent);
 
     // 重连恢复回调：WS 重连成功后请求 session.info
-    // 对齐 Hermes: gateway.ready → session.resume
+    // 对齐 Eleve: gateway.ready → session.resume
     const handleWsOpen = (wasReconnect: boolean) => {
       if (wasReconnect) {
         const sid = currentSessionRef.current;

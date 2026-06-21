@@ -1,7 +1,7 @@
 /**
  * 会话面板 — Apple 风格会话列表
  *
- * 对齐 Hermes session-actions-menu.tsx:
+ * 对齐 Eleve session-actions-menu.tsx:
  *   - 右键菜单: 重命名/置顶/归档/导出/复制ID/删除
  *   - 置顶会话排序顶部
  *   - 归档会话折叠底部
@@ -83,7 +83,7 @@ interface RenameTarget {
 const PINNED_KEY = 'eleve.pinned-sessions';
 const ARCHIVED_KEY = 'eleve.archived-sessions';
 
-// ── 系统会话来源（对齐后端 exclude_sources + Hermes _HIDDEN_SESSION_SOURCES）──
+// ── 系统会话来源（对齐后端 exclude_sources + Eleve _HIDDEN_SESSION_SOURCES）──
 const HIDDEN_SOURCES = new Set(['tool', 'cron', 'api']);
 
 // ── 虚拟列表行类型 ──
@@ -103,7 +103,7 @@ function saveSet(key: string, set: Set<string>) {
   try { storage.save(key, JSON.stringify([...set])); } catch { /* ignore */ }
 }
 
-/** 格式化会话时间 — 对齐 Hermes timeAgo */
+/** 格式化会话时间 — 对齐 Eleve timeAgo */
 function fmtTime(ts: number | null | undefined): string {
   if (!ts) return '';
   const now = Date.now();

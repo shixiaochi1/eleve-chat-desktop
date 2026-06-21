@@ -4,7 +4,7 @@
   "identifier": "com.eleve.chat.desktop",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://127.0.0.1:24242",
+    "devUrl": "http://127.0.0.1:24243",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },

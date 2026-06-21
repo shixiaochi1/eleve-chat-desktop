@@ -1,5 +1,5 @@
 /**
- * Messages atomic store — 1:1 alignment with Hermes store/session.ts
+ * Messages atomic store — 1:1 alignment with Eleve store/session.ts
  *
  * Key design:
  * - RAF batch flush: same-frame updates coalesce into one React render
@@ -102,7 +102,7 @@ export function getMessages(): ChatMessage[] {
 }
 
 /**
- * Full replacement of messages array (1:1 with Hermes setMessages)
+ * Full replacement of messages array (1:1 with Eleve setMessages)
  * Accepts either a new array or an updater function.
  */
 export function setMessages(next: ChatMessage[] | MessageUpdater): void {
@@ -177,7 +177,7 @@ export function useMessages(): ChatMessage[] {
 }
 
 /**
- * Scoped message subscription — 1:1 architectural alignment with Hermes.
+ * Scoped message subscription — 1:1 architectural alignment with Eleve.
  * Only re-renders when THIS specific message changes.
  */
 export function useMessage(index: number): ChatMessage | null {
@@ -185,7 +185,7 @@ export function useMessage(index: number): ChatMessage | null {
   return useSyncExternalStore(subscribe, getMsg, getMsg)
 }
 
-// ── Message signature — 1:1 from Hermes messageSignature ──
+// ── Message signature — 1:1 from Eleve messageSignature ──
 // Only changes when message structure (id/type/count) changes.
 // Streaming content updates do NOT change the signature.
 // This drives buildGroups → virtualizer count/keys stay stable during streaming.
@@ -210,7 +210,7 @@ export function getSignatureSnapshot(): string {
 }
 
 /**
- * 1:1 from Hermes: useAuiState(s =>
+ * 1:1 from Eleve: useAuiState(s =>
  *   s.thread.messages.map((m, i) => `${i}:${m.id}:${m.role}`).join('\n')
  * )
  * Returns a string that only changes when message structure changes.

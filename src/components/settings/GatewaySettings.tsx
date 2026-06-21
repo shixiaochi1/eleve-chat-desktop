@@ -1,5 +1,5 @@
 /**
- * Gateway 设置 — 对齐 Hermes gateway-settings.tsx
+ * Gateway 设置 — 对齐 Eleve gateway-settings.tsx
  *
  * Local/Remote 模式切换 + 连接测试 + 双保存模式 + 日志入口
  */
@@ -83,8 +83,8 @@ export default function GatewaySettings() {
           },
         },
       });
-      // 立即重连
-      await call('reconnect_gateway', {});
+      // 立即重启 Gateway
+      await call('restart_service', {});
       notifySuccess('Gateway 设置已保存并重连');
     } catch (err) {
       notifyError(err, '保存失败');

@@ -65,13 +65,13 @@ interface SettingsPanelProps {
 // ====== 常量 ======
 
 /**
- * 对齐 Hermes determine_api_mode (providers.py L502-548)
+ * 对齐 Eleve determine_api_mode (providers.py L502-548)
  * URL 启发式推断 transport 协议
  */
 function inferTransport(providerId: string, baseUrl?: string): string {
   if (!baseUrl) return 'openai_chat';
   const url = baseUrl.replace(/\/+$/, '').toLowerCase();
-  // URL-based heuristics — 对齐 Hermes
+  // URL-based heuristics — 对齐 Eleve
   if (url.includes('api.kimi.com/coding')) return 'anthropic_messages';
   if (url.endsWith('/anthropic') || url.includes('api.anthropic.com')) return 'anthropic_messages';
   if (url.includes('api.openai.com')) return 'openai_chat';
@@ -408,7 +408,7 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     if (providers.length > 0) {
       const provObj: Record<string, any> = {};
       for (const p of providers) {
-        // 对齐 Hermes determine_api_mode URL 启发式
+        // 对齐 Eleve determine_api_mode URL 启发式
         // 后端 sync_settings_to_config_yaml 会用 determine_api_mode_from_url 再次确认
         const transport = inferTransport(p.id, p.baseUrl);
         // models: HashMap<String, ModelEntry> 格式（对齐 Rust ProviderConfig.models）

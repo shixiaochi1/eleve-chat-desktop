@@ -1,15 +1,15 @@
 /**
- * 1:1 port of Hermes useThreadScrollAnchor
- * Source: hermes-agent/apps/desktop/src/components/assistant-ui/thread-virtualizer.tsx
+ * 1:1 port of Eleve useThreadScrollAnchor
+ * Source: eleve-agent/apps/desktop/src/components/assistant-ui/thread-virtualizer.tsx
  *
- * Key architecture (matching Hermes):
- * 1. ResizeObserver is ALWAYS active — same as Hermes.
- * 2. `armedRef` is INTERNAL (not passed from outside) — same as Hermes.
+ * Key architecture (matching Eleve):
+ * 1. ResizeObserver is ALWAYS active — same as Eleve.
+ * 2. `armedRef` is INTERNAL (not passed from outside) — same as Eleve.
  *    External code cannot accidentally re-arm sticky-bottom.
- * 3. No custom scrollToFn — same as Hermes.
+ * 3. No custom scrollToFn — same as Eleve.
  * 4. No POST_RUN_BOTTOM_LOCK — the always-on RO replaces this.
  * 5. `isRunning` only used for runStart detection (false→true jump),
- *    NOT for gating the RO — same as Hermes.
+ *    NOT for gating the RO — same as Eleve.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
@@ -36,7 +36,7 @@ export default function useThreadScrollAnchor({
   sessionKey: string | undefined
   virtualizer: VirtualizerHandle
 }): { armedRef: React.RefObject<boolean> } {
-  // ── armedRef: INTERNAL (1:1 from Hermes) ──
+  // ── armedRef: INTERNAL (1:1 from Eleve) ──
   // Only scroll/wheel/touch handlers can disarm; reaching bottom re-arms.
   // NOT passed from outside — prevents accidental re-arming.
   const armedRef = useRef(true)
@@ -74,7 +74,7 @@ export default function useThreadScrollAnchor({
   useEffect(() => () => setScrolledUp(false), [])
 
   // ── Track at-bottom state, disarm on user scroll/wheel/touch ──
-  // 1:1 from Hermes — same logic, same guards.
+  // 1:1 from Eleve — same logic, same guards.
   useEffect(() => {
     const el = scrollerRef.current
     if (!el) return undefined
@@ -137,7 +137,7 @@ export default function useThreadScrollAnchor({
     }
   }, [scrollerRef])
 
-  // ── Follow content growth (1:1 from Hermes) ──
+  // ── Follow content growth (1:1 from Eleve) ──
   // RO is ALWAYS active (not gated by isRunning).
   // Coalesces to one pin per animation frame.
   useEffect(() => {
@@ -176,7 +176,7 @@ export default function useThreadScrollAnchor({
     }
   }, [enabled, groupCount, jumpToBottom, sessionKey])
 
-  // ── Pre-paint pin (1:1 from Hermes) ──
+  // ── Pre-paint pin (1:1 from Eleve) ──
   // Pin TWICE: synchronously in layout effect, then once more on rAF.
   const prevGroupCountForLayoutRef = useRef(groupCount)
   useLayoutEffect(() => {
@@ -192,7 +192,7 @@ export default function useThreadScrollAnchor({
     prevGroupCountForLayoutRef.current = groupCount
   }, [enabled, groupCount, pinToBottom])
 
-  // ── Hermes: useAuiEvent('thread.runStart', jumpToBottom) ──
+  // ── Eleve: useAuiEvent('thread.runStart', jumpToBottom) ──
   // When isRunning flips false→true, jump to bottom.
   const prevIsRunningForStartRef = useRef(isRunning)
   useEffect(() => {

@@ -755,7 +755,7 @@ canvas {
   }
 
   /* ── Thread viewport: disable browser native scroll anchoring ──
-     1:1 from Hermes styles.css L843-853.
+     1:1 from Eleve styles.css L843-853.
      The thread renders items in natural document flow (padding spacers,
      not transforms) and @tanstack/react-virtual already adjusts scrollTop
      itself when an off-screen turn is measured and its real height differs
@@ -784,7 +784,7 @@ canvas {
 }
 
 /* ================================================================
-   Eleve 布局 — 使用 Hermes CSS 变量重写
+   Eleve 布局 — 使用 Eleve CSS 变量重写
    源自 phaseA 备份，移除硬编码颜色
    ================================================================ */
 

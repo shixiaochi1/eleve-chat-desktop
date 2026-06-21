@@ -50,6 +50,60 @@ pub struct TauriAppState {
 ///
 /// ⚠️ 不再使用 set_var 污染进程环境变量。
 /// eleved 子进程通过 --home CLI 参数接收路径（L251-252），不依赖 env var。
+/// Read a User-scoped environment variable from the Windows registry (HKCU\Environment).
+/// 对齐 Hermes `apps/desktop/electron/windows-user-env.cjs`：
+/// GUI 应用从 Explorer 启动时继承登录时环境变量快照，setx 设置的变量不可见。
+#[cfg(target_os = "windows")]
+fn read_windows_user_env_var(name: &str) -> Option<String> {
+    let stdout = std::process::Command::new("reg")
+        .args(["query", r"HKCU\Environment", "/v", name])
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .output()
+        .ok()?;
+
+    if !stdout.status.success() {
+        return None;
+    }
+
+    let output = String::from_utf8_lossy(&stdout.stdout);
+    for line in output.lines() {
+        let line = line.trim();
+        let parts: Vec<&str> = line.splitn(3, |c: char| c.is_whitespace()).collect();
+        if parts.len() >= 3
+            && parts[0].eq_ignore_ascii_case(name)
+            && (parts[1].eq_ignore_ascii_case("REG_SZ")
+                || parts[1].eq_ignore_ascii_case("REG_EXPAND_SZ"))
+        {
+            let raw_value = parts[2].trim();
+            if raw_value.is_empty() {
+                return None;
+            }
+            // Expand %VAR% references (REG_EXPAND_SZ)
+            let mut expanded = raw_value.to_string();
+            let re = regex::Regex::new(r"%([^%]+)%").ok()?;
+            expanded = re
+                .replace_all(&expanded, |caps: &regex::Captures| {
+                    let var_name = caps.get(1).unwrap().as_str();
+                    for (key, val) in std::env::vars() {
+                        if key.eq_ignore_ascii_case(var_name) {
+                            return val;
+                        }
+                    }
+                    caps.get(0).unwrap().as_str().to_string()
+                })
+                .into_owned();
+            let trimmed = expanded.trim().to_string();
+            return if trimmed.is_empty() { None } else { Some(trimmed) };
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+fn read_windows_user_env_var(_name: &str) -> Option<String> {
+    None
+}
+
 fn resolve_eleve_home() -> PathBuf {
     // 1. ELEVE_HOME 环境变量（用户显式配置）
     if let Ok(home) = std::env::var("ELEVE_HOME") {
@@ -57,6 +111,14 @@ fn resolve_eleve_home() -> PathBuf {
             return PathBuf::from(home);
         }
     }
+
+    // 1b. Windows 注册表 fallback（对齐 Hermes windows-user-env.cjs）
+    //     GUI 应用从 Explorer 启动时继承登录时环境变量快照，
+    //     setx 设置的 ELEVE_HOME 在当前进程不可见。读注册表绕过。
+    if let Some(home) = read_windows_user_env_var("ELEVE_HOME") {
+        return PathBuf::from(home);
+    }
+
     // 2. Tauri 安装模式: exe 同级 data/ 目录
     //    ⚠️ debug 构建跳过此步：tauri dev 时 exe 在 target/debug/，
     //    同级 data/ 是临时构建产物，不应作为持久数据目录
@@ -79,7 +141,16 @@ fn resolve_eleve_home() -> PathBuf {
             return eleve_data;
         }
     }
-    // 4. 传统 fallback: ~/.eleve/
+    // 3b. Legacy 迁移（对齐 Hermes resolveHermesHome）
+    //     如果用户之前用 CLI/开发模式创建了 ~/.eleve/，
+    //     且平台标准目录不存在，优先使用旧目录避免数据丢失。
+    if let Some(home_dir) = dirs::home_dir() {
+        let legacy = home_dir.join(".eleve");
+        if legacy.is_dir() {
+            return legacy;
+        }
+    }
+    // 4. 最终 fallback: ~/.eleve/（首次安装，目录尚不存在）
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".eleve")
@@ -270,6 +341,10 @@ fn start_eleved_process(eleve_home: &PathBuf) -> Result<std::process::Child, Str
     cmd.arg("--home")
         .arg(eleve_home.to_string_lossy().as_ref())
         .arg("--no-banner");
+
+    // 🔴 设置工作目录为 eleve_home（对齐 Hermes: TERMINAL_CWD fallback to home）
+    // 不设则继承 Tauri 进程 CWD（dev=前端项目目录, 打包=安装目录），都不对
+    cmd.current_dir(eleve_home);
 
     // stdout/stderr 重定向到 runtime/ 目录下的独立捕获文件
     // 与 eleved 自身的 logs/eleved.log (tracing) 分离，避免双写争用

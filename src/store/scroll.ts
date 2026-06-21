@@ -1,5 +1,5 @@
 /**
- * Scroll state store — 1:1 alignment with Hermes $threadScrolledUp nanostore
+ * Scroll state store — 1:1 alignment with Eleve $threadScrolledUp nanostore
  *
  * Key design: scrolledUp changes only re-render the scroll-to-bottom button,
  * NOT the virtualizer component. This prevents scrollToFn feedback loops

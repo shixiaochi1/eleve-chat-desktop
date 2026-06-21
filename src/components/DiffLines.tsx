@@ -8,7 +8,7 @@ interface DiffLinesProps {
   maxHeight?: string;
 }
 
-/** Diff 行类型 → 着色规则（对齐 Hermes diff-lines.tsx） */
+/** Diff 行类型 → 着色规则（对齐 Eleve diff-lines.tsx） */
 const DIFF_LINE_KINDS = [
   { className: 'text-emerald-700 dark:text-emerald-300', match: (l: string) => l.startsWith('+') && !l.startsWith('+++') },
   { className: 'text-rose-700 dark:text-rose-300', match: (l: string) => l.startsWith('-') && !l.startsWith('---') },
@@ -36,7 +36,7 @@ export function inlineDiffFromResult(result: unknown): string | null {
 }
 
 /**
- * DiffLines — unified diff 渲染器（对齐 Hermes diff-lines.tsx）
+ * DiffLines — unified diff 渲染器（对齐 Eleve diff-lines.tsx）
  *
  * 按行着色：
  * - `+` → 绿色（新增行）

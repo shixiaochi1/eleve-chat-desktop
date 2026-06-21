@@ -7,14 +7,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
-import type { CronJob as HermesCronJob } from '@/types/hermes';
+import type { CronJob } from '@/types/eleve';
 import {
   NewIcon, DeleteIcon, PlayIcon, PauseIcon,
   PencilIcon, TrashIcon, ClockIcon,
   TerminalIcon, HistoryIcon,
 } from './Icons';
 
-interface EleveCronJob extends Omit<HermesCronJob, 'schedule' | 'name' | 'last_run_at'> {
+interface CronJobUI extends Omit<CronJob, 'schedule' | 'name' | 'last_run_at'> {
   command?: string;
   description?: string;
   status?: string;
@@ -46,7 +46,7 @@ const CRON_PRESETS = [
 const EMPTY_FORM: CronForm = { name: '', schedule: '', command: '', description: '' };
 
 export default function CronPanel() {
-  const [jobs, setJobs] = useState<EleveCronJob[]>([]);
+  const [jobs, setJobs] = useState<CronJobUI[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -58,7 +58,7 @@ export default function CronPanel() {
     setLoading(true);
     setError(null);
     try {
-      const data: { jobs?: EleveCronJob[] } = await call('list_jobs', {});
+      const data: { jobs?: CronJobUI[] } = await call('list_jobs', {});
       setJobs(Array.isArray(data?.jobs) ? data.jobs : Array.isArray(data) ? data : []);
     } catch (err: unknown) {
       setError((err as Error).message);
@@ -97,7 +97,7 @@ export default function CronPanel() {
     finally { setActionLoading((prev) => ({ ...prev, [key]: false })); }
   }, [fetchJobs]);
 
-  const handleTogglePause = useCallback(async (job: EleveCronJob) => {
+  const handleTogglePause = useCallback(async (job: CronJobUI) => {
     const isPaused = job.status === 'paused';
     const cmd = isPaused ? 'resume_job' : 'pause_job';
     const key = `${isPaused ? 'resume' : 'pause'}-${job.id}`;
@@ -118,7 +118,7 @@ export default function CronPanel() {
     finally { setActionLoading((prev) => ({ ...prev, [key]: false })); }
   }, []);
 
-  const handleEdit = useCallback((job: EleveCronJob) => {
+  const handleEdit = useCallback((job: CronJobUI) => {
     setForm({ name: job.name || '', schedule: job.schedule || '', command: job.command || '', description: job.description || '' });
     setEditingId(job.id);
     setShowForm(true);

@@ -1,4 +1,4 @@
-// Tauri API type declarations (replaces Hermes Electron Window.hermesDesktop)
+// Tauri API type declarations (Eleve desktop bridge)
 // These types describe the APIs available on window.__TAURI__ via @tauri-apps/api
 
 import type { Event, listen, invoke } from '@tauri-apps/api'
@@ -11,7 +11,7 @@ declare global {
         listen: typeof listen
       }
     }
-    hermesDesktop?: {
+    eleveDesktop?: {
       writeClipboard: (text: string) => Promise<void>
     }
   }

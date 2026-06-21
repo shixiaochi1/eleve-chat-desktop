@@ -1,5 +1,5 @@
 /**
- * ActivityTimer — 对齐 Hermes activity-timer.ts
+ * ActivityTimer — 对齐 Eleve activity-timer.ts
  *
  * 提供计时器 hook，记录从首次激活到当前的经过秒数。
  * Module-level 注册表保证组件卸载再挂载计时连续。
@@ -8,7 +8,7 @@
 /** module-level 起始时间注册表 (key → startedAt ms) */
 const startedAtByKey = new Map<string, number>()
 
-/** 格式化经过时间（对齐 Hermes formatElapsed） */
+/** 格式化经过时间（对齐 Eleve formatElapsed） */
 export function formatElapsed(seconds: number): string {
   if (seconds < 60) return `${seconds}s`
   const m = Math.floor(seconds / 60)
@@ -23,7 +23,7 @@ export function formatElapsed(seconds: number): string {
  * @param timerKey 唯一键（如 "reasoning:msg-123"），保证跨重渲染连续
  * @returns 经过的整数秒
  *
- * 对齐 Hermes useElapsedSeconds：
+ * 对齐 Eleve useElapsedSeconds：
  *   - 首次 active=true 时记录 startTime
  *   - setInterval(1000) 递增
  *   - active=false 时清理 interval 但保留 startTime（下次激活延续）

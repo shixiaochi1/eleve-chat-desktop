@@ -6,7 +6,7 @@ import { submitClarifyResponse } from '../utils/api';
  * ClarifyCard — 澄清问题交互卡片
  *
  * macOS Apple 风格：圆角卡片、多选/开放输入
- * 对齐 Hermes clarify_gateway 多平台 UI 逻辑
+ * 对齐 Eleve clarify_gateway 多平台 UI 逻辑
  */
 interface ClarifyCardProps {
   clarifyId?: string;
@@ -113,7 +113,7 @@ export default function ClarifyCard({ clarifyId, question, choices, onDone }: Cl
               {choice}
             </button>
           ))}
-          {/* 第 5 个"其他"选项 — 对齐 Hermes MAX_CHOICES = 4 后自动追加 */}
+          {/* 第 5 个"其他"选项 — 对齐 Eleve MAX_CHOICES = 4 后自动追加 */}
           {selected === '__other__' || (!selected && choices!.length <= 4) ? (
             <div className="mt-2 flex w-full gap-2">
               <input

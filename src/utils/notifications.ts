@@ -1,5 +1,5 @@
 /**
- * Toast 通知系统 — 对齐 Hermes store/notifications.ts
+ * Toast 通知系统 — 对齐 Eleve store/notifications.ts
  *
  * 用法:
  *   import { notify, notifyError, notifySuccess, notifyWarning, dismissNotification } from '../utils/notifications';
@@ -59,7 +59,7 @@ export function getNotifications(): AppNotification[] {
   return _notifications;
 }
 
-// ── 错误摘要 ── 对齐 Hermes ERROR_SUMMARIES
+// ── 错误摘要 ── 对齐 Eleve ERROR_SUMMARIES
 
 interface ErrorSummaryRule {
   test: (msg: string) => boolean;

@@ -63,11 +63,11 @@ export function usePromptActions({
     addTimeBadge();
     storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(next)] } as ChatMessage]);
 
-    // ── 懒创建 session — 对齐 Hermes createBackendSessionForSend ──
+    // ── 懒创建 session — 对齐 Eleve createBackendSessionForSend ──
     if (sess.freshDraftReady) {
       await sess.create();
       sess.setFreshDraftReady(false);
-      // 对齐 Hermes: /new <title> 时在懒创建后设置标题
+      // 对齐 Eleve: /new <title> 时在懒创建后设置标题
       if (sess.pendingTitle && sess.sessionId) {
         try {
           await setSessionTitle(sess.sessionId, sess.pendingTitle);
@@ -130,7 +130,7 @@ export function usePromptActions({
     if (text.trimStart().startsWith('/')) {
       const cmdPart = text.trimStart().replace(/^\//, '').split(/\s/)[0].toLowerCase();
       const args = text.trimStart().replace(/^\/\S+\s*/, '').trim();
-      // 对齐 Hermes：/new [title] 走前端纯重置（startFreshSessionDraft），不走后端 executeCommand
+      // 对齐 Eleve：/new [title] 走前端纯重置（startFreshSessionDraft），不走后端 executeCommand
       if (cmdPart === 'new') {
         handleNewSession(args || undefined);
         return;
@@ -151,14 +151,14 @@ export function usePromptActions({
     addTimeBadge();
     storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)] } as ChatMessage]);
 
-    // ── 懒创建 session — 对齐 Hermes createBackendSessionForSend ──
+    // ── 懒创建 session — 对齐 Eleve createBackendSessionForSend ──
     // freshDraftReady=true 说明用户已点"新建"但后端 session 还没创建
     // 先调 sess.create() 拿到新 session_id，再发消息
     const ensureSession = async (): Promise<string | null> => {
       if (sess.freshDraftReady) {
         await sess.create();
         sess.setFreshDraftReady(false);
-        // 对齐 Hermes: /new <title> 时在懒创建后设置标题
+        // 对齐 Eleve: /new <title> 时在懒创建后设置标题
         if (sess.pendingTitle && sess.sessionId) {
           try {
             await setSessionTitle(sess.sessionId, sess.pendingTitle);

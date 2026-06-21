@@ -1,8 +1,8 @@
 /**
- * chat-messages.ts — Message data model aligned 1:1 with Hermes
+ * chat-messages.ts — Message data model aligned 1:1 with Eleve
  *
  * Core types and utilities for the parts-based message architecture.
- * Hermes uses assistant-ui's ThreadMessageLike under the hood;
+ * Eleve uses assistant-ui's ThreadMessageLike under the hood;
  * we replicate the same shape directly.
  *
  * Key difference from the old flat model:
@@ -142,7 +142,7 @@ export function replaceTextPart(parts: ChatMessagePart[], fullText: string): Cha
 }
 
 export function appendReasoningPart(parts: ChatMessagePart[], delta: string): ChatMessagePart[] {
-  // 对齐 Hermes: reasoning 永远只有一个 part
+  // 对齐 Eleve: reasoning 永远只有一个 part
   // 找到现有的 reasoning part 并追加，而非只在 last 是 reasoning 时追加
   const reasoningIdx = parts.findIndex(p => p.type === 'reasoning')
   if (reasoningIdx >= 0) {
@@ -163,7 +163,7 @@ export function appendReasoningPart(parts: ChatMessagePart[], delta: string): Ch
  * Used by flushThrottled which stores fullText, not incremental deltas.
  */
 export function replaceReasoningPart(parts: ChatMessagePart[], fullText: string): ChatMessagePart[] {
-  // 对齐 Hermes: 先过滤掉所有 reasoning parts，再 push 新的
+  // 对齐 Eleve: 先过滤掉所有 reasoning parts，再 push 新的
   // 确保数组中永远只有 1 个 reasoning part，避免气泡分裂
   const filtered: ChatMessagePart[] = parts.filter(part => part.type !== 'reasoning')
   filtered.push(reasoningPart(fullText))

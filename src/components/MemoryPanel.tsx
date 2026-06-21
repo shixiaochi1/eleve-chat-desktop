@@ -4,7 +4,7 @@
  * 显示代理的记忆条目，支持搜索和删除
  */
 import { useState, useMemo, useCallback } from 'react';
-import useMemory from '../hooks/useMemory';
+import useMemory, { type MemoryEntry } from '../hooks/useMemory';
 import {
   SearchIcon, TrashIcon, BrainIcon,
   UserIcon, BookOpenIcon, DeleteIcon,
@@ -12,14 +12,6 @@ import {
 } from './Icons';
 import { cn } from '@/lib/utils';
 import { Skeleton } from './ui/skeleton';
-
-interface MemoryEntry {
-  id: string;
-  content?: string;
-  target?: string;
-  target_name?: string;
-  created_at?: string;
-}
 
 const TARGET_CONFIG: Record<string, { label: string; Icon: React.ComponentType<{ size?: number; className?: string }>; className: string }> = {
   user:   { label: '用户偏好', Icon: UserIcon as any,     className: 'bg-blue-500/10 text-blue-500' },
@@ -55,7 +47,7 @@ export default function MemoryPanel() {
     if (!searchQuery.trim()) return memories;
     const q = searchQuery.toLowerCase();
     return memories.filter(
-      (m: MemoryEntry) =>
+      (m) =>
         (m.content || '').toLowerCase().includes(q) ||
         (m.target_name || '').toLowerCase().includes(q) ||
         (m.target || '').toLowerCase().includes(q)
@@ -65,7 +57,7 @@ export default function MemoryPanel() {
   // Group by target type
   const grouped = useMemo(() => {
     const groups: Record<string, MemoryEntry[]> = {};
-    filteredMemories.forEach((m: MemoryEntry) => {
+    filteredMemories.forEach((m) => {
       const key = m.target || 'memory';
       if (!groups[key]) groups[key] = [];
       groups[key].push(m);
@@ -73,10 +65,10 @@ export default function MemoryPanel() {
     return groups;
   }, [filteredMemories]);
 
-  const handleDelete = useCallback(async (id: string) => {
-    setDeletingIds((prev) => ({ ...prev, [id]: true }));
-    await deleteEntry(id);
-    setDeletingIds((prev) => ({ ...prev, [id]: false }));
+  const handleDelete = useCallback(async (entry: MemoryEntry) => {
+    setDeletingIds((prev) => ({ ...prev, [entry.id]: true }));
+    await deleteEntry(entry);
+    setDeletingIds((prev) => ({ ...prev, [entry.id]: false }));
   }, [deleteEntry]);
 
   const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -159,7 +151,7 @@ export default function MemoryPanel() {
                   <span className="font-medium">{targetCfg.label}</span>
                   <span className="text-[10px] text-muted-foreground/50">{entries.length}</span>
                 </div>
-                {entries.map((mem: MemoryEntry) => (
+                {entries.map((mem) => (
                   <div key={mem.id} className="relative px-2 py-1.5 rounded border border-border hover:bg-accent/5 transition-colors group">
                     <div className="flex items-center justify-between gap-1 mb-0.5">
                       <span className="flex items-center gap-1">
@@ -177,7 +169,7 @@ export default function MemoryPanel() {
                         className="p-0.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                         title="删除"
                         disabled={deletingIds[mem.id]}
-                        onClick={() => handleDelete(mem.id)}
+                        onClick={() => handleDelete(mem)}
                       >
                         <TrashIcon size={13} />
                       </button>

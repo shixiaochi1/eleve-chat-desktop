@@ -69,7 +69,7 @@ export interface UseMessageStreamProps {
 }
 
 /**
- * Queued deltas — same shape as Hermes QueuedStreamDeltas.
+ * Queued deltas — same shape as Eleve QueuedStreamDeltas.
  * We accumulate *incremental deltas* here (not fullText), then flush
  * them into the store via mutateStream.
  */
@@ -78,31 +78,31 @@ interface QueuedStreamDeltas {
   reasoning: string
 }
 
-// Minimum gap between two assistant-text flushes — same as Hermes (33ms).
+// Minimum gap between two assistant-text flushes — same as Eleve (33ms).
 const STREAM_DELTA_FLUSH_MS = 33
 
 /**
- * useMessageStream — SSE streaming callbacks, aligned 1:1 with Hermes
+ * useMessageStream — SSE streaming callbacks, aligned 1:1 with Eleve
  *
- * Key architecture (matching Hermes use-message-stream.ts):
+ * Key architecture (matching Eleve use-message-stream.ts):
  * 1. streamId — unique ID for each streaming turn, guarantees only ONE
  *    assistant message is ever created per response.
  *    [FIX #1] Lazy creation in mutateStream — if streamId is null when
- *    the first delta arrives, auto-allocate one (same as Hermes).
+ *    the first delta arrives, auto-allocate one (same as Eleve).
  * 2. mutateStream — single entry point for all message mutations.
  *    Checks streamId to decide: create new or update existing.
  * 3. queueDelta + flushQueuedDeltas — accumulates incremental deltas
  *    (not fullText), then flushes via mutateStream at ~30fps.
  *    [FIX #2] onText receives (delta, fullText) — queueDelta uses delta
  *    for incremental streaming; completeText uses fullText for final
- *    replacement (Hermes message.complete pattern).
+ *    replacement (Eleve message.complete pattern).
  * 4. Tool events flush text deltas BEFORE upserting tool parts.
  * 5. completeAssistantMessage — on 'done', replaces text with the final
  *    full content and deduplicates reasoning, then clears streamId.
  *    [FIX #3] finalText comes from the accumulated fullText in SSE
  *    (not from message parts which may be stale).
  * 6. [FIX #4] reasoning.available triggers REPLACE (not append),
- *    same as Hermes appendReasoningDelta with replace=true.
+ *    same as Eleve appendReasoningDelta with replace=true.
  */
 export function useMessageStream({
   genId,
@@ -123,17 +123,17 @@ export function useMessageStream({
   send: (text: string, sessionId?: string | null) => Promise<void>
   abort: () => Promise<void>
 } {
-  // ── Stream ID — same as Hermes: one unique ID per streaming turn ──
+  // ── Stream ID — same as Eleve: one unique ID per streaming turn ──
   // [FIX #1] Lazy creation: mutateStream auto-allocates if null
   const streamIdRef = useRef<string | null>(null)
 
-  // ── Queued deltas — accumulated incremental deltas (Hermes pattern) ──
+  // ── Queued deltas — accumulated incremental deltas (Eleve pattern) ──
   const queuedDeltasRef = useRef<QueuedStreamDeltas>({ assistant: '', reasoning: '' })
   const flushHandleRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastFlushAtRef = useRef<number>(0)
 
   // [FIX #3] Track the fullText accumulator from SSE — used by onDone
-  // to get the final complete text (same as Hermes message.complete payload)
+  // to get the final complete text (same as Eleve message.complete payload)
   const fullTextRef = useRef<string>('')
 
   const sseCallbacks = useRef<SSECallbacks>({});
@@ -148,17 +148,17 @@ export function useMessageStream({
     }
   }, [])
 
-  // ── mutateStream — 1:1 from Hermes mutateStream ──
+  // ── mutateStream — 1:1 from Eleve mutateStream ──
   // Single entry point for all streaming message mutations.
   // Uses streamId to guarantee at most ONE assistant message per turn.
-  // [FIX #1] Lazy streamId: if null, auto-allocate (same as Hermes).
+  // [FIX #1] Lazy streamId: if null, auto-allocate (same as Eleve).
   const mutateStream = useCallback(
     (
       transform: (parts: ChatMessagePart[], message: ChatMessage) => ChatMessagePart[],
       seed: () => ChatMessagePart[],
       opts: { pending?: (message: ChatMessage) => boolean } = {},
     ) => {
-      // [FIX #1] Lazy creation — same as Hermes:
+      // [FIX #1] Lazy creation — same as Eleve:
       // state.streamId ?? `assistant-stream-${Date.now()}`
       if (!streamIdRef.current) {
         streamIdRef.current = `assistant-stream-${Date.now()}`
@@ -193,7 +193,7 @@ export function useMessageStream({
     [],
   )
 
-  // ── flushQueuedDeltas — 1:1 from Hermes flushQueuedDeltas ──
+  // ── flushQueuedDeltas — 1:1 from Eleve flushQueuedDeltas ──
   // Takes accumulated deltas from queue, applies them via mutateStream.
   // [FIX] 合并 text + reasoning 为一次 mutateStream 调用，避免双次 React re-render
   const flushQueuedDeltas = useCallback(() => {
@@ -223,7 +223,7 @@ export function useMessageStream({
     )
   }, [mutateStream])
 
-  // ── scheduleDeltaFlush — 1:1 from Hermes scheduleDeltaFlush ──
+  // ── scheduleDeltaFlush — 1:1 from Eleve scheduleDeltaFlush ──
   const scheduleDeltaFlush = useCallback(() => {
     if (flushHandleRef.current !== null) return
 
@@ -245,7 +245,7 @@ export function useMessageStream({
     }
   }, [flushQueuedDeltas])
 
-  // ── queueDelta — 1:1 from Hermes queueDelta ──
+  // ── queueDelta — 1:1 from Eleve queueDelta ──
   const queueDelta = useCallback(
     (key: keyof QueuedStreamDeltas, delta: string) => {
       if (!delta) return
@@ -255,7 +255,7 @@ export function useMessageStream({
     [scheduleDeltaFlush],
   )
 
-  // ── upsertToolCall — 1:1 from Hermes upsertToolCall ──
+  // ── upsertToolCall — 1:1 from Eleve upsertToolCall ──
   const upsertToolCall = useCallback(
     (payload: GatewayEventPayload | undefined, phase: 'running' | 'complete') => {
       mutateStream(
@@ -267,7 +267,7 @@ export function useMessageStream({
     [mutateStream],
   )
 
-  // ── completeAssistantMessage — 1:1 from Hermes completeAssistantMessage ──
+  // ── completeAssistantMessage — 1:1 from Eleve completeAssistantMessage ──
   // On stream end, replace text with final content and deduplicate reasoning.
   // [FIX #3] finalText comes from SSE fullText accumulator (not message parts)
   const completeAssistantMessage = useCallback(
@@ -342,9 +342,9 @@ export function useMessageStream({
     [genId],
   )
 
-  // ── SSE streaming callbacks — aligned with Hermes handleGatewayEvent ──
+  // ── SSE streaming callbacks — aligned with Eleve handleGatewayEvent ──
   sseCallbacks.current = {
-    // ── Text delta — 1:1 with Hermes message.delta ──
+    // ── Text delta — 1:1 with Eleve message.delta ──
     // queueDelta uses the INCREMENTAL delta (not fullText).
     // fullText is tracked in fullTextRef for onDone final replacement.
     onText: (delta: string, fullText: string) => {
@@ -352,27 +352,27 @@ export function useMessageStream({
       queueDelta('assistant', delta)
     },
 
-    // ── Reasoning delta — 1:1 with Hermes reasoning.delta ──
+    // ── Reasoning delta — 1:1 with Eleve reasoning.delta ──
     onReasoning: (delta: string, _fullText: string) => {
       queueDelta('reasoning', delta)
     },
 
-    // [FIX #4] Reasoning replace — 1:1 with Hermes appendReasoningDelta(replace=true).
+    // [FIX #4] Reasoning replace — 1:1 with Eleve appendReasoningDelta(replace=true).
     // reasoning.available sends the COMPLETE reasoning text, not a delta.
     // Must flush first, then replace the reasoning part content.
-    // 对齐 Hermes: replace 模式下，filter 掉所有旧 reasoning parts 再添加新的
+    // 对齐 Eleve: replace 模式下，filter 掉所有旧 reasoning parts 再添加新的
     onReasoningReplace: (fullText: string) => {
       flushQueuedDeltas()
       mutateStream(
         (parts) => {
-          // 对齐 Hermes L394-396: [...parts.filter(p => p.type !== 'reasoning'), reasoningPart(delta)]
+          // 对齐 Eleve L394-396: [...parts.filter(p => p.type !== 'reasoning'), reasoningPart(delta)]
           return [...parts.filter(p => p.type !== 'reasoning'), reasoningPart(fullText)]
         },
         () => [reasoningPart(fullText)],
       )
     },
 
-    // ── Tool start — 1:1 with Hermes tool.start ──
+    // ── Tool start — 1:1 with Eleve tool.start ──
     // KEY: flush queued text/reasoning BEFORE upserting tool part.
     onToolStart: ({ id, name }: { id: string | null; name: string }) => {
       addDebugEvent('tool_start', `${name} (${id?.slice(0, 8)})`);
@@ -395,7 +395,7 @@ export function useMessageStream({
       upsertToolCall(toolPayload, 'running');
     },
 
-    // ── Tool end — 1:1 with Hermes tool.complete ──
+    // ── Tool end — 1:1 with Eleve tool.complete ──
     onToolEnd: ({ id, name }: { id: string | null; name: string }) => {
       addDebugEvent('tool_complete', `${name || 'tool'} (${id?.slice(0, 8)})`);
       setDebugToolCalls((prev) => prev.map((t) => t.callId === id ? { ...t, status: 'done' } : t));
@@ -500,8 +500,8 @@ export function useMessageStream({
       }));
       // 同步 store 中的 streaming 状态
       if (!data.running) {
-        // 对齐 Hermes session.info running=false: 重置全部流式状态
-        // Hermes: streamId=null, busy=false, awaitingResponse=false,
+        // 对齐 Eleve session.info running=false: 重置全部流式状态
+        // Eleve: streamId=null, busy=false, awaitingResponse=false,
         //         pendingBranchGroup=null, turnStartedAt=null
         // 先 flush 残留 delta，再 finalize pending 消息
         if (flushHandleRef.current !== null) {
@@ -521,7 +521,7 @@ export function useMessageStream({
       }
     },
 
-    // ── Done — 1:1 with Hermes message.complete ──
+    // ── Done — 1:1 with Eleve message.complete ──
     // Flush remaining deltas, then finalize with the FULL accumulated text.
     // [FIX #3] Use fullTextRef (from SSE accumulator) instead of reading
     // from message parts — parts may be stale if flush hadn't run.
@@ -539,7 +539,7 @@ export function useMessageStream({
 
       // [FIX #3] Use the fullText from SSE accumulator — this is the
       // complete text the backend sent, not a partial from message parts.
-      // Same as Hermes: completeAssistantMessage(sessionId, coerceGatewayText(payload?.text))
+      // Same as Eleve: completeAssistantMessage(sessionId, coerceGatewayText(payload?.text))
       const finalText = fullTextRef.current
 
       // Complete: replace streamed text with final, dedup reasoning, clear pending
@@ -589,7 +589,7 @@ export function useMessageStream({
       setTimeout(() => setConnectionStatus((s) => (s === 'error' ? 'idle' : s)), 3000);
     },
 
-    // ── Session reset — aligned with Hermes /new /reset ──
+    // ── Session reset — aligned with Eleve /new /reset ──
     // When backend resets session (via /new command), update UI session_id + clear messages.
     onSessionReset: ({ new_session_id }: { old_session_id: string; new_session_id: string }) => {
       addDebugEvent('session_reset', `new: ${new_session_id?.slice(0, 8)}`);
@@ -608,8 +608,8 @@ export function useMessageStream({
       });
     },
 
-    // ── Run completed — aligned with Hermes session.info(running=false) ──
-    // Hermes doesn't explicitly handle run.completed in handleGatewayEvent,
+    // ── Run completed — aligned with Eleve session.info(running=false) ──
+    // Eleve doesn't explicitly handle run.completed in handleGatewayEvent,
     // but the event carries usage data. Process it here for stats tracking.
     onRunComplete: (data: { sessionId: string; completed?: boolean; interrupted?: boolean; usage?: unknown }) => {
       addDebugEvent('run_complete', `session=${data.sessionId?.slice(0, 8)} completed=${data.completed} interrupted=${data.interrupted}`);
@@ -621,8 +621,8 @@ export function useMessageStream({
       }
     },
 
-    // ── Delegate progress — aligned with Hermes upsertSubagent ──
-    // Hermes handles subagent events via upsertSubagent.
+    // ── Delegate progress — aligned with Eleve upsertSubagent ──
+    // Eleve handles subagent events via upsertSubagent.
     // Eleve routes delegate.* events through this callback for monitor display.
     onDelegateProgress: (data: {
       subagentId?: string; eventType?: string; taskIndex?: number; taskCount?: number
@@ -652,7 +652,7 @@ export function useMessageStream({
     },
 
     // ── System notice — display as toast notification ──
-    // Hermes has no direct equivalent; Eleve-specific event for backend notices.
+    // Eleve has no direct equivalent; Eleve-specific event for backend notices.
     onSystemNotice: (data: { message: string; level?: string }) => {
       addDebugEvent('system_notice', `${data.level || 'info'}: ${data.message.slice(0, 60)}`);
       import('../utils/notifications').then(({ notifyError }) => {
@@ -662,8 +662,8 @@ export function useMessageStream({
       });
     },
 
-    // ── Status update — Hermes status.update (覆盖式状态，按 kind 分流) ──
-    // 对齐 Hermes TUI 前端 createGatewayEventHandler.ts L425-470:
+    // ── Status update — Eleve status.update (覆盖式状态，按 kind 分流) ──
+    // 对齐 Eleve TUI 前端 createGatewayEventHandler.ts L425-470:
     //   kind=goal/compressing → sys(text)+setStatus(brief)
     //   kind=lifecycle/warn/error → setStatus(text)+pushActivity(text, level)
     //   kind=status → 仅 setStatus()
@@ -701,13 +701,13 @@ export function useMessageStream({
       }
     },
 
-    // ── Reasoning completed — NOT wired, Hermes doesn't process this event ──
+    // ── Reasoning completed — NOT wired, Eleve doesn't process this event ──
     // reasoning.completed is explicitly silenced in useSSE (handled=true, no callback call).
-    // Hermes lifecycle: reasoning.delta (append) + reasoning.available (replace) — no .completed.
+    // Eleve lifecycle: reasoning.delta (append) + reasoning.available (replace) — no .completed.
     // Keep this no-op to satisfy SSECallbacks interface; the event is already
     // handled by onReasoning + onReasoningReplace above.
     onReasoningComplete: (_reasoning: string) => {
-      // Intentionally no-op — Hermes doesn't process reasoning.completed
+      // Intentionally no-op — Eleve doesn't process reasoning.completed
     },
   } satisfies SSECallbacks;
 

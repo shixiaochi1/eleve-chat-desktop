@@ -1,8 +1,8 @@
 /**
- * Hermes-aligned type definitions — 1:1 from hermes-agent/apps/desktop/src/types/hermes.ts
+ * Eleve type definitions
  *
- * These types describe API responses and data structures shared between
- * Hermes and Eleve. Import from '@/types/hermes' in any component/hook.
+ * These types describe API responses and data structures for the Eleve desktop app.
+ * Import from '@/types/eleve' in any component/hook.
  */
 
 // ── Config ──
@@ -19,7 +19,7 @@ export interface ConfigSchemaResponse {
   fields: Record<string, ConfigFieldSchema>
 }
 
-export interface HermesConfig {
+export interface EleveConfig {
   agent?: {
     reasoning_effort?: string
     personalities?: Record<string, unknown>
@@ -143,7 +143,7 @@ export interface StatusResponse {
   gateway_running: boolean
   gateway_state: string | null
   gateway_updated_at: string | null
-  hermes_home: string
+  eleve_home: string
   latest_config_version: number
   release_date: string
   version: string

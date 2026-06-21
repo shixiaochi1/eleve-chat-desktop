@@ -30,10 +30,10 @@ export function useSessions(): {
   const [sessions, setSessions] = useState<Session[]>(() => (storage.load('sessions', null) as Session[]) || []);
   const [msgCache, setMsgCache] = useState<Record<string, ChatMessage[]>>(() => (storage.load('msg_cache', null) as Record<string, ChatMessage[]>) || {});
   const [titles, setTitles] = useState<Record<string, string>>(() => (storage.load('titles', null) as Record<string, string>) || {});
-  // ── freshDraftReady — 对齐 Hermes startFreshSessionDraft 懒创建标记
+  // ── freshDraftReady — 对齐 Eleve startFreshSessionDraft 懒创建标记
   // true = 用户点了"新建会话"但还没发首条消息，后端 session 尚未创建
   const [freshDraftReady, setFreshDraftReady] = useState<boolean>(false);
-  // ── pendingTitle — 对齐 Hermes /new <title> 暂存标题，懒创建后 set_session_title
+  // ── pendingTitle — 对齐 Eleve /new <title> 暂存标题，懒创建后 set_session_title
   const [pendingTitle, setPendingTitle] = useState<string | null>(null);
 
   // ── persistence ──
@@ -75,7 +75,7 @@ export function useSessions(): {
     } catch { /* offline */ }
   }, [refresh]);
 
-  /** 重置当前会话（对齐 Hermes reset_session：新 ID + 清消息 + 保留记忆） */
+  /** 重置当前会话（对齐 Eleve reset_session：新 ID + 清消息 + 保留记忆） */
   const reset = useCallback(async (): Promise<void> => {
     if (!sessionId) { await create(); return; }
     try {
@@ -119,7 +119,7 @@ export function useSessions(): {
     try {
       const data = await api.getSessionHistory(id) as { messages?: unknown[] };
       if (data?.messages?.length) {
-        // 1:1 with Hermes: backend SessionMessage[] → toChatMessages() → ChatMessage[]
+        // 1:1 with Eleve: backend SessionMessage[] → toChatMessages() → ChatMessage[]
         return toChatMessages(data.messages as SessionMessage[]);
       }
     } catch (e) {

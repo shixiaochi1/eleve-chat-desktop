@@ -104,8 +104,8 @@ function applyThemeCSS(theme: DesktopTheme, customOverrides: Partial<DesktopThem
   // 1. Dark class + color-scheme
   root.classList.toggle('dark', isDark)
   root.style.setProperty('color-scheme', isDark ? 'dark' : 'light')
-  root.dataset.hermesTheme = theme.name
-  root.dataset.hermesMode = isDark ? 'dark' : 'light'
+  root.dataset.eleveTheme = theme.name
+      root.dataset.eleveMode = isDark ? 'dark' : 'light'
 
   // 2. Brand seeds
   const seeds: Record<string, string> = {
@@ -206,7 +206,7 @@ function applyThemeCSS(theme: DesktopTheme, customOverrides: Partial<DesktopThem
     const link = document.createElement('link')
     link.rel = 'stylesheet'
     link.href = typo.fontUrl
-    link.dataset.hermesThemeFont = 'true'
+    link.dataset.eleveThemeFont = 'true'
     document.head.appendChild(link)
     INJECTED_FONT_URLS.add(typo.fontUrl)
   }

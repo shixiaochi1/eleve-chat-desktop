@@ -101,6 +101,7 @@ const COMMAND_HTTP_MAP: Record<string, CommandMapping> = {
   create_session:         { method: 'POST', path: '/v1/sessions' },
   delete_session:         { method: 'DELETE', path: (a) => `/v1/sessions/${a.session_id}` },
   activate_session:       { method: 'POST', path: (a) => `/v1/sessions/${a.session_id}/activate` },
+  reset_session:          { method: 'POST', path: '/v1/sessions/reset' },
   get_session_detail:     { method: 'GET',  path: (a) => `/api/sessions/${a.session_id}` },
   get_session_context:    { method: 'GET',  path: (a) => `/api/sessions/${a.session_id}/context` },
   get_session_messages:   { method: 'GET',  path: (a) => `/api/sessions/${a.session_id}/messages` },
@@ -169,9 +170,9 @@ const COMMAND_HTTP_MAP: Record<string, CommandMapping> = {
   get_approval_status:    { method: 'GET',  path: '/api/approval-status' },
   submit_clarify_response:{ method: 'POST', path: '/api/clarify-response' },
 
-  // 记忆
-  list_memories:          { method: 'GET',  path: '/v1/memory' },
-  delete_memory:          { method: 'DELETE', path: (a) => `/v1/memory/${a.memory_id}` },
+  // 记忆（对齐后端 GET /api/memory?target= / DELETE /api/memory + body）
+  list_memories:          { method: 'GET',  path: (a) => `/api/memory?target=${encodeURIComponent(a.target || '')}` },
+  delete_memory:          { method: 'DELETE', path: '/api/memory' },
 
   // 环境变量
   get_env:                { method: 'GET',  path: '/api/env' },
@@ -182,7 +183,7 @@ const COMMAND_HTTP_MAP: Record<string, CommandMapping> = {
   // 网关
   gateway_status:         { method: 'GET',  path: '/api/gateway/status' },
   test_connection:        { method: 'POST', path: '/api/gateway/test-connection' },
-  reconnect_gateway:      { method: 'POST', path: '/api/gateway/reconnect' },
+  restart_service:        { method: 'POST', path: '/api/gateway/restart' },
   open_logs:              { method: 'POST', path: '/api/logs/open' },
 
   // MCP
@@ -242,7 +243,6 @@ const COMMAND_HTTP_MAP: Record<string, CommandMapping> = {
 
   // 用量分析
   analytics_usage:        { method: 'GET',  path: (a) => `/api/analytics/usage?days=${a.days || 30}` },
-  restart_service:        { method: 'POST', path: '/api/gateway/restart' },
   list_commands:          { method: 'GET',  path: '/v1/commands' },
   execute_command:        { method: 'POST', path: '/v1/command' },
   parse_messages:         { method: 'POST', path: '/api/parse-messages' },

@@ -2,7 +2,7 @@ import { Plus } from 'lucide-react';
 import ProviderCard from '../ProviderCard';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { ModelOptionProvider } from '@/types/hermes';
+import { ModelOptionProvider } from '@/types/eleve';
 
 /**
  * ProviderSettings — API provider management section

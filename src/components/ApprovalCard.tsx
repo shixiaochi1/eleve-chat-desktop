@@ -5,7 +5,7 @@ import { call } from '../utils/bridge';
 /**
  * ApprovalCard — 危险操作审批卡片
  *
- * 对齐 Hermes approval_blocking: 当终端等工具执行危险命令时，
+ * 对齐 Eleve approval_blocking: 当终端等工具执行危险命令时，
  * 前端显示此卡片让用户选择审批级别。
  * Choices: "once" | "session" | "always" | "deny"
  */

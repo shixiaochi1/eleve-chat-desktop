@@ -1,5 +1,5 @@
 /**
- * WebSocket 客户端 — 对齐 Hermes WS 协议
+ * WebSocket 客户端 — 对齐 Eleve WS 协议
  *
  * 职责：
  * 1. 维护与 Gateway 的 WS 长连接
@@ -153,7 +153,7 @@ export class GatewayWsClient {
       this.setState('connected')
       this.startPing()
       this.connCallbacks?.onOpen?.(wasReconnect)
-      // 触发重连恢复回调（对齐 Hermes session.resume）
+      // 触发重连恢复回调（对齐 Eleve session.resume）
       if (wasReconnect && this.reconnectCallback) {
         this.reconnectCallback(true)
       }
@@ -236,7 +236,7 @@ export class GatewayWsClient {
     this.stopPing()
     this.pingTimer = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
-        // 发送 JSON-RPC ping（对齐 Hermes WS protocol）
+        // 发送 JSON-RPC ping（对齐 Eleve WS protocol）
         this.sendRpc('ping', {}).catch(() => {})
       }
     }, IDLE_PING_INTERVAL_MS)
@@ -333,11 +333,11 @@ export class GatewayWsClient {
 
   // ── 便捷方法 ──
 
-  /** 发送 prompt — 对齐 Hermes prompt.submit */
+  /** 发送 prompt — 对齐 Eleve prompt.submit */
   async promptSubmit(text: string, sessionId?: string): Promise<unknown> {
     return this.sendRpc('prompt.submit', {
       session_id: sessionId || this.sessionId || '',
-      message: text,  // 后端参数名为 message（对齐 Hermes JSON-RPC 协议）
+      message: text,  // 后端参数名为 message（对齐 Eleve JSON-RPC 协议）
     })
   }
 
@@ -348,7 +348,7 @@ export class GatewayWsClient {
     })
   }
 
-  /** 设置重连恢复回调（对齐 Hermes gateway.ready → session.resume） */
+  /** 设置重连恢复回调（对齐 Eleve gateway.ready → session.resume） */
   setReconnectCallback(cb: ((wasReconnect: boolean) => void) | null): void {
     this.reconnectCallback = cb
   }

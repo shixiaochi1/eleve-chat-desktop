@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
-import { SkillInfo } from '@/types/hermes';
+import { SkillInfo } from '@/types/eleve';
 import {
   PackageIcon, SearchIcon, GlobeIcon,
   FolderIcon, DeleteIcon, NewIcon,

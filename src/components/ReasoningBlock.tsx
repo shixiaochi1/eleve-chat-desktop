@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 interface ReasoningBlockProps {
   text?: string;
   visible?: boolean;
-  /** 消息ID，用于 timer key（对齐 Hermes timerKey: `reasoning:${messageId}`） */
+  /** 消息ID，用于 timer key（对齐 Eleve timerKey: `reasoning:${messageId}`） */
   messageId?: string;
   /** 是否正在思考（pending 状态） */
   pending?: boolean;
@@ -16,7 +16,7 @@ interface ReasoningBlockProps {
 /**
  * 思维过程块 — 可折叠 + 渐隐预览 + shimmer动画 + 计时器
  * 
- * 对齐 Hermes ThinkingDisclosure:
+ * 对齐 Eleve ThinkingDisclosure:
  *   - 默认折叠，显示前几行 + 渐隐遮罩
  *   - 点击展开完整内容
  *   - pending 时 shimmer 微光流动动画
@@ -29,7 +29,7 @@ export default function ReasoningBlock({ text, visible, messageId, pending }: Re
   const [copied, setCopied] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // 计时器（对齐 Hermes useElapsedSeconds）
+  // 计时器（对齐 Eleve useElapsedSeconds）
   const timerKey = messageId ? `reasoning:${messageId}` : 'reasoning:unknown';
   const elapsed = useElapsedSeconds(!!pending, timerKey);
 

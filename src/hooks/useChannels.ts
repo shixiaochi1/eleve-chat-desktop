@@ -13,7 +13,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { call } from '../utils/bridge';
-import type { PlatformStatus } from '@/types/hermes';
+import type { PlatformStatus } from '@/types/eleve';
 
 interface ChannelItem {
   id: string;

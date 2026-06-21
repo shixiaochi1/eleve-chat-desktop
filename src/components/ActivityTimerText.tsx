@@ -8,7 +8,7 @@ interface ActivityTimerTextProps {
 }
 
 /**
- * ActivityTimerText — 对齐 Hermes ActivityTimerText
+ * ActivityTimerText — 对齐 Eleve ActivityTimerText
  *
  * 在 Reasoning 气泡旁显示 "Xs" 或 "M:SS" 计时器
  */

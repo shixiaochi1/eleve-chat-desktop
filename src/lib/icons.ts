@@ -1,4 +1,4 @@
-// Icon mappings for Hermes components
+// Icon mappings for Eleve components
 // Using lucide-react instead of @tabler/icons-react
 import {
   Check,

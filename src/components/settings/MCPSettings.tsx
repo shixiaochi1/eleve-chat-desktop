@@ -1,5 +1,5 @@
 /**
- * MCP 设置 — 对齐 Hermes mcp-settings.tsx
+ * MCP 设置 — 对齐 Eleve mcp-settings.tsx
  *
  * MCP Server 列表管理：添加/编辑/删除/启用禁用
  * 功能：搜索过滤、传输类型标签、计数、env编辑、JSON编辑器

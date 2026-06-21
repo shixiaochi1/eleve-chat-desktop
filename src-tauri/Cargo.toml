@@ -18,6 +18,7 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.55"
+regex = "1"
 windows-sys = { version = "0.59", features = ["Win32_System_Threading"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]

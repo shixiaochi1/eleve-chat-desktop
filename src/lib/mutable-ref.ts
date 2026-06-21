@@ -1,5 +1,5 @@
 /**
- * 1:1 port of Hermes mutable-ref.ts
+ * 1:1 port of Eleve mutable-ref.ts
  * Safe write to ref.current — bypasses react-compiler marking.
  */
 import type { RefObject } from 'react'

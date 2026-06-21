@@ -1,5 +1,5 @@
 /**
- * Core type definitions — 1:1 alignment with Hermes store/session.ts
+ * Core type definitions — 1:1 alignment with Eleve store/session.ts
  *
  * These types describe the data structures flowing through the app.
  * They are derived from the actual runtime objects produced by the
@@ -23,7 +23,7 @@ export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 export interface ChatMessage {
   id: string
   role: MessageRole
-  /** Parts-based content — 1:1 aligned with Hermes. Each assistant message
+  /** Parts-based content — 1:1 aligned with Eleve. Each assistant message
    *  contains reasoning/text/tool-call parts. User messages contain text parts. */
   parts: ChatMessagePart[]
   timestamp?: number
@@ -60,7 +60,7 @@ export interface ChatMessage {
   resultStr?: string
 }
 
-// ── Message grouping (1:1 from Hermes buildGroups) ──
+// ── Message grouping (1:1 from Eleve buildGroups) ──
 
 export interface StandaloneGroup {
   id: string
