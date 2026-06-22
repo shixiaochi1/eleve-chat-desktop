@@ -322,11 +322,113 @@ fn find_workspace_root(start: &std::path::Path) -> Option<PathBuf> {
     last_workspace_root
 }
 
+/// 检查路径是否是打包安装目录
+///
+/// 对齐 Hermes `isPackagedInstallPath()` (main.cjs L2254-2263)：
+/// 打包安装后，process.cwd() 会解析到安装根目录（如 C:\Program Files\Eleve Chat\），
+/// 用户在那里执行命令会困惑"我的文件去哪了？"。
+///
+/// 检测逻辑：
+/// - Windows: Program Files, WindowsApps, exe 所在目录
+/// - macOS: /Applications/
+/// - 开发模式返回 false
+fn is_packaged_install_path(path: &std::path::Path) -> bool {
+    // 开发模式不检查
+    if cfg!(debug_assertions) {
+        return false;
+    }
+
+    let path_str = path.to_string_lossy().to_lowercase();
+
+    // Windows 安装目录特征
+    #[cfg(target_os = "windows")]
+    {
+        if path_str.contains("program files")
+            || path_str.contains("program files (x86)")
+            || path_str.contains("windowsapps")
+        {
+            return true;
+        }
+
+        // exe 所在目录
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                if path == exe_dir {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // macOS 安装目录特征
+    #[cfg(target_os = "macos")]
+    {
+        if path_str.contains("/applications/") || path_str.contains(".app/") {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// 解析 Eleve 工作目录
+///
+/// 对齐 Hermes `resolveHermesCwd()` (main.cjs L2265-2294)：
+/// 打包安装后，process.cwd() 会解析到安装根目录，不能作为工作目录。
+///
+/// 优先级：
+///   1. 用户配置的项目目录（从 settings.json 读取）— 暂未实现
+///   2. 环境变量 ELEVE_DESKTOP_CWD
+///   3. 开发模式：process::current_dir()
+///   4. 最终 fallback: 用户 home 目录
+fn resolve_eleve_cwd() -> PathBuf {
+    let candidates: Vec<Option<String>> = vec![
+        // 1. 用户配置的项目目录（暂未实现，预留）
+        None,
+        // 2. 环境变量覆盖
+        std::env::var("ELEVE_DESKTOP_CWD").ok(),
+        // 3. 开发模式：当前目录
+        if cfg!(debug_assertions) {
+            std::env::current_dir()
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
+        } else {
+            None
+        },
+        // 4. 最终 fallback: 用户 home
+        dirs::home_dir().map(|p| p.to_string_lossy().to_string()),
+    ];
+
+    for candidate in candidates.into_iter().flatten() {
+        let resolved = PathBuf::from(&candidate);
+
+        // 🔴 关键：跳过打包安装路径
+        if is_packaged_install_path(&resolved) {
+            eprintln!(
+                "[TAURI] Skipping packaged install path as cwd: {:?}",
+                resolved
+            );
+            continue;
+        }
+
+        if resolved.is_dir() {
+            eprintln!("[TAURI] Resolved cwd: {:?}", resolved);
+            return resolved;
+        }
+    }
+
+    // 最终 fallback: 用户 home
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    eprintln!("[TAURI] Fallback to home directory: {:?}", home);
+    home
+}
+
 /// 启动 eleved 子进程
-/// 
+///
 /// - Windows: CREATE_NO_WINDOW 防止黑窗口
 /// - 传入 --home 参数指定数据目录
 /// - 传入 --no-banner 静默模式
+/// - 🔴 设置 current_dir 和 TERMINAL_CWD 环境变量（对齐 Hermes）
 /// - stderr 重定向到日志文件
 fn start_eleved_process(eleve_home: &PathBuf) -> Result<std::process::Child, String> {
     let binary = find_eleved_binary()
@@ -337,15 +439,22 @@ fn start_eleved_process(eleve_home: &PathBuf) -> Result<std::process::Child, Str
                 name
             )
         })?;
+    
+    // 🔍 诊断：记录实际使用的 eleved 路径
+    eprintln!("[DIAG-eleved-path] Using eleved: {:?}", binary);
+
+    // 🔴 解析工作目录（对齐 Hermes resolveHermesCwd）
+    let eleve_cwd = resolve_eleve_cwd();
+    eprintln!("[TAURI] Setting eleved cwd to: {:?}", eleve_cwd);
 
     let mut cmd = std::process::Command::new(&binary);
     cmd.arg("--home")
         .arg(eleve_home.to_string_lossy().as_ref())
-        .arg("--no-banner");
-
-    // 🔴 设置工作目录为 eleve_home（对齐 Hermes: TERMINAL_CWD fallback to home）
-    // 不设则继承 Tauri 进程 CWD（dev=前端项目目录, 打包=安装目录），都不对
-    cmd.current_dir(eleve_home);
+        .arg("--no-banner")
+        // 🔴 设置 spawn cwd（对齐 Hermes main.cjs L4771）
+        .current_dir(&eleve_cwd)
+        // 🔴 显式设置 TERMINAL_CWD 环境变量（对齐 Hermes main.cjs L4779）
+        .env("TERMINAL_CWD", eleve_cwd.to_string_lossy().as_ref());
 
     // stdout/stderr 重定向到 runtime/ 目录下的独立捕获文件
     // 与 eleved 自身的 logs/eleved.log (tracing) 分离，避免双写争用
