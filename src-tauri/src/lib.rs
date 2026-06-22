@@ -105,56 +105,64 @@ fn read_windows_user_env_var(_name: &str) -> Option<String> {
     None
 }
 
+/// 解析 Eleve Home 目录（Tauri 前端侧使用）
+///
+/// 对齐 Hermes `resolveHermesHome()` (main.cjs L250-272):
+///   1. ELEVE_HOME 环境变量
+///   2. Windows 注册表 HKCU\Environment\ELEVE_HOME（绕过 GUI 应用环境变量快照问题）
+///   3. %LOCALAPPDATA%\Eleve\（Windows 默认，对齐 Hermes %LOCALAPPDATA%\hermes）
+///   4. ~/.eleve/（Legacy 兼容）
+///   5. ~/.eleve/（最终 fallback）
 fn resolve_eleve_home() -> PathBuf {
     // 1. ELEVE_HOME 环境变量（用户显式配置）
     if let Ok(home) = std::env::var("ELEVE_HOME") {
         if !home.is_empty() {
+            eprintln!("[TAURI] ELEVE_HOME from env: {}", home);
             return PathBuf::from(home);
         }
     }
 
-    // 1b. Windows 注册表 fallback（对齐 Hermes windows-user-env.cjs）
-    //     GUI 应用从 Explorer 启动时继承登录时环境变量快照，
-    //     setx 设置的 ELEVE_HOME 在当前进程不可见。读注册表绕过。
+    // 2. Windows 注册表 fallback（对齐 Hermes windows-user-env.cjs）
+    //    GUI 应用从 Explorer 启动时继承登录时环境变量快照，
+    //    安装时 setx 设置的 ELEVE_HOME 在当前进程不可见。读注册表绕过。
     if let Some(home) = read_windows_user_env_var("ELEVE_HOME") {
+        eprintln!("[TAURI] ELEVE_HOME from registry: {}", home);
         return PathBuf::from(home);
     }
 
-    // 2. Tauri 安装模式: exe 同级 data/ 目录
-    //    ⚠️ debug 构建跳过此步：tauri dev 时 exe 在 target/debug/，
-    //    同级 data/ 是临时构建产物，不应作为持久数据目录
-    #[cfg(not(debug_assertions))]
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let data_dir = parent.join("data");
-            if data_dir.is_dir() {
-                return data_dir;
+    // 3. %LOCALAPPDATA%\Eleve\（Windows 默认，对齐 Hermes %LOCALAPPDATA%\hermes）
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(local_appdata) = dirs::data_local_dir() {
+            let eleve_home = local_appdata.join("Eleve");
+            if eleve_home.is_dir() {
+                eprintln!("[TAURI] ELEVE_HOME from LOCALAPPDATA: {:?}", eleve_home);
+                return eleve_home;
+            }
+            // 首次安装：创建目录
+            if std::fs::create_dir_all(&eleve_home).is_ok() {
+                eprintln!("[TAURI] Created ELEVE_HOME: {:?}", eleve_home);
+                return eleve_home;
             }
         }
     }
-    // 3. 平台标准目录（与 get_eleve_home() 第3步对齐）
-    //    Windows: %APPDATA%/Eleve
-    //    Linux: ~/.local/share/eleve
-    //    macOS: ~/Library/Application Support/Eleve
-    if let Some(platform_dir) = dirs::data_dir() {
-        let eleve_data = platform_dir.join("Eleve");
-        if eleve_data.is_dir() {
-            return eleve_data;
-        }
-    }
-    // 3b. Legacy 迁移（对齐 Hermes resolveHermesHome）
-    //     如果用户之前用 CLI/开发模式创建了 ~/.eleve/，
-    //     且平台标准目录不存在，优先使用旧目录避免数据丢失。
+
+    // 4. Legacy 兼容: ~/.eleve/
     if let Some(home_dir) = dirs::home_dir() {
         let legacy = home_dir.join(".eleve");
         if legacy.is_dir() {
+            eprintln!("[TAURI] ELEVE_HOME from legacy ~/.eleve: {:?}", legacy);
             return legacy;
         }
     }
-    // 4. 最终 fallback: ~/.eleve/（首次安装，目录尚不存在）
-    dirs::home_dir()
+
+    // 5. 最终 fallback: ~/.eleve/（创建）
+    let fallback = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".eleve")
+        .join(".eleve");
+    std::fs::create_dir_all(&fallback).ok();
+    eprintln!("[TAURI] ELEVE_HOME fallback: {:?}", fallback);
+    fallback
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -453,7 +461,8 @@ fn start_eleved_process(eleve_home: &PathBuf) -> Result<std::process::Child, Str
         .arg("--no-banner")
         // 🔴 设置 spawn cwd（对齐 Hermes main.cjs L4771）
         .current_dir(&eleve_cwd)
-        // 🔴 显式设置 TERMINAL_CWD 环境变量（对齐 Hermes main.cjs L4779）
+        // 🔴 显式设置环境变量（对齐 Hermes main.cjs L4772-4784）
+        .env("ELEVE_HOME", eleve_home.to_string_lossy().as_ref())
         .env("TERMINAL_CWD", eleve_cwd.to_string_lossy().as_ref());
 
     // stdout/stderr 重定向到 runtime/ 目录下的独立捕获文件

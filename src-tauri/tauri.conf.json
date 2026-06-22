@@ -50,7 +50,7 @@
     ],
     "windows": {
       "nsis": {
-        "installMode": "perMachine",
+        "installMode": "currentUser",
         "languages": ["SimpChinese", "English"],
         "installerHooks": "nsis-uninstall-hook.nsh"
       }
