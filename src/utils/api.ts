@@ -5,6 +5,7 @@
  * 通过 bridge.js 的 discoverPort 动态获取网关端口
  */
 import { call, discoverPort, setHttpBase, getHttpBase } from './bridge';
+import { getWsClient } from '@/services/ws-client';
 
 // ====== 会话 ======
 
@@ -106,7 +107,27 @@ export async function fetchGatewayStatus(): Promise<any> {
 
 // ====== 审批 ======
 
+/**
+ * 提交 clarify 响应 — WS 优先，降级到 HTTP
+ *
+ * 对齐 Hermes TUI 架构：
+ * - WS 连接时：通过 JSON-RPC clarify.respond 提交（同一长连接，无额外 HTTP 开销）
+ * - SSE/降级时：通过 HTTP POST /api/clarify-response 提交
+ */
 export async function submitClarifyResponse(clarifyId: string, response: string): Promise<any> {
+  const wsClient = getWsClient();
+  if (wsClient.state === 'connected') {
+    try {
+      const result = await wsClient.sendRpc('clarify.respond', {
+        request_id: clarifyId,
+        answer: response,
+      });
+      // WS 返回 { status: "ok" }，统一为 { status: "resolved" } 供 ClarifyCard 判断
+      return { status: 'resolved', ...result as object };
+    } catch (wsErr) {
+      console.warn('[api] WS clarify.respond failed, falling back to HTTP:', wsErr);
+    }
+  }
   return call('submit_clarify_response', { clarify_id: clarifyId, response });
 }
 
