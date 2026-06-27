@@ -31,7 +31,7 @@ export default function ClarifyCard({ clarifyId, question, choices, onDone }: Cl
     setError(null);
     try {
       const result = await submitClarifyResponse(clarifyId ?? "", response ?? "");
-      if (result.status === 'resolved') {
+      if (result.status === 'resolved' || result.status === 'ok') {
         setSubmitted(true);
         onDone?.(response);
       } else {

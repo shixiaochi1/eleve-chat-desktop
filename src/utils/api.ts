@@ -123,7 +123,8 @@ export async function submitClarifyResponse(clarifyId: string, response: string)
         answer: response,
       });
       // WS 返回 { status: "ok" }，统一为 { status: "resolved" } 供 ClarifyCard 判断
-      return { status: 'resolved', ...result as object };
+      // 注意：展开顺序很重要，status 必须在最后才能覆盖
+      return { ...(result as object), status: 'resolved' };
     } catch (wsErr) {
       console.warn('[api] WS clarify.respond failed, falling back to HTTP:', wsErr);
     }

@@ -46,12 +46,16 @@
     ],
     "resources": [
       "binaries/agent-browser-win32-x64.exe",
-      "binaries/eleved.exe"
+      "binaries/eleved.exe",
+      "binaries/rg.exe"
     ],
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["SimpChinese", "English"],
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
         "installerHooks": "nsis-uninstall-hook.nsh"
       }
     }

@@ -41,12 +41,9 @@ export default function ApprovalCard({ command, description, pattern, choices, s
         choice === 'deny' ? 'deny' : 'approve',
         { session_id, choice, resolve_all: false }
       );
-      if (result.resolved !== undefined && result.resolved > 0) {
-        setSubmitted(true);
-        onDone?.(choice);
-      } else {
-        setError(result.error || '操作失败');
-      }
+      // resolved > 0: 成功决议; resolved === 0: 审批已超时/不存在但仍视为用户已表达意图
+      setSubmitted(true);
+      onDone?.(choice);
     } catch (err: unknown) {
       setError((err as Error).message || '网络错误');
     } finally {

@@ -123,11 +123,26 @@ fn resolve_eleve_home() -> PathBuf {
     }
 
     // 2. Windows 注册表 fallback（对齐 Hermes windows-user-env.cjs）
-    //    GUI 应用从 Explorer 启动时继承登录时环境变量快照，
+    //    GUI 应用从 Explorer 启动时继承登录时的环境变量快照，
     //    安装时 setx 设置的 ELEVE_HOME 在当前进程不可见。读注册表绕过。
     if let Some(home) = read_windows_user_env_var("ELEVE_HOME") {
         eprintln!("[TAURI] ELEVE_HOME from registry: {}", home);
         return PathBuf::from(home);
+    }
+
+    // 2.5. 🔴 关键修复: exe 同级 data/ 目录（对齐后端 get_eleve_home 步骤2）
+    //    NSIS 安装后: $INSTDIR\data\ 是数据目录
+    //    首次启动时环境变量可能还未生效（需要重启），直接检查目录存在性
+    //    仅 release 构建检查（debug 时 exe 在 target/debug/，data/ 是临时产物）
+    #[cfg(not(debug_assertions))]
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            let data_dir = exe_dir.join("data");
+            if data_dir.is_dir() {
+                eprintln!("[TAURI] ELEVE_HOME from exe-relative data/: {:?}", data_dir);
+                return data_dir;
+            }
+        }
     }
 
     // 3. %LOCALAPPDATA%\Eleve\（Windows 默认，对齐 Hermes %LOCALAPPDATA%\hermes）
@@ -379,20 +394,57 @@ fn is_packaged_install_path(path: &std::path::Path) -> bool {
     false
 }
 
+/// 读取用户配置的项目目录（对齐 Hermes readDefaultProjectDir）
+///
+/// 从 {ELEVE_HOME}/app-data/settings.json 读取 default_project_dir 字段。
+/// 如果目录存在则返回 Some(path)，否则 None（让候选链继续 fallback）。
+///
+/// 注意：Tauri 前端 crate 不依赖 eleve_core，所以直接通过环境变量或
+/// 平台标准路径定位 settings.json。
+fn read_default_project_dir() -> Option<String> {
+    // 定位 ELEVE_HOME: 优先 ELEVE_HOME 环境变量，其次平台标准目录
+    let eleve_home = std::env::var("ELEVE_HOME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            // Windows: %APPDATA%/Eleve, Linux: ~/.local/share/eleve
+            dirs::data_dir().map(|d| d.join("Eleve"))
+        })
+        .or_else(|| {
+            // Legacy fallback: ~/.eleve
+            dirs::home_dir().map(|h| h.join(".eleve"))
+        })?;
+
+    let settings_path = eleve_home.join("app-data").join("settings.json");
+    let content = std::fs::read_to_string(&settings_path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let dir = v.get("default_project_dir")?.as_str()?;
+    if dir.trim().is_empty() {
+        return None;
+    }
+    let resolved = PathBuf::from(dir);
+    if resolved.is_dir() {
+        Some(dir.to_string())
+    } else {
+        None
+    }
+}
+
 /// 解析 Eleve 工作目录
 ///
-/// 对齐 Hermes `resolveHermesCwd()` (main.cjs L2265-2294)：
+/// 对齐 Hermes `resolveHermesCwd()` (main.cjs L1631-1655)：
 /// 打包安装后，process.cwd() 会解析到安装根目录，不能作为工作目录。
 ///
 /// 优先级：
-///   1. 用户配置的项目目录（从 settings.json 读取）— 暂未实现
+///   1. 用户配置的项目目录（从 settings.json 读取）— 对齐 Hermes readDefaultProjectDir
 ///   2. 环境变量 ELEVE_DESKTOP_CWD
 ///   3. 开发模式：process::current_dir()
 ///   4. 最终 fallback: 用户 home 目录
 fn resolve_eleve_cwd() -> PathBuf {
     let candidates: Vec<Option<String>> = vec![
-        // 1. 用户配置的项目目录（暂未实现，预留）
-        None,
+        // 1. 用户配置的项目目录（对齐 Hermes readDefaultProjectDir）
+        read_default_project_dir(),
         // 2. 环境变量覆盖
         std::env::var("ELEVE_DESKTOP_CWD").ok(),
         // 3. 开发模式：当前目录
@@ -769,7 +821,15 @@ pub fn run() {
 
             // 确保目录结构存在
             std::fs::create_dir_all(&eleve_home).ok();
-            let subdirs = ["cron", "sessions", "logs", "skills", "memories", "boards", "cache/images", "cache/audio", "cache/terminal", "cache/sandbox", "cache/vision", "cache/voice", "cache/results", "credentials", "mcp-tokens", "hooks", "pairing", "runtime", "app-data"];
+            // 🔴 对齐后端 ensure_directories() (bootstrap/mod.rs:623-645)
+            // 确保所有子目录都存在，与后端保持一致
+            let subdirs = [
+                "cron", "sessions", "logs", "skills", "memories", "boards",
+                "cache",  // 🔴 显式创建 cache 根目录（对齐后端）
+                "cache/images", "cache/audio", "cache/terminal", "cache/sandbox",
+                "cache/vision", "cache/voice", "cache/results",
+                "credentials", "mcp-tokens", "hooks", "pairing", "runtime", "app-data"
+            ];
             for sub in &subdirs { std::fs::create_dir_all(eleve_home.join(sub)).ok(); }
 
             // 初始化 tracing — 对齐 CLI main.rs 的日志基础设施
