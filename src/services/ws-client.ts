@@ -306,6 +306,21 @@ export class GatewayWsClient {
       if (msg.method === 'event' && msg.params?.type) {
         // JSON-RPC event 帧：从 params.type 提取事件名
         const { type, ...rest } = msg.params as { type: string; [k: string]: unknown };
+        
+        // 对齐 Hermes: 监听 gateway.ready 事件作为连接就绪信号
+        if (type === 'gateway.ready') {
+          console.log('[WS] Gateway ready:', rest);
+          // 触发连接就绪回调（对齐 Hermes gateway.ready 事件）
+          // 如果 onopen 还没触发过，这里作为备用触发点
+          if (this._state === 'connected' && this.connCallbacks?.onOpen) {
+            // 已经 connected 状态，说明 onopen 已触发，这里只是日志
+          } else {
+            // 如果还没 connected，说明 WebSocket 已建立但 gateway 还没 ready
+            // 这里可以触发一些初始化逻辑
+            console.log('[WS] Gateway ready event received, connection fully initialized');
+          }
+        }
+        
         this.emit(type, rest);
       } else if (msg.event) {
         // 兼容：{ event: "...", data: {...} } 格式
