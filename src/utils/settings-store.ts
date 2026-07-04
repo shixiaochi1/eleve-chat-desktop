@@ -17,6 +17,7 @@ export interface ProviderEntry {
   id: string;
   name: string;
   baseUrl: string;
+  transport?: string; // 协议：auto | openai_chat | anthropic_messages | codex_responses
   models: string[];
 }
 

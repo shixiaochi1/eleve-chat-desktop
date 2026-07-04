@@ -10,6 +10,7 @@ interface Provider {
   name: string;
   apiKey?: string;
   baseUrl?: string;
+  transport?: string;
   models: string[];
 }
 
@@ -169,6 +170,26 @@ export default function ProviderCard({
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => onUpdate(provider.id, 'baseUrl', e.target.value)}
               placeholder="https://api.example.com/v1"
             />
+          </div>
+
+          {/* 协议/传输方式 */}
+          <div className={cn('space-y-1.5')}>
+            <label className={cn('block text-xs text-muted-foreground')}>协议</label>
+            <select
+              className={selectClasses}
+              value={provider.transport || 'auto'}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onUpdate(provider.id, 'transport', e.target.value)}
+            >
+              <option value="auto">自动推断</option>
+              <option value="openai_chat">OpenAI 兼容</option>
+              <option value="anthropic_messages">Anthropic 兼容</option>
+              <option value="codex_responses">Codex Responses</option>
+            </select>
+            <p className={cn('text-[11px] text-muted-foreground/60')}>
+              {provider.transport && provider.transport !== 'auto'
+                ? `手动指定：${provider.transport}`
+                : '根据 Base URL 和 Provider 自动推断协议'}
+            </p>
           </div>
 
           {/* 模型列表 */}

@@ -40,8 +40,8 @@ export default function ProviderSettings({
   handleSave: () => void;
   addProviderOpen: boolean;
   setAddProviderOpen: (v: boolean) => void;
-  newProvider: { name: string; slug: string; keyEnv: string; apiKey: string; baseUrl: string; modelsRaw: string };
-  setNewProvider: (v: { name: string; slug: string; keyEnv: string; apiKey: string; baseUrl: string; modelsRaw: string }) => void;
+  newProvider: { name: string; slug: string; keyEnv: string; apiKey: string; baseUrl: string; transport: string; modelsRaw: string };
+  setNewProvider: (v: { name: string; slug: string; keyEnv: string; apiKey: string; baseUrl: string; transport: string; modelsRaw: string }) => void;
   handleAddProvider: () => void;
   onProviderNameChange: (name: string) => void;
 }) {
@@ -106,6 +106,16 @@ export default function ProviderSettings({
             value={newProvider.baseUrl}
             onChange={e => setNewProvider({ ...newProvider, baseUrl: e.target.value })}
           />
+          <select
+            className="flex h-7 w-full items-center rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50"
+            value={newProvider.transport || 'auto'}
+            onChange={e => setNewProvider({ ...newProvider, transport: e.target.value })}
+          >
+            <option value="auto">自动推断协议</option>
+            <option value="openai_chat">OpenAI 兼容</option>
+            <option value="anthropic_messages">Anthropic 兼容</option>
+            <option value="codex_responses">Codex Responses</option>
+          </select>
           <Input
             className="h-7 text-xs"
             placeholder="模型列表（逗号分隔）"

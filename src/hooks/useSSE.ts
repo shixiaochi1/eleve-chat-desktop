@@ -102,8 +102,8 @@ function processEvent(
       cbs.onThinking?.((chunk.text as string) || '');
       break;
 
-    // ── 工具（对齐 Eleve 通道 A: tool.started / tool.completed）──
-    case 'tool.started':
+    // ── 工具（对齐 Eleve 通道 A: tool.start / tool.complete）──
+    case 'tool.start':
       cbs.onToolStart?.({ id: (chunk.tool_id as string) || null, name: chunk.tool_name as string });
       break;
 
@@ -112,25 +112,13 @@ function processEvent(
       cbs.onToolGenerating?.((chunk.name as string) || '');
       break;
 
-    case 'tool.completed':
+    case 'tool.complete':
       cbs.onToolEnd?.({ id: (chunk.tool_id as string) || null, name: chunk.tool_name as string });
       break;
 
-    case 'tool.progress': {
-      // 子事件分发：tool.failed（对齐 Eleve 通道 A）
-      const ev = chunk.event || chunk.tool;
-      if (ev === 'tool.failed') {
-        cbs.onError?.((chunk.error as string) || `Tool ${chunk.tool} failed`);
-        break;
-      }
-      // 普通 tool args 累积
-      const tid = (chunk.tool_id as string) || 'unknown';
-      if (!acc.pendingTools[tid]) {
-        acc.pendingTools[tid] = { name: (chunk.tool_name as string) || '', argsStr: '' };
-      }
-      const deltaStr = typeof chunk.delta === 'string' ? chunk.delta : JSON.stringify(chunk.delta);
-      acc.pendingTools[tid].argsStr += deltaStr;
-      cbs.onToolArgs?.({ id: tid, delta: deltaStr, accumulated: acc.pendingTools[tid].argsStr });
+    case 'tool.failed': {
+      // 工具执行失败（对齐 Eleve 后端独立 tool.failed 事件）
+      cbs.onError?.((chunk.error as string) || `Tool ${chunk.tool_name || chunk.tool || ''} failed`);
       break;
     }
 
@@ -177,9 +165,15 @@ function processEvent(
       cbs.onSystemNotice?.({ message: chunk.message as string, level: chunk.level as string | undefined });
       break;
 
-    case 'status.update':
-      cbs.onStatusUpdate?.({ kind: chunk.kind as string, text: chunk.text as string });
+    case 'status.update': {
+      // 合并两个重复case — 通用 status.update + lifecycle reset 分发
+      const kind = chunk.kind as string;
+      cbs.onStatusUpdate?.({ kind, text: chunk.text as string });
+      if (kind === 'lifecycle') {
+        cbs.onSessionReset?.({ old_session_id: '', new_session_id: chunk.new_session_id as string });
+      }
       break;
+    }
 
     // ── 交互 ──
     case 'clarify.request':
@@ -211,14 +205,6 @@ function processEvent(
         credential_warning: chunk.credential_warning as boolean | undefined,
       });
       break;
-
-    case 'status.update': {
-      const kind = chunk.kind as string;
-      if (kind === 'lifecycle') {
-        cbs.onSessionReset?.({ old_session_id: '', new_session_id: chunk.new_session_id as string });
-      }
-      break;
-    }
 
     // ── 流生命周期 ──
     case 'error':
@@ -253,7 +239,6 @@ function processEvent(
 
     // ── 静默事件（Eleve 标准名，WS/SSE 路由中不需要额外处理）──
     case 'message.start':
-    case 'reasoning.completed':
     case 'usage':
     case 'finish_reason':
     case 'rate_limit':

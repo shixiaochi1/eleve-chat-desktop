@@ -49,6 +49,7 @@ interface NewProviderForm {
   keyEnv: string;    // 环境变量名（自动生成）
   apiKey: string;
   baseUrl: string;
+  transport: string; // 协议：auto | openai_chat | anthropic_messages | codex_responses
   modelsRaw: string;
 }
 
@@ -154,7 +155,7 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
   };
 
   // ── 新建提供商表单 ──
-  const [newProvider, setNewProvider] = useState<NewProviderForm>({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', modelsRaw: '' });
+  const [newProvider, setNewProvider] = useState<NewProviderForm>({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', transport: 'auto', modelsRaw: '' });
 
   // ====== 加载 ======
   useEffect(() => {
@@ -324,9 +325,10 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       name: newProvider.name.trim(),
       apiKey: newProvider.apiKey.trim(),
       baseUrl: newProvider.baseUrl.trim(),
+      transport: newProvider.transport,
       models: models.length > 0 ? models : [],
     }]);
-    setNewProvider({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', modelsRaw: '' });
+    setNewProvider({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', transport: 'auto', modelsRaw: '' });
     setAddProviderOpen(false);
   };
 
@@ -408,9 +410,10 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     if (providers.length > 0) {
       const provObj: Record<string, any> = {};
       for (const p of providers) {
-        // 对齐 Eleve determine_api_mode URL 启发式
-        // 后端 sync_settings_to_config_yaml 会用 determine_api_mode_from_url 再次确认
-        const transport = inferTransport(p.id, p.baseUrl);
+        // V5.1: 优先用户手动指定 transport，否则 URL 启发式推断
+        const transport = (p.transport && p.transport !== 'auto')
+          ? p.transport
+          : inferTransport(p.id, p.baseUrl);
         // models: HashMap<String, ModelEntry> 格式（对齐 Rust ProviderConfig.models）
         const modelsMap: Record<string, Record<string, unknown>> = {};
         for (const m of p.models) { modelsMap[m] = {}; }
