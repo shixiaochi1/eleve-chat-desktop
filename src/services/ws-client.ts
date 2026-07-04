@@ -348,19 +348,34 @@ export class GatewayWsClient {
 
   // ── 便捷方法 ──
 
-  /** 发送 prompt — 对齐 Eleve prompt.submit */
+  /** 发送 prompt — 对齐 Eleve prompt.submit（参数 text） */
   async promptSubmit(text: string, sessionId?: string): Promise<unknown> {
     return this.sendRpc('prompt.submit', {
       session_id: sessionId || this.sessionId || '',
-      message: text,  // 后端参数名为 message（对齐 Eleve JSON-RPC 协议）
+      text,  // 对齐后端 Phase 3: message → text
     })
   }
 
-  /** 中止当前流 */
+  /** 中止当前流 — 对齐 Eleve session.interrupt */
   async abortStream(sessionId?: string): Promise<unknown> {
-    return this.sendRpc('abort', {
+    return this.sendRpc('session.interrupt', {
       session_id: sessionId || this.sessionId || '',
     })
+  }
+
+  /** 执行 slash 命令 — 对齐 Eleve slash.exec */
+  async slashExec(command: string, sessionId?: string): Promise<unknown> {
+    return this.sendRpc('slash.exec', { command, session_id: sessionId || this.sessionId || '' })
+  }
+
+  /** 命令路由分发 — 对齐 Eleve command.dispatch */
+  async commandDispatch(name: string, arg?: string, sessionId?: string): Promise<unknown> {
+    return this.sendRpc('command.dispatch', { name, arg: arg || '', session_id: sessionId || this.sessionId || '' })
+  }
+
+  /** 获取命令目录 — 对齐 Eleve commands.catalog */
+  async commandsCatalog(): Promise<unknown> {
+    return this.sendRpc('commands.catalog', {})
   }
 
   /** 设置重连恢复回调（对齐 Eleve gateway.ready → session.resume） */

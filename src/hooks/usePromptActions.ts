@@ -3,6 +3,7 @@ import { executeCommand, setSessionTitle } from '../utils/api';
 import * as storage from '../utils/storage';
 import { setMessages as storeSetMessages, getMessages } from '../store/messages';
 import { textPart } from '@/lib/chat-messages'
+import { getWsClient } from '../services/ws-client';
 import type { ChatMessage } from '@/types'
 import type { SessionManagerHandle } from './useMessageStream';
 
@@ -99,8 +100,11 @@ export function usePromptActions({
     storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(display)] } as ChatMessage]);
 
     try {
-      const data = await executeCommand(cmdName, args, sess.sessionId as null | undefined) as { result?: string; session_id?: string };
-      const session_id = data?.session_id;
+      // 走 WS slash.exec（对齐 Phase 6: 命令走 WS 而非 HTTP）
+      const ws = getWsClient();
+      const result = await ws.slashExec(`${cmdName} ${args || ''}`.trim(), sess.sessionId || undefined) as { output?: string; session_id?: string };
+      const output = result?.output || '';
+      const session_id = result?.session_id;
       if (session_id && session_id !== sess.sessionId) {
         if (sess.sessionId) {
           storeSetMessages((prev) => {
@@ -112,10 +116,10 @@ export function usePromptActions({
         storage.save('session_id', session_id);
         sess.refresh();
         setDebugInfo((prev) => ({ ...prev, sessionId: session_id, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
-        storeSetMessages([{ id: genId(), role: 'system', parts: [textPart(data?.result || '')] } as ChatMessage]);
+        storeSetMessages([{ id: genId(), role: 'system', parts: [textPart(output)] } as ChatMessage]);
         if (setSessionListVersion) setSessionListVersion(v => v + 1);
       } else {
-        storeSetMessages((prev) => [...prev, { id: genId(), role: 'system', parts: [textPart(data?.result || '')] } as ChatMessage]);
+        storeSetMessages((prev) => [...prev, { id: genId(), role: 'system', parts: [textPart(output)] } as ChatMessage]);
       }
     } catch (err) {
       storeSetMessages((prev) => [...prev, { id: genId(), role: 'assistant', parts: [textPart(`${(err as Error).message}`)], error: `${(err as Error).message}` } as ChatMessage]);

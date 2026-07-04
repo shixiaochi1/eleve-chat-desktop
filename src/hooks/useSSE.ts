@@ -80,8 +80,8 @@ function processEvent(
   cbs: SSECallbacks,
 ): string | undefined {
   switch (eventName) {
-    // ── 文本 delta（对齐 Eleve 通道 A: assistant.delta）──
-    case 'assistant.delta':
+    // ── 文本 delta（对齐 Eleve: message.delta）──
+    case 'message.delta':
       acc.fullText += (chunk.delta as string) || '';
       cbs.onText?.((chunk.delta as string) || '', acc.fullText);
       break;
@@ -212,49 +212,47 @@ function processEvent(
       });
       break;
 
-    case 'session_reset':
-      cbs.onSessionReset?.({ old_session_id: chunk.old_session_id as string, new_session_id: chunk.new_session_id as string });
+    case 'status.update': {
+      const kind = chunk.kind as string;
+      if (kind === 'lifecycle') {
+        cbs.onSessionReset?.({ old_session_id: '', new_session_id: chunk.new_session_id as string });
+      }
       break;
+    }
 
     // ── 流生命周期 ──
     case 'error':
       cbs.onError?.((chunk.message as string) || 'Unknown error');
       return 'error';
 
-    case 'done':
-      cbs.onDone?.(chunk.session_id as string | null);
-      return 'done';
-
-    case 'run.started':
-      cbs.onRunStart?.(chunk.session_id as string);
-      break;
-
-    case 'run.completed': {
-      const rc = chunk as RunCompleteChunk;
-      if (rc.usage) {
+    case 'message.complete':
+      // message.complete 替代 done + run.completed（对齐 Phase 4）
+      if (chunk.usage) {
         cbs.onUsage?.({
-          input: rc.usage.input_tokens,
-          output: rc.usage.output_tokens,
-          cacheRead: rc.usage.cache_read_tokens,
-          cacheWrite: rc.usage.cache_write_tokens,
+          input: (chunk.usage as any).input_tokens,
+          output: (chunk.usage as any).output_tokens,
+          cacheRead: (chunk.usage as any).cache_read_tokens,
+          cacheWrite: (chunk.usage as any).cache_write_tokens,
         });
       }
-      cbs.onRunComplete?.({
-        sessionId: rc.session_id || '',
-        completed: rc.completed,
-        interrupted: rc.interrupted,
-        usage: rc.usage,
-      });
-      break;
-    }
+      // 中断处理（原 onRunComplete 的中断逻辑）
+      if (chunk.interrupted) {
+        cbs.onRunComplete?.({
+          sessionId: chunk.session_id as string || '',
+          completed: false,
+          interrupted: true,
+          usage: chunk.usage,
+        });
+      }
+      cbs.onDone?.(chunk.session_id as string | null);
+      return 'done';
 
     case 'dequeue':
       cbs.onText?.((chunk.text as string) || '', '');
       break;
 
-    // ── 静默事件（Eleve 通道 A 标准名，WS/SSE 路由中不需要额外处理）──
-    case 'message.started':
-    case 'assistant.completed':
+    // ── 静默事件（Eleve 标准名，WS/SSE 路由中不需要额外处理）──
+    case 'message.start':
     case 'reasoning.completed':
     case 'usage':
     case 'finish_reason':
@@ -297,8 +295,12 @@ export function useSSE(callbacks: SSECallbacks = {}): {
   const routeWsEvent = useCallback((eventName: string, data: unknown) => {
     const cbs = cbsRef.current;
     const acc = wsAccumulatorsRef.current;
-    const chunk = data as Record<string, unknown>;
-    if (!chunk) return;
+    const raw = data as Record<string, unknown>;
+    if (!raw) return;
+
+    // WS payload 内聚：业务数据在 payload 字段下（对齐 Phase 5）
+    // SSE 路径无 payload 包装，直接用 data
+    const chunk = (raw.payload && typeof raw.payload === 'object' ? raw.payload : raw) as Record<string, unknown>;
 
     const result = processEvent(eventName, chunk, acc, cbs);
 
