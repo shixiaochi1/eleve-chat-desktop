@@ -207,6 +207,12 @@ function processEvent(
       break;
 
     // ── 流生命周期 ──
+    // 对齐 Hermes: message.start → onRunStart（分配streamId）
+    case 'message.start':
+    case 'run.started':
+      cbs.onRunStart?.(chunk.session_id as string);
+      break;
+
     case 'error':
       cbs.onError?.((chunk.message as string) || 'Unknown error');
       return 'error';
@@ -237,8 +243,7 @@ function processEvent(
       cbs.onText?.((chunk.text as string) || '', '');
       break;
 
-    // ── 静默事件（Eleve 标准名，WS/SSE 路由中不需要额外处理）──
-    case 'message.start':
+    // ── 静默事件（WS/SSE 路由中不需要额外处理）──
     case 'usage':
     case 'finish_reason':
     case 'rate_limit':
@@ -283,9 +288,17 @@ export function useSSE(callbacks: SSECallbacks = {}): {
     const raw = data as Record<string, unknown>;
     if (!raw) return;
 
-    // WS payload 内聚：业务数据在 payload 字段下（对齐 Phase 5）
+    // WS payload 内聚：业务数据在 payload 字段下（对齐 Hermes _emit 格式）
+    // Hermes: params = {type, session_id, payload: {...}}
     // SSE 路径无 payload 包装，直接用 data
-    const chunk = (raw.payload && typeof raw.payload === 'object' ? raw.payload : raw) as Record<string, unknown>;
+    const chunkBase = (raw.payload && typeof raw.payload === 'object' ? raw.payload : raw) as Record<string, unknown>;
+    // 🔴 对齐 Hermes：session_id/run_id 在 params 顶层（raw），不在 payload 中
+    // 注入到 chunk 中，使 processEvent 的回调能正确读取 session_id
+    const chunk: Record<string, unknown> = {
+      ...chunkBase,
+      ...(raw.session_id != null && chunkBase.session_id == null ? { session_id: raw.session_id } : {}),
+      ...(raw.run_id != null && chunkBase.run_id == null ? { run_id: raw.run_id } : {}),
+    };
 
     const result = processEvent(eventName, chunk, acc, cbs);
 
@@ -480,8 +493,31 @@ export function useSSE(callbacks: SSECallbacks = {}): {
             try {
               const chunk = JSON.parse(dataStr);
 
-              // ── 统一路由：SSE 事件名已与 WS 一致 ──
-              const result = processEvent(lastEventName, chunk, accumulators, cbs);
+              // ── OpenAI SSE 格式兼容（SSE 降级路径）──
+              // chat/completions 返回 OpenAI 格式（无 event: 行），
+              // 需要转换为 Eleve 标准事件名才能被 processEvent 处理
+              let effectiveEventName = lastEventName;
+              let effectiveChunk = chunk;
+              if (!effectiveEventName && chunk.object === 'chat.completion.chunk') {
+                const choice = chunk.choices?.[0];
+                if (choice?.finish_reason === 'stop') {
+                  effectiveEventName = 'message.complete';
+                  effectiveChunk = { completed: true };
+                } else if (choice?.delta?.role === 'assistant') {
+                  // role chunk — 忽略，不需要处理
+                  lastEventName = '';
+                  continue;
+                } else if (choice?.delta?.content != null) {
+                  effectiveEventName = 'message.delta';
+                  effectiveChunk = { delta: choice.delta.content };
+                } else if (choice?.delta?.reasoning_content != null) {
+                  effectiveEventName = 'reasoning.delta';
+                  effectiveChunk = { text: choice.delta.reasoning_content };
+                }
+              }
+
+              // ── 统一路由 ──
+              const result = processEvent(effectiveEventName, effectiveChunk, accumulators, cbs);
 
               if (result === 'done' || result === 'error') {
                 if (result === 'done') doneReceived = true;

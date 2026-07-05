@@ -528,7 +528,7 @@ export function useMessageStream({
       }
     },
 
-    // ── Done — 1:1 with Eleve message.complete ──
+    // ── Done — 1:1 with Hermes message.complete ──
     // Flush remaining deltas, then finalize with the FULL accumulated text.
     // [FIX #3] Use fullTextRef (from SSE accumulator) instead of reading
     // from message parts — parts may be stale if flush hadn't run.
@@ -546,7 +546,7 @@ export function useMessageStream({
 
       // [FIX #3] Use the fullText from SSE accumulator — this is the
       // complete text the backend sent, not a partial from message parts.
-      // Same as Eleve: completeAssistantMessage(sessionId, coerceGatewayText(payload?.text))
+      // Same as Hermes: completeAssistantMessage(sessionId, coerceGatewayText(payload?.text))
       const finalText = fullTextRef.current
 
       // Complete: replace streamed text with final, dedup reasoning, clear pending
@@ -562,6 +562,7 @@ export function useMessageStream({
 
       if (drainQueueRef.current) drainQueueRef.current();
 
+      // 🔴 对齐 Hermes：onDone 后无条件 refresh 列表（确保新session标题更新）
       if (newSessionId && newSessionId !== currentSessionId) {
         if (currentSessionId && getMessages()?.length) {
           sess.saveCache((cache) => ({ ...cache, [currentSessionId]: getMessages() }));
@@ -573,6 +574,10 @@ export function useMessageStream({
           if (setSessionListVersion) setSessionListVersion(v => v + 1);
           setDebugInfo((prev) => ({ ...prev, sessionId: newSessionId }));
         }, 0);
+      } else {
+        // 🔴 对齐 Hermes：即使无新session，也刷新列表（标题可能已更新）
+        sess.refresh();
+        if (setSessionListVersion) setSessionListVersion(v => v + 1);
       }
     },
 
