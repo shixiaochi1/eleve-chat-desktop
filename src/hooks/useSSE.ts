@@ -88,8 +88,8 @@ function processEvent(
 
     // ── 推理 ──
     case 'reasoning.delta':
-      acc.fullReasoning += (chunk.delta as string) || '';
-      cbs.onReasoning?.((chunk.delta as string) || '', acc.fullReasoning);
+      acc.fullReasoning += (chunk.text as string) || '';
+      cbs.onReasoning?.((chunk.text as string) || '', acc.fullReasoning);
       break;
 
     case 'reasoning.available':
@@ -334,6 +334,14 @@ export function useSSE(callbacks: SSECallbacks = {}): {
 
     // ── WS 优先：通过 JSON-RPC prompt.submit 发送 ──
     const wsClient = getWsClient();
+    // 对齐 Hermes: 首次发消息时 session 刚创建，WS 可能还在连接中
+    // 等待最多 2 秒让 WS 连上，避免走 HTTP 降级（SSE 格式不兼容）
+    if (wsClient.state !== 'connected' && wsClient.state !== 'disconnected') {
+      const connected = await wsClient.waitForConnected(2000);
+      if (connected) {
+        console.log('[useSSE] WS connected after waiting, using WS path');
+      }
+    }
     if (wsClient.state === 'connected') {
       // 重置 WS 累加器
       wsAccumulatorsRef.current = { fullText: '', fullReasoning: '', pendingTools: {} };
@@ -369,10 +377,14 @@ export function useSSE(callbacks: SSECallbacks = {}): {
 
       try {
         const apiBase = getApiBase();
-        const resp = await fetch(`${apiBase}/v1/chat/stream`, {
+        const resp = await fetch(`${apiBase}/v1/chat/completions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, session_id: sessionId || null }),
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: text }],
+            stream: true,
+            session_id: sessionId || null,
+          }),
           signal: controller.signal,
         });
 

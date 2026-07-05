@@ -180,6 +180,31 @@ export class GatewayWsClient {
     }
   }
 
+  /** 等待 WS 连接建立（最多 timeout 毫秒），用于首次发消息时确保 WS 主路径畅通 */
+  waitForConnected(timeout = 3000): Promise<boolean> {
+    if (this._state === 'connected') return Promise.resolve(true)
+    if (this._state === 'disconnected') return Promise.resolve(false)
+
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        unsub()
+        resolve(this._state === 'connected')
+      }, timeout)
+
+      const unsub = this.onStateChange((state) => {
+        if (state === 'connected') {
+          clearTimeout(timer)
+          unsub()
+          resolve(true)
+        } else if (state === 'disconnected') {
+          clearTimeout(timer)
+          unsub()
+          resolve(false)
+        }
+      })
+    })
+  }
+
   disconnect(): void {
     this.intentionallyClosed = true
     this.clearReconnect()

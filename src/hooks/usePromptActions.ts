@@ -155,14 +155,14 @@ export function usePromptActions({
     addTimeBadge();
     storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)] } as ChatMessage]);
 
-    // ── 懒创建 session — 对齐 Eleve createBackendSessionForSend ──
-    // freshDraftReady=true 说明用户已点"新建"但后端 session 还没创建
-    // 先调 sess.create() 拿到新 session_id，再发消息
+    // ── 懒创建 session — 对齐 Hermes createBackendSessionForSend ──
+    // Hermes: if (!sessionId) { sessionId = await createBackendSessionForSend() }
+    // 无论 freshDraftReady 还是 sessionId=null，都需要后端 session 才能发消息
     const ensureSession = async (): Promise<string | null> => {
       if (sess.freshDraftReady) {
         await sess.create();
         sess.setFreshDraftReady(false);
-        // 对齐 Eleve: /new <title> 时在懒创建后设置标题
+        // 对齐 Hermes: /new <title> 时在懒创建后设置标题
         if (sess.pendingTitle && sess.sessionId) {
           try {
             await setSessionTitle(sess.sessionId, sess.pendingTitle);
@@ -172,11 +172,30 @@ export function usePromptActions({
           }
           sess.setPendingTitle(null);
         }
+      } else if (!sess.sessionId) {
+        // 对齐 Hermes: 首次安装或无 session 时，发消息前自动创建
+        await sess.create();
       }
       return sess.sessionId;
     };
 
     const sessionId = await ensureSession();
+
+    // ── 首次创建 session 后主动触发 WS 连接 ──
+    // React useEffect 是异步的，创建 session 后 WS 可能还是 disconnected
+    // 主动 connect + 等待，确保走 WS 主路径（HTTP 降级 SSE 格式不兼容）
+    if (sessionId) {
+      const wsClient = getWsClient();
+      if (wsClient.state === 'disconnected') {
+        const port = storage.load('gateway_port');
+        if (port) {
+          wsClient.connect(sessionId);
+          await wsClient.waitForConnected(3000);
+        }
+      } else if (wsClient.state === 'connecting' || wsClient.state === 'reconnecting') {
+        await wsClient.waitForConnected(3000);
+      }
+    }
 
     if (sessionId && !sess.titles[sessionId]) {
       sess.setTitle(sessionId, text.slice(0, 30));

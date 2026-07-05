@@ -61,11 +61,15 @@ export async function searchSessions(query: string, limit: number = 20): Promise
  * 统一走 HTTP SSE（由 useSSE.js 处理）
  */
 export function sendChatStream(message: string, sessionId: string | null): Promise<Response> {
-  // 统一走 HTTP SSE
-  return fetch(`${getApiBase()}/v1/chat/stream`, {
+  // 统一走 HTTP SSE，对齐 /v1/chat/completions OpenAI 兼容格式
+  return fetch(`${getApiBase()}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, session_id: sessionId || null }),
+    body: JSON.stringify({
+      messages: [{ role: 'user', content: message }],
+      stream: true,
+      session_id: sessionId || null,
+    }),
   });
 }
 
