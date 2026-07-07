@@ -672,8 +672,8 @@ export function useMessageStream({
             toolsets: data.toolsets,
             childSessionId: data.childSessionId,
             toolCount: data.toolCount,
-            // 🔴 对齐Hermes complete_kwargs: 完成事件字段
-            status: data.status || (data.eventType === 'task_completed' ? 'completed' : data.eventType === 'task_failed' ? 'failed' : 'running'),
+            // 🔴 对齐Hermes: 统一 subagent.complete + status字段区分完成/失败
+            status: data.status || (data.eventType === 'subagent.complete' && data.summary ? 'completed' : data.eventType === 'subagent.complete' ? 'failed' : 'running'),
             durationSeconds: data.durationSeconds,
             duration: data.durationSeconds, // 映射到UI已有字段
             summary: data.summary,
