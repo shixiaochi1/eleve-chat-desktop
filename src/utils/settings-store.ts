@@ -127,7 +127,9 @@ export async function loadSettingsFromRust(): Promise<SettingsV2> {
       }
       if (settings && settings.version === 2) {
         _settingsCache = settings;
-        storage.save(STORAGE_KEY, settings);
+        // ❌ 不再 storage.save() — 对齐 Hermes：settings.json 只由 update_settings 写
+        // storage.save() 走 set_app_data → 包裹格式 → 覆盖后端写好的正确格式
+        // storage.save(STORAGE_KEY, settings);
         return settings;
       }
     }
@@ -141,10 +143,14 @@ export async function loadSettingsFromRust(): Promise<SettingsV2> {
 // ====== 保存 ======
 // 🔧 修复：改为 async 并 await，确保 settings.json 写入后再调用 save_api_key
 // 根治"首次配置后必须重启"问题：save_api_key 依赖 settings.json 中的 base_url
+// 🔧 对齐 Hermes：去掉 storage.save() 双写，只走 update_settings 写 settings.json
+// storage.save() 会走 set_app_data → 写成 {"key":"settings","value":"..."} 包裹格式
+// 而 save_api_key 期望 {"providers":[...]} → 格式不匹配 → API KEY 丢失
 export async function saveSettings(data: SettingsV2): Promise<void> {
   const withVersion = { ...data, version: 2 };
   _settingsCache = withVersion;
-  storage.save(STORAGE_KEY, withVersion);
+  // ❌ 不再走 storage.save('settings') — 它会通过 set_app_data 写包裹格式覆盖 settings.json
+  // storage.save(STORAGE_KEY, withVersion);
   // 异步持久化到 AppService — 必须等待完成，否则后续 save_api_key 读不到 base_url
   try {
     await call('update_settings', withVersion);

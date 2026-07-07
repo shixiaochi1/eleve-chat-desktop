@@ -164,9 +164,11 @@ const COMMAND_HTTP_MAP: Record<string, CommandMapping> = {
   abort_chat:            { method: 'POST', path: (a) => `/api/sessions/${a.session_id}/interrupt` },
   resolve_clarify:       { method: 'POST', path: '/api/clarify-response' },
 
-  // 审批
+  // 审批（旧接口，保留兼容）
   approve:                { method: 'POST', path: '/api/approve' },
   deny:                   { method: 'POST', path: '/api/deny' },
+  // 🔴 对齐 Hermes: POST /v1/runs/{run_id}/approval — 路径传 run_id
+  run_approval:           { method: 'POST', path: (a) => `/v1/runs/${a.run_id}/approval` },
   get_approval_status:    { method: 'GET',  path: '/api/approval-status' },
   submit_clarify_response:{ method: 'POST', path: '/api/clarify-response' },
 

@@ -392,14 +392,11 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
 
     const keyErrors: string[] = [];
     const isPlaceholder = (k: string) => k.includes('...') || k.includes('••') || k.includes('***') || k.length < 8;
-    for (const p of providers) {
-      // 只保存真实 key，跳过脱敏占位符
-      if (p.apiKey && !isPlaceholder(p.apiKey)) {
-        try { await saveApiKey(p.id, p.apiKey); } catch (e: unknown) {
-          keyErrors.push(`${p.name || p.id}: ${(e as Error).message}`);
-        }
-      }
-    }
+    // 🔧 修复"保存慢"：API Key 并行保存（之前串行每个都 await）
+    const keyPromises = providers
+      .filter(p => p.apiKey && !isPlaceholder(p.apiKey))
+      .map(p => saveApiKey(p.id, p.apiKey!).catch((e: Error) => keyErrors.push(`${p.name || p.id}: ${e.message}`)));
+    await Promise.all(keyPromises);
     if (keyErrors.length > 0) {
       setStatus({ text: `密钥保存失败: ${keyErrors.join('; ')}`, className: 'text-destructive text-xs' });
       setSaving(false);

@@ -136,6 +136,13 @@ export class GatewayWsClient {
       this.ws = null
     }
 
+    // 重连时重新获取 URL（端口可能因 eleved 重启而变化）
+    if (this.sessionId) {
+      const httpBase = getApiBase()
+      const wsBase = httpBase.replace(/^http/, 'ws')
+      this.url = `${wsBase}/api/ws?session_id=${encodeURIComponent(this.sessionId)}`
+    }
+
     this.setState(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting')
 
     try {

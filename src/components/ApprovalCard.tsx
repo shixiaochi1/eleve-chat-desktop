@@ -1,24 +1,27 @@
 import { useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import { call } from '../utils/bridge';
+import { getWsClient } from '../services/ws-client';
 
 /**
  * ApprovalCard — 危险操作审批卡片
  *
- * 对齐 Eleve approval_blocking: 当终端等工具执行危险命令时，
+ * 对齐 Hermes approval: 当终端等工具执行危险命令时，
  * 前端显示此卡片让用户选择审批级别。
  * Choices: "once" | "session" | "always" | "deny"
+ *
+ * 🔴 对齐 Hermes: 审批回传走 WS JSON-RPC approval.respond，
+ * 不走 HTTP POST /v1/runs/{run_id}/approval（那是 API Server 路径）。
  */
 interface ApprovalCardProps {
   command?: string;
   description?: string;
   pattern?: string;
   choices?: string[];
-  session_id?: string;
+  run_id?: string;  // 即 session_id，用于 WS approval.respond
   onDone?: (choice: string) => void;
 }
 
-export default function ApprovalCard({ command, description, pattern, choices, session_id, onDone }: ApprovalCardProps) {
+export default function ApprovalCard({ command, description, pattern, choices, run_id, onDone }: ApprovalCardProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -37,11 +40,15 @@ export default function ApprovalCard({ command, description, pattern, choices, s
     setSelected(choice);
     setError(null);
     try {
-      const result = await call(
-        choice === 'deny' ? 'deny' : 'approve',
-        { session_id, choice, resolve_all: false }
-      );
-      // resolved > 0: 成功决议; resolved === 0: 审批已超时/不存在但仍视为用户已表达意图
+      // 🔴 对齐 Hermes: WS JSON-RPC approval.respond（非 HTTP POST）
+      // Hermes 桌面端: gateway.request('approval.respond', { choice, session_id })
+      // run_id 在 WS 路径中即为 session_id（approval_session_key）
+      const ws = getWsClient();
+      await ws.sendRpc('approval.respond', {
+        session_id: run_id,
+        choice,
+        all: false,
+      });
       setSubmitted(true);
       onDone?.(choice);
     } catch (err: unknown) {
@@ -49,7 +56,7 @@ export default function ApprovalCard({ command, description, pattern, choices, s
     } finally {
       setSubmitting(false);
     }
-  }, [submitting, submitted, onDone, session_id]);
+  }, [submitting, submitted, onDone, run_id]);
 
   if (submitted) {
     return (

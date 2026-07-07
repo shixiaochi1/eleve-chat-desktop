@@ -60,7 +60,7 @@ export interface UseMessageStreamProps {
   setDebugToolCalls: React.Dispatch<React.SetStateAction<DebugToolCall[]>>
   setMonitorState: React.Dispatch<React.SetStateAction<{ modelName: string | null; delegateTasks: Record<string, unknown>; tokensIn?: number; tokensOut?: number; lastSent?: string; sessionStartedAt?: number | null; statusText?: string }>>
   setActiveClarify: React.Dispatch<React.SetStateAction<{ clarify_id: string; question: string; choices: string[] } | null>>
-  setActiveApproval: React.Dispatch<React.SetStateAction<{ command: string; description: string; pattern: string; choices: string[]; session_id: string } | null>>
+  setActiveApproval: React.Dispatch<React.SetStateAction<{ command: string; description: string; pattern: string; choices: string[]; run_id: string } | null>>
   setActiveSudo?: React.Dispatch<React.SetStateAction<{ request_id: string; prompt?: string } | null>>
   setActiveSecret?: React.Dispatch<React.SetStateAction<{ request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> } | null>>
   sess: SessionManagerHandle
@@ -479,6 +479,12 @@ export function useMessageStream({
       setActiveApproval(data as any);
     },
 
+    // 🔴 对齐 Hermes: 收到 approval.responded 事件时关闭弹窗
+    onApprovalResponded: (data: { run_id: string; choice: string; resolved: number }) => {
+      addDebugEvent('approval.responded', `run_id=${data.run_id} choice=${data.choice} resolved=${data.resolved}`);
+      setActiveApproval(null);
+    },
+
     onSudo: (data: { request_id: string; prompt?: string }) => {
       addDebugEvent('sudo', `request_id=${data.request_id} prompt=${(data.prompt?.slice(0, 40)) ?? ''}`);
       setActiveSudo?.(data);
@@ -638,8 +644,12 @@ export function useMessageStream({
     // Eleve routes delegate.* events through this callback for monitor display.
     onDelegateProgress: (data: {
       subagentId?: string; eventType?: string; taskIndex?: number; taskCount?: number
-      goal?: string; toolName?: string; toolPreview?: string; thinkingText?: string
+      goal?: string; toolName?: string; toolArgs?: Record<string, unknown>; toolPreview?: string; thinkingText?: string
       progressSummary?: string; depth?: number
+      parentId?: string; model?: string; toolsets?: string[]; childSessionId?: string; toolCount?: number
+      status?: string; durationSeconds?: number; summary?: string
+      inputTokens?: number; outputTokens?: number; reasoningTokens?: number; apiCalls?: number
+      filesRead?: string[]; filesWritten?: string[]; outputTail?: unknown[]; costUsd?: number; exitReason?: string
     }) => {
       addDebugEvent('delegate_progress', `${data.eventType || ''} ${data.goal?.slice(0, 40) || data.toolName || ''}`);
       // 更新 monitorState 显示子代理进度
@@ -654,9 +664,28 @@ export function useMessageStream({
             taskIndex: data.taskIndex,
             taskCount: data.taskCount,
             toolName: data.toolName,
+            toolArgs: data.toolArgs,
             progressSummary: data.progressSummary,
             depth: data.depth,
-            status: data.eventType === 'subagent.complete' ? 'completed' : 'running',
+            parentId: data.parentId,
+            model: data.model,
+            toolsets: data.toolsets,
+            childSessionId: data.childSessionId,
+            toolCount: data.toolCount,
+            // 🔴 对齐Hermes complete_kwargs: 完成事件字段
+            status: data.status || (data.eventType === 'task_completed' ? 'completed' : data.eventType === 'task_failed' ? 'failed' : 'running'),
+            durationSeconds: data.durationSeconds,
+            duration: data.durationSeconds, // 映射到UI已有字段
+            summary: data.summary,
+            inputTokens: data.inputTokens,
+            outputTokens: data.outputTokens,
+            reasoningTokens: data.reasoningTokens,
+            apiCalls: data.apiCalls,
+            filesRead: data.filesRead,
+            filesWritten: data.filesWritten,
+            outputTail: data.outputTail,
+            costUsd: data.costUsd,
+            exitReason: data.exitReason,
           };
           return { ...prev, delegateTasks: tasks };
         });

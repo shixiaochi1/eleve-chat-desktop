@@ -28,13 +28,18 @@ export interface SSECallbacks {
   onDelegateEnd?: (data: { taskId: string; status?: string; summary?: string; model?: string; tokensInput?: number; tokensOutput?: number; duration?: number }) => void
   onDelegateProgress?: (data: {
     subagentId?: string; eventType?: string; taskIndex?: number; taskCount?: number
-    goal?: string; toolName?: string; toolPreview?: string; thinkingText?: string
+    goal?: string; toolName?: string; toolArgs?: Record<string, unknown>; toolPreview?: string; thinkingText?: string
     progressSummary?: string; depth?: number
+    parentId?: string; model?: string; toolsets?: string[]; childSessionId?: string; toolCount?: number
+    status?: string; durationSeconds?: number; summary?: string
+    inputTokens?: number; outputTokens?: number; reasoningTokens?: number; apiCalls?: number
+    filesRead?: string[]; filesWritten?: string[]; outputTail?: unknown[]; costUsd?: number; exitReason?: string
   }) => void
   onSystemNotice?: (data: { message: string; level?: string }) => void
   onStatusUpdate?: (data: { kind: string; text: string }) => void
   onClarify?: (data: { clarify_id: string; question: string; choices?: string[] }) => void
   onApproval?: (data: unknown) => void
+  onApprovalResponded?: (data: { run_id: string; choice: string; resolved: number }) => void
   onSudo?: (data: { request_id: string; prompt?: string }) => void
   onSecret?: (data: { request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> }) => void
   onSessionInfo?: (data: {
@@ -147,10 +152,30 @@ function processEvent(
         taskCount: chunk.task_count as number | undefined,
         goal: chunk.goal as string | undefined,
         toolName: chunk.tool_name as string | undefined,
+        toolArgs: chunk.tool_args as Record<string, unknown> | undefined,
         toolPreview: chunk.tool_preview as string | undefined,
         thinkingText: chunk.thinking_text as string | undefined,
         progressSummary: chunk.progress_summary as string | undefined,
         depth: chunk.depth as number | undefined,
+        // 🔴 对齐Hermes _identity_kwargs
+        parentId: chunk.parent_id as string | undefined,
+        model: chunk.model as string | undefined,
+        toolsets: chunk.toolsets as string[] | undefined,
+        childSessionId: chunk.child_session_id as string | undefined,
+        toolCount: chunk.tool_count as number | undefined,
+        // 🔴 对齐Hermes complete_kwargs: 完成事件字段
+        status: chunk.status as string | undefined,
+        durationSeconds: chunk.duration_seconds as number | undefined,
+        summary: chunk.summary as string | undefined,
+        inputTokens: chunk.input_tokens as number | undefined,
+        outputTokens: chunk.output_tokens as number | undefined,
+        reasoningTokens: chunk.reasoning_tokens as number | undefined,
+        apiCalls: chunk.api_calls as number | undefined,
+        filesRead: chunk.files_read as string[] | undefined,
+        filesWritten: chunk.files_written as string[] | undefined,
+        outputTail: chunk.output_tail as unknown[] | undefined,
+        costUsd: chunk.cost_usd as number | undefined,
+        exitReason: chunk.exit_reason as string | undefined,
       });
       break;
 
@@ -182,6 +207,10 @@ function processEvent(
 
     case 'approval.request':
       cbs.onApproval?.(chunk);
+      break;
+
+    case 'approval.responded':
+      cbs.onApprovalResponded?.(chunk as any);
       break;
 
     case 'sudo.request':

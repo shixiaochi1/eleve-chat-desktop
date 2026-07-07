@@ -82,7 +82,7 @@ export default function App() {
   const [portReady, setPortReady] = useState<boolean>(false); // 需要 discoverPort 后才就绪
   const [sessionListVersion, setSessionListVersion] = useState<number>(0);  // 刷新会话列表
   const [activeClarify, setActiveClarify] = useState<{ clarify_id: string; question: string; choices: string[] } | null>(null);
-  const [activeApproval, setActiveApproval] = useState<{ command: string; description: string; pattern: string; choices: string[]; session_id: string } | null>(null);
+  const [activeApproval, setActiveApproval] = useState<{ command: string; description: string; pattern: string; choices: string[]; run_id: string } | null>(null);
   const [activeSudo, setActiveSudo] = useState<{ request_id: string; prompt?: string } | null>(null);
   const [activeSecret, setActiveSecret] = useState<{ request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> } | null>(null);
 
@@ -110,7 +110,17 @@ export default function App() {
     interval: 10000,
     enabled: portReady,
     onOnline: () => { if (connectionStatus === 'error') setConnectionStatus('idle'); },
-    onOffline: () => {},
+    onOffline: () => {
+      // 网关离线 → 可能 eleved 重启换了端口，重新发现
+      console.warn('[App] Gateway offline, re-discovering port...');
+      discoverPort().then((ok) => {
+        if (ok) {
+          console.log('[App] Port re-discovered successfully');
+        } else {
+          console.error('[App] Port re-discovery failed');
+        }
+      });
+    },
   });
 
   // ── debug / monitoring state ──
@@ -545,7 +555,7 @@ export default function App() {
                       description={activeApproval.description}
                       pattern={activeApproval.pattern}
                       choices={activeApproval.choices}
-                      session_id={activeApproval.session_id}
+                      run_id={activeApproval.run_id}
                       onDone={handleApprovalDone}
                     />
                   )}

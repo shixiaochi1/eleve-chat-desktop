@@ -32,6 +32,29 @@ interface DelegateTaskData {
   depth?: number;
   duration?: number;
   summary?: string;
+  eventType?: string;
+  taskIndex?: number;
+  taskCount?: number;
+  toolName?: string;
+  toolArgs?: Record<string, unknown>;
+  toolPreview?: string;
+  thinkingText?: string;
+  progressSummary?: string;
+  parentId?: string;
+  toolsets?: string[];
+  childSessionId?: string;
+  toolCount?: number;
+  // 🔴 对齐Hermes complete_kwargs
+  durationSeconds?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  apiCalls?: number;
+  filesRead?: string[];
+  filesWritten?: string[];
+  outputTail?: unknown[];
+  costUsd?: number;
+  exitReason?: string;
 }
 
 interface MonitorState {
@@ -109,6 +132,20 @@ function DelegateCard({ task, onCancel, cancelling }: DelegateCardProps) {
           </span>
         )}
 
+        {/* 🔴 对齐Hermes: toolsets(实际执行工具集) + toolCount(工具调用次数) */}
+        {task.toolsets && task.toolsets.length > 0 && (
+          <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground" title="执行工具集">
+            <Wrench size={10} strokeWidth={1.5} />
+            <span>{task.toolsets.join(', ')}</span>
+          </span>
+        )}
+        {task.toolCount != null && task.toolCount > 0 && (
+          <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground" title="工具调用次数">
+            <Hash size={10} strokeWidth={1.5} />
+            <span>{task.toolCount}次</span>
+          </span>
+        )}
+
         {task.depth != null && (
           <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground" title="深度">
             <Layers size={10} strokeWidth={1.5} />
@@ -144,6 +181,66 @@ function DelegateCard({ task, onCancel, cancelling }: DelegateCardProps) {
           </span>
         )}
       </div>
+
+      {/* 运行中：推理状态 */}
+      {isRunning && task.thinkingText && (
+        <div className="text-[10px] text-accent/60 truncate" title={task.thinkingText}>
+          💭 {task.thinkingText}
+        </div>
+      )}
+
+      {/* 运行中：当前工具调用 + 参数预览 */}
+      {isRunning && task.toolName && (
+        <div className="flex items-center gap-1 text-[10px] text-accent/80 truncate" title={`当前工具: ${task.toolName}${task.toolArgs ? '\n参数: ' + JSON.stringify(task.toolArgs) : ''}`}>
+          <Wrench size={9} strokeWidth={1.5} />
+          <span className="truncate">{task.toolName}</span>
+          {task.toolPreview && (
+            <span className="text-muted-foreground/50 truncate" title={task.toolPreview}>
+              {task.toolPreview.length > 35 ? task.toolPreview.slice(0, 35) + '…' : task.toolPreview}
+            </span>
+          )}
+          {task.toolArgs && Object.keys(task.toolArgs).length > 0 && (
+            <span className="text-muted-foreground/50 truncate">
+              {Object.entries(task.toolArgs).slice(0, 2).map(([k,v]) => `${k}=${typeof v === 'string' ? v.slice(0,20) : JSON.stringify(v)?.slice(0,20)}`).join(', ')}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* 批量进度汇总（Hermes subagent.progress） */}
+      {task.progressSummary && (
+        <div className="text-[10px] text-muted-foreground/70 truncate" title={task.progressSummary}>
+          🔀 {task.progressSummary}
+        </div>
+      )}
+
+      {/* 完成统计：token / 文件 / 费用 */}
+      {(isDone || isFailed) && (task.inputTokens != null || task.outputTokens != null || task.filesRead || task.costUsd != null) && (
+        <div className="flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground/60">
+          {task.inputTokens != null && task.outputTokens != null && (
+            <span title="Token 用量">{task.inputTokens.toLocaleString()}↓ {task.outputTokens.toLocaleString()}↑</span>
+          )}
+          {task.reasoningTokens != null && task.reasoningTokens > 0 && (
+            <span title="推理 Token">🧠{task.reasoningTokens.toLocaleString()}</span>
+          )}
+          {task.filesRead && task.filesRead.length > 0 && (
+            <span title="读取文件">📖{task.filesRead.length}</span>
+          )}
+          {task.filesWritten && task.filesWritten.length > 0 && (
+            <span title="写入文件">✏️{task.filesWritten.length}</span>
+          )}
+          {task.costUsd != null && task.costUsd > 0 && (
+            <span title="费用">${task.costUsd.toFixed(4)}</span>
+          )}
+        </div>
+      )}
+
+      {/* 退出原因（失败时显示） */}
+      {isFailed && task.exitReason && (
+        <div className="text-[10px] text-destructive/70 truncate" title={task.exitReason}>
+          {task.exitReason}
+        </div>
+      )}
 
       {/* 概要 */}
       {task.summary && (
