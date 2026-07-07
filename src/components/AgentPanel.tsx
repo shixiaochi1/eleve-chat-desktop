@@ -210,7 +210,7 @@ function DelegateCard({ task, onCancel, cancelling }: DelegateCardProps) {
       {/* 批量进度汇总（Hermes subagent.progress） */}
       {task.progressSummary && (
         <div className="text-[10px] text-muted-foreground/70 truncate" title={task.progressSummary}>
-          🔀 {task.progressSummary}
+          {task.progressSummary}
         </div>
       )}
 
