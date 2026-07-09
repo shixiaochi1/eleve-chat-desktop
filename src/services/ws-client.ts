@@ -32,6 +32,16 @@ interface JsonRpcResponse {
   error?: { code: number; message: string; data?: unknown }
 }
 
+/** Phase 1: 统一 RPC 错误格式，对齐 HTTP 错误语义 */
+export class RpcError extends Error {
+  code: number
+  constructor(message: string, code: number = -1) {
+    super(message)
+    this.name = 'RpcError'
+    this.code = code
+  }
+}
+
 // ── 事件回调 ──
 
 export type WsEventHandler = (eventName: string, data: unknown) => void
@@ -61,6 +71,8 @@ export class GatewayWsClient {
   private sessionId: string | null = null
   private rpcId = 0
   private pendingRpc = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
+  // Phase 1: WS 未连接时排队等待的 RPC 请求
+  private pendingQueue: Array<{ method: string; params: Record<string, unknown>; resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }> = []
   private connCallbacks: WsConnectionCallbacks | null = null
   private eventListeners = new Set<WsEventHandler>()
   private reconnectCallback: ((wasReconnect: boolean) => void) | null = null
@@ -159,6 +171,7 @@ export class GatewayWsClient {
       this.reconnectAttempts = 0
       this.setState('connected')
       this.startPing()
+      this.flushPendingQueue()  // Phase 1: flush 排队的 RPC 请求
       this.connCallbacks?.onOpen?.(wasReconnect)
       // 触发重连恢复回调（对齐 Eleve session.resume）
       if (wasReconnect && this.reconnectCallback) {
@@ -170,6 +183,8 @@ export class GatewayWsClient {
       console.log('[WS] Closed:', ev.code, ev.reason)
       this.stopPing()
       this.setState('disconnected')
+      // Phase 1: reject 排队中的 RPC 请求
+      this.rejectPendingQueue(`WebSocket closed (code=${ev.code})`)
       this.connCallbacks?.onClose?.(ev.code, ev.reason)
 
       if (!this.intentionallyClosed) {
@@ -283,26 +298,64 @@ export class GatewayWsClient {
 
   // ── 消息收发 ──
 
-  /** 发送 JSON-RPC 请求，返回 Promise<result> */
+  /** 发送 JSON-RPC 请求，返回 Promise<result>
+   *  Phase 1: WS 未连接时排队等待，连接后自动发送 */
   sendRpc(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     return new Promise((resolve, reject) => {
-      if (this.ws?.readyState !== WebSocket.OPEN) {
-        reject(new Error(`WebSocket not open (state=${this.ws?.readyState})`))
+      // WS 已连接：直接发送
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.doSendRpc(method, params, resolve, reject)
         return
       }
 
-      const id = ++this.rpcId
-      const msg: JsonRpcRequest = { jsonrpc: '2.0', id, method, params }
-      this.pendingRpc.set(id, { resolve, reject })
-      this.ws.send(JSON.stringify(msg))
+      // WS 正在连接/重连中：排队等待
+      if (this._state === 'connecting' || this._state === 'reconnecting') {
+        const timer = setTimeout(() => {
+          // 超时：从队列移除并 reject
+          const idx = this.pendingQueue.findIndex(e => e.method === method && e.resolve === resolve)
+          if (idx >= 0) this.pendingQueue.splice(idx, 1)
+          reject(new RpcError(`RPC timeout waiting for connection: ${method}`, -1))
+        }, 30000)
+        this.pendingQueue.push({ method, params, resolve, reject, timer })
+        return
+      }
 
-      // 超时 30s
-      setTimeout(() => {
-        if (this.pendingRpc.delete(id)) {
-          reject(new Error(`RPC timeout: ${method}`))
-        }
-      }, 30000)
+      // WS 未连接且不在重连中：reject
+      reject(new RpcError(`WebSocket not connected (state=${this._state})`, -1))
     })
+  }
+
+  /** 内部：实际发送 RPC 请求 */
+  private doSendRpc(method: string, params: Record<string, unknown>, resolve: (v: unknown) => void, reject: (e: Error) => void): void {
+    const id = ++this.rpcId
+    const msg: JsonRpcRequest = { jsonrpc: '2.0', id, method, params }
+    this.pendingRpc.set(id, { resolve, reject })
+    this.ws!.send(JSON.stringify(msg))
+
+    // 超时 30s
+    setTimeout(() => {
+      if (this.pendingRpc.delete(id)) {
+        reject(new RpcError(`RPC timeout: ${method}`, -1))
+      }
+    }, 30000)
+  }
+
+  /** WS 连接成功后 flush 排队的 RPC 请求 */
+  private flushPendingQueue(): void {
+    const queue = this.pendingQueue.splice(0)
+    for (const entry of queue) {
+      clearTimeout(entry.timer)
+      this.doSendRpc(entry.method, entry.params, entry.resolve, entry.reject)
+    }
+  }
+
+  /** WS 断连时 reject 排队中的 RPC 请求 */
+  private rejectPendingQueue(reason: string): void {
+    const queue = this.pendingQueue.splice(0)
+    for (const entry of queue) {
+      clearTimeout(entry.timer)
+      entry.reject(new RpcError(reason, -1))
+    }
   }
 
   /** 发送 JSON-RPC 通知（无 id，不等响应） */
@@ -323,7 +376,7 @@ export class GatewayWsClient {
         if (pending) {
           this.pendingRpc.delete(id)
           if (msg.error) {
-            pending.reject(new Error(msg.error.message || `RPC error ${msg.error.code}`))
+            pending.reject(new RpcError(msg.error.message || `RPC error ${msg.error.code}`, msg.error.code))
           } else {
             pending.resolve(msg.result)
           }

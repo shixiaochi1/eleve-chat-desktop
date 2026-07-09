@@ -1,10 +1,10 @@
 /**
- * IPC 桥接层 — 统一 Tauri invoke() 和 HTTP fallback
+ * IPC 桥接层 — WS JSON-RPC 优先，Kanban 走 HTTP（对齐 Hermes）
  * 
- * 桌面模式：所有调用走 HTTP API（通过 discoverPort 动态获取端口）
+ * 桌面模式：主通道 WS JSON-RPC，Kanban 走 REST API
  * 浏览器模式（dev）：fallback 到 HTTP fetch()
  * 
- * Phase 3 核心模块 — 替代 api.js 的所有 HTTP 调用
+ * Phase 5: 删除非 Kanban HTTP fallback，主通道 100% WS
  */
 
 // ====== 环境检测 ======
@@ -22,7 +22,7 @@ export function isDesktop(): boolean {
   return _isDesktop;
 }
 
-// ====== HTTP Base URL ======
+// ====== HTTP Base URL（仅 Kanban 使用） ======
 
 let _httpBase = 'http://127.0.0.1:3001';
 let _httpBaseSet = false;
@@ -44,7 +44,7 @@ export function getHttpBase(): string {
 
 /**
  * 通过 Tauri IPC 发现网关端口，设置 _httpBase
- * 桌面模式启动时调用一次
+ * 桌面模式启动时调用一次（Kanban HTTP 需要）
  */
 export async function discoverPort(maxRetries = 50, delayMs = 200): Promise<boolean> {
   if (!isDesktop()) return true;
@@ -72,194 +72,208 @@ export async function discoverPort(maxRetries = 50, delayMs = 200): Promise<bool
 // ====== 核心调用 ======
 
 /**
- * 调用后端 API（桌面和浏览器模式统一走 HTTP）
+ * command → WS JSON-RPC method 映射（不含 Kanban，Kanban 走 HTTP 对齐 Hermes）
  */
-export async function call(command: string, args: Record<string, any> = {}): Promise<any> {
-  if (isDesktop() && !_httpBaseSet) {
-    // 端口未发现，自动重试一次
-    const ok = await discoverPort();
-    if (!ok) {
-      throw new Error('[bridge] Gateway port not discovered. Backend may not be running.');
-    }
-  }
-  return httpFallback(command, args);
+const COMMAND_TO_WS_METHOD: Record<string, string> = {
+  // A类：已有 WS 方法（16个）
+  steer_session:          'session.steer',
+  abort_chat:             'session.interrupt',
+  sudo_respond:           'sudo.respond',
+  secret_respond:         'secret.respond',
+  list_sessions:          'session.list',
+  create_session:         'session.create',
+  delete_session:         'session.delete',
+  activate_session:       'session.activate',
+  set_session_title:      'session.title',
+  get_config:             'config.get',
+  update_config:          'config.set.raw',
+  list_models:            'model.options',
+  save_api_key:           'model.save_key',
+  list_commands:          'commands.catalog',
+  execute_command:        'command.dispatch',
+  submit_clarify_response:'clarify.respond',
+
+  // B类：后端已新增 WS 方法
+  list_jobs:              'jobs.list',
+  create_job:             'jobs.create',
+  update_job:             'jobs.update',
+  delete_job:             'jobs.delete',
+  pause_job:              'jobs.pause',
+  resume_job:             'jobs.resume',
+  run_job:                'jobs.run',
+  list_skills:            'skills.list',
+  toggle_skill:           'skills.toggle',
+  search_skills_hub:      'skills.hub.search',
+  install_skill:          'skills.hub.install',
+  list_hub_skills:        'skills.hub.list',
+  list_hub_taps:          'skills.hub.taps',
+  manage_hub_tap:         'skills.hub.tap.manage',
+  list_tools:             'tools.list',
+  list_toolsets:          'tools.toolsets',
+  list_memories:          'memory.list',
+  delete_memory:          'memory.delete',
+  get_settings:           'settings.get',
+  update_settings:        'settings.update',
+  reload_mcp:             'mcp.reload',
+  get_app_data:           'app_data.get',
+  set_app_data:           'app_data.set',
+  delete_app_data:        'app_data.delete',
+  analytics_usage:        'analytics.usage',
+
+  // C类：Session 补充 + Config 补充 + Gateway + Auth + Utils
+  get_session_context:    'session.context.get',
+  set_session_context:    'session.context.set',
+  get_session_messages:   'session.history',
+  search_sessions:        'session.search',
+  export_session:         'session.export',
+  rename_session:         'session.rename',
+  archive_session:        'session.archive',
+  unarchive_session:      'session.unarchive',
+  reset_session:          'session.reset',
+  get_config_defaults:    'config.defaults',
+  get_config_schema:      'config.schema',
+  get_config_raw:         'config.raw',
+  update_config_raw:      'config.set.raw',
+  gateway_status:         'gateway.status',
+  restart_service:        'gateway.restart',
+  open_logs:              'gateway.open_logs',
+  test_connection:        'gateway.test_connection',
+  hash_password:          'auth.hash_password',
+  verify_password:        'auth.verify_password',
+  load_api_key:           'model.load_key',
+  slugify:                'utils.slugify',
+  models_dev_query:       'models_dev.query',
+  models_dev_list:        'models_dev.list',
+  resolve_media:          'media.resolve',
+  migrate_app_data:       'app_data.migrate',
+  files_list:             'files.list',
 }
 
-// ====== HTTP Fallback ======
+/**
+ * 参数适配器 — HTTP 命令参数 → WS 方法参数
+ */
+function adaptParams(command: string, args: Record<string, any>): Record<string, any> {
+  switch (command) {
+    case 'update_config':
+      // HTTP: {config: {...}} 或 {yaml_text} → WS config.set.raw: {yaml_text}
+      // config.set 只支持单 key+value，嵌套对象需转 yaml_text 走 config.set.raw
+      if (args.yaml_text) return { yaml_text: args.yaml_text };
+      if (args.config) return { yaml_text: JSON.stringify(args.config) };
+      return { yaml_text: JSON.stringify(args) };
+    case 'execute_command':
+      // HTTP: {command} → WS: {name, arg, session_id}
+      return { name: args.command, arg: '', session_id: '' };
+    case 'submit_clarify_response':
+      // HTTP: {clarify_id, response} → WS: {request_id, answer}
+      return { request_id: args.clarify_id, answer: args.response };
+    case 'save_api_key':
+      // HTTP: {provider_id, api_key} → WS: {slug, api_key}
+      return { slug: args.provider_id, api_key: args.api_key };
+    default:
+      return args;
+  }
+}
 
 /**
- * command → HTTP 端点映射
+ * 调用后端命令（Phase 5: WS-only，Kanban 走 HTTP 对齐 Hermes）
  */
-interface CommandMapping {
+export async function call(command: string, args: Record<string, any> = {}): Promise<any> {
+  const wsMethod = COMMAND_TO_WS_METHOD[command];
+
+  if (wsMethod) {
+    // 参数适配
+    const adapted = adaptParams(command, args);
+    // A类/B类/C类：走 WS JSON-RPC
+    const { getWsClient } = await import('../services/ws-client');
+    const wsClient = getWsClient();
+    return wsClient.sendRpc(wsMethod, adapted);
+  }
+
+  // Kanban 命令：走 HTTP REST API（对齐 Hermes，不走 WS JSON-RPC）
+  if (KANBAN_HTTP_MAP[command]) {
+    if (isDesktop() && !_httpBaseSet) {
+      const ok = await discoverPort();
+      if (!ok) {
+        throw new Error('[bridge] Gateway port not discovered. Backend may not be running.');
+      }
+    }
+    return kanbanHttpFallback(command, args);
+  }
+
+  // 无映射：报错
+  throw new Error(`[bridge] No WS method mapping for command: ${command}`);
+}
+
+// ====== Kanban HTTP（对齐 Hermes：Kanban 走 REST API 不走 WS） ======
+
+interface KanbanMapping {
   method: string;
   path: string | ((args: Record<string, any>) => string);
 }
 
-const COMMAND_HTTP_MAP: Record<string, CommandMapping> = {
-  // 会话
-  list_sessions:          { method: 'GET',  path: '/v1/sessions' },
-  create_session:         { method: 'POST', path: '/v1/sessions' },
-  delete_session:         { method: 'DELETE', path: (a) => `/v1/sessions/${a.session_id}` },
-  activate_session:       { method: 'POST', path: (a) => `/v1/sessions/${a.session_id}/activate` },
-  reset_session:          { method: 'POST', path: '/v1/sessions/reset' },
-  get_session_detail:     { method: 'GET',  path: (a) => `/api/sessions/${a.session_id}` },
-  get_session_context:    { method: 'GET',  path: (a) => `/api/sessions/${a.session_id}/context` },
-  get_session_messages:   { method: 'GET',  path: (a) => `/api/sessions/${a.session_id}/messages` },
-  set_session_context:    { method: 'POST', path: (a) => `/v1/sessions/${a.session_id}/context` },
-  set_session_title:      { method: 'POST', path: (a) => `/v1/sessions/${a.session_id}/title` },
-  search_sessions:        { method: 'GET',  path: (a) => `/api/sessions/search?q=${encodeURIComponent(a.query || '')}` },
-  steer_session:          { method: 'POST', path: (a) => `/api/sessions/${a.session_id}/steer` },
-  rename_session:         { method: 'PUT',  path: (a) => `/api/sessions/${a.session_id}/rename` },
-  archive_session:        { method: 'POST', path: (a) => `/api/sessions/${a.session_id}/archive` },
-  unarchive_session:      { method: 'POST', path: (a) => `/api/sessions/${a.session_id}/unarchive` },
-  export_session:         { method: 'GET',  path: (a) => `/api/sessions/${a.session_id}/export` },
-
-  // 配置
-  get_config:             { method: 'GET',  path: '/api/config' },
-  get_config_defaults:    { method: 'GET',  path: '/api/config/defaults' },
-  get_config_schema:      { method: 'GET',  path: '/api/config/schema' },
-  update_config:          { method: 'PUT',  path: '/api/config' },
-  get_config_raw:         { method: 'GET',  path: '/api/config/raw' },
-  update_config_raw:      { method: 'PUT',  path: '/api/config/raw' },
-
-  // 技能
-  list_skills:            { method: 'GET',  path: '/api/skills' },
-  toggle_skill:           { method: 'PUT',  path: '/api/skills/toggle' },
-  search_skills_hub:      { method: 'GET',  path: (a) => `/api/skills/hub/search?q=${encodeURIComponent(a.query || '')}` },
-  install_skill:          { method: 'POST', path: '/api/skills/hub/install' },
-  list_hub_skills:        { method: 'GET',  path: '/api/skills/hub/list' },
-  list_hub_taps:          { method: 'GET',  path: '/api/skills/hub/taps' },
-  manage_hub_tap:         { method: 'POST', path: '/api/skills/hub/taps' },
-
-  // 工具
-  list_tools:             { method: 'GET',  path: '/api/tools' },
-  list_toolsets:          { method: 'GET',  path: '/api/tools/toolsets' },
-
-  // 作业
-  list_jobs:              { method: 'GET',  path: '/api/jobs' },
-  create_job:             { method: 'POST', path: '/api/jobs' },
-  get_job:               { method: 'GET',  path: (a) => `/api/jobs/${a.job_id}` },
-  update_job:             { method: 'PATCH', path: (a) => `/api/jobs/${a.job_id}` },
-  delete_job:             { method: 'DELETE', path: (a) => `/api/jobs/${a.job_id}` },
-  pause_job:              { method: 'POST', path: (a) => `/api/jobs/${a.job_id}/pause` },
-  resume_job:             { method: 'POST', path: (a) => `/api/jobs/${a.job_id}/resume` },
-  run_job:                { method: 'POST', path: (a) => `/api/jobs/${a.job_id}/run` },
-
-  // 设置
-  get_settings:           { method: 'GET',  path: '/api/settings' },
-  update_settings:        { method: 'PUT',  path: '/api/settings' },
-  save_api_key:           { method: 'PUT',  path: (a) => `/api/api-key/${a.provider_id}` },
-  load_api_key:           { method: 'GET',  path: (a) => `/api/api-key/${a.provider_id}` },
-  slugify:                { method: 'POST', path: '/api/slugify' },
-  models_dev_query:       { method: 'GET',  path: (a) => `/api/models-dev?provider=${a.provider}&model=${a.model}` },
-  models_dev_list:        { method: 'GET',  path: (a) => `/api/models-dev/list?provider=${a.provider}` },
-
-  // 存储
-  get_app_data:           { method: 'GET',  path: (a) => `/api/app-data/${a.key}` },
-  set_app_data:           { method: 'PUT',  path: (a) => `/api/app-data/${a.key}` },
-  delete_app_data:        { method: 'DELETE', path: (a) => `/api/app-data/${a.key}` },
-  migrate_app_data:       { method: 'POST', path: '/api/app-data/migrate' },
-
-  // 中断/澄清
-  abort_chat:            { method: 'POST', path: (a) => `/api/sessions/${a.session_id}/interrupt` },
-  resolve_clarify:       { method: 'POST', path: '/api/clarify-response' },
-
-  // 审批（旧接口，保留兼容）
-  approve:                { method: 'POST', path: '/api/approve' },
-  deny:                   { method: 'POST', path: '/api/deny' },
-  // 🔴 对齐 Hermes: POST /v1/runs/{run_id}/approval — 路径传 run_id
-  run_approval:           { method: 'POST', path: (a) => `/v1/runs/${a.run_id}/approval` },
-  get_approval_status:    { method: 'GET',  path: '/api/approval-status' },
-  submit_clarify_response:{ method: 'POST', path: '/api/clarify-response' },
-
-  // 记忆（对齐后端 GET /api/memory?target= / DELETE /api/memory + body）
-  list_memories:          { method: 'GET',  path: (a) => `/api/memory?target=${encodeURIComponent(a.target || '')}` },
-  delete_memory:          { method: 'DELETE', path: '/api/memory' },
-
-  // 环境变量
-  get_env:                { method: 'GET',  path: '/api/env' },
-  set_env:                { method: 'PUT',  path: '/api/env' },
-  delete_env:             { method: 'DELETE', path: '/api/env' },
-  reveal_env:             { method: 'POST', path: '/api/env/reveal' },
-
-  // 网关
-  gateway_status:         { method: 'GET',  path: '/api/gateway/status' },
-  test_connection:        { method: 'POST', path: '/api/gateway/test-connection' },
-  restart_service:        { method: 'POST', path: '/api/gateway/restart' },
-  open_logs:              { method: 'POST', path: '/api/logs/open' },
-
-  // MCP
-  reload_mcp:             { method: 'POST', path: '/api/mcp/reload' },
-
-  // Kanban
+const KANBAN_HTTP_MAP: Record<string, KanbanMapping> = {
+  // Board
   get_kanban_board:       { method: 'GET',  path: (a) => `/api/kanban/board?board=${encodeURIComponent(a.board || 'default')}` },
+  get_kanban_boards:      { method: 'GET',  path: '/api/kanban/boards' },
+  create_kanban_board:    { method: 'POST', path: '/api/kanban/boards' },
+  update_kanban_board:    { method: 'PATCH', path: (a) => `/api/kanban/boards/${a.slug}` },
+  delete_kanban_board:    { method: 'DELETE', path: (a) => `/api/kanban/boards/${a.slug}?delete_permanently=${a.delete_permanently || false}` },
+  switch_kanban_board:    { method: 'POST', path: (a) => `/api/kanban/boards/${a.slug}/switch` },
+
+  // Task CRUD
   get_kanban_task:        { method: 'GET',  path: (a) => `/api/kanban/tasks/${a.task_id}?board=${encodeURIComponent(a.board || 'default')}` },
   create_kanban_task:     { method: 'POST', path: '/api/kanban/tasks' },
   update_kanban_task:     { method: 'PATCH', path: (a) => `/api/kanban/tasks/${a.task_id}` },
   delete_kanban_task:     { method: 'DELETE', path: (a) => `/api/kanban/tasks/${a.task_id}?board=${encodeURIComponent(a.board || 'default')}` },
+  bulk_update_kanban_tasks: { method: 'POST', path: '/api/kanban/tasks/bulk' },
+
+  // Task operations
   get_kanban_stats:       { method: 'GET',  path: (a) => `/api/kanban/stats?board=${encodeURIComponent(a.board || 'default')}` },
   get_kanban_assignees:   { method: 'GET',  path: (a) => `/api/kanban/assignees?board=${encodeURIComponent(a.board || 'default')}` },
   dispatch_kanban_tasks:  { method: 'POST', path: '/api/kanban/dispatch' },
   reclaim_kanban_task:    { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/reclaim` },
+  add_kanban_comment:     { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/comments` },
+  create_kanban_link:     { method: 'POST', path: '/api/kanban/links' },
+  delete_kanban_link:     { method: 'DELETE', path: (a) => `/api/kanban/links?parent_id=${a.parent_id}&child_id=${a.child_id}&board=${encodeURIComponent(a.board || 'default')}` },
+  reassign_kanban_task:   { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/reassign` },
 
-  // New kanban commands
-  add_kanban_comment:        { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/comments` },
-  create_kanban_link:        { method: 'POST', path: '/api/kanban/links' },
-  delete_kanban_link:        { method: 'DELETE', path: (a) => `/api/kanban/links?parent_id=${a.parent_id}&child_id=${a.child_id}&board=${encodeURIComponent(a.board || 'default')}` },
-  bulk_update_kanban_tasks:  { method: 'POST', path: '/api/kanban/tasks/bulk' },
-  reassign_kanban_task:      { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/reassign` },
-  get_kanban_boards:         { method: 'GET',  path: '/api/kanban/boards' },
-  create_kanban_board:       { method: 'POST', path: '/api/kanban/boards' },
-  update_kanban_board:       { method: 'PATCH', path: (a) => `/api/kanban/boards/${a.slug}` },
-  delete_kanban_board:       { method: 'DELETE', path: (a) => `/api/kanban/boards/${a.slug}?delete_permanently=${a.delete_permanently || false}` },
-  switch_kanban_board:       { method: 'POST', path: (a) => `/api/kanban/boards/${a.slug}/switch` },
-  get_kanban_task_log:       { method: 'GET',  path: (a) => `/api/kanban/tasks/${a.task_id}/log?tail=${a.tail || ''}&board=${encodeURIComponent(a.board || 'default')}` },
-  poll_kanban_events:        { method: 'GET',  path: (a) => `/api/kanban/events?since=${a.since || ''}&board=${encodeURIComponent(a.board || 'default')}` },
-  get_kanban_attachments:    { method: 'GET',  path: (a) => `/api/kanban/tasks/${a.task_id}/attachments?board=${encodeURIComponent(a.board || 'default')}` },
-  upload_kanban_attachment:  { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/attachments` },
-  download_kanban_attachment:{ method: 'GET',  path: (a) => `/api/kanban/attachments/${a.attachment_id}` },
-  delete_kanban_attachment:  { method: 'DELETE', path: (a) => `/api/kanban/attachments/${a.attachment_id}` },
-  get_kanban_diagnostics:    { method: 'GET',  path: (a) => `/api/kanban/diagnostics?board=${encodeURIComponent(a.board || 'default')}` },
-  get_kanban_active_workers: { method: 'GET',  path: (a) => `/api/kanban/workers/active?board=${encodeURIComponent(a.board || 'default')}` },
-  get_kanban_run:            { method: 'GET',  path: (a) => `/api/kanban/runs/${a.run_id}` },
-  terminate_kanban_run:      { method: 'POST', path: (a) => `/api/kanban/runs/${a.run_id}/terminate` },
-  decompose_kanban_task:     { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/decompose` },
-  specify_kanban_task:       { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/specify` },
-  get_kanban_orchestration:  { method: 'GET',  path: '/api/kanban/orchestration' },
-  set_kanban_orchestration:  { method: 'PUT',  path: '/api/kanban/orchestration' },
-  get_kanban_profiles:       { method: 'GET',  path: '/api/kanban/profiles' },
-  get_kanban_home_channels:  { method: 'GET',  path: (a) => `/api/kanban/home-channels?task_id=${a.task_id || ''}&board=${encodeURIComponent(a.board || 'default')}` },
-  subscribe_kanban_home:     { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/home-subscribe/${a.platform}` },
-  unsubscribe_kanban_home:   { method: 'DELETE', path: (a) => `/api/kanban/tasks/${a.task_id}/home-subscribe/${a.platform}` },
-  get_kanban_config:         { method: 'GET',  path: '/api/kanban/config' },
+  // Task log / events
+  get_kanban_task_log:    { method: 'GET',  path: (a) => `/api/kanban/tasks/${a.task_id}/log?tail=${a.tail || ''}&board=${encodeURIComponent(a.board || 'default')}` },
+  poll_kanban_events:     { method: 'GET',  path: (a) => `/api/kanban/events?since=${a.since || ''}&board=${encodeURIComponent(a.board || 'default')}` },
 
-  // 文件浏览
-  files_list:               { method: 'GET',  path: (a) => `/api/files/list?path=${encodeURIComponent(a.path)}` },
+  // Attachments
+  get_kanban_attachments:     { method: 'GET',  path: (a) => `/api/kanban/tasks/${a.task_id}/attachments?board=${encodeURIComponent(a.board || 'default')}` },
+  upload_kanban_attachment:   { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/attachments` },
+  download_kanban_attachment: { method: 'GET',  path: (a) => `/api/kanban/attachments/${a.attachment_id}` },
+  delete_kanban_attachment:   { method: 'DELETE', path: (a) => `/api/kanban/attachments/${a.attachment_id}` },
 
-  // sudo / secret 响应
-  sudo_respond:             { method: 'POST', path: '/api/sudo-respond' },
-  secret_respond:           { method: 'POST', path: '/api/secret-respond' },
+  // Workers / runs / diagnostics
+  get_kanban_diagnostics:     { method: 'GET',  path: (a) => `/api/kanban/diagnostics?board=${encodeURIComponent(a.board || 'default')}` },
+  get_kanban_active_workers:  { method: 'GET',  path: (a) => `/api/kanban/workers/active?board=${encodeURIComponent(a.board || 'default')}` },
+  get_kanban_run:             { method: 'GET',  path: (a) => `/api/kanban/runs/${a.run_id}` },
+  terminate_kanban_run:       { method: 'POST', path: (a) => `/api/kanban/runs/${a.run_id}/terminate` },
 
-  // 其他
-  list_models:            { method: 'GET',  path: '/v1/models' },
+  // Decompose / specify / orchestration
+  decompose_kanban_task:      { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/decompose` },
+  specify_kanban_task:        { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/specify` },
+  get_kanban_orchestration:   { method: 'GET',  path: '/api/kanban/orchestration' },
+  set_kanban_orchestration:   { method: 'PUT',  path: '/api/kanban/orchestration' },
 
-  // 用量分析
-  analytics_usage:        { method: 'GET',  path: (a) => `/api/analytics/usage?days=${a.days || 30}` },
-  list_commands:          { method: 'GET',  path: '/v1/commands' },
-  execute_command:        { method: 'POST', path: '/v1/command' },
-  parse_messages:         { method: 'POST', path: '/api/parse-messages' },
-  resolve_media:          { method: 'GET',  path: (a) => `/api/resolve-media?text=${encodeURIComponent(a.text || '')}` },
-  hash_password:          { method: 'POST', path: '/api/hash-password' },
-  verify_password:        { method: 'POST', path: '/api/verify-password' },
+  // Profiles / home channels / config
+  get_kanban_profiles:        { method: 'GET',  path: '/api/kanban/profiles' },
+  get_kanban_home_channels:   { method: 'GET',  path: (a) => `/api/kanban/home-channels?task_id=${a.task_id || ''}&board=${encodeURIComponent(a.board || 'default')}` },
+  subscribe_kanban_home:      { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/home-subscribe/${a.platform}` },
+  unsubscribe_kanban_home:    { method: 'DELETE', path: (a) => `/api/kanban/tasks/${a.task_id}/home-subscribe/${a.platform}` },
+  get_kanban_config:          { method: 'GET',  path: '/api/kanban/config' },
 };
 
 /**
- * HTTP fallback 实现
+ * Kanban HTTP fallback（仅 Kanban 命令使用，对齐 Hermes REST API）
  */
-async function httpFallback(command: string, args: Record<string, any>): Promise<any> {
-  const mapping = COMMAND_HTTP_MAP[command];
+async function kanbanHttpFallback(command: string, args: Record<string, any>): Promise<any> {
+  const mapping = KANBAN_HTTP_MAP[command];
   if (!mapping) {
-    throw new Error(`[bridge] Unknown command: ${command}`);
+    throw new Error(`[bridge] Unknown Kanban command: ${command}`);
   }
 
   const path = typeof mapping.path === 'function' ? mapping.path(args) : mapping.path;
@@ -272,13 +286,7 @@ async function httpFallback(command: string, args: Record<string, any>): Promise
 
   // GET/DELETE 不带 body
   if (!['GET', 'DELETE'].includes(mapping.method) && Object.keys(args).length > 0) {
-    // save_api_key 特殊处理：body 是纯文本
-    if (command === 'save_api_key') {
-      options.body = args.api_key || '';
-      (options.headers as Record<string, string>)['Content-Type'] = 'text/plain';
-    } else {
-      options.body = JSON.stringify(args);
-    }
+    options.body = JSON.stringify(args);
   }
 
   const resp = await fetch(url, options);
