@@ -46,11 +46,28 @@ export interface SSECallbacks {
     session_id: string
     run_id: string
     model: string
+    provider: string
     cwd: string
-    branch: string
+    branch: string | null
     running: boolean
+    title: string
+    version: string
+    reasoning_effort: string
+    service_tier: string
+    fast: boolean
+    yolo: boolean
+    personality: string
+    desktop_contract: string
+    release_date: string
+    update_behind: number | null
+    update_command: string
+    profile_name: string
+    credential_warning: boolean | null
+    tools: Record<string, unknown>
+    skills: Record<string, unknown>
     usage?: { input_tokens?: number; output_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number }
-    credential_warning?: boolean
+    mcp_servers: unknown[]
+    system_prompt: string
   }) => void
   onDone?: (sessionId: string | null) => void
   onError?: (msg: string) => void
@@ -285,14 +302,31 @@ function processEvent(
     // ── 会话 ──
     case 'session.info':
       cbs.onSessionInfo?.({
-        session_id: chunk.session_id as string,
-        run_id: chunk.run_id as string,
-        model: chunk.model as string,
-        cwd: chunk.cwd as string,
-        branch: chunk.branch as string,
-        running: chunk.running as boolean,
+        session_id: (chunk.session_id as string) || '',
+        run_id: (chunk.run_id as string) || '',
+        model: (chunk.model as string) || '',
+        provider: (chunk.provider as string) || '',
+        cwd: (chunk.cwd as string) || '',
+        branch: chunk.branch as string | null,
+        running: (chunk.running as boolean) || false,
+        title: (chunk.title as string) || '',
+        version: (chunk.version as string) || '',
+        reasoning_effort: (chunk.reasoning_effort as string) || '',
+        service_tier: (chunk.service_tier as string) || '',
+        fast: (chunk.fast as boolean) || false,
+        yolo: (chunk.yolo as boolean) || false,
+        personality: (chunk.personality as string) || '',
+        desktop_contract: (chunk.desktop_contract as string) || '',
+        release_date: (chunk.release_date as string) || '',
+        update_behind: chunk.update_behind as number | null,
+        update_command: (chunk.update_command as string) || '',
+        profile_name: (chunk.profile_name as string) || '',
+        credential_warning: typeof chunk.credential_warning === 'boolean' ? chunk.credential_warning as boolean : null,
+        tools: (chunk.tools as Record<string, unknown>) || {},
+        skills: (chunk.skills as Record<string, unknown>) || {},
         usage: chunk.usage as any,
-        credential_warning: chunk.credential_warning as boolean | undefined,
+        mcp_servers: (chunk.mcp_servers as unknown[]) || [],
+        system_prompt: (chunk.system_prompt as string) || '',
       });
       break;
 

@@ -499,11 +499,28 @@ export function useMessageStream({
       session_id: string
       run_id: string
       model: string
+      provider: string
       cwd: string
-      branch: string
+      branch: string | null
       running: boolean
+      title: string
+      version: string
+      reasoning_effort: string
+      service_tier: string
+      fast: boolean
+      yolo: boolean
+      personality: string
+      desktop_contract: string
+      release_date: string
+      update_behind: number | null
+      update_command: string
+      profile_name: string
+      credential_warning: boolean | null
+      tools: Record<string, unknown>
+      skills: Record<string, unknown>
       usage?: { input_tokens?: number; output_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number }
-      credential_warning?: boolean
+      mcp_servers: unknown[]
+      system_prompt: string
     }) => {
       addDebugEvent('session_info', `model=${data.model} running=${data.running} branch=${data.branch}`);
       // 更新 monitorState
