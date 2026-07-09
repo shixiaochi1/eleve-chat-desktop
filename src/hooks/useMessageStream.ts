@@ -101,7 +101,7 @@ const STREAM_DELTA_FLUSH_MS = 33
  *    full content and deduplicates reasoning, then clears streamId.
  *    [FIX #3] finalText comes from the accumulated fullText in SSE
  *    (not from message parts which may be stale).
- * 6. [FIX #4] reasoning.available triggers REPLACE (not append),
+ * 6. [FIX #4] reasoning.available triggers start (creates empty reasoning part),
  *    same as Eleve appendReasoningDelta with replace=true.
  */
 export function useMessageStream({
@@ -358,9 +358,26 @@ export function useMessageStream({
     },
 
     // [FIX #4] Reasoning replace — 1:1 with Eleve appendReasoningDelta(replace=true).
-    // reasoning.available sends the COMPLETE reasoning text, not a delta.
+    // reasoning.available = 推理开始通知（拆变体后不带文本）
     // Must flush first, then replace the reasoning part content.
     // 对齐 Eleve: replace 模式下，filter 掉所有旧 reasoning parts 再添加新的
+    onReasoningStart: () => {
+      // ReasoningStart → 创建空推理 part 占位，后续 delta 会追加内容
+      flushQueuedDeltas()
+      mutateStream(
+        (parts, message) => {
+          // 如果已有推理 part，不重复创建
+          if (parts.some(p => p.type === 'reasoning')) return parts
+          // 如果已有文本内容，跳过（reasoning 已展示过了）
+          const hasText = message.parts
+            .filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text')
+            .some(p => p.text.trim())
+          if (hasText) return parts
+          return [...parts, reasoningPart('')]
+        },
+        () => [reasoningPart('')],
+      )
+    },
     onReasoningReplace: (fullText: string) => {
       flushQueuedDeltas()
       mutateStream(
@@ -761,9 +778,9 @@ export function useMessageStream({
 
     // ── Reasoning completed — NOT wired, Eleve doesn't process this event ──
     // reasoning.completed is explicitly silenced in useSSE (handled=true, no callback call).
-    // Eleve lifecycle: reasoning.delta (append) + reasoning.available (replace) — no .completed.
+    // Eleve lifecycle: reasoning.available (start) + reasoning.delta (append) + reasoning.end (complete).
     // Keep this no-op to satisfy SSECallbacks interface; the event is already
-    // handled by onReasoning + onReasoningReplace above.
+    // handled by onReasoning + onReasoningStart above.
     onReasoningComplete: (_reasoning: string) => {
       // Intentionally no-op — Eleve doesn't process reasoning.completed
     },
