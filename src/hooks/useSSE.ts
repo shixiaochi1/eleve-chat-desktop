@@ -131,6 +131,11 @@ function processEvent(
       cbs.onReasoningReplace?.((chunk.text as string) || '');
       break;
 
+    // ── 推理结束（对齐 Hermes: reasoning块结束 → 清reasoning状态）──
+    case 'reasoning.end':
+      cbs.onReasoningComplete?.(acc.fullReasoning);
+      break;
+
     // ── Agent 思考状态（对齐 Eleve thinking_callback → thinking.delta）──
     case 'thinking.delta':
       cbs.onThinking?.((chunk.text as string) || '');
@@ -365,6 +370,16 @@ function processEvent(
 
     case 'dequeue':
       cbs.onText?.((chunk.text as string) || '', '');
+      break;
+
+    // ── 用量汇总（对齐 Hermes: Done时推送usage统计）──
+    case 'usage.summary':
+      cbs.onUsage?.({
+        input: (chunk.usage as any)?.input_tokens,
+        output: (chunk.usage as any)?.output_tokens,
+        cacheRead: (chunk.usage as any)?.cache_read_tokens,
+        cacheWrite: (chunk.usage as any)?.cache_write_tokens,
+      });
       break;
 
     // ── 静默事件（WS/SSE 路由中不需要额外处理）──
