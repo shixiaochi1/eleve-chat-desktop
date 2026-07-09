@@ -35,7 +35,8 @@ export interface SSECallbacks {
     inputTokens?: number; outputTokens?: number; reasoningTokens?: number; apiCalls?: number
     filesRead?: string[]; filesWritten?: string[]; outputTail?: unknown[]; costUsd?: number; exitReason?: string
   }) => void
-  onSystemNotice?: (data: { message: string; level?: string }) => void
+  onSystemNotice?: (data: { text: string; level?: string; kind?: string; ttl_ms?: number; key?: string; id?: string }) => void
+  onNoticeClear?: (data: { key: string }) => void
   onStatusUpdate?: (data: { kind: string; text: string }) => void
   onClarify?: (data: { clarify_id: string; question: string; choices?: string[] }) => void
   onApproval?: (data: unknown) => void
@@ -272,8 +273,12 @@ function processEvent(
       break;
     }
 
-    case 'system.notice':
-      cbs.onSystemNotice?.({ message: chunk.message as string, level: chunk.level as string | undefined });
+    case 'notification.show':
+      cbs.onSystemNotice?.({ text: chunk.text as string, level: chunk.level as string | undefined, kind: chunk.kind as string | undefined, ttl_ms: chunk.ttl_ms as number | undefined, key: chunk.key as string | undefined, id: chunk.id as string | undefined });
+      break;
+
+    case 'notification.clear':
+      cbs.onNoticeClear?.({ key: chunk.key as string });
       break;
 
     case 'status.update': {

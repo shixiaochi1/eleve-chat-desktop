@@ -708,15 +708,18 @@ export function useMessageStream({
       }
     },
 
-    // ── System notice — display as toast notification ──
-    // Eleve has no direct equivalent; Eleve-specific event for backend notices.
-    onSystemNotice: (data: { message: string; level?: string }) => {
-      addDebugEvent('system_notice', `${data.level || 'info'}: ${data.message.slice(0, 60)}`);
+    // ── System notice — 对齐 Hermes notification.show WS 事件 ──
+    // Hermes AgentNotice: text, level, kind(sticky|ttl), ttl_ms, key, id
+    onSystemNotice: (data: { text: string; level?: string; kind?: string; ttl_ms?: number; key?: string; id?: string }) => {
+      addDebugEvent('system_notice', `${data.level || 'info'}: ${data.text.slice(0, 60)}`);
       import('../utils/notifications').then(({ notifyError }) => {
         if (data.level === 'error' || data.level === 'warning') {
-          notifyError(data.message, data.level === 'error' ? '错误' : '警告');
+          notifyError(data.text, data.level === 'error' ? '错误' : '警告');
         }
       });
+    },
+    onNoticeClear: (_data: { key: string }) => {
+      // 通知清除 — 预留，对齐 Hermes notification.clear
     },
 
     // ── Status update — Eleve status.update (覆盖式状态，按 kind 分流) ──
