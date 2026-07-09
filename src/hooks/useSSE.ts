@@ -58,6 +58,18 @@ export interface SSECallbacks {
   onSessionReset?: (data: { old_session_id: string; new_session_id: string }) => void
   // 对齐 Eleve thinking_callback → thinking.delta 事件（Agent 思考状态，如"正在思考..."）
   onThinking?: (text: string) => void
+  // P1: 工具进度通知（对齐 Hermes tool_progress_command → StreamChunk::ToolProgress）
+  onToolProgress?: (data: { eventType: string; toolName: string; preview?: string; args?: unknown }) => void
+  // P1: Fallback 已激活（对齐 Hermes fallback 通知，前端可显示 provider 切换提示）
+  onFallbackActivated?: (data: { model: string; provider: string }) => void
+  // P1: 文本段结束（对齐 Hermes stream_delta_callback(None)，关闭当前流式显示框）
+  onSectionEnd?: () => void
+  // P1: 步骤完成（对齐 Hermes step_callback，含工具执行结果摘要）
+  onStepComplete?: (data: { stepNumber: number; toolResults: Array<{ toolName: string; success: boolean }> }) => void
+  // P1: 中间助手消息（对齐 Hermes _emit_interim_assistant_message）
+  onInterimMessage?: (data: { content: string; alreadyStreamed: boolean }) => void
+  // P1: 后台 Review 结果（对齐 Hermes background_review_callback）
+  onBackgroundReview?: (data: { summary: string }) => void
 }
 
 // ── Chunk types (from Rust StreamChunk / api_server) ──
@@ -126,6 +138,55 @@ function processEvent(
       cbs.onError?.((chunk.error as string) || `Tool ${chunk.tool_name || chunk.tool || ''} failed`);
       break;
     }
+
+    // P1: 工具进度（对齐 Hermes tool_progress_command → StreamChunk::ToolProgress）
+    case 'tool.progress':
+      cbs.onToolProgress?.({
+        eventType: (chunk.event_type as string) || '',
+        toolName: (chunk.tool as string) || (chunk.tool_name as string) || '',
+        preview: chunk.preview as string | undefined,
+        args: chunk.args,
+      });
+      break;
+
+    // P1: Fallback 已激活（对齐 Hermes fallback 通知）
+    case 'fallback.activated':
+      cbs.onFallbackActivated?.({
+        model: (chunk.model as string) || '',
+        provider: (chunk.provider as string) || '',
+      });
+      break;
+
+    // P1: 文本段结束（对齐 Hermes stream_delta_callback(None)，关闭当前流式显示框）
+    case 'assistant.section_end':
+      cbs.onSectionEnd?.();
+      break;
+
+    // P1: 步骤完成（对齐 Hermes step_callback）
+    case 'step.complete':
+      cbs.onStepComplete?.({
+        stepNumber: (chunk.step_number as number) || 0,
+        toolResults: (chunk.tool_results as Array<{ tool_name: string; success: boolean }>)?.map(r => ({
+          toolName: r.tool_name,
+          success: r.success,
+        })) || [],
+      });
+      break;
+
+    // P1: 中间助手消息（对齐 Hermes _emit_interim_assistant_message）
+    case 'interim.message':
+      cbs.onInterimMessage?.({
+        content: (chunk.content as string) || '',
+        alreadyStreamed: (chunk.already_streamed as boolean) || false,
+      });
+      break;
+
+    // P1: 后台 Review 结果（对齐 Hermes background_review_callback）
+    case 'background.review':
+      cbs.onBackgroundReview?.({
+        summary: (chunk.summary as string) || '',
+      });
+      break;
 
     // ── 委托 ──
     case 'delegate.start':
