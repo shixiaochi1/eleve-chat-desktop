@@ -16,10 +16,10 @@ export interface SSECallbacks {
   onText?: (delta: string, fullText: string) => void
   onReasoning?: (delta: string, fullText: string) => void
   onReasoningReplace?: (fullText: string) => void
-  onToolStart?: (data: { id: string | null; name: string }) => void
+  onToolStart?: (data: { id: string | null; name: string; preview?: string }) => void
   onToolGenerating?: (name: string) => void
   onToolArgs?: (data: { id: string; delta: string; accumulated: string }) => void
-  onToolEnd?: (data: { id: string | null; name: string }) => void
+  onToolEnd?: (data: { id: string | null; name: string; duration?: number; error?: boolean }) => void
   onUsage?: (data: { input: number; output: number; cacheRead?: number; cacheWrite?: number }) => void
   onModelName?: (name: string) => void
   onRunStart?: (sessionId: string) => void
@@ -76,7 +76,7 @@ export interface SSECallbacks {
   // 对齐 Eleve thinking_callback → thinking.delta 事件（Agent 思考状态，如"正在思考..."）
   onThinking?: (text: string) => void
   // P1: 工具进度通知（对齐 Hermes tool_progress_command → StreamChunk::ToolProgress）
-  onToolProgress?: (data: { eventType: string; toolName: string; preview?: string; args?: unknown }) => void
+  onToolProgress?: (data: { eventType: string; toolName: string; preview?: string; args?: unknown; duration?: number; error?: boolean; toolCallId?: string }) => void
   // P1: Fallback 已激活（对齐 Hermes fallback 通知，前端可显示 provider 切换提示）
   onFallbackActivated?: (data: { model: string; provider: string }) => void
   // P1: 文本段结束（对齐 Hermes stream_delta_callback(None)，关闭当前流式显示框）
@@ -143,7 +143,7 @@ function processEvent(
 
     // ── 工具（对齐 Eleve 通道 A: tool.start / tool.complete）──
     case 'tool.start':
-      cbs.onToolStart?.({ id: (chunk.tool_id as string) || null, name: chunk.tool_name as string });
+      cbs.onToolStart?.({ id: (chunk.toolCallId as string) || null, name: chunk.tool as string, preview: chunk.preview as string | undefined });
       break;
 
     // 对齐 Eleve: 流式响应中工具名确定、参数还在生成时触发（drafting spinner）
@@ -152,12 +152,12 @@ function processEvent(
       break;
 
     case 'tool.complete':
-      cbs.onToolEnd?.({ id: (chunk.tool_id as string) || null, name: chunk.tool_name as string });
+      cbs.onToolEnd?.({ id: (chunk.toolCallId as string) || null, name: chunk.tool as string, duration: chunk.duration as number | undefined, error: chunk.error as boolean | undefined });
       break;
 
     case 'tool.failed': {
       // 工具执行失败（对齐 Eleve 后端独立 tool.failed 事件）
-      cbs.onError?.((chunk.error as string) || `Tool ${chunk.tool_name || chunk.tool || ''} failed`);
+      cbs.onError?.((chunk.error as string) || `Tool ${chunk.tool || ''} failed`);
       break;
     }
 
@@ -168,6 +168,9 @@ function processEvent(
         toolName: (chunk.tool as string) || (chunk.tool_name as string) || '',
         preview: chunk.preview as string | undefined,
         args: chunk.args,
+        duration: chunk.duration as number | undefined,
+        error: chunk.error as boolean | undefined,
+        toolCallId: chunk.toolCallId as string | undefined,
       });
       break;
 

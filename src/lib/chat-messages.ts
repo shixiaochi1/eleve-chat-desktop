@@ -74,6 +74,7 @@ export interface GatewayEventPayload {
   error?: string | boolean
   inline_diff?: string
   duration_s?: number
+  duration?: number
   todos?: unknown
   model?: string
   provider?: string

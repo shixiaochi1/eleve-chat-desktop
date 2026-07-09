@@ -381,11 +381,11 @@ export function useMessageStream({
 
     // ── Tool start — 1:1 with Eleve tool.start ──
     // KEY: flush queued text/reasoning BEFORE upserting tool part.
-    onToolStart: ({ id, name }: { id: string | null; name: string }) => {
-      addDebugEvent('tool_start', `${name} (${id?.slice(0, 8)})`);
+    onToolStart: ({ id, name, preview }: { id: string | null; name: string; preview?: string }) => {
+      addDebugEvent('tool_start', `${name} (${id?.slice(0, 8)})${preview ? ` - ${preview}` : ''}`);
       setDebugToolCalls((prev) => [...prev, { name, callId: id || '', args: '', result: '', status: 'pending' }]);
       flushQueuedDeltas()
-      const toolPayload: GatewayEventPayload = { tool_call_id: id || '', name };
+      const toolPayload: GatewayEventPayload = { tool_call_id: id || '', name, preview };
       upsertToolCall(toolPayload, 'running');
     },
 
@@ -403,11 +403,11 @@ export function useMessageStream({
     },
 
     // ── Tool end — 1:1 with Eleve tool.complete ──
-    onToolEnd: ({ id, name }: { id: string | null; name: string }) => {
-      addDebugEvent('tool_complete', `${name || 'tool'} (${id?.slice(0, 8)})`);
+    onToolEnd: ({ id, name, duration, error }: { id: string | null; name: string; duration?: number; error?: boolean }) => {
+      addDebugEvent('tool_complete', `${name || 'tool'} (${id?.slice(0, 8)})${duration ? ` ${duration.toFixed(1)}s` : ''}${error ? ' ❌' : ''}`);
       setDebugToolCalls((prev) => prev.map((t) => t.callId === id ? { ...t, status: 'done' } : t));
       flushQueuedDeltas()
-      const toolPayload: GatewayEventPayload = { tool_call_id: id || '', name };
+      const toolPayload: GatewayEventPayload = { tool_call_id: id || '', name, duration, error };
       upsertToolCall(toolPayload, 'complete');
     },
 
