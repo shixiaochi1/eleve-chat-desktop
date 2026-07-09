@@ -16,7 +16,6 @@ export interface SSECallbacks {
   onText?: (delta: string, fullText: string) => void
   onReasoning?: (delta: string, fullText: string) => void
   onReasoningStart?: () => void
-  onReasoningReplace?: (fullText: string) => void
   onToolStart?: (data: { id: string | null; name: string; preview?: string }) => void
   onToolGenerating?: (name: string) => void
   onToolArgs?: (data: { id: string; delta: string; accumulated: string }) => void

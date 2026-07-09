@@ -378,24 +378,6 @@ export function useMessageStream({
         () => [reasoningPart('')],
       )
     },
-    onReasoningReplace: (fullText: string) => {
-      flushQueuedDeltas()
-      mutateStream(
-        (parts, message) => {
-          // 对齐 Hermes: 替换模式下，如果助手消息已有文本内容，跳过（reasoning已展示过了）
-          const hasText = message.parts
-            .filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text')
-            .some(p => p.text.trim())
-          if (hasText) {
-            return parts
-          }
-          // 对齐 Hermes: replace 模式下，filter 掉所有旧 reasoning parts 再添加新的
-          return [...parts.filter(p => p.type !== 'reasoning'), reasoningPart(fullText)]
-        },
-        () => [reasoningPart(fullText)],
-      )
-    },
-
     // ── Tool start — 1:1 with Eleve tool.start ──
     // KEY: flush queued text/reasoning BEFORE upserting tool part.
     onToolStart: ({ id, name, preview }: { id: string | null; name: string; preview?: string }) => {
