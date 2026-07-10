@@ -19,7 +19,8 @@ import {
   DebugIcon, ToolIcon, MemoryIcon,
   UsageIcon, ChannelsIcon, AgentIcon,
 } from './Icons';
-import { Radio } from 'lucide-react';
+import { Radio, FolderGit } from 'lucide-react';
+import ProjectTreePanel from './ProjectTreePanel';
 
 interface SidePanelProps {
   activePanel?: string | null;
@@ -35,6 +36,7 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
     agents:   { title: 'Agent 协作', Icon: AgentIcon,   component: AgentPanel },
     gateway:  { title: '网关状态',   Icon: Radio,       component: GatewayPanel },
     sessions: { title: '会话',     Icon: ChatIcon,    component: SessionsPanel },
+    projects: { title: '项目',     Icon: FolderGit,  component: ProjectTreePanel },
     channels: { title: '频道',     Icon: ChannelsIcon, component: ChannelsPanel },
     cron:     { title: '定时任务', Icon: CronIcon,    component: CronPanel },
     memory:   { title: '记忆',     Icon: MemoryIcon,  component: MemoryPanel },

@@ -9,6 +9,7 @@ import {
   PaletteIcon, ToolIcon, FileIcon, MemoryIcon,
   UsageIcon, ChannelsIcon, KanbanIcon, AgentIcon,
 } from './Icons';
+import { FolderGit } from 'lucide-react';
 import { openKanbanWindow } from '../utils/kanban-window';
 
 interface NavItem {
@@ -30,6 +31,7 @@ interface IconBarProps {
 export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gatewayOnline, onToggleFiles }: IconBarProps) {
   const navItems: NavItem[] = [
     { id: 'sessions', icon: ChatIcon,    label: '会话' },
+    { id: 'projects', icon: FolderGit,  label: '项目' },
     { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true },
     { id: 'agents',   icon: AgentIcon,   label: 'Agent 协作' },
     { id: 'channels', icon: ChannelsIcon, label: '频道' },

@@ -147,7 +147,9 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   resolve_media:          'media.resolve',
   migrate_app_data:       'app_data.migrate',
   files_list:             'files.list',
-}
+  projects_tree:          'projects.tree',
+  projects_project_sessions: 'projects.project_sessions',
+};
 
 /**
  * 参数适配器 — HTTP 命令参数 → WS 方法参数
