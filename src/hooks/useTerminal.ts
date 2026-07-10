@@ -5,17 +5,21 @@
  * with FitAddon and WebLinksAddon.
  */
 import { useEffect, useRef, useCallback } from 'react';
+import { registerTerminalReader, makeTerminalReader, setActiveTerminalId } from '@/store/terminal-buffer';
 
 interface UseTerminalOptions {
   lazy?: boolean;
+  /** Terminal entry id — used to register the buffer reader for read_terminal tool */
+  id?: string;
 }
 
-export default function useTerminal({ lazy = false }: UseTerminalOptions = {}) {
+export default function useTerminal({ lazy = false, id }: UseTerminalOptions = {}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<any>(null);
   const fitAddonRef = useRef<any>(null);
   const weblinksAddonRef = useRef<any>(null);
   const initializedRef = useRef(false);
+  const unregisterReaderRef = useRef<(() => void) | null>(null);
 
   // Create the terminal instance
   const init = useCallback(() => {
@@ -82,6 +86,12 @@ export default function useTerminal({ lazy = false }: UseTerminalOptions = {}) {
         term.write('\x1b[32m╚══════════════════════════════════════════╝\x1b[0m\r\n');
 
         initializedRef.current = true;
+
+        // 对齐 Hermes: registerTerminalReader(id, makeTerminalReader(term))
+        // Agent 的 read_terminal 工具通过此 reader 读取 xterm buffer
+        if (id) {
+          unregisterReaderRef.current = registerTerminalReader(id, makeTerminalReader(term));
+        }
       } catch (err) {
         console.error('[useTerminal] Failed to initialize xterm:', err);
       }
@@ -94,7 +104,12 @@ export default function useTerminal({ lazy = false }: UseTerminalOptions = {}) {
       init();
     }
     return () => {
-      // Cleanup
+      // Cleanup buffer reader（对齐 Hermes: unregister on dispose）
+      if (unregisterReaderRef.current) {
+        unregisterReaderRef.current();
+        unregisterReaderRef.current = null;
+      }
+      // Cleanup terminal
       if (terminalRef.current) {
         try {
           terminalRef.current.dispose();

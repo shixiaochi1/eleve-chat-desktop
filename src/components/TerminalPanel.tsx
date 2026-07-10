@@ -28,6 +28,7 @@ import {
 import '@xterm/xterm/css/xterm.css';
 
 import { useMessages } from '@/store/messages';
+import { setActiveTerminalId } from '@/store/terminal-buffer';
 
 interface TerminalPanelProps {
   onSend?: (text: string) => void;
@@ -44,7 +45,10 @@ export default function TerminalPanel({ onSend, isStreaming = false, sessionId }
   // Ensure at least one tab on mount
   useEffect(() => { ensureTerminal(); }, []);
 
-  const term = useTerminal({ lazy: true });
+  // 对齐 Hermes: tab 切换时同步 setActiveTerminalId → read_terminal 工具读取当前活跃 tab
+  useEffect(() => { setActiveTerminalId(activeId); }, [activeId]);
+
+  const term = useTerminal({ lazy: true, id: activeId ?? undefined });
   const [ready, setReady] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [executing, setExecuting] = useState(false);

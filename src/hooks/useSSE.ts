@@ -327,6 +327,28 @@ function processEvent(
       cbs.onTerminalClose?.({ process_id: chunk.process_id as string });
       break;
 
+    // Phase 6G: 终端读取请求（对齐 Hermes terminal.read.request）
+    // Agent 调 read_terminal → Gateway 推 terminal.read.request → 前端读 xterm buffer → 回复 terminal.read.respond
+    case 'terminal.read.request': {
+      const requestId = typeof chunk.request_id === 'string' ? chunk.request_id : '';
+      if (requestId) {
+        const startLine = typeof chunk.start_line === 'number' ? chunk.start_line : undefined;
+        const count = typeof chunk.count === 'number' ? chunk.count : undefined;
+        // IIFE async — processEvent 本身非 async
+        (async () => {
+          const { readActiveTerminal } = await import('@/store/terminal-buffer');
+          const result = readActiveTerminal({ start: startLine, count });
+          const { getWsClient } = await import('@/services/ws-client');
+          const wsClient = getWsClient();
+          wsClient.sendRpc('terminal.read.respond', {
+            request_id: requestId,
+            text: result ? JSON.stringify(result) : '',
+          }).catch(() => { /* ignore send failure */ });
+        })();
+      }
+      break;
+    }
+
     case 'status.update': {
       // 合并两个重复case — 通用 status.update + lifecycle reset 分发
       const kind = chunk.kind as string;
