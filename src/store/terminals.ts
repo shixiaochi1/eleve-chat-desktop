@@ -8,8 +8,13 @@
  *   - 'user': 交互式 PTY shell（用户手动创建）
  *   - 'agent': 只读镜像（terminal(background=true) 的进程输出）
  *
+ * 持久化：复用 src/utils/storage.ts（IPC 文件存储），对齐 Hermes readKey/writeKey
+ * reviveBuffer: xterm scrollback 序列化，跨重启重放（对齐 Hermes MAX_REVIVE_BUFFER_CHARS=48000）
+ *
  * terminal.close 事件 → closeAgentTerminalByProc(processId) 关闭对应 agent tab
  */
+
+import * as storage from '../utils/storage';
 
 // ── Types ──
 
@@ -21,19 +26,102 @@ export interface TerminalEntry {
   auto: boolean;
   /** Working directory (user tabs only) */
   cwd: string;
+  /** Serialized xterm scrollback from last session, replayed on relaunch.
+   *  对齐 Hermes: VS Code parity — processes NOT revived, fresh shell under restored buffer.
+   *  Captured live for user tabs only; agent mirrors stay runtime-only. */
+  reviveBuffer?: string;
   /** 'user' = interactive shell, 'agent' = read-only process mirror */
   kind: 'user' | 'agent';
   /** Agent process id (agent tabs only) */
   procId?: string;
 }
 
+// ── Persistence ──
+// 对齐 Hermes: TERMINALS_STORAGE_KEY = 'hermes.desktop.terminals.v1'
+
+const TERMINALS_STORAGE_KEY = 'eleve.desktop.terminals.v1';
+const MAX_REVIVE_BUFFER_CHARS = 48_000; // 对齐 Hermes
+
+interface PersistedTerminalEntry {
+  auto: boolean;
+  cwd: string;
+  id: string;
+  reviveBuffer?: string;
+  title: string;
+}
+
+interface PersistedTerminalState {
+  activeTerminalId: string | null;
+  terminals: PersistedTerminalEntry[];
+}
+
+function sanitizePersistedTerminal(value: unknown): PersistedTerminalEntry | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === 'string' ? record.id.trim() : '';
+  const title = typeof record.title === 'string' ? record.title.trim() : '';
+  const cwd = typeof record.cwd === 'string' ? record.cwd : '';
+  const reviveBuffer = typeof record.reviveBuffer === 'string' ? record.reviveBuffer : undefined;
+  if (!id) return null;
+  return {
+    auto: typeof record.auto === 'boolean' ? record.auto : true,
+    cwd,
+    id,
+    ...(reviveBuffer ? { reviveBuffer } : {}),
+    title: title || 'Terminal',
+  };
+}
+
+function loadPersistedTerminals(): PersistedTerminalState {
+  const fallback: PersistedTerminalState = { activeTerminalId: null, terminals: [] };
+  const raw = storage.load(TERMINALS_STORAGE_KEY);
+  if (!raw) return fallback;
+  try {
+    const parsed = raw as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return fallback;
+    const terminals = Array.isArray(parsed.terminals)
+      ? (parsed.terminals as unknown[]).map(sanitizePersistedTerminal).filter((t): t is PersistedTerminalEntry => Boolean(t))
+      : [];
+    const active =
+      typeof parsed.activeTerminalId === 'string' && terminals.some(t => t.id === parsed.activeTerminalId)
+        ? parsed.activeTerminalId
+        : (terminals[0]?.id ?? null);
+    return { activeTerminalId: active, terminals };
+  } catch {
+    return fallback;
+  }
+}
+
+/** Persist synchronously on every change (对齐 Hermes: app-wide convention).
+ *  Only user tabs are persisted (agent tabs are runtime-only). */
+function persistTerminals(list: readonly TerminalEntry[], activeId: string | null): void {
+  const terminals = list
+    .filter(t => t.kind === 'user')
+    .map(t => ({
+      auto: t.auto,
+      cwd: t.cwd,
+      id: t.id,
+      ...(t.reviveBuffer ? { reviveBuffer: t.reviveBuffer } : {}),
+      title: t.title,
+    }));
+  if (!terminals.length) {
+    storage.remove(TERMINALS_STORAGE_KEY);
+    return;
+  }
+  const active = terminals.some(t => t.id === activeId) ? activeId : (terminals[0]?.id ?? null);
+  storage.save(TERMINALS_STORAGE_KEY, { activeTerminalId: active, terminals });
+}
+
 // ── State ──
 
-let terminals: TerminalEntry[] = [];
-let activeTerminalId: string | null = null;
+const restored = loadPersistedTerminals();
+
+let terminals: TerminalEntry[] = restored.terminals.map(t => ({ ...t, kind: 'user' as const }));
+let activeTerminalId: string | null = restored.activeTerminalId;
 let listeners: Array<() => void> = [];
 
 function emitChange() {
+  persistTerminals(terminals, activeTerminalId);
   for (const l of listeners) l();
 }
 
@@ -160,5 +248,17 @@ export function reportTerminalShell(id: string, shell: string): void {
   const name = shell.trim();
   if (!name) return;
   terminals = terminals.map(t => t.id === id && t.auto ? { ...t, title: name } : t);
+  emitChange();
+}
+
+/** Record the latest serialized scrollback for a tab so it can be replayed on
+ *  the next launch. Oversized buffers are tail-trimmed to stay under the storage
+ *  budget; only user tabs ever carry one.
+ *  对齐 Hermes updateTerminalReviveBuffer */
+export function updateTerminalReviveBuffer(id: string, reviveBuffer: string): void {
+  const capped = reviveBuffer.length > MAX_REVIVE_BUFFER_CHARS
+    ? reviveBuffer.slice(-MAX_REVIVE_BUFFER_CHARS)
+    : reviveBuffer;
+  terminals = terminals.map(t => t.id === id && t.kind === 'user' ? { ...t, reviveBuffer: capped } : t);
   emitChange();
 }
