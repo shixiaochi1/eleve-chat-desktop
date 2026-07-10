@@ -515,7 +515,10 @@ fn start_eleved_process(eleve_home: &PathBuf) -> Result<std::process::Child, Str
         .current_dir(&eleve_cwd)
         // 🔴 显式设置环境变量（对齐 Hermes main.cjs L4772-4784）
         .env("ELEVE_HOME", eleve_home.to_string_lossy().as_ref())
-        .env("TERMINAL_CWD", eleve_cwd.to_string_lossy().as_ref());
+        .env("TERMINAL_CWD", eleve_cwd.to_string_lossy().as_ref())
+        // 🔴 ELEVE_DESKTOP=1 — 对齐 Hermes HERMES_DESKTOP=1（桌面端 spawn 时设置）
+        // gated 工具（close_terminal / read_terminal）通过此变量判断是否可用
+        .env("ELEVE_DESKTOP", "1");
 
     // stdout/stderr 重定向到 runtime/ 目录下的独立捕获文件
     // 与 eleved 自身的 logs/eleved.log (tracing) 分离，避免双写争用

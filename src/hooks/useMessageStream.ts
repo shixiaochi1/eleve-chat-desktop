@@ -1,6 +1,7 @@
 import { useRef, useCallback, useEffect, type MutableRefObject } from 'react';
 import { useSSE, type SSECallbacks } from './useSSE';
 import * as storage from '../utils/storage';
+import { closeAgentTerminalByProc } from '@/store/terminals';
 import {
   setMessages as storeSetMessages,
   getMessages,
@@ -753,9 +754,12 @@ export function useMessageStream({
       // 皮肤切换由 App 层处理（重新加载主题配置）
     },
 
-    // Phase 6: 终端关闭 — 对齐 Hermes terminal.close
+    // Phase 6: 终端关闭 — 对齐 Hermes terminal.close → closeAgentTerminalByProc
     onTerminalClose: (data: { process_id: string }) => {
       addDebugEvent('terminal_close', `process ${data.process_id} closed`);
+      // 对齐 Hermes: gateway-event.ts L547-550
+      // Agent closed its read-only tab via close_terminal tool → drop the view
+      closeAgentTerminalByProc(data.process_id);
     },
 
     // ── Status update — Eleve status.update (覆盖式状态，按 kind 分流) ──
