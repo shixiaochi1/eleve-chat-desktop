@@ -737,6 +737,27 @@ export function useMessageStream({
       // 通知清除 — 预留，对齐 Hermes notification.clear
     },
 
+    // Phase 6: 浏览器连接进度 — 对齐 Hermes browser.progress
+    onBrowserProgress: (data: { message: string; level: string }) => {
+      addDebugEvent('browser_progress', `${data.level}: ${data.message}`);
+      if (data.level === 'error' || data.level === 'warning') {
+        import('../utils/notifications').then(({ notifyError }) => {
+          notifyError(data.message, data.level === 'error' ? '浏览器' : '警告');
+        });
+      }
+    },
+
+    // Phase 6: 皮肤切换 — 对齐 Hermes skin.changed
+    onSkinChanged: (_data: { skin: unknown }) => {
+      addDebugEvent('skin_changed', 'skin updated');
+      // 皮肤切换由 App 层处理（重新加载主题配置）
+    },
+
+    // Phase 6: 终端关闭 — 对齐 Hermes terminal.close
+    onTerminalClose: (data: { process_id: string }) => {
+      addDebugEvent('terminal_close', `process ${data.process_id} closed`);
+    },
+
     // ── Status update — Eleve status.update (覆盖式状态，按 kind 分流) ──
     // 对齐 Eleve TUI 前端 createGatewayEventHandler.ts L425-470:
     //   kind=goal/compressing → sys(text)+setStatus(brief)

@@ -113,6 +113,12 @@ export interface SSECallbacks {
   onInterimMessage?: (data: { content: string; alreadyStreamed: boolean }) => void
   // P1: 后台 Review 结果（对齐 Hermes background_review_callback）
   onBackgroundReview?: (data: { summary: string }) => void
+  // Phase 6: 浏览器连接进度（对齐 Hermes browser.progress）
+  onBrowserProgress?: (data: { message: string; level: string }) => void
+  // Phase 6: 皮肤切换（对齐 Hermes skin.changed）
+  onSkinChanged?: (data: { skin: unknown }) => void
+  // Phase 6: 终端关闭（对齐 Hermes terminal.close）
+  onTerminalClose?: (data: { process_id: string }) => void
 }
 
 // ── Chunk types (from Rust StreamChunk / api_server) ──
@@ -304,6 +310,21 @@ function processEvent(
 
     case 'notification.clear':
       cbs.onNoticeClear?.({ key: chunk.key as string });
+      break;
+
+    // Phase 6: 浏览器连接进度（对齐 Hermes browser.progress）
+    case 'browser.progress':
+      cbs.onBrowserProgress?.({ message: chunk.message as string, level: chunk.level as string });
+      break;
+
+    // Phase 6: 皮肤切换（对齐 Hermes skin.changed）
+    case 'skin.changed':
+      cbs.onSkinChanged?.({ skin: chunk.skin });
+      break;
+
+    // Phase 6: 终端关闭（对齐 Hermes terminal.close）
+    case 'terminal.close':
+      cbs.onTerminalClose?.({ process_id: chunk.process_id as string });
       break;
 
     case 'status.update': {
