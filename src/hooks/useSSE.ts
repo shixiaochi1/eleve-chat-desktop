@@ -20,7 +20,18 @@ export interface SSECallbacks {
   onToolGenerating?: (name: string) => void
   onToolArgs?: (data: { id: string; delta: string; accumulated: string }) => void
   onToolEnd?: (data: { id: string | null; name: string; duration?: number; error?: boolean }) => void
-  onUsage?: (data: { input: number; output: number; cacheRead?: number; cacheWrite?: number }) => void
+  onUsage?: (data: {
+    input: number
+    output: number
+    cacheRead?: number
+    cacheWrite?: number
+    reasoning?: number
+    total?: number
+    apiCalls?: number
+    contextUsed?: number
+    contextMax?: number
+    compressions?: number
+  }) => void
   onModelName?: (name: string) => void
   onRunStart?: (sessionId: string) => void
   onRunComplete?: (data: { sessionId: string; completed?: boolean; interrupted?: boolean; usage?: unknown }) => void
@@ -66,8 +77,22 @@ export interface SSECallbacks {
     credential_warning: boolean | null
     tools: Record<string, unknown>
     skills: Record<string, unknown>
-    usage?: { input_tokens?: number; output_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number }
-    mcp_servers: unknown[]
+    usage?: {
+      input_tokens?: number
+      output_tokens?: number
+      reasoning_tokens?: number
+      prompt_tokens?: number
+      completion_tokens?: number
+      total_tokens?: number
+      api_calls?: number
+      context_used?: number
+      context_max?: number
+      compressions?: number
+      // 兼容旧字段
+      cache_read_tokens?: number
+      cache_write_tokens?: number
+    }
+    mcp_servers: Array<{ name: string; status: string }>
     system_prompt: string
   }) => void
   onDone?: (sessionId: string | null) => void
@@ -338,7 +363,7 @@ function processEvent(
         tools: (chunk.tools as Record<string, unknown>) || {},
         skills: (chunk.skills as Record<string, unknown>) || {},
         usage: chunk.usage as any,
-        mcp_servers: (chunk.mcp_servers as unknown[]) || [],
+        mcp_servers: (chunk.mcp_servers as any as Array<{ name: string; status: string }>) || [],
         system_prompt: (chunk.system_prompt as string) || '',
       });
       break;
@@ -362,6 +387,12 @@ function processEvent(
           output: (chunk.usage as any).output_tokens,
           cacheRead: (chunk.usage as any).cache_read_tokens,
           cacheWrite: (chunk.usage as any).cache_write_tokens,
+          reasoning: (chunk.usage as any).reasoning_tokens,
+          total: (chunk.usage as any).total_tokens,
+          apiCalls: (chunk.usage as any).api_calls,
+          contextUsed: (chunk.usage as any).context_used,
+          contextMax: (chunk.usage as any).context_max,
+          compressions: (chunk.usage as any).compressions,
         });
       }
       // 中断处理（原 onRunComplete 的中断逻辑）
@@ -387,6 +418,12 @@ function processEvent(
         output: (chunk.usage as any)?.output_tokens,
         cacheRead: (chunk.usage as any)?.cache_read_tokens,
         cacheWrite: (chunk.usage as any)?.cache_write_tokens,
+        reasoning: (chunk.usage as any)?.reasoning_tokens,
+        total: (chunk.usage as any)?.total_tokens,
+        apiCalls: (chunk.usage as any)?.api_calls,
+        contextUsed: (chunk.usage as any)?.context_used,
+        contextMax: (chunk.usage as any)?.context_max,
+        compressions: (chunk.usage as any)?.compressions,
       });
       break;
 

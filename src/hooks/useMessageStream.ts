@@ -517,15 +517,30 @@ export function useMessageStream({
       credential_warning: boolean | null
       tools: Record<string, unknown>
       skills: Record<string, unknown>
-      usage?: { input_tokens?: number; output_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number }
-      mcp_servers: unknown[]
+      usage?: {
+        input_tokens?: number
+        output_tokens?: number
+        reasoning_tokens?: number
+        prompt_tokens?: number
+        completion_tokens?: number
+        total_tokens?: number
+        api_calls?: number
+        context_used?: number
+        context_max?: number
+        compressions?: number
+        cache_read_tokens?: number
+        cache_write_tokens?: number
+      }
+      mcp_servers: Array<{ name: string; status: string }>
       system_prompt: string
     }) => {
       addDebugEvent('session_info', `model=${data.model} running=${data.running} branch=${data.branch}`);
-      // 更新 monitorState
+      // 更新 monitorState — 同步 usage 绝对值（session.info 每次 push 都是完整快照）
       setMonitorState((prev) => ({
         ...prev,
         modelName: data.model,
+        tokensIn: data.usage?.input_tokens ?? prev.tokensIn,
+        tokensOut: data.usage?.output_tokens ?? prev.tokensOut,
       }));
       // 同步 store 中的 streaming 状态
       if (!data.running) {

@@ -259,6 +259,7 @@ export interface SessionRuntimeInfo {
   service_tier?: string
   skills?: Record<string, string[]> | string[]
   tools?: Record<string, string[]>
+  mcp_servers?: Array<{ name: string; status: string }>
   usage?: Partial<UsageStats>
   version?: string
   yolo?: boolean
