@@ -264,6 +264,20 @@ const SingleToolEntry = memo(function SingleToolEntry({
       )}
       {/* 内联 diff — 始终可见（对齐 Eleve：工具卡片底部直接展示 diff） */}
       {inlineDiff && <DiffLines text={inlineDiff} />}
+      {/* skill_view setup_needed 提示横幅（对标 Hermes: readiness_status != "ready"） */}
+      {tool.name === 'skill_view' && parsedResult?.setup_needed && (
+        <div className="mt-1.5 px-2 py-1.5 rounded bg-amber-500/10 border border-amber-500/30 text-xs">
+          <div className="font-semibold text-amber-600 dark:text-amber-400">⚠ Setup Required</div>
+          {Array.isArray(parsedResult.missing_required_environment_variables) && (
+            <div className="mt-1 text-muted-foreground">
+              Missing: {parsedResult.missing_required_environment_variables.map((e: any) => e?.name).filter(Boolean).join(', ')}
+            </div>
+          )}
+          {parsedResult.gateway_setup_hint && (
+            <div className="mt-0.5 text-muted-foreground">{parsedResult.gateway_setup_hint as string}</div>
+          )}
+        </div>
+      )}
     </div>
   );
 });
