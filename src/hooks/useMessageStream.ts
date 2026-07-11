@@ -534,8 +534,34 @@ export function useMessageStream({
       }
       mcp_servers: Array<{ name: string; status: string }>
       system_prompt: string
+      // T5: pending_prompts
+      pending_prompts?: {
+        clarify?: { clarify_id: string; question: string; choices: string[]; awaiting_text: boolean }
+        sudo_password?: { sudo_id: string; prompt: string }
+        secret_capture?: { secret_id: string; env_var: string; prompt: string }
+        terminal_read?: { read_id: string }
+        slash_confirm?: { confirm_id: string; command: string }
+        approval?: { request_id: string; command: string }
+      }
     }) => {
       addDebugEvent('session_info', `model=${data.model} running=${data.running} branch=${data.branch}`);
+      // T5: 恢复 pending 交互 UI — 对齐 Hermes _pending_prompt_payloads
+      // session.info 每次 push 都是完整快照，pending_prompts 包含当前所有 pending 交互
+      if (data.pending_prompts) {
+        const pp = data.pending_prompts;
+        if (pp.clarify) {
+          setActiveClarify({ clarify_id: pp.clarify.clarify_id, question: pp.clarify.question, choices: pp.clarify.choices });
+        }
+        if (pp.approval) {
+          setActiveApproval({ command: pp.approval.command, description: '', pattern: '', choices: ['once', 'session', 'always', 'deny'], run_id: pp.approval.request_id });
+        }
+        if (pp.sudo_password) {
+          setActiveSudo?.({ request_id: pp.sudo_password.sudo_id, prompt: pp.sudo_password.prompt });
+        }
+        if (pp.secret_capture) {
+          setActiveSecret?.({ request_id: pp.secret_capture.secret_id, prompt: pp.secret_capture.prompt, env_var: pp.secret_capture.env_var });
+        }
+      }
       // 更新 monitorState — 同步 usage 绝对值（session.info 每次 push 都是完整快照）
       setMonitorState((prev) => ({
         ...prev,

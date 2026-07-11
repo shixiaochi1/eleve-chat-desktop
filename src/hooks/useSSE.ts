@@ -94,6 +94,16 @@ export interface SSECallbacks {
     }
     mcp_servers: Array<{ name: string; status: string }>
     system_prompt: string
+    // T5: pending_prompts — 对齐 Hermes _pending_prompt_payloads
+    // 前端刷新后恢复交互弹窗（clarify/approval/sudo/secret/slash_confirm）
+    pending_prompts?: {
+      clarify?: { clarify_id: string; question: string; choices: string[]; awaiting_text: boolean }
+      sudo_password?: { sudo_id: string; prompt: string }
+      secret_capture?: { secret_id: string; env_var: string; prompt: string }
+      terminal_read?: { read_id: string }
+      slash_confirm?: { confirm_id: string; command: string }
+      approval?: { request_id: string; command: string }
+    }
   }) => void
   onDone?: (sessionId: string | null) => void
   onError?: (msg: string) => void
@@ -408,6 +418,8 @@ function processEvent(
         usage: chunk.usage as any,
         mcp_servers: (chunk.mcp_servers as any as Array<{ name: string; status: string }>) || [],
         system_prompt: (chunk.system_prompt as string) || '',
+        // T5: pending_prompts — 透传给回调消费
+        pending_prompts: chunk.pending_prompts as any,
       });
       break;
 
