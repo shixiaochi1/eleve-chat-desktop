@@ -1,10 +1,12 @@
 /**
- * IPC 桥接层 — WS JSON-RPC 优先，Kanban 走 HTTP（对齐 Hermes）
+ * IPC 桥接层 — WS JSON-RPC + HTTP REST 双通道（对齐 Hermes）
  * 
- * 桌面模式：主通道 WS JSON-RPC，Kanban 走 REST API
- * 浏览器模式（dev）：fallback 到 HTTP fetch()
+ * 桌面模式：会话类走 WS JSON-RPC，配置类走 HTTP REST API（对齐 Hermes）
+ * 浏览器模式（dev）：同上
+ * Kanban 走 HTTP REST API（对齐 Hermes）
  * 
- * Phase 5: 删除非 Kanban HTTP fallback，主通道 100% WS
+ * 配置类走 HTTP 的原因：不依赖 WS 连接（WS 需要 session_id 才建立），
+ * 首次使用/Settings 保存时 WS 可能未连，配置操作必须可用。
  */
 
 // ====== 环境检测 ======
@@ -22,7 +24,7 @@ export function isDesktop(): boolean {
   return _isDesktop;
 }
 
-// ====== HTTP Base URL（仅 Kanban 使用） ======
+// ====== HTTP Base URL（Kanban + 配置类使用） ======
 
 let _httpBase = 'http://127.0.0.1:3001';
 let _httpBaseSet = false;
@@ -44,7 +46,7 @@ export function getHttpBase(): string {
 
 /**
  * 通过 Tauri IPC 发现网关端口，设置 _httpBase
- * 桌面模式启动时调用一次（Kanban HTTP 需要）
+ * 桌面模式启动时调用一次（Kanban + 配置类 HTTP 需要）
  */
 export async function discoverPort(maxRetries = 50, delayMs = 200): Promise<boolean> {
   if (!isDesktop()) return true;
@@ -85,10 +87,10 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   delete_session:         'session.delete',
   activate_session:       'session.activate',
   set_session_title:      'session.title',
-  get_config:             'config.get',
-  update_config:          'config.set.raw',
+  // 🔴 配置类已移至 CONFIG_HTTP_MAP（走 HTTP REST，不依赖 WS 连接）
+  // get_config, update_config, save_api_key, load_api_key, get_settings, update_settings
   list_models:            'model.options',
-  save_api_key:           'model.save_key',
+  // save_api_key → CONFIG_HTTP_MAP
   list_commands:          'commands.catalog',
   execute_command:        'command.dispatch',
   submit_clarify_response:'clarify.respond',
@@ -112,8 +114,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   list_toolsets:          'tools.toolsets',
   list_memories:          'memory.list',
   delete_memory:          'memory.delete',
-  get_settings:           'settings.get',
-  update_settings:        'settings.update',
+  // get_settings, update_settings → CONFIG_HTTP_MAP
   reload_mcp:             'mcp.reload',
   get_app_data:           'app_data.get',
   set_app_data:           'app_data.set',
@@ -140,7 +141,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   test_connection:        'gateway.test_connection',
   hash_password:          'auth.hash_password',
   verify_password:        'auth.verify_password',
-  load_api_key:           'model.load_key',
+  // load_api_key → CONFIG_HTTP_MAP
   slugify:                'utils.slugify',
   models_dev_query:       'models_dev.query',
   models_dev_list:        'models_dev.list',
@@ -156,30 +157,140 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
  */
 function adaptParams(command: string, args: Record<string, any>): Record<string, any> {
   switch (command) {
-    case 'update_config':
-      // HTTP: {config: {...}} 或 {yaml_text} → WS config.set.raw: {yaml_text}
-      // config.set 只支持单 key+value，嵌套对象需转 yaml_text 走 config.set.raw
-      if (args.yaml_text) return { yaml_text: args.yaml_text };
-      if (args.config) return { yaml_text: JSON.stringify(args.config) };
-      return { yaml_text: JSON.stringify(args) };
     case 'execute_command':
       // HTTP: {command} → WS: {name, arg, session_id}
       return { name: args.command, arg: '', session_id: '' };
     case 'submit_clarify_response':
       // HTTP: {clarify_id, response} → WS: {request_id, answer}
       return { request_id: args.clarify_id, answer: args.response };
-    case 'save_api_key':
-      // HTTP: {provider_id, api_key} → WS: {slug, api_key}
-      return { slug: args.provider_id, api_key: args.api_key };
+    // save_api_key / update_config 已移至 CONFIG_HTTP_MAP，不再需要 WS 参数适配
     default:
       return args;
   }
 }
 
+// ====== 配置类 HTTP REST（对齐 Hermes：配置不依赖 WS 连接） ======
+
+interface ConfigHttpMapping {
+  method: string;
+  path: string | ((args: Record<string, any>) => string);
+  /** body 处理：默认 JSON，'raw' = 纯字符串 body */
+  bodyFormat?: 'json' | 'raw';
+  /** raw 模式下从 args 中提取 body 的字段名 */
+  rawBodyKey?: string;
+  /** 特殊 body 转换标记 */
+  bodyTransform?: string;
+}
+
+const CONFIG_HTTP_MAP: Record<string, ConfigHttpMapping> = {
+  // API Key — 后端: PUT /api/api-key/:provider_id body=纯字符串
+  save_api_key: {
+    method: 'PUT',
+    path: (a) => `/api/api-key/${encodeURIComponent(a.provider_id || a.slug || '')}`,
+    bodyFormat: 'raw',
+    rawBodyKey: 'api_key',
+  },
+  load_api_key: {
+    method: 'GET',
+    path: (a) => `/api/api-key/${encodeURIComponent(a.provider_id || a.slug || '')}`,
+  },
+  // Settings — 后端: GET/PUT /api/settings body=json
+  get_settings: {
+    method: 'GET',
+    path: '/api/settings',
+  },
+  update_settings: {
+    method: 'PUT',
+    path: '/api/settings',
+  },
+  // Config — 后端: GET /api/config, PUT /api/config/raw
+  get_config: {
+    method: 'GET',
+    path: '/api/config',
+  },
+  update_config: {
+    method: 'PUT',
+    path: '/api/config/raw',
+    // 前端传 {config: {...}} 或 {yaml_text}，后端 PUT /api/config/raw 期望 {yaml_text: string}
+    bodyTransform: 'configToYamlText',
+  },
+};
+
+/** 配置类 HTTP 调用（复用 Kanban 的 HTTP 基础设施） */
+async function configHttpCall(command: string, args: Record<string, any>): Promise<any> {
+  const mapping = CONFIG_HTTP_MAP[command];
+  if (!mapping) {
+    throw new Error(`[bridge] Unknown config command: ${command}`);
+  }
+
+  // 确保 port 已发现
+  if (isDesktop() && !_httpBaseSet) {
+    const ok = await discoverPort();
+    if (!ok) {
+      throw new Error('[bridge] Gateway port not discovered. Backend may not be running.');
+    }
+  }
+
+  const path = typeof mapping.path === 'function' ? mapping.path(args) : mapping.path;
+  const url = `${_httpBase}${path}`;
+
+  const options: RequestInit = {
+    method: mapping.method,
+    headers: { 'Content-Type': 'application/json' } as Record<string, string>,
+  };
+
+  // GET 不带 body
+  if (mapping.method !== 'GET' && mapping.method !== 'DELETE') {
+    if (mapping.bodyFormat === 'raw') {
+      // 纯字符串 body（如 save_api_key 的 api_key 值）
+      const bodyValue = mapping.rawBodyKey ? args[mapping.rawBodyKey] : '';
+      options.body = typeof bodyValue === 'string' ? bodyValue : JSON.stringify(bodyValue);
+    } else if ((mapping as any).bodyTransform === 'configToYamlText') {
+      // update_config: 前端 {config:{...}} → 后端 {yaml_text: string}
+      let yamlText: string;
+      if (args.yaml_text) {
+        yamlText = args.yaml_text;
+      } else if (args.config) {
+        yamlText = JSON.stringify(args.config);
+      } else {
+        yamlText = JSON.stringify(args);
+      }
+      options.body = JSON.stringify({ yaml_text: yamlText });
+    } else {
+      // 标准 JSON body
+      if (Object.keys(args).length > 0) {
+        options.body = JSON.stringify(args);
+      }
+    }
+  }
+
+  const resp = await fetch(url, options);
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+    throw new Error(err.error || `HTTP ${resp.status}`);
+  }
+
+  // 204 No Content
+  if (resp.status === 204) return null;
+
+  const text = await resp.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
 /**
- * 调用后端命令（Phase 5: WS-only，Kanban 走 HTTP 对齐 Hermes）
+ * 调用后端命令（会话类走 WS，配置类走 HTTP，Kanban 走 HTTP）
  */
 export async function call(command: string, args: Record<string, any> = {}): Promise<any> {
+  // 配置类命令：走 HTTP REST（不依赖 WS 连接，对齐 Hermes）
+  if (CONFIG_HTTP_MAP[command]) {
+    return configHttpCall(command, args);
+  }
+
   const wsMethod = COMMAND_TO_WS_METHOD[command];
 
   if (wsMethod) {
@@ -203,7 +314,7 @@ export async function call(command: string, args: Record<string, any> = {}): Pro
   }
 
   // 无映射：报错
-  throw new Error(`[bridge] No WS method mapping for command: ${command}`);
+  throw new Error(`[bridge] No WS/HTTP mapping for command: ${command}`);
 }
 
 // ====== Kanban HTTP（对齐 Hermes：Kanban 走 REST API 不走 WS） ======

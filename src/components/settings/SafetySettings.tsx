@@ -12,7 +12,7 @@ import { Switch } from '../ui/switch';
  */
 export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
   const [config, setConfig] = useState({
-    approvals_mode: 'smart',
+    approvals_mode: 'manual',
     approvals_timeout: 60,
     mcp_reload_confirm: true,
     command_allowlist: '',
@@ -40,7 +40,7 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
       const checkpoints = bc.checkpoints || {};
 
       setConfig({
-        approvals_mode: approvals.mode || 'smart',
+        approvals_mode: approvals.mode || 'manual',
         approvals_timeout: approvals.timeout ?? 60,
         mcp_reload_confirm: approvals.mcp_reload_confirm ?? true,
         command_allowlist: (Array.isArray(approvals.command_allowlist) ? approvals.command_allowlist.join(', ') : approvals.command_allowlist || ''),
