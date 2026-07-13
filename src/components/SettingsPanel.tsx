@@ -417,7 +417,8 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
         provObj[p.id] = {
           name: p.name,
           base_url: p.baseUrl,
-          model: p.models[0] || '',
+          // 🔴 不设 model 字段：用户选择的模型走 config.model.default（上面 L433），
+          // provider.model 会覆盖 model.default → 导致重启后模型不对
           transport,
           models: modelsMap,
         };

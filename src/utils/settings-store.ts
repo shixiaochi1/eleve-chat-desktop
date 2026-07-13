@@ -149,8 +149,10 @@ export async function loadSettingsFromRust(): Promise<SettingsV2> {
 export async function saveSettings(data: SettingsV2): Promise<void> {
   const withVersion = { ...data, version: 2 };
   _settingsCache = withVersion;
-  // ❌ 不再走 storage.save('settings') — 它会通过 set_app_data 写包裹格式覆盖 settings.json
-  // storage.save(STORAGE_KEY, withVersion);
+  // 🔴 恢复双写：storage.save 供同步 loadSettings() 重启后立即读取
+  // 之前删除导致重启后 storage.load() 返回 null → "尚未配置模型" 误弹
+  // set_app_data 包裹格式问题只影响后端 settings.json，storage.save 本身安全
+  storage.save(STORAGE_KEY, withVersion);
   // 异步持久化到 AppService — 必须等待完成，否则后续 save_api_key 读不到 base_url
   try {
     await call('update_settings', withVersion);
