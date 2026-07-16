@@ -261,10 +261,16 @@ export default function App() {
     if (typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) {
       const portPromise = discoverPort();
 
-      storage.init().then(() => {
+      storage.init().then(async () => {
         const restoredId = storage.load('session_id', null) as string | null;
         if (restoredId && restoredId !== sess.sessionId) {
           sess.setSessionId(restoredId);
+        }
+        // 🔴 对齐 Hermes TUI：启动时必须有 session，否则 WS 无法连接
+        // Hermes TUI 在 WS 连接时自动创建 session，Eleve 在前端创建
+        if (!restoredId && !sess.sessionId) {
+          console.log('[App] No session_id found, creating default session (align Hermes TUI)');
+          await sess.create();
         }
         const restoredCache = storage.load('msg_cache', {} as Record<string, ChatMessage[]>) as Record<string, ChatMessage[]>;
         const restoredTitles = storage.load('titles', {} as Record<string, string>) as Record<string, string>;
@@ -306,10 +312,15 @@ export default function App() {
       });
     } else {
       setPortReady(true);
-      storage.init().then(() => {
+      storage.init().then(async () => {
         const restoredId = storage.load('session_id', null) as string | null;
         if (restoredId && restoredId !== sess.sessionId) {
           sess.setSessionId(restoredId);
+        }
+        // 🔴 对齐 Hermes TUI：启动时必须有 session
+        if (!restoredId && !sess.sessionId) {
+          console.log('[App] No session_id found, creating default session (align Hermes TUI)');
+          await sess.create();
         }
         const restoredCache = storage.load('msg_cache', {} as Record<string, ChatMessage[]>) as Record<string, ChatMessage[]>;
         const restoredTitles = storage.load('titles', {} as Record<string, string>) as Record<string, string>;

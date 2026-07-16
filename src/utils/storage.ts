@@ -126,6 +126,13 @@ function _updateIndex(): void {
 // ====== 对外接口 — 与旧 storage.js 100% 兼容（同步） ======
 
 /**
+ * 检查存储是否已初始化完成
+ */
+export function isReady(): boolean {
+  return _initialized;
+}
+
+/**
  * 读取数据（同步，读内存缓存）
  */
 export function load(key: string, fallback: unknown = null): unknown {

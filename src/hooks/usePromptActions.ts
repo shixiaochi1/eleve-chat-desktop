@@ -61,14 +61,20 @@ export function usePromptActions({
     if (!next) return;
     isSendingRef.current = true;
 
+    // 🔴 守卫：storage 未初始化完成时，不发消息
+    if (!storage.isReady()) {
+      console.warn('[drainQueue] Storage not ready, waiting...');
+      await storage.init();
+    }
+
     addTimeBadge();
     storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(next)] } as ChatMessage]);
 
     // ── 懒创建 session — 对齐 Eleve createBackendSessionForSend ──
+    // 🔴 修复：drainQueue 也必须 ensureSession，否则 sessionId=null 会导致后端创建新 session
     if (sess.freshDraftReady) {
       await sess.create();
       sess.setFreshDraftReady(false);
-      // 对齐 Eleve: /new <title> 时在懒创建后设置标题
       if (sess.pendingTitle && sess.sessionId) {
         try {
           await setSessionTitle(sess.sessionId, sess.pendingTitle);
@@ -78,6 +84,9 @@ export function usePromptActions({
         }
         sess.setPendingTitle(null);
       }
+    } else if (!sess.sessionId) {
+      // 🔴 修复：排队消息发送前也必须确保有 sessionId
+      await sess.create();
     }
 
     if (sess.sessionId && !sess.titles[sess.sessionId]) {
@@ -130,6 +139,12 @@ export function usePromptActions({
   const handleSend = useCallback(async (text: string) => {
     if (!text.trim()) return;
 
+    // 🔴 守卫：storage 未初始化完成时，不发消息（避免 sessionId=null 导致创建新 session）
+    if (!storage.isReady()) {
+      console.warn('[handleSend] Storage not ready, waiting...');
+      await storage.init();
+    }
+
     // 拦截以 / 开头的消息 → 走命令路径
     if (text.trimStart().startsWith('/')) {
       const cmdPart = text.trimStart().replace(/^\//, '').split(/\s/)[0].toLowerCase();
@@ -180,6 +195,7 @@ export function usePromptActions({
     };
 
     const sessionId = await ensureSession();
+    console.log('[handleSend] sessionId after ensureSession:', sessionId, 'freshDraftReady:', sess.freshDraftReady);
 
     // ── 首次创建 session 后主动触发 WS 连接 ──
     // React useEffect 是异步的，创建 session 后 WS 可能还是 disconnected

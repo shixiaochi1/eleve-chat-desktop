@@ -576,6 +576,7 @@ export function useSSE(callbacks: SSECallbacks = {}): {
 
   const send = useCallback(async (text: string, sessionId?: string | null): Promise<void> => {
     if (!text?.trim()) return;
+    console.log('[useSSE.send] sessionId:', sessionId, 'wsState:', getWsClient().state);
     storeSetIsStreaming(true);
     isStreamingRef.current = true;
 
@@ -635,7 +636,8 @@ export function useSSE(callbacks: SSECallbacks = {}): {
           body: JSON.stringify({
             messages: [{ role: 'user', content: text }],
             stream: true,
-            session_id: sessionId || null,
+            // 🔴 修复：session_id 绝不能为 null，否则后端会创建新 session 导致上下文断裂
+            session_id: sessionId || undefined,
           }),
           signal: controller.signal,
         });
