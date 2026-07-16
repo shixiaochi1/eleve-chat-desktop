@@ -574,7 +574,7 @@ export function useSSE(callbacks: SSECallbacks = {}): {
     };
   }, [routeWsEvent]);
 
-  const send = useCallback(async (text: string, sessionId?: string | null): Promise<void> => {
+  const send = useCallback(async (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string }): Promise<void> => {
     if (!text?.trim()) return;
     console.log('[useSSE.send] sessionId:', sessionId, 'wsState:', getWsClient().state);
     storeSetIsStreaming(true);
@@ -618,14 +618,12 @@ export function useSSE(callbacks: SSECallbacks = {}): {
     wsAccumulatorsRef.current = { fullText: '', fullReasoning: '', pendingTools: {} };
 
     try {
-      const result = await wsClient.promptSubmit(text, sessionId || undefined) as { session_id?: string };
+      const result = await wsClient.promptSubmit(text, sessionId || undefined, modelOpts) as { session_id?: string };
       // 对齐架构原则：后端是 session_id 的唯一权威源
-      // 后端可能在 prompt.submit 中自动创建 session（session_id 为空时）
-      // 前端必须消费返回的 session_id 并更新本地状态
+      // 后端自动创建 session 时返回 session_id，前端消费并更新本地状态
       if (result?.session_id && result.session_id !== sessionId) {
         const newSid = result.session_id;
         storage.save('session_id', newSid);
-        // 通知上层更新 sessionId
         if (cbs?.onSessionCreated) {
           cbs.onSessionCreated(newSid);
         }

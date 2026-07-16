@@ -41,7 +41,7 @@ export function usePromptActions({
   setDebugInfo: React.Dispatch<React.SetStateAction<Record<string, unknown>>>
   addDebugEvent: (type: string, detail: string) => void
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
-  send: (text: string, sessionId?: string | null) => Promise<void>
+  send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string }) => Promise<void>
   abort?: () => Promise<void>
   handleNewSession: (title?: string) => Promise<void>
   /** 对齐 Hermes: UI 选择的模型，传入 session.create 作为 per-session override */
@@ -79,25 +79,9 @@ export function usePromptActions({
     addTimeBadge();
     storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(next)] } as ChatMessage]);
 
-    // ── 懒创建 session — 对齐 Eleve createBackendSessionForSend ──
-    // 🔴 修复：drainQueue 也必须 ensureSession，否则 sessionId=null 会导致后端创建新 session
-    const drainSessionOpts = currentModel ? { model: currentModel, provider: currentProvider } : undefined;
-    if (sess.freshDraftReady) {
-      await sess.create(drainSessionOpts);
-      sess.setFreshDraftReady(false);
-      if (sess.pendingTitle && sess.sessionId) {
-        try {
-          await setSessionTitle(sess.sessionId, sess.pendingTitle);
-          sess.setTitle(sess.sessionId, sess.pendingTitle);
-        } catch (e) {
-          console.warn('[drainQueue] setSessionTitle failed', e);
-        }
-        sess.setPendingTitle(null);
-      }
-    } else if (!sess.sessionId) {
-      // 🔴 修复：排队消息发送前也必须确保有 sessionId
-      await sess.create(drainSessionOpts);
-    }
+    // 对齐架构原则：后端是 session 生命周期权威源，drainQueue 不预创建 session
+    // 直接发 prompt.submit，后端自动处理
+    const modelOpts = currentModel ? { model: currentModel, provider: currentProvider } : undefined;
 
     if (sess.sessionId && !sess.titles[sess.sessionId]) {
       sess.setTitle(sess.sessionId, next.slice(0, 30));
@@ -106,7 +90,7 @@ export function usePromptActions({
     setConnectionStatus('connected');
     setDebugInfo((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: next.slice(0, 40) }));
     addDebugEvent('text', `user: ${next.slice(0, 60)}`);
-    send(next, sess.sessionId as null | undefined);
+    send(next, sess.sessionId as null | undefined, modelOpts);
   }, [sess, addTimeBadge, genId, send, addDebugEvent, setConnectionStatus, setDebugInfo]);
 
   // keep ref fresh for onDone callback
@@ -180,51 +164,22 @@ export function usePromptActions({
     addTimeBadge();
     storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)] } as ChatMessage]);
 
-    // ── 懒创建 session — 对齐 Hermes createBackendSessionForSend ──
-    // Hermes: if (!sessionId) { sessionId = await createBackendSessionForSend() }
-    // 无论 freshDraftReady 还是 sessionId=null，都需要后端 session 才能发消息
-    const ensureSession = async (): Promise<string | null> => {
-      // 对齐 Hermes: 将 UI 选择的模型传入 session.create（per-session override）
-      const sessionOpts = currentModel ? { model: currentModel, provider: currentProvider } : undefined;
-      if (sess.freshDraftReady) {
-        await sess.create(sessionOpts);
-        sess.setFreshDraftReady(false);
-        // 对齐 Hermes: /new <title> 时在懒创建后设置标题
-        if (sess.pendingTitle && sess.sessionId) {
-          try {
-            await setSessionTitle(sess.sessionId, sess.pendingTitle);
-            sess.setTitle(sess.sessionId, sess.pendingTitle);
-          } catch (e) {
-            console.warn('[ensureSession] setSessionTitle failed', e);
-          }
-          sess.setPendingTitle(null);
-        }
-      } else if (!sess.sessionId) {
-        // 对齐 Hermes: 首次安装或无 session 时，发消息前自动创建
-        await sess.create(sessionOpts);
-      }
-      return sess.sessionId;
-    };
-
-    // ── 1. 先确保 WS 已连接（对齐 Hermes Desktop requestGateway）──
-    // Hermes Desktop: requestGateway 自动确保 WS 连上再发 RPC
-    // session.create 也需要 WS，所以 WS 必须先连上
+    // ── 确保 WS 已连接 ──
     const wsClient = getWsClient();
     if (wsClient.state === 'disconnected') {
-      console.log('[handleSend] WS disconnected, triggering reconnect');
       wsClient.connect(undefined);
       await wsClient.waitForConnected(10000);
     } else if (wsClient.state === 'connecting' || wsClient.state === 'reconnecting') {
       await wsClient.waitForConnected(10000);
     }
 
-    // ── 2. WS 连上后再创建/确保 session（对齐 Hermes Desktop）──
-    // Hermes Desktop: createBackendSessionForSend 通过 requestGateway('session.create') 创建
-    // 此时 WS 已连上，session.create RPC 可以正常发送
-    const sessionId = await ensureSession();
-    console.log('[handleSend] sessionId after ensureSession:', sessionId, 'freshDraftReady:', sess.freshDraftReady);
+    // 对齐架构原则：后端是 session 生命周期的唯一权威源
+    // 前端不预创建 session，直接发 prompt.submit
+    // 后端自动创建 session + 应用 model/provider override
+    // 如果有 pendingTitle（/new <title>），在 session 创建后设置
+    const sessionId = sess.sessionId;
+    console.log('[handleSend] sessionId:', sessionId, 'freshDraftReady:', sess.freshDraftReady);
 
-    // 对齐 Hermes: submitInFlight 防重提交
     const submitLockKey = sessionId || '__pending_new__';
     if (_submitInFlight.has(submitLockKey)) {
       console.warn('[handleSend] submitInFlight guard: already submitting for', submitLockKey);
@@ -237,14 +192,31 @@ export function usePromptActions({
       sess.setTitle(sessionId, text.slice(0, 30));
     }
 
+    // 对齐架构原则：model/provider 直接传 prompt.submit，后端应用
+    const modelOpts = currentModel ? { model: currentModel, provider: currentProvider } : undefined;
+
     setConnectionStatus('connected');
     setDebugInfo((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: text.slice(0, 40) }));
     addDebugEvent('text', `user: ${text.slice(0, 60)}`);
 
     try {
-      await send(text, sessionId as null | undefined);
+      await send(text, sessionId as null | undefined, modelOpts);
     } finally {
       _submitInFlight.delete(submitLockKey);
+    }
+
+    // 处理 /new <title> — session 创建后设置标题
+    if (sess.pendingTitle && sess.sessionId) {
+      try {
+        await setSessionTitle(sess.sessionId, sess.pendingTitle);
+        sess.setTitle(sess.sessionId, sess.pendingTitle);
+      } catch (e) {
+        console.warn('[handleSend] setSessionTitle failed', e);
+      }
+      sess.setPendingTitle(null);
+    }
+    if (sess.freshDraftReady) {
+      sess.setFreshDraftReady(false);
     }
   }, [sess, addTimeBadge, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, setDebugInfo]);
 

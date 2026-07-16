@@ -214,7 +214,15 @@ export default function App() {
     handleNewSession,
     // 对齐 Hermes: UI 选择的模型传入 session.create（per-session override）
     currentModel: modelDiscovery.selectedModel || monitorState.modelName || undefined,
-    currentProvider: undefined, // TODO: 从 modelDiscovery 提取 provider
+    currentProvider: (() => {
+      // 从 grouped 反查 selectedModel 的 provider
+      const sel = modelDiscovery.selectedModel || monitorState.modelName;
+      if (!sel || !modelDiscovery.grouped) return undefined;
+      for (const [pid, group] of Object.entries(modelDiscovery.grouped)) {
+        if (group.models?.some((m: any) => m.id === sel)) return pid;
+      }
+      return undefined;
+    })(),
   });
 
   // Wire up drainQueueRef after drainQueue is created

@@ -121,7 +121,7 @@ export function useMessageStream({
   setSessionListVersion,
 }: UseMessageStreamProps): {
   isStreaming: boolean
-  send: (text: string, sessionId?: string | null) => Promise<void>
+  send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string }) => Promise<void>
   abort: () => Promise<void>
 } {
   // ── Stream ID — same as Eleve: one unique ID per streaming turn ──

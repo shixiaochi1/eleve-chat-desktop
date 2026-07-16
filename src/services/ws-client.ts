@@ -436,10 +436,14 @@ export class GatewayWsClient {
   // ── 便捷方法 ──
 
   /** 发送 prompt — 对齐 Eleve prompt.submit（参数 text） */
-  async promptSubmit(text: string, sessionId?: string): Promise<unknown> {
+  async promptSubmit(text: string, sessionId?: string, options?: { model?: string; provider?: string }): Promise<unknown> {
     return this.sendRpc('prompt.submit', {
       session_id: sessionId || this.sessionId || '',
-      text,  // 对齐后端 Phase 3: message → text
+      text,
+      // 对齐架构原则：后端是 session 生命周期权威源
+      // model/provider 直接传给 prompt.submit，后端自动创建 session 时应用
+      model: options?.model || '',
+      provider: options?.provider || '',
     })
   }
 
