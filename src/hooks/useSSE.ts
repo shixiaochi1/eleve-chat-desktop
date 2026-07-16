@@ -1,5 +1,4 @@
 import { useRef, useCallback, useEffect } from 'react';
-import { getApiBase } from '../utils/api';
 import { call } from '../utils/bridge';
 import { useIsStreaming, setIsStreaming as storeSetIsStreaming } from '@/store/messages';
 import { getWsClient } from '@/services/ws-client';
@@ -507,7 +506,6 @@ export function useSSE(callbacks: SSECallbacks = {}): {
   abort: () => Promise<void>
 } {
   const isStreaming = useIsStreaming();
-  const controllerRef = useRef<AbortController | null>(null);
   const currentSessionRef = useRef<string | null>(null);
   const isStreamingRef = useRef(false);
   const cbsRef = useRef<SSECallbacks>(callbacks);
@@ -545,7 +543,6 @@ export function useSSE(callbacks: SSECallbacks = {}): {
     if (result === 'done' || result === 'error') {
       storeSetIsStreaming(false);
       isStreamingRef.current = false;
-      controllerRef.current = null;
     }
   }, []);
 
@@ -587,229 +584,42 @@ export function useSSE(callbacks: SSECallbacks = {}): {
 
     // ── WS 优先：通过 JSON-RPC prompt.submit 发送 ──
     const wsClient = getWsClient();
-    // 对齐 Hermes: 首次发消息时 session 刚创建，WS 可能还在连接中
-    // 等待最多 2 秒让 WS 连上，避免走 HTTP 降级（SSE 格式不兼容）
-    if (wsClient.state !== 'connected' && wsClient.state !== 'disconnected') {
-      const connected = await wsClient.waitForConnected(2000);
-      if (connected) {
-        console.log('[useSSE] WS connected after waiting, using WS path');
-      }
-    }
-    if (wsClient.state === 'connected') {
-      // 重置 WS 累加器
-      wsAccumulatorsRef.current = { fullText: '', fullReasoning: '', pendingTools: {} };
-
-      try {
-        await wsClient.promptSubmit(text, sessionId || undefined);
-        return; // WS 发送成功，事件通过 routeWsEvent 回调
-      } catch (wsErr) {
-        console.warn('[useSSE] WS prompt.submit failed, falling back to SSE:', wsErr);
-        // 降级到 HTTP SSE
-      }
-    }
-
-    // ── 降级：HTTP SSE ──
-    const accumulators: SSEAccumulators = {
-      fullText: '',
-      fullReasoning: '',
-      pendingTools: {},
-    };
-
-    const MAX_RETRIES = 3;
-    const SSE_IDLE_TIMEOUT_MS = 60_000;
-    const SSE_TOTAL_TIMEOUT_MS = 600_000;
-    let attempt = 0;
-    const controller = new AbortController();
-    controllerRef.current = controller;
-
-    while (attempt <= MAX_RETRIES) {
-      // Reset accumulators on retry
-      accumulators.fullText = '';
-      accumulators.fullReasoning = '';
-      accumulators.pendingTools = {};
-
-      try {
-        const apiBase = getApiBase();
-        const resp = await fetch(`${apiBase}/v1/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages: [{ role: 'user', content: text }],
-            stream: true,
-            // 🔴 修复：session_id 绝不能为 null，否则后端会创建新 session 导致上下文断裂
-            session_id: sessionId || undefined,
-          }),
-          signal: controller.signal,
-        });
-
-        if (!resp.ok) {
-          // 人性化错误消息
-          let userMsg: string;
-          switch (resp.status) {
-            case 401:
-              userMsg = 'API Key 无效或未配置，请在设置中检查';
-              break;
-            case 403:
-              userMsg = '访问被拒绝，请检查 API Key 权限';
-              break;
-            case 404:
-              userMsg = '模型不存在或 API 地址不正确';
-              break;
-            case 429:
-              userMsg = '请求过于频繁，请稍后再试';
-              break;
-            case 500:
-            case 502:
-            case 503:
-              userMsg = '服务端错误，请稍后重试';
-              break;
-            default:
-              userMsg = `请求失败 (HTTP ${resp.status})`;
-          }
-          throw new Error(userMsg);
-        }
-        if (!resp.body) throw new Error('不支持流式响应');
-
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let lastEventName = '';
-        let eventCount = 0;
-        let doneReceived = false;
-        let lastDataTime = Date.now();
-        const streamStartTime = Date.now();
-
-        while (true) {
-          const readPromise = reader.read();
-          const idleDeadline = Date.now() + SSE_IDLE_TIMEOUT_MS;
-          const timeoutPromise = new Promise<never>((_, reject) => {
-            const remaining = Math.min(
-              idleDeadline - Date.now(),
-              streamStartTime + SSE_TOTAL_TIMEOUT_MS - Date.now()
-            );
-            if (remaining <= 0) {
-              reject(new Error('SSE stream timeout'));
-              return;
-            }
-            setTimeout(() => reject(new Error(
-              Date.now() - lastDataTime > SSE_IDLE_TIMEOUT_MS
-                ? 'SSE idle timeout (60s no data)'
-                : 'SSE total timeout (10min limit)'
-            )), remaining);
-          });
-
-          let readResult: ReadableStreamReadResult<Uint8Array>;
-          try {
-            readResult = await Promise.race([readPromise, timeoutPromise]);
-          } catch (timeoutErr) {
-            controller.abort();
-            cbs.onError?.((timeoutErr as Error).message);
-            break;
-          }
-
-          const { done, value } = readResult;
-          if (done) {
-            buffer += decoder.decode();
-            break;
-          }
-          lastDataTime = Date.now();
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-            if (trimmed.startsWith('event:')) {
-              lastEventName = trimmed.slice(6).trim();
-              continue;
-            }
-            if (!trimmed.startsWith('data:')) continue;
-            const dataStr = trimmed.slice(5).trim();
-            eventCount++;
-
-            // 防御: 空 data 行
-            if (!dataStr) continue;
-
-            try {
-              const chunk = JSON.parse(dataStr);
-
-              // ── OpenAI SSE 格式兼容（SSE 降级路径）──
-              // chat/completions 返回 OpenAI 格式（无 event: 行），
-              // 需要转换为 Eleve 标准事件名才能被 processEvent 处理
-              let effectiveEventName = lastEventName;
-              let effectiveChunk = chunk;
-              if (!effectiveEventName && chunk.object === 'chat.completion.chunk') {
-                const choice = chunk.choices?.[0];
-                if (choice?.finish_reason === 'stop') {
-                  effectiveEventName = 'message.complete';
-                  effectiveChunk = { completed: true };
-                } else if (choice?.delta?.role === 'assistant') {
-                  // role chunk — 忽略，不需要处理
-                  lastEventName = '';
-                  continue;
-                } else if (choice?.delta?.content != null) {
-                  effectiveEventName = 'message.delta';
-                  effectiveChunk = { delta: choice.delta.content };
-                } else if (choice?.delta?.reasoning_content != null) {
-                  effectiveEventName = 'reasoning.delta';
-                  effectiveChunk = { text: choice.delta.reasoning_content };
-                }
-              }
-
-              // ── 统一路由 ──
-              const result = processEvent(effectiveEventName, effectiveChunk, accumulators, cbs);
-
-              if (result === 'done' || result === 'error') {
-                if (result === 'done') doneReceived = true;
-                storeSetIsStreaming(false);
-                isStreamingRef.current = false;
-                controllerRef.current = null;
-                return;
-              }
-              lastEventName = '';
-            } catch (e) {
-              console.warn(`[SSE] JSON parse error: ${(e as Error).message}`);
-            }
-          }
-        }
-
-        // Stream ended naturally — 可能未收到 done
-        if (!doneReceived) {
-          cbs.onDone?.(null);
-        }
+    // 对齐 Hermes TUI：WS only，无 HTTP 降级
+    // Hermes TUI WS 断了就等重连，不降级走 HTTP（HTTP 路径 session_id 不可靠，导致上下文断裂）
+    if (wsClient.state !== 'connected') {
+      // 等待最多 5 秒让 WS 连上
+      const connected = await wsClient.waitForConnected(5000);
+      if (!connected) {
+        console.error('[useSSE] WS not connected after waiting, cannot send (align Hermes: no HTTP fallback)');
         storeSetIsStreaming(false);
         isStreamingRef.current = false;
-        controllerRef.current = null;
-        return;
-      } catch (err) {
-        if ((err as Error).name === 'AbortError') break;
-        attempt++;
-        if (attempt > MAX_RETRIES) {
-          const errMsg = (err as Error).message || '';
-          let userMsg: string;
-          if (errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError') || errMsg.includes('ECONNREFUSED') || errMsg.includes('fetch failed')) {
-            userMsg = '无法连接 Agent 服务，请检查是否已配置 API Key 和主模型';
-          } else if (errMsg.includes('API Key') || errMsg.includes('无效')) {
-            userMsg = errMsg;
-          } else {
-            userMsg = errMsg || '连接失败，请检查配置';
-          }
-          cbs.onError?.(userMsg);
-          break;
+        // 通知用户
+        if (cbs?.onError) {
+          cbs.onError('连接断开，正在重连，请稍后重试');
         }
-        const delay = Math.pow(2, attempt - 1) * 1000;
-        cbs.onError?.(`连接失败，${delay / 1000}s 后重试 (${attempt}/${MAX_RETRIES})…`);
-        await new Promise((r) => setTimeout(r, delay));
+        return;
       }
     }
 
-    storeSetIsStreaming(false);
-    isStreamingRef.current = false;
+    // 重置 WS 累加器
+    wsAccumulatorsRef.current = { fullText: '', fullReasoning: '', pendingTools: {} };
+
+    try {
+      await wsClient.promptSubmit(text, sessionId || undefined);
+      return; // WS 发送成功，事件通过 routeWsEvent 回调
+    } catch (wsErr) {
+      console.error('[useSSE] WS prompt.submit failed:', wsErr);
+      storeSetIsStreaming(false);
+      isStreamingRef.current = false;
+      if (cbs?.onError) {
+        cbs.onError(`发送失败: ${(wsErr as Error).message}`);
+      }
+      return;
+    }
   }, []);
 
   const abort = useCallback(async () => {
-    // ── WS 优先：JSON-RPC abort ──
+    // ── WS only：对齐 Hermes TUI，无 HTTP 降级 ──
     const wsClient = getWsClient();
     if (wsClient.state === 'connected') {
       try {
@@ -817,19 +627,7 @@ export function useSSE(callbacks: SSECallbacks = {}): {
       } catch { /* ignore */ }
     }
 
-    // 中止 HTTP SSE 流（降级路径）
-    if (controllerRef.current) {
-      controllerRef.current.abort();
-      controllerRef.current = null;
-    }
-    // 通知后端中止（SSE 路径）
-    const sid = currentSessionRef.current;
-    if (sid) {
-      try {
-        await call('abort_chat', { session_id: sid });
-      } catch { /* ignore */ }
-      currentSessionRef.current = null;
-    }
+    currentSessionRef.current = null;
     storeSetIsStreaming(false);
     isStreamingRef.current = false;
 
