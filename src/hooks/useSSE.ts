@@ -582,18 +582,30 @@ export function useSSE(callbacks: SSECallbacks = {}): {
 
     const cbs = cbsRef.current;
 
-    // ── WS 优先：通过 JSON-RPC prompt.submit 发送 ──
+    // ── WS only：对齐 Hermes TUI，无 HTTP 降级 ──
+    // Hermes Desktop 做法参考 (use-gateway-request.ts):
+    //   1. WS 断了 → 先重连 (ensureGatewayOpen)
+    //   2. 重连成功 → 重试请求
+    //   3. 重连失败 → 才报错
     const wsClient = getWsClient();
-    // 对齐 Hermes TUI：WS only，无 HTTP 降级
-    // Hermes TUI WS 断了就等重连，不降级走 HTTP（HTTP 路径 session_id 不可靠，导致上下文断裂）
     if (wsClient.state !== 'connected') {
-      // 等待最多 5 秒让 WS 连上
-      const connected = await wsClient.waitForConnected(5000);
+      // 对齐 Hermes Desktop use-gateway-request.ts:
+      // WS 断了 → 先触发重连，而不是等
+      if (wsClient.state === 'disconnected' && sessionId) {
+        // 主动重连
+        console.log('[useSSE] WS disconnected, triggering reconnect for session:', sessionId.slice(0, 8));
+        wsClient.connect(sessionId, {
+          onOpen: () => console.log('[useSSE] WS reconnected'),
+          onClose: (code, reason) => console.log('[useSSE] WS closed:', code, reason),
+          onError: (err) => console.error('[useSSE] WS error:', err),
+        });
+      }
+      // 等待重连完成（最多 10 秒）
+      const connected = await wsClient.waitForConnected(10000);
       if (!connected) {
-        console.error('[useSSE] WS not connected after waiting, cannot send (align Hermes: no HTTP fallback)');
+        console.error('[useSSE] WS not connected after waiting 10s');
         storeSetIsStreaming(false);
         isStreamingRef.current = false;
-        // 通知用户
         if (cbs?.onError) {
           cbs.onError('连接断开，正在重连，请稍后重试');
         }
