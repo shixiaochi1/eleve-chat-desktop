@@ -352,8 +352,8 @@ export default function App() {
 
     const wsClient = getWsClient();
     if (wsClient.state === 'disconnected') {
-      console.log('[App] Initiating WS connection (align Hermes: no session_id required)');
-      wsClient.connect(sess.sessionId || undefined, {
+      console.log('[App] Initiating WS connection (align Hermes: no session_id in URL)');
+      wsClient.connect(undefined, {
         onOpen: () => console.log('[App] WS connected'),
         onClose: (code, reason) => console.log('[App] WS closed:', code, reason),
         onError: (err) => console.error('[App] WS error:', err),

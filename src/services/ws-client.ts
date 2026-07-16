@@ -125,21 +125,17 @@ export class GatewayWsClient {
   // ── 连接管理 ──
 
   connect(sessionId?: string, callbacks?: WsConnectionCallbacks): void {
-    // 对齐 Hermes Desktop: WS 连接不依赖 session_id
+    // 对齐 Hermes Desktop: WS 连接不传 session_id
     // Hermes Desktop: gateway.connect(wsUrl) — URL 里没有 session_id
-    // Session 是连接建立后通过 WS RPC 管理的
+    // Session 是连接建立后通过 WS RPC (prompt.submit 的 session_id 参数) 管理的
     this.sessionId = sessionId ?? null
     this.connCallbacks = callbacks ?? null
     this.intentionallyClosed = false
 
     const httpBase = getApiBase()
-    // http://127.0.0.1:3001 → ws://127.0.0.1:3001/api/ws
-    // 对齐后端路由: .route("/api/ws", get(ws_handler))
     const wsBase = httpBase.replace(/^http/, 'ws')
-    // session_id 是可选的 — 后端 handle_ws 对空 session_id 也能正常建立连接
-    this.url = sessionId
-      ? `${wsBase}/api/ws?session_id=${encodeURIComponent(sessionId)}`
-      : `${wsBase}/api/ws`
+    // 对齐 Hermes: WS URL 不带 session_id，纯连接
+    this.url = `${wsBase}/api/ws`
 
     this.doConnect()
   }
@@ -157,9 +153,8 @@ export class GatewayWsClient {
     // 重连时重新获取 URL（端口可能因 eleved 重启而变化）
     const httpBase = getApiBase()
     const wsBase = httpBase.replace(/^http/, 'ws')
-    this.url = this.sessionId
-      ? `${wsBase}/api/ws?session_id=${encodeURIComponent(this.sessionId)}`
-      : `${wsBase}/api/ws`
+    // 对齐 Hermes: WS URL 不带 session_id
+    this.url = `${wsBase}/api/ws`
 
     this.setState(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting')
 

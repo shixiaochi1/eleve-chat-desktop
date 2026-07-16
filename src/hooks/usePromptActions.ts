@@ -204,7 +204,7 @@ export function usePromptActions({
     const wsClient = getWsClient();
     if (wsClient.state === 'disconnected') {
       console.log('[handleSend] WS disconnected, triggering reconnect');
-      wsClient.connect(sessionId || undefined);
+      wsClient.connect(undefined);
       await wsClient.waitForConnected(10000);
     } else if (wsClient.state === 'connecting' || wsClient.state === 'reconnecting') {
       await wsClient.waitForConnected(10000);

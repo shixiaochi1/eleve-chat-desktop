@@ -589,12 +589,10 @@ export function useSSE(callbacks: SSECallbacks = {}): {
     //   3. 重连失败 → 才报错
     const wsClient = getWsClient();
     if (wsClient.state !== 'connected') {
-      // 对齐 Hermes Desktop use-gateway-request.ts:
-      // WS 断了 → 先触发重连，而不是等
-      if (wsClient.state === 'disconnected' && sessionId) {
-        // 主动重连
-        console.log('[useSSE] WS disconnected, triggering reconnect for session:', sessionId.slice(0, 8));
-        wsClient.connect(sessionId, {
+      // 对齐 Hermes Desktop: WS 重连不传 session_id
+      if (wsClient.state === 'disconnected') {
+        console.log('[useSSE] WS disconnected, triggering reconnect');
+        wsClient.connect(undefined, {
           onOpen: () => console.log('[useSSE] WS reconnected'),
           onClose: (code, reason) => console.log('[useSSE] WS closed:', code, reason),
           onError: (err) => console.error('[useSSE] WS error:', err),
