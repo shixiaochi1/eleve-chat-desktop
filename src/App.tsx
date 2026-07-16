@@ -266,11 +266,10 @@ export default function App() {
         if (restoredId && restoredId !== sess.sessionId) {
           sess.setSessionId(restoredId);
         }
-        // 🔴 对齐 Hermes TUI：启动时必须有 session，否则 WS 无法连接
-        // Hermes TUI 在 WS 连接时自动创建 session，Eleve 在前端创建
-        if (!restoredId && !sess.sessionId) {
-          console.log('[App] No session_id found, creating default session (align Hermes TUI)');
-          await sess.create();
+        // 对齐 Hermes Desktop: 不在启动时自动创建 session
+        // Hermes Desktop: session 在用户发消息时通过 session.create RPC 创建
+        if (false && !restoredId && !sess.sessionId) {
+          // 已删除：不再在启动时创建 session
         }
         const restoredCache = storage.load('msg_cache', {} as Record<string, ChatMessage[]>) as Record<string, ChatMessage[]>;
         const restoredTitles = storage.load('titles', {} as Record<string, string>) as Record<string, string>;
@@ -317,10 +316,10 @@ export default function App() {
         if (restoredId && restoredId !== sess.sessionId) {
           sess.setSessionId(restoredId);
         }
-        // 🔴 对齐 Hermes TUI：启动时必须有 session
-        if (!restoredId && !sess.sessionId) {
-          console.log('[App] No session_id found, creating default session (align Hermes TUI)');
-          await sess.create();
+        // 对齐 Hermes Desktop: 不在启动时自动创建 session
+        // Hermes Desktop: session 在用户发消息时通过 session.create RPC 创建
+        if (false && !restoredId && !sess.sessionId) {
+          // 已删除：不再在启动时创建 session
         }
         const restoredCache = storage.load('msg_cache', {} as Record<string, ChatMessage[]>) as Record<string, ChatMessage[]>;
         const restoredTitles = storage.load('titles', {} as Record<string, string>) as Record<string, string>;

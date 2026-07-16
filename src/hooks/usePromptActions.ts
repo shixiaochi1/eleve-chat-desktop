@@ -194,13 +194,9 @@ export function usePromptActions({
       return sess.sessionId;
     };
 
-    const sessionId = await ensureSession();
-    console.log('[handleSend] sessionId after ensureSession:', sessionId, 'freshDraftReady:', sess.freshDraftReady);
-
-    // ── 确保 WS 已连接 ──
-    // 对齐 Hermes Desktop: WS 连接不依赖 session_id
-    // WS 在 App.tsx 的 useEffect([portReady]) 中已建立
-    // 如果 WS 断了（如保存配置后），这里主动触发重连
+    // ── 1. 先确保 WS 已连接（对齐 Hermes Desktop requestGateway）──
+    // Hermes Desktop: requestGateway 自动确保 WS 连上再发 RPC
+    // session.create 也需要 WS，所以 WS 必须先连上
     const wsClient = getWsClient();
     if (wsClient.state === 'disconnected') {
       console.log('[handleSend] WS disconnected, triggering reconnect');
@@ -209,6 +205,12 @@ export function usePromptActions({
     } else if (wsClient.state === 'connecting' || wsClient.state === 'reconnecting') {
       await wsClient.waitForConnected(10000);
     }
+
+    // ── 2. WS 连上后再创建/确保 session（对齐 Hermes Desktop）──
+    // Hermes Desktop: createBackendSessionForSend 通过 requestGateway('session.create') 创建
+    // 此时 WS 已连上，session.create RPC 可以正常发送
+    const sessionId = await ensureSession();
+    console.log('[handleSend] sessionId after ensureSession:', sessionId, 'freshDraftReady:', sess.freshDraftReady);
 
     if (sessionId && !sess.titles[sessionId]) {
       sess.setTitle(sessionId, text.slice(0, 30));

@@ -311,12 +311,13 @@ export class GatewayWsClient {
 
       // WS 正在连接/重连中：排队等待
       if (this._state === 'connecting' || this._state === 'reconnecting') {
+        const timeoutMs = method === 'prompt.submit' ? 1_800_000 : 60_000
         const timer = setTimeout(() => {
           // 超时：从队列移除并 reject
           const idx = this.pendingQueue.findIndex(e => e.method === method && e.resolve === resolve)
           if (idx >= 0) this.pendingQueue.splice(idx, 1)
           reject(new RpcError(`RPC timeout waiting for connection: ${method}`, -1))
-        }, 30000)
+        }, timeoutMs)
         this.pendingQueue.push({ method, params, resolve, reject, timer })
         return
       }
@@ -333,12 +334,13 @@ export class GatewayWsClient {
     this.pendingRpc.set(id, { resolve, reject })
     this.ws!.send(JSON.stringify(msg))
 
-    // 超时 30s
+    // 对齐 Hermes: prompt.submit 1800s（30分钟），其他 60s
+    const timeoutMs = method === 'prompt.submit' ? 1_800_000 : 60_000
     setTimeout(() => {
       if (this.pendingRpc.delete(id)) {
         reject(new RpcError(`RPC timeout: ${method}`, -1))
       }
-    }, 30000)
+    }, timeoutMs)
   }
 
   /** WS 连接成功后 flush 排队的 RPC 请求 */
