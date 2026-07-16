@@ -3,10 +3,16 @@
  *
  * 7 套预设主题 + 自定义颜色覆盖
  * 用户选择预设主题后可逐变量调颜色，自定义颜色覆盖预设值
+ *
+ * 🔴 Config 架构 V2.0：皮肤持久化真相源是 config.yaml (display.skin)
+ * localStorage + Tauri storage 是即时缓存（避免闪烁）
+ * setTheme 同时写缓存 + 后端 config.set("display.skin")
+ * 启动时优先从后端 config.get("display.skin") 读初始值
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import * as storage from '../utils/storage'
+import { call } from '../utils/bridge'
 
 import { BUILTIN_THEME_LIST, BUILTIN_THEMES, DEFAULT_SKIN_NAME, DEFAULT_TYPOGRAPHY, nousTheme } from './presets'
 import type { DesktopTheme, DesktopThemeColors } from './types'
@@ -74,6 +80,9 @@ function loadThemeName(): string {
 function saveThemeName(name: string): void {
   localStorage.setItem(SKIN_KEY, name)
   storage.save(SKIN_KEY, name)
+  // 🔴 Config 架构 V2.0：同步写后端 config.yaml (display.skin)
+  // 火即发，不 await（不阻塞 UI，失败静默——localStorage 已保证即时生效）
+  call('update_config', { config: { display: { skin: name } } }).catch(() => {})
 }
 
 // ─── CSS 注入 ───────────────────────────────────────────────────────────────
@@ -264,6 +273,26 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     typeof window === 'undefined' ? {} : loadCustomColors()
   )
 
+  // 🔴 Config 架构 V2.0：启动时从后端 config.yaml display.skin 同步皮肤
+  // 后端是持久化真相源，localStorage 是即时缓存
+  // 只在首次加载时同步一次（后端皮肤覆盖本地缓存）
+  const [backendSynced, setBackendSynced] = useState(false)
+  useEffect(() => {
+    if (backendSynced) return
+    call('get_config', {}).then((cfg: Record<string, unknown>) => {
+      const display = cfg?.display as Record<string, unknown> | undefined
+      const skin = display?.skin as string | undefined
+      if (skin && BUILTIN_THEMES[skin]) {
+        const local = normalizeSkin(loadThemeName())
+        if (local !== skin) {
+          setThemeNameState(skin)
+          saveThemeName(skin)
+        }
+      }
+      setBackendSynced(true)
+    }).catch(() => { setBackendSynced(true) })
+  }, [backendSynced])
+
   const baseTheme = useMemo(() => BUILTIN_THEMES[themeName] ?? nousTheme, [themeName])
 
   // 合并后的主题（预设 + 自定义覆盖）
@@ -325,6 +354,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 export const useTheme = () => useContext(ThemeContext)
 
 /** @deprecated 保留兼容 */
-export function useSyncThemeFromBackend(_backendThemeName: string | null | undefined, _setTheme: (name: string) => void) {
-  // no-op
+export function useSyncThemeFromBackend(backendThemeName: string | null | undefined, setTheme: (name: string) => void) {
+  // 🔴 Config 架构 V2.0：从后端 config.yaml display.skin 同步皮肤
+  // 当后端皮肤名和前端不同时，以后端为准（后端是持久化真相源）
+  useEffect(() => {
+    if (backendThemeName && BUILTIN_THEMES[backendThemeName]) {
+      const local = normalizeSkin(loadThemeName())
+      if (local !== backendThemeName) {
+        setTheme(backendThemeName)
+      }
+    }
+  }, [backendThemeName, setTheme])
 }
