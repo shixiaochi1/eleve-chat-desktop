@@ -16,8 +16,12 @@ export async function fetchSessions(): Promise<any[]> {
   return [];
 }
 
-export async function createSession(): Promise<any> {
-  return call('create_session', {});
+export async function createSession(options?: { model?: string; provider?: string }): Promise<any> {
+  // 对齐 Hermes: createBackendSessionForSend 传 model/provider → per-session override
+  return call('create_session', {
+    ...(options?.model ? { model: options.model } : {}),
+    ...(options?.provider ? { provider: options.provider } : {}),
+  });
 }
 
 /** 重置当前会话（对齐 Eleve reset_session：新 ID + 清消息 + 保留记忆） */

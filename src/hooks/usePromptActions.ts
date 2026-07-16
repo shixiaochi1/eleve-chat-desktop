@@ -7,6 +7,10 @@ import { getWsClient } from '../services/ws-client';
 import type { ChatMessage } from '@/types'
 import type { SessionManagerHandle } from './useMessageStream';
 
+// 对齐 Hermes: Hard guard — at most one prompt.submit in flight per session
+// 防止快速双击或 stall turn 导致同一个 session 多个 turn 同时运行
+const _submitInFlight = new Set<string>()
+
 /**
  * usePromptActions — send/regenerate/abort/queue logic
  *
@@ -27,6 +31,8 @@ export function usePromptActions({
   send,
   abort,
   handleNewSession,
+  currentModel,
+  currentProvider,
 }: {
   sess: SessionManagerHandle
   addTimeBadge: () => void
@@ -38,6 +44,9 @@ export function usePromptActions({
   send: (text: string, sessionId?: string | null) => Promise<void>
   abort?: () => Promise<void>
   handleNewSession: (title?: string) => Promise<void>
+  /** 对齐 Hermes: UI 选择的模型，传入 session.create 作为 per-session override */
+  currentModel?: string
+  currentProvider?: string
 }): {
   handleSend: (text: string) => void
   handleAbort: () => void
@@ -72,8 +81,9 @@ export function usePromptActions({
 
     // ── 懒创建 session — 对齐 Eleve createBackendSessionForSend ──
     // 🔴 修复：drainQueue 也必须 ensureSession，否则 sessionId=null 会导致后端创建新 session
+    const drainSessionOpts = currentModel ? { model: currentModel, provider: currentProvider } : undefined;
     if (sess.freshDraftReady) {
-      await sess.create();
+      await sess.create(drainSessionOpts);
       sess.setFreshDraftReady(false);
       if (sess.pendingTitle && sess.sessionId) {
         try {
@@ -86,7 +96,7 @@ export function usePromptActions({
       }
     } else if (!sess.sessionId) {
       // 🔴 修复：排队消息发送前也必须确保有 sessionId
-      await sess.create();
+      await sess.create(drainSessionOpts);
     }
 
     if (sess.sessionId && !sess.titles[sess.sessionId]) {
@@ -174,8 +184,10 @@ export function usePromptActions({
     // Hermes: if (!sessionId) { sessionId = await createBackendSessionForSend() }
     // 无论 freshDraftReady 还是 sessionId=null，都需要后端 session 才能发消息
     const ensureSession = async (): Promise<string | null> => {
+      // 对齐 Hermes: 将 UI 选择的模型传入 session.create（per-session override）
+      const sessionOpts = currentModel ? { model: currentModel, provider: currentProvider } : undefined;
       if (sess.freshDraftReady) {
-        await sess.create();
+        await sess.create(sessionOpts);
         sess.setFreshDraftReady(false);
         // 对齐 Hermes: /new <title> 时在懒创建后设置标题
         if (sess.pendingTitle && sess.sessionId) {
@@ -189,7 +201,7 @@ export function usePromptActions({
         }
       } else if (!sess.sessionId) {
         // 对齐 Hermes: 首次安装或无 session 时，发消息前自动创建
-        await sess.create();
+        await sess.create(sessionOpts);
       }
       return sess.sessionId;
     };
@@ -212,6 +224,15 @@ export function usePromptActions({
     const sessionId = await ensureSession();
     console.log('[handleSend] sessionId after ensureSession:', sessionId, 'freshDraftReady:', sess.freshDraftReady);
 
+    // 对齐 Hermes: submitInFlight 防重提交
+    const submitLockKey = sessionId || '__pending_new__';
+    if (_submitInFlight.has(submitLockKey)) {
+      console.warn('[handleSend] submitInFlight guard: already submitting for', submitLockKey);
+      isSendingRef.current = false;
+      return;
+    }
+    _submitInFlight.add(submitLockKey);
+
     if (sessionId && !sess.titles[sessionId]) {
       sess.setTitle(sessionId, text.slice(0, 30));
     }
@@ -219,7 +240,12 @@ export function usePromptActions({
     setConnectionStatus('connected');
     setDebugInfo((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: text.slice(0, 40) }));
     addDebugEvent('text', `user: ${text.slice(0, 60)}`);
-    send(text, sessionId as null | undefined);
+
+    try {
+      await send(text, sessionId as null | undefined);
+    } finally {
+      _submitInFlight.delete(submitLockKey);
+    }
   }, [sess, addTimeBadge, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, setDebugInfo]);
 
   // ── abort streaming ──

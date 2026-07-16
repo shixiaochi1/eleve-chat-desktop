@@ -212,6 +212,9 @@ export default function App() {
     send,
     abort,
     handleNewSession,
+    // 对齐 Hermes: UI 选择的模型传入 session.create（per-session override）
+    currentModel: modelDiscovery.selectedModel || monitorState.modelName || undefined,
+    currentProvider: undefined, // TODO: 从 modelDiscovery 提取 provider
   });
 
   // Wire up drainQueueRef after drainQueue is created

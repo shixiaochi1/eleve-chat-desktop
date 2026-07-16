@@ -16,7 +16,7 @@ export function useSessions(): {
   pendingTitle: string | null
   setPendingTitle: React.Dispatch<React.SetStateAction<string | null>>
   refresh: () => Promise<void>
-  create: () => Promise<void>
+  create: (options?: { model?: string; provider?: string }) => Promise<void>
   reset: () => Promise<void>
   remove: (id: string) => Promise<void>
   switchTo: (id: string) => void
@@ -63,9 +63,9 @@ export function useSessions(): {
   }, [refresh]);
 
   // ── CRUD ──
-  const create = useCallback(async (): Promise<void> => {
+  const create = useCallback(async (options?: { model?: string; provider?: string }): Promise<void> => {
     try {
-      const data = await api.createSession() as { session_id?: string; id?: string };
+      const data = await api.createSession(options) as { session_id?: string; id?: string };
       if (data?.session_id || data?.id) {
         const newId = data.session_id || data.id!;
         setSessionId(newId);
