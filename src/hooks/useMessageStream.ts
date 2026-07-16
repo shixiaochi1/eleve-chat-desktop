@@ -684,6 +684,22 @@ export function useMessageStream({
       });
     },
 
+    // 对齐架构原则：后端是 session_id 唯一权威源
+    // 后端在 prompt.submit 中自动创建 session 时通知前端更新
+    onSessionCreated: (newSessionId: string) => {
+      addDebugEvent('session_created', `new: ${newSessionId?.slice(0, 8)}`);
+      sess.setSessionId(newSessionId);
+      storage.save('session_id', newSessionId);
+      if (setSessionListVersion) setSessionListVersion(v => v + 1);
+      setDebugInfo((prev) => ({ ...prev, sessionId: newSessionId, sessionStartedAt: Date.now() }));
+      import('@/services/ws-client').then(({ getWsClient }) => {
+        const wsClient = getWsClient();
+        if (wsClient.state === 'connected') {
+          wsClient.switchSession(newSessionId);
+        }
+      });
+    },
+
     // ── Run completed — aligned with Eleve session.info(running=false) ──
     // Eleve doesn't explicitly handle run.completed in handleGatewayEvent,
     // but the event carries usage data. Process it here for stats tracking.

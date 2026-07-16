@@ -2,6 +2,7 @@ import { useRef, useCallback, useEffect } from 'react';
 import { call } from '../utils/bridge';
 import { useIsStreaming, setIsStreaming as storeSetIsStreaming } from '@/store/messages';
 import { getWsClient } from '@/services/ws-client';
+import * as storage from '../utils/storage';
 
 // ── SSE callback types ──
 
@@ -106,6 +107,8 @@ export interface SSECallbacks {
   }) => void
   onDone?: (sessionId: string | null) => void
   onError?: (msg: string) => void
+  /** 后端自动创建 session 后通知前端更新 sessionId（架构原则：后端是权威源） */
+  onSessionCreated?: (newSessionId: string) => void
   onReasoningComplete?: (reasoning: string) => void
   onSessionReset?: (data: { old_session_id: string; new_session_id: string }) => void
   // 对齐 Eleve thinking_callback → thinking.delta 事件（Agent 思考状态，如"正在思考..."）
@@ -615,7 +618,18 @@ export function useSSE(callbacks: SSECallbacks = {}): {
     wsAccumulatorsRef.current = { fullText: '', fullReasoning: '', pendingTools: {} };
 
     try {
-      await wsClient.promptSubmit(text, sessionId || undefined);
+      const result = await wsClient.promptSubmit(text, sessionId || undefined) as { session_id?: string };
+      // 对齐架构原则：后端是 session_id 的唯一权威源
+      // 后端可能在 prompt.submit 中自动创建 session（session_id 为空时）
+      // 前端必须消费返回的 session_id 并更新本地状态
+      if (result?.session_id && result.session_id !== sessionId) {
+        const newSid = result.session_id;
+        storage.save('session_id', newSid);
+        // 通知上层更新 sessionId
+        if (cbs?.onSessionCreated) {
+          cbs.onSessionCreated(newSid);
+        }
+      }
       return; // WS 发送成功，事件通过 routeWsEvent 回调
     } catch (wsErr) {
       console.error('[useSSE] WS prompt.submit failed:', wsErr);
