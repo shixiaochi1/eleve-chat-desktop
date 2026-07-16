@@ -197,20 +197,17 @@ export function usePromptActions({
     const sessionId = await ensureSession();
     console.log('[handleSend] sessionId after ensureSession:', sessionId, 'freshDraftReady:', sess.freshDraftReady);
 
-    // ── 首次创建 session 后主动触发 WS 连接 ──
-    // React useEffect 是异步的，创建 session 后 WS 可能还是 disconnected
-    // 主动 connect + 等待，确保走 WS 主路径（HTTP 降级 SSE 格式不兼容）
-    if (sessionId) {
-      const wsClient = getWsClient();
-      if (wsClient.state === 'disconnected') {
-        const port = storage.load('gateway_port');
-        if (port) {
-          wsClient.connect(sessionId);
-          await wsClient.waitForConnected(3000);
-        }
-      } else if (wsClient.state === 'connecting' || wsClient.state === 'reconnecting') {
-        await wsClient.waitForConnected(3000);
-      }
+    // ── 确保 WS 已连接 ──
+    // 对齐 Hermes Desktop: WS 连接不依赖 session_id
+    // WS 在 App.tsx 的 useEffect([portReady]) 中已建立
+    // 如果 WS 断了（如保存配置后），这里主动触发重连
+    const wsClient = getWsClient();
+    if (wsClient.state === 'disconnected') {
+      console.log('[handleSend] WS disconnected, triggering reconnect');
+      wsClient.connect(sessionId || undefined);
+      await wsClient.waitForConnected(10000);
+    } else if (wsClient.state === 'connecting' || wsClient.state === 'reconnecting') {
+      await wsClient.waitForConnected(10000);
     }
 
     if (sessionId && !sess.titles[sessionId]) {

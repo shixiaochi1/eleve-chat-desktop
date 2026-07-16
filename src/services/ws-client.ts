@@ -68,7 +68,7 @@ const IDLE_PING_INTERVAL_MS = 30000
 export class GatewayWsClient {
   private ws: WebSocket | null = null
   private url: string = ''
-  private sessionId: string | null = null
+  public sessionId: string | null = null  // 对齐 Hermes: session 通过 RPC 管理，不需要 WS 重连
   private rpcId = 0
   private pendingRpc = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
   // Phase 1: WS 未连接时排队等待的 RPC 请求
@@ -124,8 +124,11 @@ export class GatewayWsClient {
 
   // ── 连接管理 ──
 
-  connect(sessionId: string, callbacks?: WsConnectionCallbacks): void {
-    this.sessionId = sessionId
+  connect(sessionId?: string, callbacks?: WsConnectionCallbacks): void {
+    // 对齐 Hermes Desktop: WS 连接不依赖 session_id
+    // Hermes Desktop: gateway.connect(wsUrl) — URL 里没有 session_id
+    // Session 是连接建立后通过 WS RPC 管理的
+    this.sessionId = sessionId ?? null
     this.connCallbacks = callbacks ?? null
     this.intentionallyClosed = false
 
@@ -133,7 +136,10 @@ export class GatewayWsClient {
     // http://127.0.0.1:3001 → ws://127.0.0.1:3001/api/ws
     // 对齐后端路由: .route("/api/ws", get(ws_handler))
     const wsBase = httpBase.replace(/^http/, 'ws')
-    this.url = `${wsBase}/api/ws?session_id=${encodeURIComponent(sessionId)}`
+    // session_id 是可选的 — 后端 handle_ws 对空 session_id 也能正常建立连接
+    this.url = sessionId
+      ? `${wsBase}/api/ws?session_id=${encodeURIComponent(sessionId)}`
+      : `${wsBase}/api/ws`
 
     this.doConnect()
   }
@@ -149,11 +155,11 @@ export class GatewayWsClient {
     }
 
     // 重连时重新获取 URL（端口可能因 eleved 重启而变化）
-    if (this.sessionId) {
-      const httpBase = getApiBase()
-      const wsBase = httpBase.replace(/^http/, 'ws')
-      this.url = `${wsBase}/api/ws?session_id=${encodeURIComponent(this.sessionId)}`
-    }
+    const httpBase = getApiBase()
+    const wsBase = httpBase.replace(/^http/, 'ws')
+    this.url = this.sessionId
+      ? `${wsBase}/api/ws?session_id=${encodeURIComponent(this.sessionId)}`
+      : `${wsBase}/api/ws`
 
     this.setState(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting')
 
@@ -421,14 +427,13 @@ export class GatewayWsClient {
 
   // ── 会话切换 ──
 
-  /** 切换会话 — 关闭旧连接，重连新 session */
+  /** 切换会话 — 对齐 Hermes Desktop: 只更新 sessionId，不断开WS重连
+   * Hermes Desktop: session 变化时只更新本地状态，不发 disconnect/connect
+   * WS 连接是长连接，session 通过 RPC prompt.submit 的 session_id 参数切换
+   */
   switchSession(newSessionId: string): void {
-    const wasConnected = this._state === 'connected'
-    this.disconnect()
     this.sessionId = newSessionId
-    if (wasConnected) {
-      this.connect(newSessionId, this.connCallbacks ?? undefined)
-    }
+    // 不断开 WS — 后端 prompt.submit 会带 session_id 做 get_or_create
   }
 
   // ── 便捷方法 ──

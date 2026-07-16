@@ -344,23 +344,23 @@ export default function App() {
   }, []);  // ← 只执行一次，不依赖 messages 或 sessionId
 
   // ── WebSocket 连接管理 ──
-  // portReady + sessionId 就绪后建立 WS 长连接
-  // 事件分发由 useSSE 内部的 routeWsEvent（通过 addEventListener）处理
+  // 对齐 Hermes Desktop: WS 连接不依赖 session_id
+  // Hermes Desktop: boot() 时立即连 WS，session 通过 RPC 管理
+  // portReady 后立即建立 WS 连接，sessionId 后续通过 prompt.submit 传
   useEffect(() => {
-    if (!portReady || !sess.sessionId) return;
+    if (!portReady) return;
 
     const wsClient = getWsClient();
-    // 只在未连接时建立连接
     if (wsClient.state === 'disconnected') {
-      console.log('[App] Initiating WS connection for session:', sess.sessionId?.slice(0, 8));
-      wsClient.connect(sess.sessionId, {
+      console.log('[App] Initiating WS connection (align Hermes: no session_id required)');
+      wsClient.connect(sess.sessionId || undefined, {
         onOpen: () => console.log('[App] WS connected'),
         onClose: (code, reason) => console.log('[App] WS closed:', code, reason),
         onError: (err) => console.error('[App] WS error:', err),
       });
-    } else if (wsClient.state === 'connected') {
-      // session 变化但 WS 已连接 → 切换 session
-      wsClient.switchSession(sess.sessionId);
+    } else if (wsClient.state === 'connected' && sess.sessionId) {
+      // WS 已连、session 变化 → 更新 wsClient 的 sessionId（不重连）
+      wsClient.sessionId = sess.sessionId;
     }
 
     return () => {
