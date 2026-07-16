@@ -89,7 +89,8 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   set_session_title:      'session.title',
   // 🔴 配置类已移至 CONFIG_HTTP_MAP（走 HTTP REST，不依赖 WS 连接）
   // get_config, update_config, save_api_key, load_api_key, get_settings, update_settings
-  list_models:            'model.options',
+  // 🔴 list_models 已移至 CONFIG_HTTP_MAP（走 HTTP，不依赖 WS 连接）
+  // list_models:            'model.options',
   // save_api_key → CONFIG_HTTP_MAP
   list_commands:          'commands.catalog',
   execute_command:        'command.dispatch',
@@ -202,6 +203,11 @@ const CONFIG_HTTP_MAP: Record<string, ConfigHttpMapping> = {
   update_settings: {
     method: 'PUT',
     path: '/api/settings',
+  },
+  // Models — 后端: GET /v1/models
+  list_models: {
+    method: 'GET',
+    path: '/v1/models',
   },
   // Config — 后端: GET /api/config, PUT /api/config/raw
   get_config: {

@@ -88,17 +88,24 @@ export function defaultSettings(): SettingsV2 {
 
 // ====== 内存缓存 ======
 let _settingsCache: SettingsV2 | null = null;
+let _settingsReady = false; // 🔴 标记后端 settings 是否加载完成
 
 // ====== 加载 ======
+export function isSettingsReady(): boolean {
+  return _settingsReady;
+}
+
 export function loadSettings(): SettingsV2 {
   if (_settingsCache) return _settingsCache;
   const raw = storage.load(STORAGE_KEY) as unknown as Record<string, unknown> | null;
   if (raw && raw.version === 2) {
     _settingsCache = raw as unknown as SettingsV2;
+    _settingsReady = true;
     return raw as unknown as SettingsV2;
   }
   const defaults = defaultSettings();
   _settingsCache = defaults;
+  // 🔴 storage 也无数据时，不算 ready — 等后端 loadSettingsFromRust 完成
   return defaults;
 }
 
@@ -127,6 +134,7 @@ export async function loadSettingsFromRust(): Promise<SettingsV2> {
       }
       if (settings && settings.version === 2) {
         _settingsCache = settings;
+        _settingsReady = true; // 🔴 后端 settings 加载完成
         // ❌ 不再 storage.save() — 对齐 Hermes：settings.json 只由 update_settings 写
         // storage.save() 走 set_app_data → 包裹格式 → 覆盖后端写好的正确格式
         // storage.save(STORAGE_KEY, settings);
@@ -149,6 +157,7 @@ export async function loadSettingsFromRust(): Promise<SettingsV2> {
 export async function saveSettings(data: SettingsV2): Promise<void> {
   const withVersion = { ...data, version: 2 };
   _settingsCache = withVersion;
+  _settingsReady = true; // 🔴 保存后立即标记 ready
   // 🔴 恢复双写：storage.save 供同步 loadSettings() 重启后立即读取
   // 之前删除导致重启后 storage.load() 返回 null → "尚未配置模型" 误弹
   // set_app_data 包裹格式问题只影响后端 settings.json，storage.save 本身安全

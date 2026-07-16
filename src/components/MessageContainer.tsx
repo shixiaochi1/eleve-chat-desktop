@@ -18,7 +18,7 @@ import ReasoningBlock from './ReasoningBlock'
 import ToolCallGroup, { isSpecialTool, type ToolCallItem } from './ToolCallGroup'
 import HoistedTodoPanel, { todosFromMessageParts } from './HoistedTodoPanel'
 import type { ChatMessage, ChatMessagePart } from '@/types'
-import { loadSettings } from '@/utils/settings-store'
+import { loadSettings, isSettingsReady } from '@/utils/settings-store'
 
 const ESTIMATED_ITEM_HEIGHT = 220
 const OVERSCAN = 4
@@ -141,6 +141,12 @@ export function VirtualizedThread({
                 </div>
               ) : (() => {
                 // ── 检测是否已配置主模型和 API Key ──
+                // 🔴 后端 settings 未加载完成时，不弹"尚未配置"（避免闪烁）
+                if (!isSettingsReady()) {
+                  return (
+                    <p className="text-sm text-muted-foreground">加载中…</p>
+                  );
+                }
                 const settings = loadSettings();
                 const hasMainProvider = !!settings.main.providerId;
                 if (!hasMainProvider) {
