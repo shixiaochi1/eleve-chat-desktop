@@ -93,8 +93,39 @@ export async function setModel(modelName: string): Promise<any> {
 
 // ====== 命令 ======
 
-export async function fetchCommands(): Promise<any> {
-  return call('list_commands', {});
+export async function fetchCommands(): Promise<any[]> {
+  const catalog = await call('list_commands', {});
+  // commands.catalog 返回 { pairs, canon, categories, sub, skill_count }
+  // 转换为 CommandDef[] 格式供 CommandMenu 使用
+  if (!catalog || !catalog.categories) return [];
+
+  const commands: any[] = [];
+  const seen = new Set<string>();
+
+  for (const section of catalog.categories) {
+    const category = section.name;
+    for (const [cmdPath, description] of section.pairs) {
+      // cmdPath 是 "/name" 格式
+      const name = cmdPath.startsWith('/') ? cmdPath.slice(1) : cmdPath;
+      if (seen.has(name)) continue;
+      seen.add(name);
+
+      // 从 canon 中找别名
+      const aliases: string[] = [];
+      if (catalog.canon) {
+        for (const [alias, canonical] of Object.entries(catalog.canon)) {
+          const aliasName = alias.startsWith('/') ? alias.slice(1) : alias;
+          if (canonical === cmdPath && aliasName !== name) {
+            aliases.push(aliasName);
+          }
+        }
+      }
+
+      commands.push({ name, description, category, aliases });
+    }
+  }
+
+  return commands;
 }
 
 export async function executeCommand(command: string, args = '', sessionId: string | null = null): Promise<any> {
