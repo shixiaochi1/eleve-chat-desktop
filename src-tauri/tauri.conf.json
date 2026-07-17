@@ -47,7 +47,8 @@
     "resources": [
       "binaries/agent-browser-win32-x64.exe",
       "binaries/eleved.exe",
-      "binaries/rg.exe"
+      "binaries/rg.exe",
+      "binaries/tirith.exe"
     ],
     "windows": {
       "nsis": {

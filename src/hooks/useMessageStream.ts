@@ -553,7 +553,8 @@ export function useMessageStream({
           setActiveClarify({ clarify_id: pp.clarify.clarify_id, question: pp.clarify.question, choices: pp.clarify.choices });
         }
         if (pp.approval) {
-          setActiveApproval({ command: pp.approval.command, description: '', pattern: '', choices: ['once', 'session', 'always', 'deny'], run_id: pp.approval.request_id });
+          const approvalChoices = pp.approval.choices || ['once', 'session', 'deny'];
+          setActiveApproval({ command: pp.approval.command, description: '', pattern: '', choices: approvalChoices, run_id: pp.approval.request_id });
         }
         if (pp.sudo_password) {
           setActiveSudo?.({ request_id: pp.sudo_password.sudo_id, prompt: pp.sudo_password.prompt });
@@ -615,6 +616,11 @@ export function useMessageStream({
 
       // Complete: replace streamed text with final, dedup reasoning, clear pending
       completeAssistantMessage(finalText)
+
+      // 🔴 修复：显式重置 isStreaming 状态（对齐 Hermes session.info(running=false)）
+      // 后端在对话完成后发送 message.complete，前端 onDone 被调用，
+      // 但之前没有重置 isStreaming，导致审批后输入框被禁用
+      storeSetIsStreaming(false)
 
       setConnectionStatus('idle');
 

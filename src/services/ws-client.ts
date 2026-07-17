@@ -59,7 +59,7 @@ export type WsConnectionState = 'disconnected' | 'connecting' | 'connected' | 'r
 // ── 配置 ──
 
 const RECONNECT_BASE_MS = 1000
-const RECONNECT_MAX_MS = 30000
+const RECONNECT_MAX_MS = 15000  // 对齐 Hermes: 上限 15s（1s→2s→4s→8s→15s→15s...）
 const RECONNECT_MAX_ATTEMPTS = 20
 const IDLE_PING_INTERVAL_MS = 30000
 
@@ -82,6 +82,9 @@ export class GatewayWsClient {
   private intentionallyClosed = false
   private _state: WsConnectionState = 'disconnected'
   private stateListeners = new Set<(s: WsConnectionState) => void>()
+  // 对齐 Hermes: 唤醒信号（online + visibilitychange）触发立即重连
+  private onOnlineHandler: (() => void) | null = null
+  private onVisibleHandler: (() => void) | null = null
 
   // ── 公共状态 ──
 
@@ -138,6 +141,7 @@ export class GatewayWsClient {
     this.url = `${wsBase}/api/ws`
 
     this.doConnect()
+    this.registerWakeSignals()  // 对齐 Hermes: online + visibilitychange 唤醒信号
   }
 
   private doConnect(): void {
@@ -232,6 +236,7 @@ export class GatewayWsClient {
     this.intentionallyClosed = true
     this.clearReconnect()
     this.stopPing()
+    this.unregisterWakeSignals()  // 对齐 Hermes: 断连时移除唤醒信号
 
     // Reject all pending RPC
     for (const [, p] of this.pendingRpc) {
@@ -275,6 +280,43 @@ export class GatewayWsClient {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
+    }
+  }
+
+  // ── 唤醒信号（对齐 Hermes use-gateway-boot.ts:270-290）──
+
+  /** 立即重连 — 对齐 Hermes reconnectNow() */
+  private reconnectNow(): void {
+    if (this.intentionallyClosed || this._state === 'connected') return
+    this.clearReconnect()
+    this.reconnectAttempts = 0
+    this.doConnect()
+  }
+
+  /** 注册唤醒信号：online + visibilitychange */
+  private registerWakeSignals(): void {
+    this.unregisterWakeSignals()  // 防重复注册
+
+    this.onOnlineHandler = () => this.reconnectNow()
+    this.onVisibleHandler = () => {
+      if (document.visibilityState === 'visible') {
+        this.reconnectNow()
+      }
+    }
+
+    window.addEventListener('online', this.onOnlineHandler)
+    document.addEventListener('visibilitychange', this.onVisibleHandler)
+  }
+
+  /** 移除唤醒信号 */
+  private unregisterWakeSignals(): void {
+    if (this.onOnlineHandler) {
+      window.removeEventListener('online', this.onOnlineHandler)
+      this.onOnlineHandler = null
+    }
+    if (this.onVisibleHandler) {
+      document.removeEventListener('visibilitychange', this.onVisibleHandler)
+      this.onVisibleHandler = null
     }
   }
 
