@@ -541,7 +541,7 @@ export function useMessageStream({
         secret_capture?: { secret_id: string; env_var: string; prompt: string }
         terminal_read?: { read_id: string }
         slash_confirm?: { confirm_id: string; command: string }
-        approval?: { request_id: string; command: string }
+        approval?: { request_id: string; command: string; choices?: string[] }
       }
     }) => {
       addDebugEvent('session_info', `model=${data.model} running=${data.running} branch=${data.branch}`);

@@ -102,7 +102,7 @@ export interface SSECallbacks {
       secret_capture?: { secret_id: string; env_var: string; prompt: string }
       terminal_read?: { read_id: string }
       slash_confirm?: { confirm_id: string; command: string }
-      approval?: { request_id: string; command: string }
+      approval?: { request_id: string; command: string; choices?: string[] }
     }
   }) => void
   onDone?: (sessionId: string | null) => void
