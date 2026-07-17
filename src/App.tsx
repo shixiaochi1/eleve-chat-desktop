@@ -4,6 +4,7 @@ import { useSessions } from './hooks/useSessions';
 import { useGatewayHealth } from './hooks/useGatewayHealth';
 import { useMessageStream } from './hooks/useMessageStream';
 import { usePromptActions } from './hooks/usePromptActions';
+import { useImageAttachments } from './hooks/useImageAttachments';
 import { useSessionActions } from './hooks/useSessionActions';
 import useModels from './hooks/useModels';
 import { useMediaQuery } from './hooks/use-media-query';
@@ -194,7 +195,7 @@ export default function App() {
 
   // ── usePromptActions: send/regenerate/abort/queue ──
   const {
-    handleSend,
+    handleSend: rawHandleSend,
     handleAbort,
     handleRegenerate,
     handleCommand,
@@ -224,6 +225,41 @@ export default function App() {
       return undefined;
     })(),
   });
+
+  // ── useImageAttachments: 图片附件状态管理 ──
+  // 对齐 Hermes Desktop: prompt.submit 后后端自动 drain session.attached_images
+  // 前端在发送成功后清空本地预览状态
+  const {
+    attachedImages,
+    uploading: imageUploading,
+    error: imageError,
+    addImage,
+    removeImage,
+    clearImages,
+    clearError: clearImageError,
+  } = useImageAttachments();
+
+  // 包装 handleSend — 发送成功后清空图片预览
+  // 注意：drainQueue 内部调用的是 rawHandleSend 的底层 send()，不经过此包装
+  // drainQueue 是排队消息发送，不涉及图片附件，所以不需要 clearImages
+  const handleSend = useCallback((text: string) => {
+    rawHandleSend(text);
+    // 发送后清空图片（后端 prompt.submit 会自动 drain 消费）
+    if (attachedImages.length > 0) {
+      clearImages();
+    }
+  }, [rawHandleSend, attachedImages.length, clearImages]);
+
+  // 适配 addImage 签名：useImageAttachments 返回 Promise<AttachedImage | null>，
+  // InputArea 的 onAddImage 期望 Promise<void>，丢弃返回值即可
+  const handleAddImage = useCallback(async (file: File): Promise<void> => {
+    await addImage(file);
+  }, [addImage]);
+
+  // 适配 removeImage 签名
+  const handleRemoveImage = useCallback(async (id: string): Promise<void> => {
+    await removeImage(id);
+  }, [removeImage]);
 
   // Wire up drainQueueRef after drainQueue is created
   drainQueueRef.current = drainQueue;
@@ -603,7 +639,19 @@ export default function App() {
                   <ContextBar sessionId={sess.sessionId} sessionStartedAt={debugInfo.sessionStartedAt} onNewSession={handleNewSession} onBtw={handleBtw} />
                 </>
               )}
-              <InputArea onSend={handleSend} onCommand={handleCommand} onAbort={handleAbort} isStreaming={isStreaming} portReady={portReady} />
+              <InputArea
+                onSend={handleSend}
+                onCommand={handleCommand}
+                onAbort={handleAbort}
+                isStreaming={isStreaming}
+                portReady={portReady}
+                attachedImages={attachedImages}
+                imageUploading={imageUploading}
+                imageError={imageError}
+                onAddImage={handleAddImage}
+                onRemoveImage={handleRemoveImage}
+                onClearImageError={clearImageError}
+              />
             </main>
             </div>
           </PaneMain>

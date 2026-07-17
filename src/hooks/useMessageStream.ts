@@ -706,6 +706,15 @@ export function useMessageStream({
       });
     },
 
+    // 对齐 Hermes pending_title: 后端应用 title 后推送 session.title 事件
+    // 前端消费事件更新 titles map + 刷新 session 列表
+    onSessionTitle: (data: { session_id: string; title: string }) => {
+      if (data.session_id && data.title) {
+        sess.setTitle(data.session_id, data.title);
+        if (setSessionListVersion) setSessionListVersion(v => v + 1);
+      }
+    },
+
     // ── Run completed — aligned with Eleve session.info(running=false) ──
     // Eleve doesn't explicitly handle run.completed in handleGatewayEvent,
     // but the event carries usage data. Process it here for stats tracking.

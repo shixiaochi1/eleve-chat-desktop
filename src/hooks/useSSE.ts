@@ -131,6 +131,8 @@ export interface SSECallbacks {
   onSkinChanged?: (data: { skin: unknown }) => void
   // Phase 6: 终端关闭（对齐 Hermes terminal.close）
   onTerminalClose?: (data: { process_id: string }) => void
+  // 对齐 Hermes pending_title: 后端应用 pending_title 后推送 session.title 事件
+  onSessionTitle?: (data: { session_id: string; title: string }) => void
 }
 
 // ── Chunk types (from Rust StreamChunk / api_server) ──
@@ -425,6 +427,14 @@ function processEvent(
       });
       break;
 
+    // 对齐 Hermes pending_title: 后端应用 title 后推送此事件
+    case 'session.title':
+      cbs.onSessionTitle?.({
+        session_id: (chunk.session_id as string) || '',
+        title: (chunk.title as string) || '',
+      });
+      break;
+
     // ── 流生命周期 ──
     // 对齐 Hermes: message.start → onRunStart（分配streamId）
     case 'message.start':
@@ -574,7 +584,7 @@ export function useSSE(callbacks: SSECallbacks = {}): {
     };
   }, [routeWsEvent]);
 
-  const send = useCallback(async (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string }): Promise<void> => {
+  const send = useCallback(async (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string }): Promise<void> => {
     if (!text?.trim()) return;
     console.log('[useSSE.send] sessionId:', sessionId, 'wsState:', getWsClient().state);
     storeSetIsStreaming(true);

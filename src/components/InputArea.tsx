@@ -3,6 +3,7 @@ import { fetchCommands } from '../utils/api';
 import CommandMenu from './CommandMenu';
 import { SendIcon, StopIcon } from './Icons';
 import { cn } from '@/lib/utils';
+import type { AttachedImage } from '@/hooks/useImageAttachments';
 
 interface CommandDef {
   name: string;
@@ -17,12 +18,47 @@ interface InputAreaProps {
   isStreaming?: boolean;
   portReady?: boolean;
   portVersion?: string;
+  /** 已附加的图片列表（来自 useImageAttachments） */
+  attachedImages?: AttachedImage[];
+  /** 上传中状态（用于显示 loading） */
+  imageUploading?: number;
+  /** 图片上传错误信息 */
+  imageError?: string | null;
+  /** 添加图片（粘贴/拖拽/选择时调用） */
+  onAddImage?: (file: File) => Promise<void>;
+  /** 移除图片（点击删除按钮时调用） */
+  onRemoveImage?: (id: string) => Promise<void>;
+  /** 清除错误信息 */
+  onClearImageError?: () => void;
 }
 
 /**
- * 输入区 — textarea 自动调整高度 + Enter 发送 + / 命令补全
+ * 输入区 — textarea 自动调整高度 + Enter 发送 + / 命令补全 + 图片附件
+ *
+ * 图片附件架构（对齐 Hermes Desktop）：
+ * - UI 层：InputArea 只负责事件捕获和渲染预览
+ * - 状态层：useImageAttachments 管理 attachedImages 状态 + WS 调用
+ * - 传输层：ws-client.ts 的 imageAttachBytes/imageDetach
+ * - 后端：image.attach_bytes 写入磁盘 + session.attached_images
+ *
+ * 图片生命周期：用户操作 → onAddImage → useImageAttachments.addImage → ws-client.imageAttachBytes
+ *                → 后端存储 → 返回 path → 本地状态更新 → InputArea 预览渲染
+ * 发送时后端自动 drain：prompt.submit → run_stream_with_trace → 消费 attached_images
  */
-export default function InputArea({ onSend, onCommand, onAbort, isStreaming, portReady, portVersion }: InputAreaProps) {
+export default function InputArea({
+  onSend,
+  onCommand,
+  onAbort,
+  isStreaming,
+  portReady,
+  portVersion,
+  attachedImages,
+  imageUploading,
+  imageError,
+  onAddImage,
+  onRemoveImage,
+  onClearImageError,
+}: InputAreaProps) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [commands, setCommands] = useState<CommandDef[]>([]);
   const [showPopup, setShowPopup] = useState(false);
@@ -128,6 +164,67 @@ export default function InputArea({ onSend, onCommand, onAbort, isStreaming, por
     }
   }, []);
 
+  // ── 图片附件：粘贴 / 拖拽 / 文件选择 ──
+
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    if (!onAddImage) return;
+    const items = e.clipboardData.items;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          try {
+            await onAddImage(file);
+          } catch (err) {
+            console.error('[InputArea] Paste image failed:', err);
+          }
+        }
+        break;
+      }
+    }
+  }, [onAddImage]);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    if (!onAddImage) return;
+    const files = Array.from(e.dataTransfer.files);
+    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+    if (imageFiles.length === 0) return;
+    e.preventDefault();
+    for (const file of imageFiles) {
+      try {
+        await onAddImage(file);
+      } catch (err) {
+        console.error('[InputArea] Drop image failed:', err);
+      }
+    }
+  }, [onAddImage]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (onAddImage && Array.from(e.dataTransfer.types).includes('Files')) {
+      e.preventDefault();
+    }
+  }, [onAddImage]);
+
+  const handleFileSelect = useCallback(() => {
+    if (!onAddImage) return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.multiple = true;
+    input.onchange = async (e) => {
+      const files = Array.from((e.target as HTMLInputElement).files || []);
+      for (const file of files) {
+        try {
+          await onAddImage(file);
+        } catch (err) {
+          console.error('[InputArea] File select failed:', err);
+        }
+      }
+    };
+    input.click();
+  }, [onAddImage]);
+
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (popupRef.current && !popupRef.current.contains(e.target as Node) &&
@@ -145,6 +242,55 @@ export default function InputArea({ onSend, onCommand, onAbort, isStreaming, por
 
   return (
     <div className="p-3">
+      {/* 图片预览区 — 已附加的图片缩略图 + 删除按钮 */}
+      {attachedImages && attachedImages.length > 0 && (
+        <div className="flex gap-2 mb-2 flex-wrap items-start">
+          {attachedImages.map(img => (
+            <div key={img.id} className="relative group">
+              <img
+                src={img.preview}
+                alt={img.name}
+                className="w-16 h-16 object-cover rounded-md border border-border"
+                draggable={false}
+              />
+              <button
+                onClick={() => onRemoveImage?.(img.id)}
+                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/90"
+                title="移除图片"
+                aria-label={`Remove ${img.name}`}
+              >
+                ✕
+              </button>
+              <div className="text-xs text-muted-foreground truncate mt-1 max-w-[64px]" title={img.name}>
+                {img.name}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 图片上传错误提示 */}
+      {imageError && (
+        <div className="flex items-center gap-2 mb-2 px-3 py-1.5 rounded-md bg-destructive/10 border border-destructive/30 text-destructive text-xs">
+          <span className="flex-1 truncate">{imageError}</span>
+          <button
+            onClick={onClearImageError}
+            className="shrink-0 hover:opacity-70"
+            aria-label="Dismiss error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* 上传中指示器 */}
+      {imageUploading && imageUploading > 0 && (
+        <div className="mb-2 text-xs text-muted-foreground flex items-center gap-1.5">
+          <span className="inline-block w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          上传图片中… ({imageUploading})
+        </div>
+      )}
+
       <div className="flex items-center gap-2">
         <CommandMenu commands={commands} onCommand={handleCommandExec} />
         <textarea
@@ -157,7 +303,21 @@ export default function InputArea({ onSend, onCommand, onAbort, isStreaming, por
           spellCheck="false"
           onKeyDown={handleKeyDown}
           onInput={handleInput}
+          onPaste={handlePaste}
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
         />
+        {/* 文件选择按钮 — 附加图片 */}
+        {onAddImage && (
+          <button
+            onClick={handleFileSelect}
+            className="inline-flex shrink-0 items-center justify-center rounded-md text-sm font-medium transition-all outline-none h-9 w-9 bg-secondary text-secondary-foreground hover:bg-secondary/80"
+            title="附加图片"
+            aria-label="Attach image"
+          >
+            📎
+          </button>
+        )}
         <button
           className={cn(
             'inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md text-sm font-medium',

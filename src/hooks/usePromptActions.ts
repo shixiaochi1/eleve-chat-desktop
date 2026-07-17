@@ -1,5 +1,5 @@
 import { useRef, useCallback, type MutableRefObject } from 'react';
-import { executeCommand, setSessionTitle } from '../utils/api';
+import { executeCommand } from '../utils/api';
 import * as storage from '../utils/storage';
 import { setMessages as storeSetMessages, getMessages } from '../store/messages';
 import { textPart } from '@/lib/chat-messages'
@@ -41,7 +41,7 @@ export function usePromptActions({
   setDebugInfo: React.Dispatch<React.SetStateAction<Record<string, unknown>>>
   addDebugEvent: (type: string, detail: string) => void
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
-  send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string }) => Promise<void>
+  send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string }) => Promise<void>
   abort?: () => Promise<void>
   handleNewSession: (title?: string) => Promise<void>
   /** 对齐 Hermes: UI 选择的模型，传入 session.create 作为 per-session override */
@@ -193,7 +193,16 @@ export function usePromptActions({
     }
 
     // 对齐架构原则：model/provider 直接传 prompt.submit，后端应用
-    const modelOpts = currentModel ? { model: currentModel, provider: currentProvider } : undefined;
+    // 对齐 Hermes pending_title: title 传给后端，后端在 message.complete 后应用到 DB
+    const modelOpts: { model?: string; provider?: string; title?: string } = {};
+    if (currentModel) {
+      modelOpts.model = currentModel;
+      modelOpts.provider = currentProvider;
+    }
+    // 首次消息且有 pendingTitle 时，传给后端
+    if (sess.pendingTitle) {
+      modelOpts.title = sess.pendingTitle;
+    }
 
     setConnectionStatus('connected');
     setDebugInfo((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: text.slice(0, 40) }));
@@ -205,14 +214,10 @@ export function usePromptActions({
       _submitInFlight.delete(submitLockKey);
     }
 
-    // 处理 /new <title> — session 创建后设置标题
-    if (sess.pendingTitle && sess.sessionId) {
-      try {
-        await setSessionTitle(sess.sessionId, sess.pendingTitle);
-        sess.setTitle(sess.sessionId, sess.pendingTitle);
-      } catch (e) {
-        console.warn('[handleSend] setSessionTitle failed', e);
-      }
+    // 对齐 Hermes pending_title: 后端在 message.complete 后应用 title 并推 session.title 事件
+    // 前端只需清除 pendingTitle 状态（后端负责持久化 + 事件推送）
+    // 前端监听 session.title 事件更新 titles map（useMessageStream 已有处理）
+    if (sess.pendingTitle) {
       sess.setPendingTitle(null);
     }
     if (sess.freshDraftReady) {

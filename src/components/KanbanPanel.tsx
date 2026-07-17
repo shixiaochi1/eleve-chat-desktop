@@ -48,6 +48,7 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { readFileAsDataURL, base64FromDataURL } from '@/utils/file';
 import {
   getKanbanBoard,
   getKanbanTask,
@@ -775,14 +776,11 @@ function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onViewLog, 
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64 = (reader.result as string)?.split(',')[1];
-        await uploadKanbanAttachment(task.id, file.name, base64);
-        const data = await getKanbanAttachments(task.id);
-        setAttachments(data?.attachments || data || []);
-      };
-      reader.readAsDataURL(file);
+      const dataUrl = await readFileAsDataURL(file);
+      const base64 = base64FromDataURL(dataUrl);
+      await uploadKanbanAttachment(task.id, file.name, base64);
+      const data = await getKanbanAttachments(task.id);
+      setAttachments(data?.attachments || data || []);
     } catch (err) {
       console.error('[KanbanPanel] Upload failed:', err);
     }

@@ -477,8 +477,14 @@ export class GatewayWsClient {
 
   // ── 便捷方法 ──
 
-  /** 发送 prompt — 对齐 Eleve prompt.submit（参数 text） */
-  async promptSubmit(text: string, sessionId?: string, options?: { model?: string; provider?: string }): Promise<unknown> {
+  /** 发送 prompt — 对齐 Eleve prompt.submit（参数 text）
+   * 对齐 Hermes pending_title: title 参数由后端在 message.complete 后应用到 DB
+   */
+  async promptSubmit(
+    text: string,
+    sessionId?: string,
+    options?: { model?: string; provider?: string; title?: string },
+  ): Promise<unknown> {
     return this.sendRpc('prompt.submit', {
       session_id: sessionId || this.sessionId || '',
       text,
@@ -486,6 +492,8 @@ export class GatewayWsClient {
       // model/provider 直接传给 prompt.submit，后端自动创建 session 时应用
       model: options?.model || '',
       provider: options?.provider || '',
+      // 对齐 Hermes pending_title: 首次消息时传入标题，后端完成 turn 后应用
+      title: options?.title || '',
     })
   }
 
@@ -511,10 +519,48 @@ export class GatewayWsClient {
     return this.sendRpc('commands.catalog', {})
   }
 
+  /** 附加图片（base64）— 对齐 Eleve image.attach_bytes
+   * 后端接收 content_base64，写入 ELEVE_HOME/images/，返回 {attached, path, count, bytes, text}
+   */
+  async imageAttachBytes(contentBase64: string, filename?: string, sessionId?: string): Promise<ImageAttachResponse> {
+    const result = await this.sendRpc('image.attach_bytes', {
+      session_id: sessionId || this.sessionId || '',
+      content_base64: contentBase64,
+      filename: filename || '',
+    })
+    return result as ImageAttachResponse
+  }
+
+  /** 分离图片 — 对齐 Eleve image.detach
+   * 后端接收 path，从 session.attached_images 移除，返回 {detached, count}
+   */
+  async imageDetach(path: string, sessionId?: string): Promise<ImageDetachResponse> {
+    const result = await this.sendRpc('image.detach', {
+      session_id: sessionId || this.sessionId || '',
+      path,
+    })
+    return result as ImageDetachResponse
+  }
+
   /** 设置重连恢复回调（对齐 Eleve gateway.ready → session.resume） */
   setReconnectCallback(cb: ((wasReconnect: boolean) => void) | null): void {
     this.reconnectCallback = cb
   }
+}
+
+// ── 图片附件 RPC 响应类型（对齐后端 ws/mod.rs image.attach_bytes / image.detach）──
+
+export interface ImageAttachResponse {
+  attached?: boolean
+  path?: string
+  count?: number
+  bytes?: number
+  text?: string
+}
+
+export interface ImageDetachResponse {
+  detached?: boolean
+  count?: number
 }
 
 // ── 单例 ──
