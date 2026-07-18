@@ -27,6 +27,8 @@ export interface AppNotification {
   action?: NotificationAction;
   onDismiss?: () => void;
   createdAt: number;
+  /** 对齐 Hermes AgentNotice.key — 用于 notification.clear 按 key 精确清除 */
+  key?: string;
 }
 
 export interface NotifyInput {
@@ -37,6 +39,8 @@ export interface NotifyInput {
   action?: NotificationAction;
   onDismiss?: () => void;
   durationMs?: number;
+  /** 对齐 Hermes AgentNotice.key — 用于 notification.clear 按 key 精确清除 */
+  key?: string;
 }
 
 // ── 内部状态 ──
@@ -147,12 +151,24 @@ export function notify(input: NotifyInput): string {
     action: input.action,
     onDismiss: input.onDismiss,
     createdAt: Date.now(),
+    key: input.key,
   };
+
+  // sticky 通知 (key 存在) — 先清除同 key 旧通知，避免堆叠 (对齐 Hermes latch 防重复)
+  if (input.key) {
+    for (const existing of _notifications) {
+      if (existing.key === input.key) {
+        window.clearTimeout(timers.get(existing.id));
+        timers.delete(existing.id);
+      }
+    }
+    _notifications = _notifications.filter((n) => n.key !== input.key);
+  }
 
   window.clearTimeout(timers.get(id));
   timers.delete(id);
 
-  _notifications = [notification, ..._notifications.filter((n) => n.id !== id)].slice(0, 4);
+  _notifications = [notification, ..._notifications].slice(0, 4);
   emit();
 
   const duration = input.durationMs ?? defaultDuration(kind);
@@ -201,6 +217,21 @@ export function dismissNotification(id: string): void {
   _notifications = _notifications.filter((n) => n.id !== id);
   emit();
   dismissed?.onDismiss?.();
+}
+
+/**
+ * 按 key 关闭通知 — 对齐 Hermes notification.clear 事件
+ * 用于 credits 通知的精确清除 (credits.usage / credits.depleted 等)
+ */
+export function dismissNotificationByKey(key: string): void {
+  const toDismiss = _notifications.filter((n) => n.key === key);
+  for (const n of toDismiss) {
+    window.clearTimeout(timers.get(n.id));
+    timers.delete(n.id);
+  }
+  _notifications = _notifications.filter((n) => n.key !== key);
+  if (toDismiss.length > 0) emit();
+  for (const n of toDismiss) n.onDismiss?.();
 }
 
 /** 清空所有通知 */

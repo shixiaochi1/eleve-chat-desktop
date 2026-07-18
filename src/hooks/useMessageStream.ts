@@ -783,16 +783,34 @@ export function useMessageStream({
 
     // ── System notice — 对齐 Hermes notification.show WS 事件 ──
     // Hermes AgentNotice: text, level, kind(sticky|ttl), ttl_ms, key, id
+    // credits 通知: usage_band(info/warn), grant_spent(info), depleted(error), restored(success/ttl)
     onSystemNotice: (data: { text: string; level?: string; kind?: string; ttl_ms?: number; key?: string; id?: string }) => {
       addDebugEvent('system_notice', `${data.level || 'info'}: ${data.text.slice(0, 60)}`);
-      import('../utils/notifications').then(({ notifyError }) => {
-        if (data.level === 'error' || data.level === 'warning') {
-          notifyError(data.text, data.level === 'error' ? '错误' : '警告');
-        }
+      import('../utils/notifications').then(({ notify }) => {
+        const level = data.level || 'info';
+        const kind = level === 'error' ? 'error'
+          : level === 'warn' || level === 'warning' ? 'warning'
+          : level === 'success' ? 'success'
+          : 'info';
+        // ttl kind: 按 ttl_ms 自动消失; sticky kind: 手动关闭 (duration=0)
+        // error/warning 默认手动关闭，info/success 默认 5s 自动消失
+        const isTtl = data.kind === 'ttl';
+        const durationMs = isTtl ? (data.ttl_ms ?? 5000) : undefined;
+        notify({
+          kind,
+          message: data.text,
+          key: data.key,
+          durationMs,
+        });
       });
     },
-    onNoticeClear: (_data: { key: string }) => {
-      // 通知清除 — 预留，对齐 Hermes notification.clear
+    onNoticeClear: (data: { key: string }) => {
+      // 通知清除 — 对齐 Hermes notification.clear 事件
+      // 按 key 精确清除对应的 sticky 通知
+      addDebugEvent('notice_clear', `key=${data.key}`);
+      import('../utils/notifications').then(({ dismissNotificationByKey }) => {
+        dismissNotificationByKey(data.key);
+      });
     },
 
     // Phase 6: 浏览器连接进度 — 对齐 Hermes browser.progress
