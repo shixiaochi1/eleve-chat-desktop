@@ -260,6 +260,103 @@ fn set_auto_start(enable: bool) -> Result<bool, String> {
     { let _ = enable; Err("Auto-start is only supported on Windows".into()) }
 }
 
+/// resolve_media — MEDIA: 标签→base64 data URL
+///
+/// 对齐后端 `/api/resolve-media` (misc_service.rs:444)：
+/// 将 `MEDIA:/path/to/file` 或 `![alt](MEDIA:/path)` 转换为 base64 data URL
+#[tauri::command]
+fn resolve_media(text: String) -> Result<serde_json::Value, String> {
+    use base64::{Engine as _, engine::general_purpose};
+
+    fn read_image_to_data_url(path: &str) -> Option<String> {
+        // Windows verbatim prefix is 4 chars: \\?\
+        let clean_path = path.strip_prefix(r"\\?\").unwrap_or(path);
+        let ext = std::path::Path::new(clean_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        let image_exts: &[&str] = &["png", "jpg", "jpeg", "webp", "gif"];
+        if !image_exts.contains(&ext.as_str()) {
+            return None;
+        }
+        let bytes = std::fs::read(clean_path).ok()?;
+        let mime = match ext.as_str() {
+            "jpg" | "jpeg" => "image/jpeg",
+            "webp" => "image/webp",
+            "gif" => "image/gif",
+            _ => "image/png",
+        };
+        let b64 = general_purpose::STANDARD.encode(&bytes);
+        Some(format!("data:{};base64,{}", mime, b64))
+    }
+
+    let mut result = text.clone();
+
+    // MEDIA: 标签 in markdown image syntax: ![alt](MEDIA:/path)
+    let re_md = regex::Regex::new(r#"!\[([^\]]*)\]\(MEDIA:\s*([^)]+)\)"#).unwrap();
+    result = re_md
+        .replace_all(&result, |caps: &regex::Captures| -> String {
+            let alt = caps.get(1).map(|m| m.as_str()).unwrap_or("Screenshot");
+            let path = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            match read_image_to_data_url(path) {
+                Some(data_url) => format!("![{}]({})", alt, data_url),
+                None => caps.get(0).unwrap().as_str().to_string(),
+            }
+        })
+        .to_string();
+
+    // Standalone MEDIA: label: MEDIA:/path
+    let re_standalone = regex::Regex::new(r#"MEDIA:\s*([^\n\r]+)"#).unwrap();
+    result = re_standalone
+        .replace_all(&result, |caps: &regex::Captures| -> String {
+            let path = caps.get(1).map(|m| m.as_str().trim()).unwrap_or("");
+            match read_image_to_data_url(path) {
+                Some(data_url) => format!("![Screenshot]({})", data_url),
+                None => caps.get(0).unwrap().as_str().to_string(),
+            }
+        })
+        .to_string();
+
+    // Any local image file in markdown image syntax: ![alt](/local/path.png)
+    let re_any_img = regex::Regex::new(r#"!\[([^\]]*)\]\(([^)]+)\)"#).unwrap();
+    result = re_any_img
+        .replace_all(&result, |caps: &regex::Captures| -> String {
+            let url = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            let full_match = caps.get(0).unwrap().as_str();
+            let lower = url.to_lowercase();
+            // 跳过已经是 data URL / http / anchor 的
+            if lower.starts_with("http://")
+                || lower.starts_with("https://")
+                || lower.starts_with("data:")
+                || lower.starts_with("//")
+                || lower.starts_with("media:")
+                || url.starts_with('#')
+            {
+                return full_match.to_string();
+            }
+            let is_image = url.to_lowercase().ends_with(".png")
+                || url.to_lowercase().ends_with(".jpg")
+                || url.to_lowercase().ends_with(".jpeg")
+                || url.to_lowercase().ends_with(".webp")
+                || url.to_lowercase().ends_with(".gif");
+            if !is_image {
+                return full_match.to_string();
+            }
+            // 尝试读取本地文件
+            match read_image_to_data_url(url) {
+                Some(data_url) => {
+                    let alt = caps.get(1).map(|m| m.as_str()).unwrap_or("Screenshot");
+                    format!("![{}]({})", alt, data_url)
+                }
+                None => full_match.to_string(),
+            }
+        })
+        .to_string();
+
+    Ok(serde_json::json!({ "result": result }))
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // ELEVED 子进程管理
 // ═══════════════════════════════════════════════════════════════════════════
@@ -759,6 +856,7 @@ pub fn run() {
             get_gateway_port,
             get_auto_start,
             set_auto_start,
+            resolve_media,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
