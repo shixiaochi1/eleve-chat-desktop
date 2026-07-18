@@ -33,6 +33,7 @@ import AppShell from './components/AppShell';
 import PaneShell, { Pane, PaneMain, PaneCollapseBtn } from './components/PaneShell';
 import FileBrowserPanel from './components/FileBrowserPanel';
 import TerminalPanel from './components/TerminalPanel';
+import PreviewPanel from './components/PreviewPanel';
 import RightSidebarTabs from './components/RightSidebarTabs';
 import CommandCenter from './components/CommandCenter';
 import Toast from './components/Toast';
@@ -656,11 +657,13 @@ export default function App() {
             </div>
           </PaneMain>
 
-          {/* 右侧面板：文件浏览器 / 终端 (靠标签切换) — 只在 rightOpen 时渲染子元素，避免 TerminalPanel 在 0 宽容器中初始化 xterm.js */}
+          {/* 右侧面板：文件浏览器 / 终端 / 预览 (靠标签切换) — 只在 rightOpen 时渲染子元素，避免 TerminalPanel 在 0 宽容器中初始化 xterm.js */}
           <Pane side="right" className="pane-right-column">
             {rightOpen && <RightSidebarTabs activeTab={rightTab} onTabChange={setRightTab} />}
             {rightOpen && (rightTab === 'files' ? (
               <FileBrowserPanel onFileAttach={(path: string) => handleSend(`/file ${path}`)} />
+            ) : rightTab === 'preview' ? (
+              <PreviewPanel sessionId={debugInfo.sessionId} />
             ) : (
               <TerminalPanel onSend={handleSend} isStreaming={isStreaming} sessionId={debugInfo.sessionId} />
             ))}

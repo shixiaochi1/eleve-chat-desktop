@@ -1,12 +1,13 @@
 /**
  * RightSidebarTabs — Tab switcher between Files and Terminal
  */
-import { File, Terminal } from 'lucide-react';
+import { File, Terminal, Globe } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const TABS = [
   { key: 'files', label: '文件', Icon: File },
   { key: 'terminal', label: '终端', Icon: Terminal },
+  { key: 'preview', label: '预览', Icon: Globe },
 ];
 
 interface RightSidebarTabsProps {
