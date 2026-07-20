@@ -38,6 +38,10 @@ import {
   Folder,
   File,
   Package,
+  Image,
+  Mic,
+  FileText,
+  AppWindow,
   Globe,
   History,
   Activity,
@@ -90,6 +94,11 @@ export const AboutIcon: IconComponent = (props) => <Info size={ICON_SIZE_MD} {..
 export const SendIcon: IconComponent = (props) => <ArrowUp size={ICON_SIZE_MD} {...strokeProps} {...props} />;
 export const StopIcon: IconComponent = (props) => <Square size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const CommandMenuIcon: IconComponent = (props) => <Menu size={ICON_SIZE_MD} {...strokeProps} {...props} />;
+export const ImageIcon: IconComponent = (props) => <Image size={ICON_SIZE_SM} {...strokeProps} {...props} />;
+export const MicIcon: IconComponent = (props) => <Mic size={ICON_SIZE_SM} {...strokeProps} {...props} />;
+export const FastIcon: IconComponent = (props) => <Zap size={ICON_SIZE_SM} {...strokeProps} {...props} />;
+export const ContextFileIcon: IconComponent = (props) => <FileText size={ICON_SIZE_SM} {...strokeProps} {...props} />;
+export const WebWindowIcon: IconComponent = (props) => <AppWindow size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const CopyIcon: IconComponent = (props) => <Copy size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const RegenerateIcon: IconComponent = (props) => <RefreshCw size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const NewIcon: IconComponent = (props) => <Plus size={ICON_SIZE_MD} {...strokeProps} {...props} />;

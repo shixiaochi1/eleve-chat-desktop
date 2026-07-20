@@ -542,6 +542,57 @@ export class GatewayWsClient {
     return result as ImageDetachResponse
   }
 
+  // ── 语音 RPC（对齐后端 ws/mod.rs voice.record / voice.toggle / voice.tts）──
+
+  /**
+   * 语音录制 — 对齐 Hermes voice.record
+   * action: start（开始 VAD 录音）/ stop（停止并转录）/ status（查询状态）
+   * 转录结果由后端通过 voice.transcript 事件推送回前端（见 useVoice 钩子）
+   */
+  async voiceRecord(action: 'start' | 'stop' | 'status' = 'status'): Promise<VoiceRecordResponse> {
+    const result = await this.sendRpc('voice.record', { action })
+    return result as VoiceRecordResponse
+  }
+
+  /**
+   * 语音开关 — 对齐 Hermes voice.toggle
+   * action: on / off / status — 读写 config.voice.enabled（跨重启持久化）
+   */
+  async voiceToggle(action: 'on' | 'off' | 'status' = 'status'): Promise<VoiceToggleResponse> {
+    const result = await this.sendRpc('voice.toggle', { action })
+    return result as VoiceToggleResponse
+  }
+
+  /** 文本转语音 — 对齐 Hermes voice.tts */
+  async voiceTts(text: string): Promise<VoiceTtsResponse> {
+    const result = await this.sendRpc('voice.tts', { text })
+    return result as VoiceTtsResponse
+  }
+
+  // ── 配置读写 RPC（对齐后端 ws/mod.rs config.get / config.set）──
+
+  /** 读配置 — config.get { key } */
+  async configGet(key: string): Promise<ConfigGetResponse> {
+    const result = await this.sendRpc('config.get', { key })
+    return result as ConfigGetResponse
+  }
+
+  /** 写配置 — config.set { key, value }，内存+磁盘原子更新、立即生效 */
+  async configSet(key: string, value: unknown): Promise<ConfigSetResponse> {
+    const result = await this.sendRpc('config.set', { key, value })
+    return result as ConfigSetResponse
+  }
+
+  // ── 浏览器自动化 RPC（对齐后端 ws/rpc_browser.rs browser.manage）──
+
+  /** 浏览器管理 — browser.manage { action: status/connect/disconnect, url? }（CDP 连接） */
+  async browserManage(action: 'status' | 'connect' | 'disconnect', url?: string): Promise<BrowserManageResponse> {
+    const params: Record<string, unknown> = { action }
+    if (url) params.url = url
+    const result = await this.sendRpc('browser.manage', params)
+    return result as BrowserManageResponse
+  }
+
   /** 设置重连恢复回调（对齐 Eleve gateway.ready → session.resume） */
   setReconnectCallback(cb: ((wasReconnect: boolean) => void) | null): void {
     this.reconnectCallback = cb
@@ -561,6 +612,49 @@ export interface ImageAttachResponse {
 export interface ImageDetachResponse {
   detached?: boolean
   count?: number
+}
+
+// ── 语音 RPC 响应类型（对齐后端 ws/mod.rs voice.*）──
+
+export interface VoiceRecordResponse {
+  ok?: boolean
+  status?: 'recording' | 'transcribing' | 'idle' | string
+}
+
+export interface VoiceToggleResponse {
+  ok?: boolean
+  enabled?: boolean
+  record_key?: string
+  tts?: boolean
+  available?: boolean
+  audio_available?: boolean
+  stt_available?: boolean
+}
+
+export interface VoiceTtsResponse {
+  ok?: boolean
+  status?: string
+}
+
+// ── 配置 RPC 响应类型（对齐后端 ws/mod.rs config.get / config.set）──
+
+export interface ConfigGetResponse {
+  ok?: boolean
+  value?: unknown
+  [key: string]: unknown
+}
+
+export interface ConfigSetResponse {
+  ok?: boolean
+  [key: string]: unknown
+}
+
+// ── 浏览器 RPC 响应类型（对齐后端 ws/rpc_browser.rs browser.manage）──
+
+export interface BrowserManageResponse {
+  connected?: boolean
+  url?: string | null
+  [key: string]: unknown
 }
 
 // ── 单例 ──

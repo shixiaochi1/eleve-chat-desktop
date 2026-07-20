@@ -11,19 +11,19 @@ import { fetchModels, setModel as apiSetModel } from '../utils/api';
 import { loadSettings } from '../utils/settings-store';
 import type { ModelOptionProvider } from '@/types/eleve';
 
-interface ModelItem {
+export interface ModelItem {
   id: string;
   owned_by?: string;
   providerName?: string;
 }
 
-interface ModelGroup {
+export interface ModelGroup {
   providerId: string;
   providerName: string;
   models: ModelItem[];
 }
 
-interface GroupedModels {
+export interface GroupedModels {
   [providerId: string]: ModelGroup;
 }
 

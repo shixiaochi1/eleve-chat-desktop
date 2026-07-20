@@ -79,7 +79,7 @@ export default function CommandMenu({ commands = [], onCommand }: CommandMenuPro
   return (
     <div className="relative" ref={menuRef}>
       <button
-        className="p-1.5 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+        className="inline-flex size-(--composer-control-size) shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
         title="命令菜单"
         onClick={() => { setOpen((v) => !v); if (!open) setTimeout(() => inputRef.current?.focus(), 50); }}
       >

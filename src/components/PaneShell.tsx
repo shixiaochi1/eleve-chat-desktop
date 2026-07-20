@@ -168,7 +168,7 @@ export default function PaneShell({
     <PaneShellContext.Provider value={contextValue}>
       <div
         className={cn(
-          'grid min-w-[640px] flex-1 min-h-0 overflow-hidden transition-[grid-template-columns] duration-200 bg-[var(--eleve-surface-backboard)] pr-2 pb-1.5',
+          'grid min-w-[640px] flex-1 min-h-0 overflow-hidden transition-[grid-template-columns] duration-200 bg-[var(--eleve-surface-backboard)] grid-rows-[minmax(0,1fr)] pr-2 pb-2',
           className,
           !rightOpen && 'pane-right-closed',
         )}

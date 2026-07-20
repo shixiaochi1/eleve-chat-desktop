@@ -714,6 +714,57 @@ canvas {
     0 0.1875rem 0.625rem color-mix(in srgb, var(--dt-destructive) 12%, transparent);
 }
 
+/* Composer 容器表面 — Hermes 式容器化输入面板（对齐 Hermes composer-surface）。
+   输入区 + 控制行共处一个玻璃质感容器；ring/fill 梯度沿用 .desktop-input-chrome
+   同一套机制（hover 边框增亮 → focus-within 填充不透明 + 焦点光环），
+   让容器随用户操作产生可感知的状态反馈。非 layer，确保压过 Tailwind utilities。 */
+.composer-surface {
+  --ring-pct: 18%;
+  --ring-fall: var(--dt-input);
+  background: color-mix(in srgb, var(--dt-card) 68%, transparent);
+  border-color: color-mix(
+    in srgb,
+    var(--dt-composer-ring) calc(var(--ring-pct) * var(--composer-ring-strength)),
+    var(--ring-fall)
+  );
+  box-shadow: var(--shadow-composer);
+  backdrop-filter: blur(0.75rem) saturate(1.12);
+  -webkit-backdrop-filter: blur(0.75rem) saturate(1.12);
+  transition:
+    background-color 200ms ease-out,
+    border-color 200ms ease-out,
+    box-shadow 200ms ease-out;
+}
+
+.composer-surface:hover {
+  --ring-pct: 30%;
+  background: color-mix(in srgb, var(--dt-card) 86%, transparent);
+}
+
+.composer-surface:focus-within {
+  --ring-pct: 45%;
+  --ring-fall: transparent;
+  background: var(--dt-card);
+  box-shadow: var(--shadow-composer-focus);
+}
+
+/* ── 语音输入动画（阶段三）— 录音脉冲光环 + 电平条舞动 ── */
+@keyframes voice-recording-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dt-destructive) 35%, transparent); }
+  50% { box-shadow: 0 0 0 0.375rem color-mix(in srgb, var(--dt-destructive) 0%, transparent); }
+}
+
+@keyframes voice-bar-dance {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+.voice-bar {
+  height: 100%;
+  transform-origin: center;
+  animation: voice-bar-dance 0.9s ease-in-out infinite;
+}
+
 @layer components {
 
   /* ── 全局统一滚动条 — 始终保留滑轨空间，滑块hover显隐 ── */

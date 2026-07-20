@@ -13,7 +13,6 @@ function fmtNum(n: number): string {
 }
 
 interface ContextData {
-  model?: string;
   total_tokens?: number;
   context_limit?: number;
   percentage?: number;
@@ -77,7 +76,6 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [sessionStartedAt]);
 
-  const model = ctx?.model || '—';
   const total_tokens = ctx?.total_tokens ?? 0;
   const context_limit = ctx?.context_limit || 0;
   const percentage = ctx?.percentage ?? 0;
@@ -111,7 +109,6 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
           </button>
         </div>
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground/70">
-          <span className="text-muted-foreground/80" title="当前模型">{model}</span>
           <span>
             {fmtNum(total_tokens)} / {fmtNum(context_limit)} tokens
           </span>

@@ -652,6 +652,11 @@ export default function App() {
                 onAddImage={handleAddImage}
                 onRemoveImage={handleRemoveImage}
                 onClearImageError={clearImageError}
+                currentModel={modelDiscovery.selectedModel || monitorState.modelName || undefined}
+                modelGrouped={modelDiscovery.grouped}
+                modelLoading={modelDiscovery.loading}
+                modelError={modelDiscovery.error}
+                onSelectModel={modelDiscovery.selectModel}
               />
             </main>
             </div>
