@@ -2,6 +2,7 @@ import { useCallback, type MutableRefObject } from 'react';
 import { activateSession } from '../utils/api';
 import { setMessages as storeSetMessages, getMessages } from '../store/messages';
 import * as storage from '../utils/storage';
+import { getWsClient } from '../services/ws-client';
 import type { SessionManagerHandle } from './useMessageStream';
 import { textPart } from '@/lib/chat-messages'
 import type { ChatMessage } from '@/types';
@@ -100,6 +101,9 @@ export function useSessionActions({
     // 清除 session ID，标记为 fresh draft
     sess.setSessionId(null);
     storage.save('session_id', null);
+    // 🔴 Fix BUG#1: 同步清除 WS client 内部 session ID，防止 promptSubmit fallback 到旧 ID
+    // 不清除 → 首条消息发到旧 session → agent 带旧上下文回复 → "新建会话"名存实亡
+    getWsClient().switchSession('');
     sess.setFreshDraftReady(true);
     // 对齐 Eleve: /new <title> 时暂存标题，懒创建后设置
     if (title?.trim()) {

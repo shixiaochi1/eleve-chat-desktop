@@ -144,7 +144,9 @@ export function usePromptActions({
       const cmdPart = text.trimStart().replace(/^\//, '').split(/\s/)[0].toLowerCase();
       const args = text.trimStart().replace(/^\/\S+\s*/, '').trim();
       // 对齐 Eleve：/new [title] 走前端纯重置（startFreshSessionDraft），不走后端 executeCommand
-      if (cmdPart === 'new') {
+      // 🔴 Fix BUG#2: /reset 是 /new 的别名，必须一起拦截走前端重置
+      // 不拦截 → 走 WS slash.exec → 后端返回前端不识别的格式
+      if (cmdPart === 'new' || cmdPart === 'reset') {
         handleNewSession(args || undefined);
         return;
       }
