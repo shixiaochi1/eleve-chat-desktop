@@ -79,7 +79,7 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
   };
 
   return (
-    <nav role="tablist" className="flex flex-col items-center w-14 h-full py-2 gap-1 select-none">
+    <nav role="tablist" className="flex flex-col items-center w-14 h-full py-2 gap-1 select-none" style={{ background: 'transparent' }}>
       {/* 顶部品牌 Logo 按钮 — 和工具栏一样切换面板 */}
       <button
         className={cn(

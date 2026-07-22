@@ -5,8 +5,8 @@
 
 export default function ToolStatusBar() {
   return (
-    <div className="flex items-center h-10 px-4 border-b border-border bg-background/50 backdrop-blur-sm">
-      <span className="text-xs text-muted-foreground">工具状态栏</span>
+    <div className="flex items-center h-10 px-4 border-b border-white/10">
+      <span className="text-xs text-cyan-300/80">工具状态栏</span>
     </div>
   )
 }

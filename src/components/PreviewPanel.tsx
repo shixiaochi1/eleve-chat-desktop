@@ -167,7 +167,7 @@ export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
   const isRestarting = status === 'restarting';
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-[var(--eleve-surface-background)]">
+    <div className="flex flex-col flex-1 min-h-0 bg-[var(--eleve-surface-background)]">
       {/* ── URL 输入栏 ── */}
       <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[var(--ui-stroke-secondary)] bg-[var(--ui-bg-quaternary)]">
         <Globe size={14} className="text-[var(--ui-text-tertiary)] shrink-0" />

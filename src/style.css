@@ -405,7 +405,7 @@
 
   body {
     margin: 0;
-    background: var(--eleve-surface-backboard);
+    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #1e3c72 100%);
     color: var(--dt-foreground);
     font-family: var(--dt-font-sans);
     font-size: 0.8125rem;
@@ -415,6 +415,43 @@
     -webkit-user-select: none;
     user-select: none;
     -webkit-font-smoothing: antialiased;
+    position: relative;
+  }
+
+  /* ── 方案C: 背板渐变光晕层 ── */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background:
+      radial-gradient(ellipse at 15% 25%, rgba(56, 189, 248, 0.2) 0%, transparent 50%),
+      radial-gradient(ellipse at 85% 75%, rgba(120, 80, 220, 0.18) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 50%, rgba(56, 189, 248, 0.08) 0%, transparent 60%),
+      radial-gradient(ellipse at 25% 80%, rgba(120, 80, 220, 0.1) 0%, transparent 40%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── 方案C: 噪点纹理层 ── */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter><rect width="100" height="100" filter="url(%23n)" opacity="0.03"/></svg>');
+    opacity: 0.4;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  #root {
+    position: relative;
+    z-index: 1;
   }
 
   button,
@@ -842,7 +879,7 @@ canvas {
 /* ── 标题栏 — 自绘，32px，可拖拽窗口 ── */
 .titlebar {
   height: 32px;
-  background: var(--eleve-surface-backboard);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -857,7 +894,7 @@ canvas {
 .titlebar-logo {
   font-size: 12px;
   font-weight: 600;
-  color: var(--ui-text-secondary);
+  color: #e0f2fe;
   letter-spacing: 0.3px;
   display: flex;
   align-items: center;
@@ -943,27 +980,71 @@ canvas {
 .pane-left-column {
   display: flex;
   flex-direction: row;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
-  padding-right: 8px;
+  border-radius: 12px;
 }
 
 .pane-right-column {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
+  background: rgba(15, 31, 56, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    0 1px 4px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  position: relative;
+}
+
+/* 卡片3顶部渐变光线 — 青色→紫色 */
+.pane-right-column::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.4), rgba(120, 80, 220, 0.5), transparent);
+  z-index: 10;
 }
 
 /* ── 侧边面板卡片（卡片1）── */
 .side-panel-card {
   flex: 1;
   min-width: 0;
-  background: var(--eleve-surface-card1);
-  border-radius: var(--radius-lg);
+  background: rgba(15, 31, 56, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    0 1px 4px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+/* 卡片1顶部渐变光线 — 青色→紫色 */
+.side-panel-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.5), rgba(120, 80, 220, 0.3), transparent);
+  z-index: 10;
 }
 
 /* ── 聊天卡片（卡片2）── */
@@ -971,10 +1052,29 @@ canvas {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--eleve-surface-card2);
-  border-radius: var(--radius-lg);
+  background: rgba(15, 31, 56, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    0 1px 4px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
   overflow: hidden;
   position: relative;
+}
+
+/* 卡片2顶部渐变光线 — 紫色→青色 */
+.chat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(120, 80, 220, 0.5), rgba(56, 189, 248, 0.3), transparent);
+  z-index: 10;
 }
 
 /* ================================================================

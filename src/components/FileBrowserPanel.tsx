@@ -232,7 +232,7 @@ export default function FileBrowserPanel({
   // ── 空状态（未初始化时）──
   if (!initDone && !loading) {
     return (
-      <div className="flex flex-col h-full p-3">
+      <div className="flex flex-col flex-1 min-h-0 p-3">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-medium text-foreground">文件</span>
         </div>
@@ -247,7 +247,7 @@ export default function FileBrowserPanel({
   // ── 无根目录状态 ──
   if (!rootPath && !loading) {
     return (
-      <div className="flex flex-col h-full p-3">
+      <div className="flex flex-col flex-1 min-h-0 p-3">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-medium text-foreground">文件</span>
         </div>
@@ -261,7 +261,7 @@ export default function FileBrowserPanel({
   }
 
   return (
-    <div className="flex flex-col h-full p-3">
+    <div className="flex flex-col flex-1 min-h-0 p-3">
       {/* 头部 */}
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-foreground">文件</span>

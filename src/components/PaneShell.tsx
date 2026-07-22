@@ -168,11 +168,11 @@ export default function PaneShell({
     <PaneShellContext.Provider value={contextValue}>
       <div
         className={cn(
-          'grid min-w-[640px] flex-1 min-h-0 overflow-hidden transition-[grid-template-columns] duration-200 bg-[var(--eleve-surface-backboard)] grid-rows-[minmax(0,1fr)] pr-2 pb-2',
+          'grid min-w-[640px] flex-1 min-h-0 overflow-hidden transition-[grid-template-columns] duration-200 grid-rows-[minmax(0,1fr)] gap-2 px-2',
           className,
           !rightOpen && 'pane-right-closed',
         )}
-        style={composedStyle}
+        style={{ ...composedStyle, background: 'transparent' }}
       >
         {children}
         {/* Resizer handles — positioned as grid items overlaying pane edges */}
@@ -215,7 +215,7 @@ export function Pane({ side, children, className = '' }: PaneProps) {
 
   return (
     <div
-      className={cn('flex overflow-hidden min-w-0', className, !isOpen && 'overflow-hidden')}
+      className={cn('flex overflow-hidden min-w-0 h-full', className, !isOpen && 'overflow-hidden')}
       data-pane-side={side}
       style={{ gridColumn: `${col} / ${col + 1}` }}
     >
@@ -236,7 +236,7 @@ export function PaneMain({ children, className = '' }: PaneMainProps) {
 
   return (
     <div
-      className={cn('flex flex-col min-w-0 overflow-hidden', className)}
+      className={cn('flex flex-col min-w-0 overflow-hidden rounded-xl', className)}
       style={{ gridColumn: `${col} / ${col + 1}` }}
     >
       {children}

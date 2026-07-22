@@ -203,7 +203,7 @@ export default function TerminalPanel({ onSend, isStreaming = false, sessionId }
   );
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="flex flex-col flex-1 min-h-0 bg-background">
       {/* Tab bar */}
       <div className="flex items-center gap-0 px-1 py-0.5 border-b border-border bg-muted/10 shrink-0 overflow-x-auto">
         {tabs.map((tab) => (
