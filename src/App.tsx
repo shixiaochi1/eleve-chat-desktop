@@ -500,7 +500,7 @@ export default function App() {
   // ── titlebar element ──
   const titlebarEl = (
     <div className="titlebar" data-tauri-drag-region onDoubleClick={winMax}>
-      <span className="titlebar-logo"><img src="/eleve_logo.png" alt="Eleve" className="titlebar-logo-img" /> Eleve Chat</span>
+      <span className="titlebar-logo"><img src="/Elogo.svg" alt="Eleve" className="titlebar-logo-img" /> Eleve Chat</span>
       <div className="titlebar-actions">
         <button className="tb-btn" id="btn-min" title="最小化" onClick={winMin}>─</button>
         <button className="tb-btn" id="btn-max" title="最大化" onClick={winMax}>□</button>

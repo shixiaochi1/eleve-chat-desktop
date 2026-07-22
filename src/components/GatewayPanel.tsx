@@ -91,7 +91,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
     <div className="flex flex-col h-full p-3 gap-3">
       {/* Logo */}
       <div className="flex flex-col items-center gap-1 py-2">
-        <img src="/eleve_logo.png" alt="Eleve" className="w-10 h-10" />
+        <img src="/Elogo.svg" alt="Eleve" className="w-10 h-10" />
         <span className="text-sm font-semibold text-foreground">Eleve Agent</span>
         <span className="text-[10px] text-muted-foreground/50">网关状态</span>
       </div>

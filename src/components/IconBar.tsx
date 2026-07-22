@@ -90,7 +90,7 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
         aria-label="网关状态"
         onClick={() => onPanelChange?.(logoActive ? null : 'gateway')}
       >
-        <img src="/eleve_logo.png" alt="Eleve" className="w-6 h-6 rounded" />
+        <img src="/Elogo.svg" alt="Eleve" className="w-6 h-6 rounded" />
         <span className={cn(
           'absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-sidebar',
           gatewayOnline ? 'bg-green-500' : 'bg-red-500'

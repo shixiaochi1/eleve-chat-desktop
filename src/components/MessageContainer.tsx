@@ -120,7 +120,7 @@ export function VirtualizedThread({
           >
             <div className="flex flex-col items-center justify-center gap-4">
               <div className="w-16 h-16">
-                <img src="/eleve_logo.png" alt="Eleve" className="w-full h-full object-contain" />
+                <img src="/Elogo.svg" alt="Eleve" className="w-full h-full object-contain" />
               </div>
               <h2 className="text-lg font-semibold">Eleve Agent</h2>
               {!gatewayOnline ? (

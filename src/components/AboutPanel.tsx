@@ -5,7 +5,7 @@ export default function AboutPanel() {
   return (
     <div className="p-4 space-y-4">
       <div className="flex flex-col items-center gap-1 py-4">
-        <img src="/eleve_logo.png" alt="Eleve" className="w-12 h-12 rounded-lg" />
+        <img src="/Elogo.svg" alt="Eleve" className="w-12 h-12 rounded-lg" />
         <h2 className="text-base font-semibold text-foreground">Eleve Agent</h2>
         <span className="text-xs text-muted-foreground/60">全栈 Rust AI 智能体平台 · v0.1.0</span>
       </div>
