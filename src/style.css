@@ -992,8 +992,8 @@ canvas {
   border-radius: 12px;
   border: 1px solid var(--eleve-card-border);
   box-shadow:
-    0 4px 16px var(--eleve-card-shadow-outer),
-    0 1px 4px var(--eleve-card-shadow-inner),
+    0 2px 8px var(--eleve-card-shadow-outer),
+    0 1px 2px var(--eleve-card-shadow-inner),
     inset 0 1px 0 var(--eleve-card-highlight);
   position: relative;
 }
@@ -1020,8 +1020,8 @@ canvas {
   border-radius: 12px;
   border: 1px solid var(--eleve-card-border);
   box-shadow:
-    0 4px 16px var(--eleve-card-shadow-outer),
-    0 1px 4px var(--eleve-card-shadow-inner),
+    0 2px 8px var(--eleve-card-shadow-outer),
+    0 1px 2px var(--eleve-card-shadow-inner),
     inset 0 1px 0 var(--eleve-card-highlight);
   overflow: hidden;
   display: flex;
@@ -1052,8 +1052,8 @@ canvas {
   border-radius: 12px;
   border: 1px solid var(--eleve-card-border);
   box-shadow:
-    0 4px 16px var(--eleve-card-shadow-outer),
-    0 1px 4px var(--eleve-card-shadow-inner),
+    0 2px 8px var(--eleve-card-shadow-outer),
+    0 1px 2px var(--eleve-card-shadow-inner),
     inset 0 1px 0 var(--eleve-card-highlight);
   overflow: hidden;
   position: relative;
