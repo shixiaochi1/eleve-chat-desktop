@@ -228,9 +228,6 @@
     --eleve-surface-card2: var(--ui-bg-editor);
 
     /* ── 方案C: 背板与卡片颜色变量（主题可调）── */
-    --eleve-backdrop-gradient-start: rgba(30, 60, 114, 0.7);
-    --eleve-backdrop-gradient-mid: rgba(42, 82, 152, 0.7);
-    --eleve-backdrop-gradient-end: rgba(30, 60, 114, 0.7);
     --eleve-card-bg: rgba(15, 31, 56, 0.92);
     --eleve-card-border: rgba(255, 255, 255, 0.15);
     --eleve-card-shadow-outer: rgba(0, 0, 0, 0.4);
@@ -419,7 +416,7 @@
 
   body {
     margin: 0;
-    background: linear-gradient(135deg, var(--eleve-backdrop-gradient-start) 0%, var(--eleve-backdrop-gradient-mid) 50%, var(--eleve-backdrop-gradient-end) 100%);
+    background: var(--eleve-surface-backboard);
     color: var(--dt-foreground);
     font-family: var(--dt-font-sans);
     font-size: 0.8125rem;

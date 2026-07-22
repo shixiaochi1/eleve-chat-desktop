@@ -206,10 +206,7 @@ function applyThemeCSS(theme: DesktopTheme, customOverrides: Partial<DesktopThem
     '--danger': 'var(--dt-destructive)',
     '--accent': 'var(--dt-accent-foreground)',
 
-    // ── 方案C: 背板与卡片颜色（从主题色派生）──
-    '--eleve-backdrop-gradient-start': hexToRgba(c.background, 0.7),
-    '--eleve-backdrop-gradient-mid': hexToRgba(c.midground || c.primary, 0.5),
-    '--eleve-backdrop-gradient-end': hexToRgba(c.background, 0.7),
+    // ── 方案C: 卡片颜色（从主题色派生）──
     '--eleve-card-bg': hexToRgba(c.card, 0.92),
     '--eleve-card-border': hexToRgba(isDark ? '#ffffff' : '#000000', 0.15),
     '--eleve-card-shadow-outer': 'rgba(0, 0, 0, 0.4)',
