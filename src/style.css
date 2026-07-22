@@ -226,6 +226,20 @@
     --eleve-surface-backboard: var(--ui-bg-sidebar);
     --eleve-surface-card1: var(--ui-bg-editor);
     --eleve-surface-card2: var(--ui-bg-editor);
+
+    /* ── 方案C: 背板与卡片颜色变量（主题可调）── */
+    --eleve-backdrop-gradient-start: rgba(30, 60, 114, 0.7);
+    --eleve-backdrop-gradient-mid: rgba(42, 82, 152, 0.7);
+    --eleve-backdrop-gradient-end: rgba(30, 60, 114, 0.7);
+    --eleve-card-bg: rgba(15, 31, 56, 0.92);
+    --eleve-card-border: rgba(255, 255, 255, 0.15);
+    --eleve-card-shadow-outer: rgba(0, 0, 0, 0.4);
+    --eleve-card-shadow-inner: rgba(0, 0, 0, 0.3);
+    --eleve-card-highlight: rgba(255, 255, 255, 0.05);
+    --eleve-card-glow-cyan: rgba(56, 189, 248, 0.5);
+    --eleve-card-glow-purple: rgba(120, 80, 220, 0.5);
+    --eleve-card-glow-cyan-mid: rgba(56, 189, 248, 0.3);
+    --eleve-card-glow-purple-mid: rgba(120, 80, 220, 0.3);
     --ui-chat-bubble-background: color-mix(
       in srgb,
       var(--theme-bubble-seed) var(--theme-mix-bubble),
@@ -405,7 +419,7 @@
 
   body {
     margin: 0;
-    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #1e3c72 100%);
+    background: linear-gradient(135deg, var(--eleve-backdrop-gradient-start) 0%, var(--eleve-backdrop-gradient-mid) 50%, var(--eleve-backdrop-gradient-end) 100%);
     color: var(--dt-foreground);
     font-family: var(--dt-font-sans);
     font-size: 0.8125rem;
@@ -416,23 +430,6 @@
     user-select: none;
     -webkit-font-smoothing: antialiased;
     position: relative;
-  }
-
-  /* ── 方案C: 背板渐变光晕层 ── */
-  body::before {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background:
-      radial-gradient(ellipse at 15% 25%, rgba(56, 189, 248, 0.2) 0%, transparent 50%),
-      radial-gradient(ellipse at 85% 75%, rgba(120, 80, 220, 0.18) 0%, transparent 50%),
-      radial-gradient(ellipse at 50% 50%, rgba(56, 189, 248, 0.08) 0%, transparent 60%),
-      radial-gradient(ellipse at 25% 80%, rgba(120, 80, 220, 0.1) 0%, transparent 40%);
-    pointer-events: none;
-    z-index: 0;
   }
 
   /* ── 方案C: 噪点纹理层 ── */
@@ -992,15 +989,15 @@ canvas {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: rgba(15, 31, 56, 0.92);
+  background: var(--eleve-card-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--eleve-card-border);
   box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.3),
-    0 1px 4px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    0 4px 16px var(--eleve-card-shadow-outer),
+    0 1px 4px var(--eleve-card-shadow-inner),
+    inset 0 1px 0 var(--eleve-card-highlight);
   position: relative;
 }
 
@@ -1012,7 +1009,7 @@ canvas {
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.4), rgba(120, 80, 220, 0.5), transparent);
+  background: linear-gradient(90deg, transparent, var(--eleve-card-glow-cyan), var(--eleve-card-glow-purple), transparent);
   z-index: 10;
 }
 
@@ -1020,15 +1017,15 @@ canvas {
 .side-panel-card {
   flex: 1;
   min-width: 0;
-  background: rgba(15, 31, 56, 0.92);
+  background: var(--eleve-card-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--eleve-card-border);
   box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.3),
-    0 1px 4px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    0 4px 16px var(--eleve-card-shadow-outer),
+    0 1px 4px var(--eleve-card-shadow-inner),
+    inset 0 1px 0 var(--eleve-card-highlight);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1043,7 +1040,7 @@ canvas {
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.5), rgba(120, 80, 220, 0.3), transparent);
+  background: linear-gradient(90deg, transparent, var(--eleve-card-glow-cyan), var(--eleve-card-glow-purple-mid), transparent);
   z-index: 10;
 }
 
@@ -1052,15 +1049,15 @@ canvas {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: rgba(15, 31, 56, 0.92);
+  background: var(--eleve-card-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--eleve-card-border);
   box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.3),
-    0 1px 4px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    0 4px 16px var(--eleve-card-shadow-outer),
+    0 1px 4px var(--eleve-card-shadow-inner),
+    inset 0 1px 0 var(--eleve-card-highlight);
   overflow: hidden;
   position: relative;
 }
@@ -1073,7 +1070,7 @@ canvas {
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(120, 80, 220, 0.5), rgba(56, 189, 248, 0.3), transparent);
+  background: linear-gradient(90deg, transparent, var(--eleve-card-glow-purple), var(--eleve-card-glow-cyan-mid), transparent);
   z-index: 10;
 }
 

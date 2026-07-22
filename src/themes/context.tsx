@@ -30,6 +30,11 @@ function hexToRgb(hex: string): [number, number, number] | null {
   return [0, 2, 4].map(i => parseInt(clean.slice(i, i + 2), 16)) as [number, number, number]
 }
 
+/** 任意颜色加透明度（支持 hex / rgba / color-mix） */
+function hexToRgba(color: string, alpha: number): string {
+  return `color-mix(in srgb, ${color} ${Math.round(alpha * 100)}%, transparent)`
+}
+
 /** 根据背景色亮度判断是否为暗色模式 */
 function isDarkColor(hex: string): boolean {
   const rgb = hexToRgb(hex)
@@ -200,6 +205,20 @@ function applyThemeCSS(theme: DesktopTheme, customOverrides: Partial<DesktopThem
     '--error': 'var(--ui-red)',
     '--danger': 'var(--dt-destructive)',
     '--accent': 'var(--dt-accent-foreground)',
+
+    // ── 方案C: 背板与卡片颜色（从主题色派生）──
+    '--eleve-backdrop-gradient-start': hexToRgba(c.background, 0.7),
+    '--eleve-backdrop-gradient-mid': hexToRgba(c.midground || c.primary, 0.5),
+    '--eleve-backdrop-gradient-end': hexToRgba(c.background, 0.7),
+    '--eleve-card-bg': hexToRgba(c.card, 0.92),
+    '--eleve-card-border': hexToRgba(isDark ? '#ffffff' : '#000000', 0.15),
+    '--eleve-card-shadow-outer': 'rgba(0, 0, 0, 0.4)',
+    '--eleve-card-shadow-inner': 'rgba(0, 0, 0, 0.3)',
+    '--eleve-card-highlight': hexToRgba(isDark ? '#ffffff' : '#000000', 0.05),
+    '--eleve-card-glow-cyan': hexToRgba(c.primary, 0.5),
+    '--eleve-card-glow-purple': hexToRgba(c.midground || c.primary, 0.5),
+    '--eleve-card-glow-cyan-mid': hexToRgba(c.primary, 0.3),
+    '--eleve-card-glow-purple-mid': hexToRgba(c.midground || c.primary, 0.3),
   }
 
   for (const [k, v] of Object.entries({ ...seeds, ...mixesFor(isDark), ...palette })) {
