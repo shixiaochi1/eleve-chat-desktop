@@ -24,6 +24,7 @@ import ThemePanel from './components/ThemePanel';
 import SettingsPanel from './components/SettingsPanel';
 import AboutPanel from './components/AboutPanel';
 import ModelPickerPanel from './components/ModelPickerPanel';
+import ToolStatusBar from './components/ToolStatusBar'
 import MessageContainer from './components/MessageContainer';
 import InputArea from './components/InputArea';
 import ContextBar from './components/ContextBar';
@@ -586,6 +587,7 @@ export default function App() {
               </button>
             )}
             <main className="chat-area" id="page-chat">
+              <ToolStatusBar />
               {!portReady && messages.length === 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', opacity: 0.6 }}>
                   <div className="spinner" style={{ width: 32, height: 32, border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
