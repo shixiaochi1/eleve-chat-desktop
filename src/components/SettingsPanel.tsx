@@ -585,13 +585,15 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       >
         {renderContent()}
 
-        {/* ══════════ 保存按钮 ══════════ */}
-        <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-border">
-          <span className={status.className}>{status.text}</span>
-          <Button disabled={saving} onClick={handleSave}>
-            {saving ? '保存中…' : '保存'}
-          </Button>
-        </div>
+        {/* ══════════ 保存按钮 — 仅 providers/models（其余面板自带保存）═══════════ */}
+        {['providers', 'models'].includes(activeSection) && (
+          <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-border">
+            <span className={status.className}>{status.text}</span>
+            <Button disabled={saving} onClick={handleSave}>
+              {saving ? '保存中…' : '保存'}
+            </Button>
+          </div>
+        )}
       </SettingsLayout>
 
       {/* ══════════ 密码对话框 ══════════ */}
