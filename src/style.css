@@ -989,24 +989,7 @@ canvas {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-radius: 12px;
-  border: 1px solid var(--eleve-card-border);
-  box-shadow:
-    0 1px 4px var(--eleve-card-shadow-outer),
-    0 1px 2px var(--eleve-card-shadow-inner),
-    inset 0 1px 0 var(--eleve-card-highlight);
   position: relative;
-}
-
-/* 卡片3顶部渐变光线 — 青色→紫色 */
-.pane-right-column::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--eleve-card-glow-cyan), var(--eleve-card-glow-purple), transparent);
-  z-index: 10;
 }
 
 /* ── 侧边面板卡片（卡片1）── */
@@ -1017,27 +1000,10 @@ canvas {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-radius: 12px;
-  border: 1px solid var(--eleve-card-border);
-  box-shadow:
-    0 1px 4px var(--eleve-card-shadow-outer),
-    0 1px 2px var(--eleve-card-shadow-inner),
-    inset 0 1px 0 var(--eleve-card-highlight);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   position: relative;
-}
-
-/* 卡片1顶部渐变光线 — 青色→紫色 */
-.side-panel-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--eleve-card-glow-cyan), var(--eleve-card-glow-purple-mid), transparent);
-  z-index: 10;
 }
 
 /* ── 聊天卡片（卡片2）── */
@@ -1049,25 +1015,8 @@ canvas {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-radius: 12px;
-  border: 1px solid var(--eleve-card-border);
-  box-shadow:
-    0 1px 4px var(--eleve-card-shadow-outer),
-    0 1px 2px var(--eleve-card-shadow-inner),
-    inset 0 1px 0 var(--eleve-card-highlight);
   overflow: hidden;
   position: relative;
-}
-
-/* 卡片2顶部渐变光线 — 紫色→青色 */
-.chat-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--eleve-card-glow-purple), var(--eleve-card-glow-cyan-mid), transparent);
-  z-index: 10;
 }
 
 /* ================================================================
