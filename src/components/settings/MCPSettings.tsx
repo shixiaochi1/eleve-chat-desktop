@@ -2,9 +2,9 @@
  * MCP 设置 — 对齐 Eleve mcp-settings.tsx
  *
  * MCP Server 列表管理：添加/编辑/删除/启用禁用
- * 功能：搜索过滤、传输类型标签、计数、env编辑、JSON编辑器
+ * 功能：传输类型标签、计数、env编辑、JSON编辑器
  */
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { call } from '../../utils/bridge';
 import { notifySuccess, notifyError } from '../../utils/notifications';
 import { cn } from '../../lib/utils';
@@ -12,7 +12,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import {
-  Plus, Trash2, ToggleLeft, ToggleRight, RefreshCw, Search,
+  Plus, Trash2, ToggleLeft, ToggleRight, RefreshCw,
   Terminal, Globe, Wrench, Code2, Edit3,
 } from 'lucide-react';
 
@@ -39,7 +39,7 @@ export default function MCPSettings() {
   const [addOpen, setAddOpen] = useState(false);
   const [newServer, setNewServer] = useState<{ name: string; command: string; args: string; env: string }>({ name: '', command: '', args: '', env: '' });
   const [reloading, setReloading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+
   const [jsonMode, setJsonMode] = useState(false);
   const [jsonContent, setJsonContent] = useState('');
 
@@ -91,14 +91,7 @@ export default function MCPSettings() {
     custom: 'custom',
   };
 
-  const filteredServers = useMemo(() => {
-    if (!searchQuery.trim()) return servers;
-    const q = searchQuery.toLowerCase();
-    return servers.filter((s) =>
-      s.name.toLowerCase().includes(q) ||
-      s.command.toLowerCase().includes(q)
-    );
-  }, [servers, searchQuery]);
+
 
   const handleAdd = async () => {
     if (!newServer.name.trim() || !newServer.command.trim()) return;
@@ -189,17 +182,8 @@ export default function MCPSettings() {
       </div>
       <p className="text-xs text-muted-foreground/70 leading-relaxed mb-3">管理 Model Context Protocol 服务器连接。</p>
 
-      {/* 操作栏：搜索 + 刷新 + JSON 切换 */}
-      <div className="flex items-center gap-2 mb-3">
-        <div className="relative flex-1">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/60 pointer-events-none" />
-          <Input
-            className="pl-7 h-8 text-xs"
-            placeholder="搜索 server…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
+      {/* 操作栏：刷新 + JSON 切换 */}
+      <div className="flex items-center justify-end gap-2 mb-3">
         <Button variant="ghost" size="icon-xs" onClick={handleReload} disabled={reloading} title="重载所有 MCP">
           <RefreshCw size={14} className={reloading ? 'animate-spin' : ''} />
         </Button>
@@ -237,17 +221,15 @@ export default function MCPSettings() {
       ) : (
         <>
           {/* 空状态 */}
-          {filteredServers.length === 0 && !addOpen && (
+          {servers.length === 0 && !addOpen && (
             <div className="py-6 text-center">
-              <p className="text-xs text-muted-foreground">{searchQuery ? '未找到匹配的 Server' : '暂无 MCP Server'}</p>
-              <p className="text-xs text-muted-foreground/70 mt-1">
-                {searchQuery ? '尝试修改搜索词' : '点击下方按钮添加'}
-              </p>
+              <p className="text-xs text-muted-foreground">暂无 MCP Server</p>
+              <p className="text-xs text-muted-foreground/70 mt-1">点击下方按钮添加</p>
             </div>
           )}
 
           {/* Server 列表 */}
-          {filteredServers.map((s) => {
+          {servers.map((s) => {
             const ttype = getTransportType(s);
             return (
               <div key={s.name} className="flex items-center gap-3 px-3 py-2 hover:bg-accent/50 rounded-md mb-1">

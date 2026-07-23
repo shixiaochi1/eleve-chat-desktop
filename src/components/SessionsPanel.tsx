@@ -17,7 +17,7 @@ import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import { Skeleton } from './ui/skeleton';
-import { deleteSession, searchSessions } from '../utils/api';
+import { deleteSession } from '../utils/api';
 import { call } from '../utils/bridge';
 import * as storage from '../utils/storage';
 import { notifyError, notifySuccess, notifyInfo } from '../utils/notifications';
@@ -222,11 +222,7 @@ export default function SessionsPanel({
   onGatewayRetry,
   onAbort,
 }: SessionsPanelProps) {
-  const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'sessions' | 'outline'>('sessions');
-  const [searchResults, setSearchResults] = useState<Session[] | null>(null);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -246,42 +242,7 @@ export default function SessionsPanel({
   useEffect(() => { saveSet(PINNED_KEY, pinnedIds); }, [pinnedIds]);
   useEffect(() => { saveSet(ARCHIVED_KEY, archivedIds); }, [archivedIds]);
 
-  // ── 后端搜索（防抖）──
-  useEffect(() => {
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    const q = search.trim();
-    if (!q) {
-      setSearchResults(null);
-      setSearchLoading(false);
-      return;
-    }
-    setSearchLoading(true);
-    searchTimerRef.current = setTimeout(async () => {
-      try {
-        const data = await searchSessions(q);
-        const results = data?.results || [];
-        setSearchResults(results
-          .filter((r: any) => {
-            const src = r.source as string | undefined;
-            return !src || !HIDDEN_SOURCES.has(src);
-          })
-          .map((r: any) => ({
-            id: r.id,
-            title: r.title,
-            preview: r.preview,
-            last_active: r.last_active,
-          started_at: r.started_at,
-        })));
-      } catch {
-        setSearchResults([]);
-      } finally {
-        setSearchLoading(false);
-      }
-    }, 300);
-    return () => {
-      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    };
-  }, [search]);
+
 
   const handleSwitch = (s: Session) => {
     const id = s.id || s as any;
@@ -425,18 +386,7 @@ export default function SessionsPanel({
     [sessions]
   );
 
-  // ── 搜索过滤（后端优先，fallback 到前端过滤）──
-  const allFiltered = searchResults !== null
-    ? searchResults
-    : search.trim()
-      ? visibleSessions.filter((s) => {
-          const id = s.id || s as any;
-          const title = (typeof s === 'object' ? s.title : sessionTitles?.[id]) || '';
-          const preview = typeof s === 'object' ? s.preview : '';
-          const q = search.toLowerCase();
-          return title.toLowerCase().includes(q) || (preview && preview.toLowerCase().includes(q)) || id.toLowerCase().includes(q);
-        })
-      : visibleSessions;
+  const allFiltered = visibleSessions;
 
   // 分区：置顶 / 普通 / 归档
   const pinnedSessions = allFiltered.filter((s) => pinnedIds.has(s.id || s as any) && !archivedIds.has(s.id || s as any));
@@ -553,28 +503,20 @@ export default function SessionsPanel({
           <List size={14} />
           大纲
         </button>
-      </div>
-
-      {/* ── 会话列表 ── */}
-      {activeTab === 'sessions' && (
-      <div className="flex flex-col min-h-0 flex-1">
-        {/* 搜索 + 批量操作 */}
-        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0">
-          <input
-            className="flex-1 px-2 py-1 text-xs bg-background border border-input rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
-            type="text"
-            placeholder={searchLoading ? '搜索中…' : '搜索会话…'}
-            value={search}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-          />
+        {activeTab === 'sessions' && (
           <button
-            className={cn('p-1 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors', batchMode && 'bg-accent text-accent-foreground')}
+            className={cn('ml-auto p-1 mr-2 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors', batchMode && 'bg-accent text-accent-foreground')}
             title="批量操作"
             onClick={toggleBatchMode}
           >
             {batchMode ? <Square size={14} /> : <CheckSquare size={14} />}
           </button>
-        </div>
+        )}
+      </div>
+
+      {/* ── 会话列表 ── */}
+      {activeTab === 'sessions' && (
+      <div className="flex flex-col min-h-0 flex-1">
 
         {/* 全选/取消栏 — 批量模式 */}
         {batchMode && (
@@ -596,13 +538,13 @@ export default function SessionsPanel({
           </div>
         ) : sessions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-1">
-            <span className="text-sm">{search ? '无匹配会话' : '暂无会话'}</span>
-            <span className="text-xs text-muted-foreground/60">{search ? '试试其他关键词' : '发送第一条消息后自动创建'}</span>
+            <span className="text-sm">暂无会话</span>
+            <span className="text-xs text-muted-foreground/60">发送第一条消息后自动创建</span>
           </div>
         ) : allFiltered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-1">
-            <span className="text-sm">无匹配会话</span>
-            <span className="text-xs text-muted-foreground/60">试试其他关键词</span>
+            <span className="text-sm">暂无会话</span>
+            <span className="text-xs text-muted-foreground/60">发送第一条消息后自动创建</span>
           </div>
         ) : (
           <div

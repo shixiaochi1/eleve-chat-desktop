@@ -5,7 +5,6 @@ import type { ProviderEntry, AuxTaskEntry } from '../utils/settings-store';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { AlertTriangle, Upload, Download } from 'lucide-react';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
 import { cn } from '../lib/utils';
 import PasswordDialog from './PasswordDialog';
 import SettingsNav from './settings/SettingsNav';
@@ -114,8 +113,7 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
   // ── 删除确认 ──
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm | null>(null);
 
-  // ── 搜索 + 导入导出 ──
-  const [searchQuery, setSearchQuery] = useState('');
+  // ── 导入导出 ──
 
   const handleExportConfig = async () => {
     try {
@@ -564,36 +562,32 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
             onSectionChange={setActiveSection}
           />
         }
-      >
-        {/* 搜索栏 + 导入导出 */}
-        <div className="flex items-center gap-2 mb-4">
-          <Input
-            type="text"
-            placeholder="搜索设置项… (Ctrl+P)"
-            value={searchQuery}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
-            className="flex-1"
-          />
-          <Button variant="ghost" size="icon-sm" title="导入配置" onClick={handleImportConfig}>
-            <Upload />
-          </Button>
-          <Button variant="ghost" size="icon-sm" title="导出配置" onClick={handleExportConfig}>
-            <Download />
-          </Button>
-        </div>
-
-        {/* 保存状态 */}
-        {status.text && (
-          <div className="mb-4">
-            <span className={status.className}>{status.text}</span>
+        footer={
+          <div className="flex flex-col gap-0.5">
+            <button
+              className="flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-sm text-left text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={handleImportConfig}
+              type="button"
+            >
+              <Upload size={16} strokeWidth={1.5} />
+              <span>导入配置</span>
+            </button>
+            <button
+              className="flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-sm text-left text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={handleExportConfig}
+              type="button"
+            >
+              <Download size={16} strokeWidth={1.5} />
+              <span>导出配置</span>
+            </button>
           </div>
-        )}
-
+        }
+      >
         {renderContent()}
 
         {/* ══════════ 保存按钮 ══════════ */}
         <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-border">
-          <span className="text-xs text-muted-foreground">{status.text}</span>
+          <span className={status.className}>{status.text}</span>
           <Button disabled={saving} onClick={handleSave}>
             {saving ? '保存中…' : '保存'}
           </Button>
