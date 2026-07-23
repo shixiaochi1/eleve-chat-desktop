@@ -52,7 +52,7 @@ export default function AppearanceSettings({ onSaved }: { onSaved?: () => void }
                 className={cn(
                   'flex flex-col items-center gap-1.5 p-3 rounded-lg cursor-pointer transition-all text-xs text-center flex-1',
                   selected
-                    ? 'border border-accent bg-accent/10 text-accent'
+                    ? 'border border-primary bg-accent/10 text-primary'
                     : 'border border-border bg-background text-muted-foreground hover:bg-accent/5'
                 )}
               >

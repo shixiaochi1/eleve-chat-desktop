@@ -90,7 +90,7 @@ function DelegateCard({ task, onCancel, cancelling }: DelegateCardProps) {
   return (
     <div className={cn(
       'px-2 py-1.5 rounded border border-border bg-card transition-colors space-y-1',
-      isRunning && 'border-accent/30 bg-accent/[0.02]',
+      isRunning && 'border-primary/30 bg-accent/[0.02]',
       isDone && 'opacity-70',
       isFailed && 'border-destructive/30 bg-destructive/[0.02]'
     )}>
@@ -154,7 +154,7 @@ function DelegateCard({ task, onCancel, cancelling }: DelegateCardProps) {
         )}
 
         {isRunning && (
-          <span className="inline-flex items-center gap-0.5 text-[10px] text-accent" title="进行中">
+          <span className="inline-flex items-center gap-0.5 text-[10px] text-primary" title="进行中">
             <Loader size={10} strokeWidth={1.5} className="animate-spin" />
             <span>进行中</span>
           </span>
@@ -184,14 +184,14 @@ function DelegateCard({ task, onCancel, cancelling }: DelegateCardProps) {
 
       {/* 运行中：推理状态 */}
       {isRunning && task.thinkingText && (
-        <div className="text-[10px] text-accent/60 truncate" title={task.thinkingText}>
+        <div className="text-[10px] text-primary/60 truncate" title={task.thinkingText}>
           💭 {task.thinkingText}
         </div>
       )}
 
       {/* 运行中：当前工具调用 + 参数预览 */}
       {isRunning && task.toolName && (
-        <div className="flex items-center gap-1 text-[10px] text-accent/80 truncate" title={`当前工具: ${task.toolName}${task.toolArgs ? '\n参数: ' + JSON.stringify(task.toolArgs) : ''}`}>
+        <div className="flex items-center gap-1 text-[10px] text-primary/80 truncate" title={`当前工具: ${task.toolName}${task.toolArgs ? '\n参数: ' + JSON.stringify(task.toolArgs) : ''}`}>
           <Wrench size={9} strokeWidth={1.5} />
           <span className="truncate">{task.toolName}</span>
           {task.toolPreview && (
@@ -329,7 +329,7 @@ export default function AgentPanel({ monitorState, sessionId }: AgentPanelProps)
             <span>
               委托任务
               {totalActive > 0 && (
-                <span className="ml-1 px-1 py-0.5 text-[10px] rounded bg-accent/10 text-accent">{totalActive} 个活跃</span>
+                <span className="ml-1 px-1 py-0.5 text-[10px] rounded bg-accent/10 text-primary">{totalActive} 个活跃</span>
               )}
             </span>
           </div>
@@ -337,7 +337,7 @@ export default function AgentPanel({ monitorState, sessionId }: AgentPanelProps)
           {/* 活跃委托 */}
           {activeDelegates.length > 0 && (
             <div className="space-y-1">
-              <div className="text-[10px] font-medium text-accent">活跃中</div>
+              <div className="text-[10px] font-medium text-primary">活跃中</div>
               {activeDelegates.map((t: DelegateTaskData) => (
                 <DelegateCard key={t.id} task={t} onCancel={handleCancel} cancelling={cancellingId === t.id} />
               ))}
@@ -373,12 +373,12 @@ export default function AgentPanel({ monitorState, sessionId }: AgentPanelProps)
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSteer(); } }}
             placeholder={sessionId ? '输入 /steer 指令…' : '无活跃会话'}
             disabled={!sessionId || steering}
-            className="flex-1 min-w-0 px-2 py-1 text-xs rounded border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-accent/50 disabled:opacity-50"
+            className="flex-1 min-w-0 px-2 py-1 text-xs rounded border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
           />
           <button
             onClick={handleSteer}
             disabled={!steerText.trim() || !sessionId || steering}
-            className="shrink-0 p-1.5 rounded text-accent hover:bg-accent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="shrink-0 p-1.5 rounded text-primary hover:bg-accent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             title="发送"
           >
             {steering ? <Loader size={14} strokeWidth={1.5} className="animate-spin" /> : <Send size={14} strokeWidth={1.5} />}

@@ -119,7 +119,7 @@ export default function DebugPanel({
         <span className={cn(
           'flex items-center',
           t.status === 'done' ? 'text-success' :
-          t.status === 'pending' ? 'text-accent' : 'text-destructive'
+          t.status === 'pending' ? 'text-primary' : 'text-destructive'
         )}>
           {t.status === 'done' ? <CheckIcon size={12} /> : t.status === 'pending' ? <LoadingIcon size={12} className="animate-spin" /> : <DeleteIcon size={12} />}
         </span>
@@ -145,19 +145,19 @@ export default function DebugPanel({
       <div className="flex items-center gap-0.5 border-b border-border mb-2">
         <button className={cn(
           'px-2 py-1 text-xs border-b-2 border-transparent transition-colors',
-          tab === 'events' ? 'border-accent text-accent' : 'text-muted-foreground hover:text-foreground'
+          tab === 'events' ? 'border-primary text-primary' : 'text-muted-foreground hover:text-foreground'
         )} onClick={() => setTab('events')}>
           事件 {debugEvents.length > 0 && `(${debugEvents.length})`}
         </button>
         <button className={cn(
           'px-2 py-1 text-xs border-b-2 border-transparent transition-colors',
-          tab === 'tools' ? 'border-accent text-accent' : 'text-muted-foreground hover:text-foreground'
+          tab === 'tools' ? 'border-primary text-primary' : 'text-muted-foreground hover:text-foreground'
         )} onClick={() => setTab('tools')}>
           工具 {debugToolCalls.length > 0 && `(${debugToolCalls.length})`}
         </button>
         <button className={cn(
           'px-2 py-1 text-xs border-b-2 border-transparent transition-colors',
-          tab === 'info' ? 'border-accent text-accent' : 'text-muted-foreground hover:text-foreground'
+          tab === 'info' ? 'border-primary text-primary' : 'text-muted-foreground hover:text-foreground'
         )} onClick={() => setTab('info')}>
           信息
         </button>
@@ -237,7 +237,7 @@ export default function DebugPanel({
       </div>
 
       {!autoScroll && tab === 'events' && (
-        <button className="absolute bottom-2 right-2 px-2 py-0.5 text-[10px] bg-background border border-border rounded shadow-sm text-accent hover:bg-accent/10 transition-colors" onClick={() => { setAutoScroll(true); if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }}>
+        <button className="absolute bottom-2 right-2 px-2 py-0.5 text-[10px] bg-background border border-border rounded shadow-sm text-primary hover:bg-accent/10 transition-colors" onClick={() => { setAutoScroll(true); if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }}>
           ↓ 最新
         </button>
       )}

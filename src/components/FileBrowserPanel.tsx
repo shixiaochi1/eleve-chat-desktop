@@ -294,7 +294,7 @@ export default function FileBrowserPanel({
         <div className="flex flex-col items-center py-6 text-muted-foreground gap-2">
           <p className="text-xs text-destructive">读取失败</p>
           <p className="text-[10px] text-muted-foreground/50">{error}</p>
-          <button className="text-xs text-accent hover:underline" onClick={handleRefresh}>
+          <button className="text-xs text-primary hover:underline" onClick={handleRefresh}>
             重试
           </button>
         </div>

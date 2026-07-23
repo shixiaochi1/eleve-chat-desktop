@@ -278,7 +278,7 @@ export default function UsagePanel({
 
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/60">
-          <div className="w-5 h-5 border-2 border-border border-t-accent rounded-full animate-spin" />
+          <div className="w-5 h-5 border-2 border-border border-t-primary rounded-full animate-spin" />
         </div>
       )}
     </div>

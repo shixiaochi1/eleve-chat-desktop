@@ -80,7 +80,7 @@ export default function ToolsPanel() {
           className={cn(
             'flex items-center gap-1.5 flex-1 justify-center px-3 py-2 text-xs font-medium transition-colors',
             activeTab === 'tools'
-              ? 'text-foreground border-b-2 border-accent'
+              ? 'text-foreground border-b-2 border-primary'
               : 'text-muted-foreground hover:text-foreground'
           )}
           onClick={() => setActiveTab('tools')}
@@ -92,7 +92,7 @@ export default function ToolsPanel() {
           className={cn(
             'flex items-center gap-1.5 flex-1 justify-center px-3 py-2 text-xs font-medium transition-colors',
             activeTab === 'skills'
-              ? 'text-foreground border-b-2 border-accent'
+              ? 'text-foreground border-b-2 border-primary'
               : 'text-muted-foreground hover:text-foreground'
           )}
           onClick={() => setActiveTab('skills')}
@@ -109,7 +109,7 @@ export default function ToolsPanel() {
           <div className="relative">
             <SearchIcon size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
-              className="w-full h-7 pl-7 pr-2 text-xs bg-muted/50 rounded border border-border focus:border-accent focus:outline-none placeholder:text-muted-foreground/50"
+              className="w-full h-7 pl-7 pr-2 text-xs bg-muted/50 rounded border border-border focus:border-primary focus:outline-none placeholder:text-muted-foreground/50"
               type="text"
               placeholder="搜索工具..."
               value={search}

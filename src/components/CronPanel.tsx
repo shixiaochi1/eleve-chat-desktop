@@ -151,7 +151,7 @@ export default function CronPanel() {
 
       {/* 新建按钮 */}
       <button
-        className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-accent border border-dashed border-accent/30 rounded-md hover:bg-accent/10 transition-colors"
+        className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-primary border border-dashed border-primary/30 rounded-md hover:bg-accent/10 transition-colors"
         onClick={() => { setShowForm((v) => !v); if (!showForm) { setEditingId(null); setForm({ ...EMPTY_FORM }); } }}
       >
         <NewIcon size={14} />

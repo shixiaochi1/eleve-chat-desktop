@@ -211,7 +211,7 @@ export default function TerminalPanel({ onSend, isStreaming = false, sessionId }
             key={tab.id}
             className={`flex items-center gap-1 px-2 py-1 text-[11px] rounded-sm whitespace-nowrap transition-colors ${
               tab.id === activeId
-                ? 'bg-accent/20 text-accent font-medium'
+                ? 'bg-accent/20 text-primary font-medium'
                 : 'text-muted-foreground hover:bg-muted/40'
             }`}
             onClick={() => selectTerminal(tab.id)}
@@ -248,7 +248,7 @@ export default function TerminalPanel({ onSend, isStreaming = false, sessionId }
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-info/20 text-info">只读</span>
           )}
           {!isAgentTab && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-accent">Agent</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-primary">Agent</span>
           )}
         </div>
         <div className="flex items-center gap-0.5">
@@ -275,7 +275,7 @@ export default function TerminalPanel({ onSend, isStreaming = false, sessionId }
       {/* Command input bar — only for user tabs */}
       {!isAgentTab && (
         <div className="flex items-center gap-1 px-2 py-1.5 border-t border-border bg-background shrink-0">
-          <span className="text-[11px] font-mono text-accent shrink-0" title="通过 Agent 远程执行">
+          <span className="text-[11px] font-mono text-primary shrink-0" title="通过 Agent 远程执行">
             Agent $
           </span>
           <input

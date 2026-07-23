@@ -225,7 +225,7 @@ export default function OutlinePanel({ embedded = false }: { embedded?: boolean 
             'flex items-center gap-1 px-1 py-0.5 rounded text-xs cursor-pointer hover:bg-accent/30 transition-colors',
             item.depth === 1 && 'pl-4',
             item.type === 'tool' && (item as OutlineToolItem).status === 'error' && 'text-destructive',
-            item.type === 'tool' && (item as OutlineToolItem).status === 'running' && 'text-accent'
+            item.type === 'tool' && (item as OutlineToolItem).status === 'running' && 'text-primary'
           )}
           onClick={() => handleScrollTo(item.id)}
           title={item.label}
@@ -266,7 +266,7 @@ export default function OutlinePanel({ embedded = false }: { embedded?: boolean 
                 className={cn(
                   'flex items-center gap-1 px-1 py-0.5 pl-4 rounded text-xs cursor-pointer hover:bg-accent/30 transition-colors',
                   tc.status === 'error' && 'text-destructive',
-                  tc.status === 'running' && 'text-accent'
+                  tc.status === 'running' && 'text-primary'
                 )}
                 onClick={() => handleScrollTo(tc.id)}
                 title={`${tc.toolName} · ${tc.status}`}
@@ -278,7 +278,7 @@ export default function OutlinePanel({ embedded = false }: { embedded?: boolean 
                 <span className={cn(
                   'shrink-0 text-[10px]',
                   tc.status === 'error' ? 'text-destructive' :
-                  tc.status === 'running' ? 'text-accent' : 'text-success'
+                  tc.status === 'running' ? 'text-primary' : 'text-success'
                 )}>
                   {tc.status || '完成'}
                 </span>

@@ -433,7 +433,7 @@ function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, j
       {onDelete && (
         <div className="absolute top-1 right-1.5 z-10">
           {confirmDelete && (
-            <div className="flex items-center gap-0.5 bg-[var(--kanban-card-bg)] border border-[var(--color-accent)] rounded-md px-1 py-0.5 shadow-sm">
+            <div className="flex items-center gap-0.5 bg-[var(--kanban-card-bg)] border border-primary rounded-md px-1 py-0.5 shadow-sm">
               <span className="text-[0.65rem] text-[var(--ui-text-secondary)] mr-0.5">删除?</span>
               <button onClick={handleDeleteConfirm} className="p-0.5 rounded hover:bg-[var(--ui-red)]/15 transition-colors" title="确认删除">
                 <CheckCircle2 size={12} strokeWidth={1.5} className="text-success" />
@@ -2013,20 +2013,20 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
           {/* 诊断按钮 */}
           <button onClick={() => setShowDiagnostics(v => !v)} title="诊断"
             className={cn('inline-flex items-center p-1.5 rounded-md transition-colors border',
-              showDiagnostics ? 'text-[var(--color-foreground)] border-[var(--color-accent)] bg-[var(--color-accent)]' : 'text-[var(--color-muted-foreground)] border-[var(--color-border)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-accent)]')}>
+              showDiagnostics ? 'text-[var(--color-foreground)] border-primary bg-[var(--color-accent)]' : 'text-[var(--color-muted-foreground)] border-[var(--color-border)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-accent)]')}>
             <Bug size={13} strokeWidth={1.5} />
           </button>
           {/* Worker 按钮 */}
           <button onClick={() => setShowWorkers(v => !v)} title="Worker"
             className={cn('inline-flex items-center p-1.5 rounded-md transition-colors border',
-              showWorkers ? 'text-[var(--color-foreground)] border-[var(--color-accent)] bg-[var(--color-accent)]' : 'text-[var(--color-muted-foreground)] border-[var(--color-border)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-accent)]')}>
+              showWorkers ? 'text-[var(--color-foreground)] border-primary bg-[var(--color-accent)]' : 'text-[var(--color-muted-foreground)] border-[var(--color-border)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-accent)]')}>
             <Activity size={13} strokeWidth={1.5} />
           </button>
           {/* 统计按钮 */}
           <div className="relative">
             <button onClick={() => setShowStats(v => !v)}
               className={cn('inline-flex items-center p-1.5 rounded-md transition-colors border',
-                showStats ? 'text-[var(--color-foreground)] border-[var(--color-accent)] bg-[var(--color-accent)]' : 'text-[var(--color-muted-foreground)] border-[var(--color-border)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-accent)]')}
+                showStats ? 'text-[var(--color-foreground)] border-primary bg-[var(--color-accent)]' : 'text-[var(--color-muted-foreground)] border-[var(--color-border)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-accent)]')}
               title="统计">
               <BarChart3 size={13} strokeWidth={1.5} />
             </button>

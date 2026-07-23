@@ -487,7 +487,7 @@ export default function SessionsPanel({
         key={id + (extra || '')}
         className={cn(
           'group relative flex items-start gap-1.5 px-3 py-2 cursor-pointer border-l-2 border-transparent hover:bg-accent/30 transition-colors',
-          isCurrent && 'bg-accent/40 border-l-accent',
+          isCurrent && 'bg-accent/40 border-l-primary',
           batchMode && 'pl-2',
           isChecked && 'bg-accent/20',
         )}
@@ -505,10 +505,10 @@ export default function SessionsPanel({
         )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
-            {isPinned && <Pin size={10} className="shrink-0 text-accent" />}
+            {isPinned && <Pin size={10} className="shrink-0 text-primary" />}
             <span className="text-sm truncate text-foreground flex-1" title={title}>{title}</span>
             {timeStr && <span className="text-[10px] text-muted-foreground/60 shrink-0">{timeStr}</span>}
-            {isCurrent && <span className="shrink-0 text-accent"><DotIcon /></span>}
+            {isCurrent && <span className="shrink-0 text-primary"><DotIcon /></span>}
           </div>
           {preview && <div className="text-[11px] text-muted-foreground/50 truncate mt-0.5">{preview}</div>}
         </div>
@@ -533,7 +533,7 @@ export default function SessionsPanel({
           className={cn(
             'flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2',
             activeTab === 'sessions'
-              ? 'text-accent border-accent'
+              ? 'text-primary border-primary'
               : 'text-muted-foreground border-transparent hover:text-foreground'
           )}
           onClick={() => setActiveTab('sessions')}
@@ -545,7 +545,7 @@ export default function SessionsPanel({
           className={cn(
             'flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2',
             activeTab === 'outline'
-              ? 'text-accent border-accent'
+              ? 'text-primary border-primary'
               : 'text-muted-foreground border-transparent hover:text-foreground'
           )}
           onClick={() => setActiveTab('outline')}
@@ -582,8 +582,8 @@ export default function SessionsPanel({
             <span className="text-[11px] text-muted-foreground/70">
               {selectedIds.size > 0 ? `已选 ${selectedIds.size} 项` : '选择会话'}
             </span>
-            <button className="text-[11px] text-accent hover:underline" onClick={selectAll}>全选</button>
-            <button className="text-[11px] text-accent hover:underline" onClick={deselectAll}>取消全选</button>
+            <button className="text-[11px] text-primary hover:underline" onClick={selectAll}>全选</button>
+            <button className="text-[11px] text-primary hover:underline" onClick={deselectAll}>取消全选</button>
           </div>
         )}
 

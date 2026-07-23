@@ -220,7 +220,7 @@ export default function ThemePanel({ onClose }: ThemePanelProps) {
                     'flex flex-col rounded-xl border-2 transition-all relative overflow-hidden',
                     selected
                       ? 'border-primary shadow-md'
-                      : 'border-border hover:border-accent'
+                      : 'border-border hover:border-primary'
                   )}
                 >
                   {/* 颜色预览区 */}

@@ -114,7 +114,7 @@ export default function CommandMenu({ commands = [], onCommand }: CommandMenuPro
                     onClick={() => handleSelect(cmd)}
                     title={cmd.description}
                   >
-                    <span className="font-mono text-accent shrink-0">/{cmd.name}</span>
+                    <span className="font-mono text-primary shrink-0">/{cmd.name}</span>
                     {cmd.aliases.length > 0 && (
                       <span className="text-[10px] text-muted-foreground/50 shrink-0">
                         {cmd.aliases.map((a) => `/${a}`).join(', ')}

@@ -114,7 +114,7 @@ export default function ChannelsPanel({ gatewayOnline, onOpenSettings }: Channel
             <RefreshCw size={14} strokeWidth={1.5} className={loading ? 'animate-spin' : ''} />
           </button>
           <button
-            className="flex items-center gap-0.5 px-1.5 py-1 text-xs text-accent hover:bg-accent/10 rounded transition-colors"
+            className="flex items-center gap-0.5 px-1.5 py-1 text-xs text-primary hover:bg-accent/10 rounded transition-colors"
             onClick={onOpenSettings}
             title="添加频道 — 前往设置配置平台"
           >
@@ -135,7 +135,7 @@ export default function ChannelsPanel({ gatewayOnline, onOpenSettings }: Channel
           <div className="flex items-center gap-1 px-2 py-1 text-xs text-destructive bg-destructive/5 rounded border border-destructive/20">
             <WifiOff size={16} strokeWidth={1.5} />
             <span className="flex-1">{error}</span>
-            <button className="text-accent hover:underline" onClick={refresh}>重试</button>
+            <button className="text-primary hover:underline" onClick={refresh}>重试</button>
           </div>
         ) : channels.length === 0 ? (
           <div className="flex flex-col items-center py-6 text-muted-foreground gap-1">

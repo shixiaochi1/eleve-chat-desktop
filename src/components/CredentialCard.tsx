@@ -81,7 +81,7 @@ export default function CredentialCard({ type, title, description, onSubmit, onD
         <input
           ref={inputRef}
           type={inputType}
-          className="flex-1 h-7 px-2 text-xs font-mono bg-muted/30 border border-input rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-accent/50"
+          className="flex-1 h-7 px-2 text-xs font-mono bg-muted/30 border border-input rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}

@@ -157,7 +157,7 @@ function ProviderGroup({ groupKey, group, selectedModel, onSelect, searchQuery }
               key={m.id}
               className={cn(
                 'flex items-center gap-1.5 w-full px-2 py-1 rounded text-xs transition-colors text-left',
-                m.id === selectedModel ? 'bg-accent/10 text-accent' : 'text-foreground hover:bg-accent/30'
+                m.id === selectedModel ? 'bg-accent/10 text-primary' : 'text-foreground hover:bg-accent/30'
               )}
               onClick={() => onSelect(m.id)}
               title={m.id}
@@ -171,7 +171,7 @@ function ProviderGroup({ groupKey, group, selectedModel, onSelect, searchQuery }
               </span>
               <span className="hidden">{m.id}</span>
               {m.id === selectedModel && (
-                <Check size={14} strokeWidth={2} className="shrink-0 text-accent" />
+                <Check size={14} strokeWidth={2} className="shrink-0 text-primary" />
               )}
             </button>
           ))}
@@ -227,7 +227,7 @@ export default function ModelPickerPanel({
       <div className="relative mb-2">
         <Search size={14} strokeWidth={1.5} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <input
-          className="w-full h-7 pl-8 pr-7 text-xs bg-muted/50 rounded border border-border focus:border-accent focus:outline-none placeholder:text-muted-foreground/50"
+          className="w-full h-7 pl-8 pr-7 text-xs bg-muted/50 rounded border border-border focus:border-primary focus:outline-none placeholder:text-muted-foreground/50"
           type="text"
           placeholder="Search models..."
           value={searchQuery}

@@ -91,7 +91,7 @@ export default function MemoryPanel() {
       <div className="relative mb-2">
         <SearchIcon size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <input
-          className="w-full h-7 pl-7 pr-6 text-xs bg-muted/50 rounded border border-border focus:border-accent focus:outline-none placeholder:text-muted-foreground/50"
+          className="w-full h-7 pl-7 pr-6 text-xs bg-muted/50 rounded border border-border focus:border-primary focus:outline-none placeholder:text-muted-foreground/50"
           type="text"
           placeholder="搜索记忆..."
           value={searchQuery}
