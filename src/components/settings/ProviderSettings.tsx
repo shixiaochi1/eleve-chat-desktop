@@ -69,12 +69,12 @@ export default function ProviderSettings({
 
       {/* 添加提供商 */}
       {!addProviderOpen ? (
-        <button
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer bg-transparent border-none p-0 mt-2"
+        <Button
+          className="w-full mt-3"
           onClick={() => setAddProviderOpen(true)}
         >
-          <Plus size={13} strokeWidth={1.5} /> 添加提供商
-        </button>
+          <Plus size={15} strokeWidth={2} /> 添加提供商
+        </Button>
       ) : (
         <div className="flex flex-col gap-2 p-3 mt-2 border border-border rounded-lg bg-muted/20">
           <Input
