@@ -129,7 +129,7 @@ export default function UsagePanel({
           <span className="text-xs text-muted-foreground/60">用量数据</span>
           <span className={cn(
             'px-1 py-0.5 text-[10px] rounded',
-            dataSource === 'server' ? 'bg-green-500/10 text-green-500' : 'bg-muted text-muted-foreground'
+            dataSource === 'server' ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'
           )}>
             {dataSource === 'server' ? '服务端统计' : '本地统计'}
           </span>
@@ -154,7 +154,7 @@ export default function UsagePanel({
         <span className="text-xs text-muted-foreground/60">用量数据</span>
         <span className={cn(
           'px-1 py-0.5 text-[10px] rounded',
-          dataSource === 'server' ? 'bg-green-500/10 text-green-500' : 'bg-muted text-muted-foreground'
+          dataSource === 'server' ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'
         )}>
           {dataSource === 'server' ? '服务端统计' : '本地统计'}
         </span>

@@ -152,7 +152,7 @@ export function VirtualizedThread({
                 if (!hasMainProvider) {
                   return (
                     <div className="flex flex-col items-center gap-3 p-5 rounded-xl border border-border bg-card text-center max-w-xs">
-                      <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center">
+                      <div className="w-10 h-10 rounded-full bg-warning/10 flex items-center justify-center">
                         <span className="text-lg">⚠</span>
                       </div>
                       <span className="text-sm font-medium">尚未配置模型</span>

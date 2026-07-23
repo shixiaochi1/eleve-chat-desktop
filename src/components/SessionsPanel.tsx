@@ -187,7 +187,7 @@ function RenameDialog({ currentTitle, onConfirm, onCancel }: { currentTitle: str
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40" onClick={onCancel}>
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-overlay/40" onClick={onCancel}>
       <div className="bg-popover text-popover-foreground rounded-lg shadow-lg p-4 min-w-[280px]" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
         <div className="text-sm font-medium text-foreground mb-3">重命名会话</div>
         <form onSubmit={handleSubmit}>

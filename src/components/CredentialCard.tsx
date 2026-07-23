@@ -59,7 +59,7 @@ export default function CredentialCard({ type, title, description, onSubmit, onD
       <div className="flex items-center gap-2 mb-2">
         <div className={cn(
           'flex items-center justify-center w-7 h-7 rounded-md',
-          type === 'sudo' ? 'bg-amber-500/10 text-amber-500' : 'bg-blue-500/10 text-blue-500',
+          type === 'sudo' ? 'bg-warning/10 text-warning' : 'bg-info/10 text-info',
         )}>
           <Icon size={14} />
         </div>

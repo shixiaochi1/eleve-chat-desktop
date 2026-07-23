@@ -243,7 +243,7 @@ export default function ProviderCard({
               </button>
             </div>
             {modelHint && (
-              <p className={cn('text-[11px] mt-1', modelHint.startsWith('✓') ? 'text-emerald-500' : 'text-muted-foreground')}>
+              <p className={cn('text-[11px] mt-1', modelHint.startsWith('✓') ? 'text-success' : 'text-muted-foreground')}>
                 {modelHint}
               </p>
             )}

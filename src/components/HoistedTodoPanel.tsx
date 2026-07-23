@@ -15,8 +15,8 @@ interface HoistedTodoPanelProps {
 
 /** 状态 → 图标+颜色映射 */
 const STATUS_CONFIG: Record<string, { icon: string; colorClass: string }> = {
-  completed: { icon: '✓', colorClass: 'text-green-500' },
-  in_progress: { icon: '●', colorClass: 'text-blue-500' },
+  completed: { icon: '✓', colorClass: 'text-success' },
+  in_progress: { icon: '●', colorClass: 'text-info' },
   pending: { icon: '○', colorClass: 'text-muted-foreground' },
   cancelled: { icon: '✕', colorClass: 'text-muted-foreground/50' },
 };
@@ -37,7 +37,7 @@ export default function HoistedTodoPanel({ todos }: HoistedTodoPanelProps) {
       <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1">
         <span>待办事项</span>
         <span className="text-muted-foreground/60">· {todos.length}</span>
-        {hasActive && <span className="text-blue-500">（进行中）</span>}
+        {hasActive && <span className="text-info">（进行中）</span>}
       </div>
       <div className="space-y-0.5">
         {todos.map((todo) => {

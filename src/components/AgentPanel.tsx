@@ -161,7 +161,7 @@ function DelegateCard({ task, onCancel, cancelling }: DelegateCardProps) {
         )}
 
         {isDone && (
-          <span className="inline-flex items-center gap-0.5 text-[10px] text-green-500" title="已完成">
+          <span className="inline-flex items-center gap-0.5 text-[10px] text-success" title="已完成">
             <CheckCircle2 size={10} strokeWidth={1.5} />
             <span>完成</span>
           </span>

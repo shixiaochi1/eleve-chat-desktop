@@ -99,11 +99,11 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
       {/* 心跳状态条 */}
       <div className={cn(
         'flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium',
-        gatewayOnline ? 'bg-green-500/10 text-green-500' : 'bg-destructive/10 text-destructive'
+        gatewayOnline ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'
       )}>
         <span className={cn(
           'w-2 h-2 rounded-full',
-          gatewayOnline ? 'bg-green-500 animate-pulse' : 'bg-destructive'
+          gatewayOnline ? 'bg-success animate-pulse' : 'bg-destructive'
         )} />
         <span>
           {gatewayChecking ? '检测中…' : gatewayOnline ? '网关运行中' : '网关未连接'}
@@ -131,7 +131,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
               <span className="flex-1 text-foreground">{name}</span>
               <span className={cn(
                 'text-[10px]',
-                stateObj?.state === 'connected' ? 'text-green-500' : 'text-destructive'
+                stateObj?.state === 'connected' ? 'text-success' : 'text-destructive'
               )}>
                 {stateObj?.state ? String(stateObj.state) : String(state)}
               </span>

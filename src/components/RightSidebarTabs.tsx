@@ -17,15 +17,15 @@ interface RightSidebarTabsProps {
 
 export default function RightSidebarTabs({ activeTab, onTabChange }: RightSidebarTabsProps) {
   return (
-    <div className={cn('flex border-b border-white/10 shrink-0')}>
+    <div className={cn('flex border-b border-border shrink-0')}>
       {TABS.map(({ key, label, Icon }) => (
         <button
           key={key}
           className={cn(
             'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-b-2 border-transparent',
             activeTab === key
-              ? 'text-cyan-300 border-cyan-400'
-              : 'text-cyan-300/60 hover:text-cyan-300 hover:bg-white/5'
+              ? 'text-accent-cyan border-accent-cyan'
+              : 'text-accent-cyan/60 hover:text-accent-cyan hover:bg-accent/5'
           )}
           onClick={() => onTabChange?.(key)}
           title={label}

@@ -125,7 +125,7 @@ export default function GatewaySettings() {
 
       {/* envOverride 警告 */}
       {envOverride && (
-        <div className="flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-600 mb-3">
+        <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning mb-3">
           <AlertTriangle size={16} className="shrink-0" />
           <span className="text-xs">环境变量覆盖了网关配置，手动编辑被禁用。</span>
         </div>
@@ -133,7 +133,7 @@ export default function GatewaySettings() {
 
       {/* 连接状态 */}
       <div className="flex items-center gap-2.5 border border-border rounded-lg p-3 bg-card mb-3">
-        {online ? <Wifi size={16} className="text-green-500" /> : <WifiOff size={16} className="text-red-500" />}
+        {online ? <Wifi size={16} className="text-success" /> : <WifiOff size={16} className="text-danger" />}
         <span className="text-xs flex-1">{online ? 'Gateway 在线' : 'Gateway 离线'}</span>
         <Button variant="ghost" size="icon-xs" onClick={checkHealth} disabled={checking} title="刷新状态">
           <RefreshCw size={14} className={checking ? 'animate-spin' : ''} />
@@ -203,7 +203,7 @@ export default function GatewaySettings() {
                 {testing ? '测试中…' : '测试连接'}
               </Button>
               {testResult && (
-                <span className={`ml-2 text-[11px] ${testResult.ok ? 'text-green-500' : 'text-red-500'}`}>
+                <span className={`ml-2 text-[11px] ${testResult.ok ? 'text-success' : 'text-danger'}`}>
                   {testResult.ok ? '✓ ' : '✗ '}{testResult.message}
                 </span>
               )}

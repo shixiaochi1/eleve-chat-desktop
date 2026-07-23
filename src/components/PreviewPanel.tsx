@@ -167,7 +167,7 @@ export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
   const isRestarting = status === 'restarting';
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-[var(--eleve-surface-background)]">
+    <div className="flex flex-col flex-1 min-h-0 bg-[var(--ui-bg-editor)]">
       {/* ── URL 输入栏 ── */}
       <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[var(--ui-stroke-secondary)] bg-[var(--ui-bg-quaternary)]">
         <Globe size={14} className="text-[var(--ui-text-tertiary)] shrink-0" />
@@ -196,7 +196,7 @@ export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
             'flex items-center gap-1 px-2 h-6 rounded text-xs font-medium transition-colors',
             isRestarting
               ? 'bg-[var(--ui-bg-tertiary)] text-[var(--ui-text-tertiary)] cursor-wait'
-              : 'bg-[var(--ui-accent-primary)] text-white hover:bg-[var(--ui-accent-primary-hover)]',
+              : 'bg-[var(--ui-accent-primary)] text-primary-foreground hover:bg-[var(--ui-accent-primary-hover)]',
             (!url.trim() || !sessionId) && 'opacity-40 cursor-not-allowed'
           )}
           title="重启预览服务器"
@@ -211,7 +211,7 @@ export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
       </div>
 
       {/* ── iframe 预览区 ── */}
-      <div className="flex-1 min-h-0 relative bg-white">
+      <div className="flex-1 min-h-0 relative bg-background">
         {url.trim() ? (
           <iframe
             key={iframeKey}
@@ -231,13 +231,13 @@ export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
 
         {/* iframe 加载错误覆盖层 */}
         {iframeError && !isRestarting && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--eleve-surface-background)] gap-3">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--ui-bg-editor)] gap-3">
             <AlertCircle size={32} className="text-[var(--ui-status-warning)]" strokeWidth={1.5} />
             <span className="text-xs text-[var(--ui-text-secondary)]">预览加载失败</span>
             <button
               onClick={handleRestart}
               disabled={!sessionId}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[var(--ui-accent-primary)] text-white hover:bg-[var(--ui-accent-primary-hover)] disabled:opacity-40 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[var(--ui-accent-primary)] text-primary-foreground hover:bg-[var(--ui-accent-primary-hover)] disabled:opacity-40 transition-colors"
             >
               <RefreshCw size={12} />
               重启预览服务器
@@ -248,8 +248,8 @@ export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
 
       {/* ── 进度日志区（重启中/完成时显示）── */}
       {(isRestarting || progress.length > 0) && (
-        <div className="border-t border-[var(--ui-stroke-secondary)] bg-[var(--eleve-surface-background)] max-h-[40%] overflow-y-auto">
-          <div className="px-2 py-1 text-[10px] font-medium text-[var(--ui-text-tertiary)] uppercase tracking-wide border-b border-[var(--ui-stroke-secondary)] sticky top-0 bg-[var(--eleve-surface-background)]">
+        <div className="border-t border-[var(--ui-stroke-secondary)] bg-[var(--ui-bg-editor)] max-h-[40%] overflow-y-auto">
+          <div className="px-2 py-1 text-[10px] font-medium text-[var(--ui-text-tertiary)] uppercase tracking-wide border-b border-[var(--ui-stroke-secondary)] sticky top-0 bg-[var(--ui-bg-editor)]">
             {isRestarting ? '重启进度' : '重启日志'}
           </div>
           <div className="px-2 py-1 space-y-0.5">

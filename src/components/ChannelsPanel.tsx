@@ -169,13 +169,13 @@ export default function ChannelsPanel({ gatewayOnline, onOpenSettings }: Channel
                   <div className="flex items-center gap-2 text-[10px] text-muted-foreground/60">
                     <span className={cn(
                       'flex items-center gap-0.5',
-                      ch.status === 'online' ? 'text-green-500' :
-                      ch.status === 'connecting' ? 'text-amber-500' : 'text-muted-foreground/50'
+                      ch.status === 'online' ? 'text-success' :
+                      ch.status === 'connecting' ? 'text-warning' : 'text-muted-foreground/50'
                     )}>
                       <span className={cn(
                         'w-1.5 h-1.5 rounded-full',
-                        ch.status === 'online' ? 'bg-green-500' :
-                        ch.status === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-muted-foreground/50'
+                        ch.status === 'online' ? 'bg-success' :
+                        ch.status === 'connecting' ? 'bg-warning animate-pulse' : 'bg-muted-foreground/50'
                       )} />
                       {ch.status === 'online' ? '在线' :
                        ch.status === 'connecting' ? '连接中' : '离线'}
@@ -189,7 +189,7 @@ export default function ChannelsPanel({ gatewayOnline, onOpenSettings }: Channel
                 {/* 右侧状态指示 */}
                 <div className="shrink-0">
                   {ch.status === 'online' ? (
-                    <Wifi size={14} strokeWidth={1.5} className="text-green-500" />
+                    <Wifi size={14} strokeWidth={1.5} className="text-success" />
                   ) : (
                     <WifiOff size={14} strokeWidth={1.5} className="text-muted-foreground/40" />
                   )}

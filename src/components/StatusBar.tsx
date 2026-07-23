@@ -52,7 +52,7 @@ export default function StatusBar({
   const hasSessionInfo = !!sessionId;
 
   return (
-    <div className="h-[15px] flex items-center justify-between px-3 text-[11px] select-none shrink-0" style={{ background: 'transparent', color: 'rgba(125, 211, 252, 0.8)' }}>
+    <div className="h-[15px] flex items-center justify-between px-3 text-[11px] select-none shrink-0 text-accent-cyan/80">
       <div className="flex items-center gap-1.5">
         <Circle
           size={8}

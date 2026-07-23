@@ -14,8 +14,8 @@ import { cn } from '@/lib/utils';
 import { Skeleton } from './ui/skeleton';
 
 const TARGET_CONFIG: Record<string, { label: string; Icon: React.ComponentType<{ size?: number; className?: string }>; className: string }> = {
-  user:   { label: '用户偏好', Icon: UserIcon as any,     className: 'bg-blue-500/10 text-blue-500' },
-  memory: { label: '系统记忆', Icon: BookOpenIcon as any, className: 'bg-purple-500/10 text-purple-500' },
+  user:   { label: '用户偏好', Icon: UserIcon as any,     className: 'bg-info/10 text-info' },
+  memory: { label: '系统记忆', Icon: BookOpenIcon as any, className: 'bg-accent-purple/10 text-accent-purple' },
 };
 
 function formatTime(ts: string | undefined | null): string {

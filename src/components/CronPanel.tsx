@@ -31,10 +31,10 @@ interface CronForm {
 }
 
 const STATUS_MAP: Record<string, { label: string; className: string }> = {
-  active:    { label: '运行中', className: 'text-green-500 bg-green-500/10' },
-  paused:    { label: '已暂停', className: 'text-amber-500 bg-amber-500/10' },
+  active:    { label: '运行中', className: 'text-success bg-success/10' },
+  paused:    { label: '已暂停', className: 'text-warning bg-warning/10' },
   completed: { label: '已完成', className: 'text-muted-foreground/60 bg-muted/30' },
-  failed:    { label: '失败',   className: 'text-red-500 bg-red-500/10' },
+  failed:    { label: '失败',   className: 'text-danger bg-danger/10' },
 };
 
 const CRON_PRESETS = [

@@ -99,7 +99,7 @@ function ToolCallGroup({ tools }: ToolCallGroupProps) {
           <LoadingIcon size={12} className="animate-spin text-muted-foreground" />
         )}
         {groupStatus === 'all-done' && (
-          <CheckIcon size={12} className="text-green-500" />
+          <CheckIcon size={12} className="text-success" />
         )}
         <span className="text-xs text-muted-foreground shrink-0">
           {expanded ? <CollapseIcon size={12} /> : <ExpandIcon size={12} />}
@@ -180,7 +180,7 @@ const SingleToolEntry = memo(function SingleToolEntry({
           <SmallToolIcon size={12} />
         </span>
         <span className="flex-1 truncate font-mono text-xs">{tool.name}</span>
-        <span className={cn('shrink-0', isDone ? 'text-green-500' : 'text-muted-foreground')}>
+        <span className={cn('shrink-0', isDone ? 'text-success' : 'text-muted-foreground')}>
           {isDone ? <CheckIcon size={10} /> : <LoadingIcon size={10} className="animate-spin" />}
         </span>
 
@@ -228,7 +228,7 @@ const SingleToolEntry = memo(function SingleToolEntry({
         >
           {tool.name}
         </span>
-        <span className={cn('text-xs shrink-0', isDone ? 'text-green-500' : 'text-muted-foreground')}>
+        <span className={cn('text-xs shrink-0', isDone ? 'text-success' : 'text-muted-foreground')}>
           {isDone ? <CheckIcon size={12} /> : <LoadingIcon size={12} className="animate-spin" />}
         </span>
         <span className="text-xs text-muted-foreground shrink-0">
@@ -266,8 +266,8 @@ const SingleToolEntry = memo(function SingleToolEntry({
       {inlineDiff && <DiffLines text={inlineDiff} />}
       {/* skill_view setup_needed 提示横幅（对标 Hermes: readiness_status != "ready"） */}
       {tool.name === 'skill_view' && parsedResult?.setup_needed && (
-        <div className="mt-1.5 px-2 py-1.5 rounded bg-amber-500/10 border border-amber-500/30 text-xs">
-          <div className="font-semibold text-amber-600 dark:text-amber-400">⚠ Setup Required</div>
+        <div className="mt-1.5 px-2 py-1.5 rounded bg-warning/10 border border-warning/30 text-xs">
+          <div className="font-semibold text-warning">⚠ Setup Required</div>
           {Array.isArray(parsedResult.missing_required_environment_variables) && (
             <div className="mt-1 text-muted-foreground">
               Missing: {parsedResult.missing_required_environment_variables.map((e: any) => e?.name).filter(Boolean).join(', ')}

@@ -10,9 +10,9 @@ interface DiffLinesProps {
 
 /** Diff 行类型 → 着色规则（对齐 Eleve diff-lines.tsx） */
 const DIFF_LINE_KINDS = [
-  { className: 'text-emerald-700 dark:text-emerald-300', match: (l: string) => l.startsWith('+') && !l.startsWith('+++') },
-  { className: 'text-rose-700 dark:text-rose-300', match: (l: string) => l.startsWith('-') && !l.startsWith('---') },
-  { className: 'text-sky-700 dark:text-sky-300', match: (l: string) => l.startsWith('@@') },
+  { className: 'text-success', match: (l: string) => l.startsWith('+') && !l.startsWith('+++') },
+  { className: 'text-danger', match: (l: string) => l.startsWith('-') && !l.startsWith('---') },
+  { className: 'text-info', match: (l: string) => l.startsWith('@@') },
   { className: 'text-muted-foreground/70', match: (l: string) => l.startsWith('---') || l.startsWith('+++') || / → /.test(l.slice(0, 60)) },
 ];
 

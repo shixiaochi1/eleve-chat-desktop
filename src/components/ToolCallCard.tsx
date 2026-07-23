@@ -65,7 +65,7 @@ export default function ToolCallCard({ name, callId, argsStr, status, resultStr 
         >
           {name}
         </span>
-        <span className={cn('text-xs shrink-0', isDone ? 'text-green-500' : 'text-muted-foreground')}>
+        <span className={cn('text-xs shrink-0', isDone ? 'text-success' : 'text-muted-foreground')}>
           {isDone ? <CheckIcon size={12} /> : <LoadingIcon size={12} className="animate-spin" />}
         </span>
         <span className="text-xs text-muted-foreground shrink-0">

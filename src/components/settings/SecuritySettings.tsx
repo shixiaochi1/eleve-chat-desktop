@@ -25,11 +25,11 @@ export default function SecuritySettings({
         <div className="text-xs font-medium text-muted-foreground mb-2">密码保护状态</div>
         <div className="flex items-center gap-2">
           {hasPassword ? (
-            <Lock size={14} strokeWidth={1.5} className="text-green-500 shrink-0" />
+            <Lock size={14} strokeWidth={1.5} className="text-success shrink-0" />
           ) : (
             <Unlock size={14} strokeWidth={1.5} className="text-muted-foreground/60 shrink-0" />
           )}
-          <span className={`text-xs ${hasPassword ? 'text-green-500' : 'text-muted-foreground/60'}`}>
+          <span className={`text-xs ${hasPassword ? 'text-success' : 'text-muted-foreground/60'}`}>
             {hasPassword ? '密码已设置' : '尚未设置密码'}
           </span>
         </div>

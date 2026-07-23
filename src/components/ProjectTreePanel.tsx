@@ -114,7 +114,7 @@ function LaneNode({ lane, sessionId, onSwitchSession }: { lane: LaneGroup; sessi
         onClick={() => hasSessions && setExpanded(!expanded)}
       >
         {hasSessions ? <TreeToggle expanded={expanded} onClick={() => setExpanded(!expanded)} /> : <span className="w-3.5" />}
-        {lane.isKanban ? <Blocks size={12} className="text-blue-400" /> : <GitBranch size={12} className="text-muted-foreground" />}
+        {lane.isKanban ? <Blocks size={12} className="text-info" /> : <GitBranch size={12} className="text-muted-foreground" />}
         <span className="truncate flex-1">{lane.label}</span>
         <span className="text-[10px] text-muted-foreground">{lane.sessions.length}</span>
       </div>
@@ -158,7 +158,7 @@ function ProjectItem({ project, sessionId, onSwitchSession }: { project: Project
         <TreeToggle expanded={expanded} onClick={() => setExpanded(!expanded)} />
         {project.isAuto
           ? <FolderOpen size={14} className="text-muted-foreground shrink-0" />
-          : <div className="w-3 h-3 rounded-full shrink-0" style={{ background: project.color || '#6366f1' }} />
+          : <div className="w-3 h-3 rounded-full shrink-0" style={{ background: project.color || 'var(--ui-blue, #6366f1)' }} />
         }
         <span className="truncate flex-1 font-medium">{project.label}</span>
         {project.sessionCount > 0 && (

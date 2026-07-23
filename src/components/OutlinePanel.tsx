@@ -250,7 +250,7 @@ export default function OutlinePanel({ embedded = false }: { embedded?: boolean 
           <div className="ml-2">
             {agentItem.hasReasoning && (
               <div
-                className="flex items-center gap-1 px-1 py-0.5 pl-4 rounded text-xs text-purple-500 cursor-pointer hover:bg-accent/30 transition-colors"
+                className="flex items-center gap-1 px-1 py-0.5 pl-4 rounded text-xs text-accent-purple cursor-pointer hover:bg-accent/30 transition-colors"
                 onClick={() => handleScrollTo(item.id)}
                 title="推理过程"
               >
@@ -278,7 +278,7 @@ export default function OutlinePanel({ embedded = false }: { embedded?: boolean 
                 <span className={cn(
                   'shrink-0 text-[10px]',
                   tc.status === 'error' ? 'text-destructive' :
-                  tc.status === 'running' ? 'text-accent' : 'text-green-500'
+                  tc.status === 'running' ? 'text-accent' : 'text-success'
                 )}>
                   {tc.status || '完成'}
                 </span>

@@ -156,9 +156,6 @@ function applyThemeCSS(theme: DesktopTheme, customOverrides: Partial<DesktopThem
     '--noise-opacity-mul': isDark ? 'calc(0.04 / 0.21)' : 'calc(0.34 / 0.21)',
 
     // ── 直接覆盖语义层 — 防止 CSS 硬编码覆盖 ──
-    '--eleve-surface-backboard': c.background,
-    '--eleve-surface-card1': c.sidebarBackground ?? c.background,
-    '--eleve-surface-card2': c.card,
     '--ui-bg-chrome': c.background,
     '--ui-bg-sidebar': c.sidebarBackground ?? c.background,
     '--ui-bg-editor': c.card,
@@ -181,8 +178,13 @@ function applyThemeCSS(theme: DesktopTheme, customOverrides: Partial<DesktopThem
 
     // ── 暗色模式语义色调整 ──
     '--ui-red': isDark ? '#e75e78' : '#cf2d56',
+    '--ui-orange': isDark ? '#e8926e' : '#db704b',
+    '--ui-yellow': isDark ? '#d9a557' : '#c08532',
     '--ui-green': isDark ? '#55a583' : '#1f8a65',
     '--ui-cyan': isDark ? '#6f9ba6' : '#4c7f8c',
+    '--ui-blue': isDark ? '#6b9cff' : '#0053fd',
+    '--ui-purple': isDark ? '#b3a9e8' : '#9e94d5',
+    '--ui-pink': isDark ? '#e88fb8' : '#c25a8e',
 
     // ── 内联代码和选区（暗色用白色半透明，浅色用黑色半透明） ──
     '--ui-inline-code-background': isDark
@@ -207,15 +209,15 @@ function applyThemeCSS(theme: DesktopTheme, customOverrides: Partial<DesktopThem
     '--accent': 'var(--dt-accent-foreground)',
 
     // ── 方案C: 卡片颜色（从主题色派生）──
-    '--eleve-card-bg': hexToRgba(c.card, 0.92),
-    '--eleve-card-border': hexToRgba(isDark ? '#ffffff' : '#000000', 0.15),
-    '--eleve-card-shadow-outer': 'rgba(0, 0, 0, 0.4)',
-    '--eleve-card-shadow-inner': 'rgba(0, 0, 0, 0.3)',
-    '--eleve-card-highlight': hexToRgba(isDark ? '#ffffff' : '#000000', 0.05),
-    '--eleve-card-glow-cyan': hexToRgba(c.primary, 0.5),
-    '--eleve-card-glow-purple': hexToRgba(c.midground || c.primary, 0.5),
-    '--eleve-card-glow-cyan-mid': hexToRgba(c.primary, 0.3),
-    '--eleve-card-glow-purple-mid': hexToRgba(c.midground || c.primary, 0.3),
+    '--ui-card-bg': hexToRgba(c.card, 0.92),
+    '--ui-card-border': hexToRgba(isDark ? '#ffffff' : '#000000', 0.15),
+    '--ui-card-shadow-outer': 'rgba(0, 0, 0, 0.4)',
+    '--ui-card-shadow-inner': 'rgba(0, 0, 0, 0.3)',
+    '--ui-card-highlight': hexToRgba(isDark ? '#ffffff' : '#000000', 0.05),
+    '--ui-card-glow-cyan': hexToRgba(c.primary, 0.5),
+    '--ui-card-glow-purple': hexToRgba(c.midground || c.primary, 0.5),
+    '--ui-card-glow-cyan-mid': hexToRgba(c.primary, 0.3),
+    '--ui-card-glow-purple-mid': hexToRgba(c.midground || c.primary, 0.3),
   }
 
   for (const [k, v] of Object.entries({ ...seeds, ...mixesFor(isDark), ...palette })) {

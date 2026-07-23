@@ -93,7 +93,7 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
         <img src="/Elogo.svg" alt="Eleve" className="w-6 h-6 rounded" />
         <span className={cn(
           'absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-sidebar',
-          gatewayOnline ? 'bg-green-500' : 'bg-red-500'
+          gatewayOnline ? 'bg-success' : 'bg-danger'
         )} />
         {logoActive && <span className="absolute -right-0.5 top-1/2 -translate-y-1/2 w-1 h-4 bg-accent-foreground rounded-full" />}
       </button>

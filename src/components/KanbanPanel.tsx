@@ -436,7 +436,7 @@ function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, j
             <div className="flex items-center gap-0.5 bg-[var(--kanban-card-bg)] border border-[var(--color-accent)] rounded-md px-1 py-0.5 shadow-sm">
               <span className="text-[0.65rem] text-[var(--ui-text-secondary)] mr-0.5">删除?</span>
               <button onClick={handleDeleteConfirm} className="p-0.5 rounded hover:bg-[var(--ui-red)]/15 transition-colors" title="确认删除">
-                <CheckCircle2 size={12} strokeWidth={1.5} className="text-emerald-500" />
+                <CheckCircle2 size={12} strokeWidth={1.5} className="text-success" />
               </button>
               <button onClick={handleDeleteCancel} className="p-0.5 rounded hover:bg-[var(--ui-text-tertiary)]/15 transition-colors" title="取消">
                 <X size={12} strokeWidth={1.5} className="text-[var(--ui-text-tertiary)]" />
@@ -457,7 +457,7 @@ function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, j
             {task.title || '(无描述)'}
           </div>
           <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
-            {blocked && <AlertTriangle size={12} strokeWidth={1.5} className="text-amber-500" />}
+            {blocked && <AlertTriangle size={12} strokeWidth={1.5} className="text-warning" />}
             {hasProgress && (
               <span className={cn(
                 'font-mono text-[0.62rem] px-1.5 py-px rounded-sm',
@@ -474,7 +474,7 @@ function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, j
         {/* Row 2: 负责人 + 时间 + ID */}
         <div className="flex items-center gap-2 text-[0.7rem] text-[var(--ui-text-tertiary)] min-w-0">
           {task.assignee && <span className="font-medium truncate max-w-[100px]">{task.assignee}</span>}
-          {running && <Loader size={10} strokeWidth={1.5} className="animate-spin text-emerald-500 shrink-0" />}
+          {running && <Loader size={10} strokeWidth={1.5} className="animate-spin text-success shrink-0" />}
           {task.updated_at && <span className="tabular-nums whitespace-nowrap">{fmtAge(task.updated_at)}</span>}
           <span className="font-mono text-[0.6rem] tracking-wide text-[var(--ui-text-quaternary)] ml-auto shrink-0">
             #{typeof task.id === 'string' ? task.id.slice(0, 6) : task.id}
@@ -796,7 +796,7 @@ function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onViewLog, 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={handleShadeClick} style={{ animation: 'fadeIn 150ms ease-out' }}>
+    <div className="fixed inset-0 z-50 flex justify-end bg-overlay/40" onClick={handleShadeClick} style={{ animation: 'fadeIn 150ms ease-out' }}>
       <div className="flex flex-col h-full border-l border-[var(--kanban-col-border)] bg-[var(--color-background)]" onClick={(e) => e.stopPropagation()} style={{ width: 'min(400px, 88vw)', animation: 'slideInRight 180ms ease-out' }}>
         {/* 抽屉头 */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ui-stroke-tertiary)]">
@@ -1034,7 +1034,7 @@ function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onViewLog, 
                           <GitBranch size={11} strokeWidth={1.5} className="text-[var(--ui-text-quaternary)] shrink-0" />
                           <span className="font-mono text-[var(--ui-text-primary)]">{typeof p === 'string' ? p.slice(0, 8) : p}</span>
                           <button onClick={async () => { try { await deleteKanbanLink(p, task.id); onRefresh(); } catch {} }}
-                            className="ml-auto text-[var(--ui-text-quaternary)] hover:text-red-500 transition-colors"><X size={11} strokeWidth={1.5} /></button>
+                            className="ml-auto text-[var(--ui-text-quaternary)] hover:text-danger transition-colors"><X size={11} strokeWidth={1.5} /></button>
                         </div>
                       ))}
                     </div>
@@ -1051,7 +1051,7 @@ function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onViewLog, 
                           <GitBranch size={11} strokeWidth={1.5} className="text-[var(--ui-text-quaternary)] shrink-0" />
                           <span className="font-mono text-[var(--ui-text-primary)]">{typeof c === 'string' ? c.slice(0, 8) : c}</span>
                           <button onClick={async () => { try { await deleteKanbanLink(task.id, c); onRefresh(); } catch {} }}
-                            className="ml-auto text-[var(--ui-text-quaternary)] hover:text-red-500 transition-colors"><X size={11} strokeWidth={1.5} /></button>
+                            className="ml-auto text-[var(--ui-text-quaternary)] hover:text-danger transition-colors"><X size={11} strokeWidth={1.5} /></button>
                         </div>
                       ))}
                     </div>
@@ -1091,7 +1091,7 @@ function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onViewLog, 
                       <button onClick={() => { const base = getApiBase(); window.open(`${base}/api/kanban/attachments/${a.id}?board=default`, '_blank'); }} title="下载附件"
                         className="text-[var(--kanban-hover-bg)] hover:text-[var(--kanban-hover-bg)] transition-colors ml-1"><Download size={11} strokeWidth={1.5} /></button>
                       <button onClick={async () => { try { await deleteKanbanAttachment(a.id!); const data = await getKanbanAttachments(task.id); setAttachments(data?.attachments || data || []); } catch {} }} title="删除附件"
-                        className="text-red-400 hover:text-red-500 transition-colors ml-1"><Trash2 size={11} /></button>
+                        className="text-danger/70 hover:text-danger transition-colors ml-1"><Trash2 size={11} /></button>
                     </div>
                   ))
                 )}
@@ -1137,7 +1137,7 @@ function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onViewLog, 
                     <div key={i} className="flex items-center gap-2 text-[0.8rem] px-3 py-2 rounded border border-[var(--ui-stroke-tertiary)]">
                       <Radio size={12} className="text-[var(--kanban-hover-bg)]" />
                       <span className="text-[var(--ui-text-primary)]">{typeof ch === 'string' ? ch : String((ch as Record<string, unknown>).platform ?? ch)}</span>
-                      <button onClick={() => onAction('unsubscribe', task.id)} className="ml-auto text-red-400 hover:text-red-500 transition-colors"><BellOff size={13} /></button>
+                      <button onClick={() => onAction('unsubscribe', task.id)} className="ml-auto text-danger/70 hover:text-danger transition-colors"><BellOff size={13} /></button>
                     </div>
                   ))
                 ) : (
@@ -1204,9 +1204,9 @@ function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
 function ActionButton({ icon: Icon, label, color, onClick, busy }: { icon: React.FC<{ size?: number; strokeWidth?: number }>; label: string; color: string; onClick: () => void; busy: boolean }) {
   const colorMap: Record<string, string> = {
     accent: 'text-[var(--kanban-hover-bg)] hover:bg-[var(--kanban-hover-bg)] border-[var(--kanban-hover-bg)]',
-    green: 'text-emerald-600 hover:bg-emerald-500/10 border-emerald-500/25',
-    amber: 'text-amber-600 hover:bg-amber-500/10 border-amber-500/25',
-    red: 'text-red-500 hover:bg-red-500/10 border-red-500/25',
+    green: 'text-success hover:bg-success/10 border-success/25',
+    amber: 'text-warning hover:bg-warning/10 border-warning/25',
+    red: 'text-danger hover:bg-danger/10 border-danger/25',
     muted: 'text-[var(--ui-text-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] border-[var(--ui-stroke-tertiary)]',
   };
   return (
@@ -1893,7 +1893,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
                       </button>
                       {!isDefault && (
                         <button onClick={e => { e.stopPropagation(); setShowBoardPicker(false); setDeleteBoardTarget({ slug, name }); setDeletePermanently(false); }}
-                          className="px-1.5 py-1 text-[var(--color-muted-foreground)] hover:text-red-500 hover:bg-[var(--color-accent)] rounded transition-colors"
+                          className="px-1.5 py-1 text-[var(--color-muted-foreground)] hover:text-danger hover:bg-[var(--color-accent)] rounded transition-colors"
                           title="删除看板">
                           <Trash2 size={12} strokeWidth={1.5} />
                         </button>
@@ -2004,7 +2004,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
         </div>
         <div className="flex items-center gap-2">
           {loading && <Loader size={12} strokeWidth={1.5} className="animate-spin text-[var(--color-muted-foreground)]" />}
-          {error && <span className="text-[0.7rem] text-red-500">{error}</span>}
+          {error && <span className="text-[0.7rem] text-danger">{error}</span>}
           {/* 调度按钮 */}
           <button onClick={() => { setShowDispatch(true); setDispatchResult(null); }} title="手动调度"
             className="inline-flex items-center p-1.5 rounded-md transition-colors border border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-accent)]">
@@ -2040,14 +2040,14 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
                       if (count === 0) return null;
                       const total = Object.values(boardStats.by_status as Record<string, number>).reduce((a: number, b: number) => a + b, 0);
                       const pct = total > 0 ? Math.round(count / total * 100) : 0;
-                      const colors = { triage: 'bg-violet-500', todo: 'bg-blue-500', ready: 'bg-cyan-500', running: 'bg-amber-500', blocked: 'bg-red-500', done: 'bg-emerald-500' };
+                      const colors = { triage: 'bg-accent-purple', todo: 'bg-info', ready: 'bg-accent-cyan', running: 'bg-warning', blocked: 'bg-danger', done: 'bg-success' };
                       return (
                         <div key={s} className="flex items-center gap-2 text-[0.75rem]">
-                          <span className={cn('w-2 h-2 rounded-full shrink-0', colors[s as keyof typeof colors] || 'bg-gray-400')} />
+                          <span className={cn('w-2 h-2 rounded-full shrink-0', colors[s as keyof typeof colors] || 'bg-muted-foreground/50')} />
                           <span className="text-[var(--color-foreground)] capitalize flex-1">{s}</span>
                           <span className="text-[var(--color-muted-foreground)] tabular-nums">{count}</span>
                           <div className="w-12 h-1 rounded-full bg-[var(--color-border)]">
-                            <div className={cn('h-1 rounded-full', colors[s as keyof typeof colors] || 'bg-gray-400')} style={{ width: `${pct}%` }} />
+                            <div className={cn('h-1 rounded-full', colors[s as keyof typeof colors] || 'bg-muted-foreground/50')} style={{ width: `${pct}%` }} />
                           </div>
                         </div>
                       );
@@ -2089,16 +2089,16 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
 
       {/* Phase 4.5: 诊断面板 */}
       {showDiagnostics && diagnostics && (
-        <div className="mx-4 px-3 py-2.5 rounded-md border border-amber-500/25 bg-amber-500/5 text-[0.8rem] flex flex-col gap-1.5">
-          <div className="flex items-center gap-2 font-semibold text-amber-600"><Bug size={13} /> 诊断</div>
-          {diagnostics.stale_claims > 0 && <div className="text-amber-600">⚠ {diagnostics.stale_claims} 个过期 claim</div>}
-          {diagnostics.blocked_over_24h > 0 && <div className="text-red-500">⚠ {diagnostics.blocked_over_24h} 个任务阻塞超24h</div>}
-          {diagnostics.orphaned_tasks > 0 && <div className="text-amber-500">⚠ {diagnostics.orphaned_tasks} 个孤立任务</div>}
-          {(!diagnostics.stale_claims && !diagnostics.blocked_over_24h && !diagnostics.orphaned_tasks) && <div className="text-emerald-600">✓ 一切正常</div>}
+        <div className="mx-4 px-3 py-2.5 rounded-md border border-warning/25 bg-warning/5 text-[0.8rem] flex flex-col gap-1.5">
+          <div className="flex items-center gap-2 font-semibold text-warning"><Bug size={13} /> 诊断</div>
+          {diagnostics.stale_claims > 0 && <div className="text-warning">⚠ {diagnostics.stale_claims} 个过期 claim</div>}
+          {diagnostics.blocked_over_24h > 0 && <div className="text-danger">⚠ {diagnostics.blocked_over_24h} 个任务阻塞超24h</div>}
+          {diagnostics.orphaned_tasks > 0 && <div className="text-warning">⚠ {diagnostics.orphaned_tasks} 个孤立任务</div>}
+          {(!diagnostics.stale_claims && !diagnostics.blocked_over_24h && !diagnostics.orphaned_tasks) && <div className="text-success">✓ 一切正常</div>}
           {/* C1: 编排配置 */}
           {orchestration && (
-            <div className="mt-1.5 pt-1.5 border-t border-amber-500/15">
-              <div className="flex items-center gap-2 font-semibold text-amber-600 mb-1"><Settings2 size={12} /> 编排配置</div>
+            <div className="mt-1.5 pt-1.5 border-t border-warning/15">
+              <div className="flex items-center gap-2 font-semibold text-warning mb-1"><Settings2 size={12} /> 编排配置</div>
               <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[0.75rem]">
                 <span className="text-[var(--ui-text-tertiary)]">max_concurrent</span>
                 <span className="font-mono">{orchestration.max_concurrent ?? '-'}</span>
@@ -2113,11 +2113,11 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
           )}
           {/* C1: Profile 列表 */}
           {profiles.length > 0 && (
-            <div className="mt-1.5 pt-1.5 border-t border-amber-500/15">
-              <div className="flex items-center gap-2 font-semibold text-amber-600 mb-1"><UserCircle size={12} /> 可用 Profile ({profiles.length})</div>
+            <div className="mt-1.5 pt-1.5 border-t border-warning/15">
+              <div className="flex items-center gap-2 font-semibold text-warning mb-1"><UserCircle size={12} /> 可用 Profile ({profiles.length})</div>
               <div className="flex flex-wrap gap-1.5">
                 {profiles.map((p, i) => (
-                  <span key={i} className="px-1.5 py-0.5 rounded text-[0.7rem] font-mono bg-amber-500/10 text-amber-700 border border-amber-500/15">
+                  <span key={i} className="px-1.5 py-0.5 rounded text-[0.7rem] font-mono bg-warning/10 text-warning border border-warning/15">
                     {typeof p === 'string' ? p : p.name || p.profile || JSON.stringify(p)}
                   </span>
                 ))}
@@ -2129,14 +2129,14 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
 
       {/* Phase 4.6: Worker 监控面板 */}
       {showWorkers && (
-        <div className="mx-4 px-3 py-2.5 rounded-md border border-emerald-500/25 bg-emerald-500/5 text-[0.8rem] flex flex-col gap-1.5">
-          <div className="flex items-center gap-2 font-semibold text-emerald-600"><Activity size={13} /> 活跃 Worker ({activeWorkers.length})</div>
+        <div className="mx-4 px-3 py-2.5 rounded-md border border-success/25 bg-success/5 text-[0.8rem] flex flex-col gap-1.5">
+          <div className="flex items-center gap-2 font-semibold text-success"><Activity size={13} /> 活跃 Worker ({activeWorkers.length})</div>
           {activeWorkers.length === 0 && <div className="text-[var(--ui-text-tertiary)]">暂无活跃 Worker</div>}
           {activeWorkers.map((w, i) => (
             <div key={i} className="flex items-center gap-2">
               <span className="font-mono text-[0.75rem]">{w.profile || w.assignee || 'worker'}</span>
               {w.task_id && <span className="text-[0.7rem] text-[var(--ui-text-tertiary)]">→ #{typeof w.task_id === 'string' ? w.task_id.slice(0,6) : w.task_id}</span>}
-              {w.run_id && <button onClick={() => handleAction('terminate', w.run_id)} className="ml-auto text-[0.65rem] text-red-400 hover:text-red-500 transition-colors">终止</button>}
+              {w.run_id && <button onClick={() => handleAction('terminate', w.run_id)} className="ml-auto text-[0.65rem] text-danger/70 hover:text-danger transition-colors">终止</button>}
             </div>
           ))}
         </div>
@@ -2146,11 +2146,11 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
       {checkedIds.size > 0 && (
         <div className="flex items-center gap-2 mx-4 px-3 py-2 rounded-md bg-[color-mix(in_srgb,var(--kanban-hover-bg)_10%,var(--kanban-overlay))] border border-[color-mix(in_srgb,var(--kanban-hover-bg)_40%,var(--ui-stroke-tertiary))]">
           <span className="text-[0.75rem] font-semibold text-[var(--ui-text-primary)]">已选 {checkedIds.size} 项</span>
-          <button onClick={() => handleBulkAction('complete')} className="text-[0.7rem] px-2 py-1 rounded border border-emerald-500/25 text-emerald-600 hover:bg-emerald-500/10 transition-colors">批量完成</button>
+          <button onClick={() => handleBulkAction('complete')} className="text-[0.7rem] px-2 py-1 rounded border border-success/25 text-success hover:bg-success/10 transition-colors">批量完成</button>
           <button onClick={() => handleBulkAction('archive')} className="text-[0.7rem] px-2 py-1 rounded border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors">批量归档</button>
-          <button onClick={() => handleBulkAction('delete')} className="text-[0.7rem] px-2 py-1 rounded border border-red-500/25 text-red-500 hover:bg-red-500/10 transition-colors">批量删除</button>
-          <button onClick={() => { setShowBulkReassign(true); setBulkReassignProfile(''); }} className="text-[0.7rem] px-2 py-1 rounded border border-blue-500/25 text-blue-500 hover:bg-blue-500/10 transition-colors">批量重分配</button>
-          <button onClick={() => { setShowBulkPriority(true); setBulkPriority(''); }} className="text-[0.7rem] px-2 py-1 rounded border border-amber-500/25 text-amber-500 hover:bg-amber-500/10 transition-colors">批量改优先级</button>
+          <button onClick={() => handleBulkAction('delete')} className="text-[0.7rem] px-2 py-1 rounded border border-danger/25 text-danger hover:bg-danger/10 transition-colors">批量删除</button>
+          <button onClick={() => { setShowBulkReassign(true); setBulkReassignProfile(''); }} className="text-[0.7rem] px-2 py-1 rounded border border-info/25 text-info hover:bg-info/10 transition-colors">批量重分配</button>
+          <button onClick={() => { setShowBulkPriority(true); setBulkPriority(''); }} className="text-[0.7rem] px-2 py-1 rounded border border-warning/25 text-warning hover:bg-warning/10 transition-colors">批量改优先级</button>
           <button onClick={() => setCheckedIds(new Set())} className="ml-auto text-[0.7rem] text-[var(--ui-text-tertiary)] hover:text-[var(--ui-text-primary)] transition-colors">取消选择</button>
         </div>
       )}
@@ -2177,7 +2177,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
 
       {/* 创建任务抽屉 */}
       {creatingIn && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={() => { setCreatingIn(null); resetCreateForm(); }} style={{ animation: 'fadeIn 150ms ease-out' }}>
+        <div className="fixed inset-0 z-50 flex justify-end bg-overlay/40" onClick={() => { setCreatingIn(null); resetCreateForm(); }} style={{ animation: 'fadeIn 150ms ease-out' }}>
         <div className="fixed inset-y-0 right-0 w-[420px] max-w-full z-50 flex flex-col border-l border-[var(--color-border)] bg-[var(--color-background)] shadow-2xl animate-in slide-in-from-right duration-200" onClick={(e) => e.stopPropagation()}>
           {/* 头部 */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
@@ -2269,7 +2269,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
 
       {/* Phase 3: 批量重分配弹窗 */}
       {showBulkReassign && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={() => setShowBulkReassign(false)} style={{ animation: 'fadeIn 150ms ease-out' }}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay/50" onClick={() => setShowBulkReassign(false)} style={{ animation: 'fadeIn 150ms ease-out' }}>
           <div className="flex flex-col gap-4 p-5 rounded-lg border border-[var(--ui-stroke-tertiary)] bg-[var(--kanban-overlay)] shadow-2xl backdrop-blur-sm min-w-[280px]" onClick={e => e.stopPropagation()} style={{ animation: 'scaleIn 150ms ease-out' }}>
             <span className="text-[0.9rem] font-semibold text-[var(--ui-text-primary)]">批量重分配</span>
             <p className="text-[0.8rem] text-[var(--ui-text-tertiary)]">将 {checkedIds.size} 个任务分配到指定 Profile</p>
@@ -2280,7 +2280,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
               <button onClick={() => setShowBulkReassign(false)} className="text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors">取消</button>
               <button onClick={handleBulkReassign} disabled={!bulkReassignProfile.trim()}
                 className={cn('text-[0.8rem] px-3 py-1.5 rounded-md border transition-colors',
-                  bulkReassignProfile.trim() ? 'border-blue-500/30 bg-blue-500/10 text-blue-500 hover:bg-blue-500/20' : 'border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-quaternary)] cursor-not-allowed')}>
+                  bulkReassignProfile.trim() ? 'border-info/30 bg-info/10 text-info hover:bg-info/20' : 'border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-quaternary)] cursor-not-allowed')}>
                 确认重分配
               </button>
             </div>
@@ -2290,7 +2290,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
 
       {/* Phase 3: 批量改优先级弹窗 */}
       {showBulkPriority && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={() => setShowBulkPriority(false)} style={{ animation: 'fadeIn 150ms ease-out' }}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay/50" onClick={() => setShowBulkPriority(false)} style={{ animation: 'fadeIn 150ms ease-out' }}>
           <div className="flex flex-col gap-4 p-5 rounded-lg border border-[var(--ui-stroke-tertiary)] bg-[var(--kanban-overlay)] shadow-2xl backdrop-blur-sm min-w-[260px]" onClick={e => e.stopPropagation()} style={{ animation: 'scaleIn 150ms ease-out' }}>
             <span className="text-[0.9rem] font-semibold text-[var(--ui-text-primary)]">批量改优先级</span>
             <p className="text-[0.8rem] text-[var(--ui-text-tertiary)]">为 {checkedIds.size} 个任务设置新优先级</p>
@@ -2307,7 +2307,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
               <button onClick={() => setShowBulkPriority(false)} className="text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors">取消</button>
               <button onClick={handleBulkPriority} disabled={!bulkPriority}
                 className={cn('text-[0.8rem] px-3 py-1.5 rounded-md border transition-colors',
-                  bulkPriority ? 'border-amber-500/30 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20' : 'border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-quaternary)] cursor-not-allowed')}>
+                  bulkPriority ? 'border-warning/30 bg-warning/10 text-warning hover:bg-warning/20' : 'border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-quaternary)] cursor-not-allowed')}>
                 确认
               </button>
             </div>
@@ -2317,7 +2317,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
 
       {/* Phase 4.10: 批量确认弹窗 */}
       {bulkConfirmAction && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" style={{ animation: 'fadeIn 150ms ease-out' }}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay/50" style={{ animation: 'fadeIn 150ms ease-out' }}>
           <div className="flex flex-col gap-4 p-5 rounded-lg border border-[var(--ui-stroke-tertiary)] bg-[var(--kanban-overlay)] shadow-2xl backdrop-blur-sm min-w-[280px]" style={{ animation: 'scaleIn 150ms ease-out' }}>
             <span className="text-[0.9rem] font-semibold text-[var(--ui-text-primary)]">
               确认批量{bulkConfirmAction === 'delete' ? '删除' : '归档'}
@@ -2328,7 +2328,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
             <div className="flex gap-2 justify-end">
               <button onClick={() => setBulkConfirmAction(null)} className="text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors">取消</button>
               <button onClick={() => executeBulkAction(bulkConfirmAction)} className={cn('text-[0.8rem] px-3 py-1.5 rounded-md border transition-colors',
-                bulkConfirmAction === 'delete' ? 'border-red-500/30 bg-red-500/10 text-red-500 hover:bg-red-500/20' : 'border-amber-500/30 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20'
+                bulkConfirmAction === 'delete' ? 'border-danger/30 bg-danger/10 text-danger hover:bg-danger/20' : 'border-warning/30 bg-warning/10 text-warning hover:bg-warning/20'
               )}>确认{bulkConfirmAction === 'delete' ? '删除' : '归档'}</button>
             </div>
           </div>
@@ -2337,7 +2337,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
 
       {/* Phase A1: 新建看板模态 */}
       {showCreateBoard && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 backdrop-blur-[2px]" onClick={() => setShowCreateBoard(false)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay/30 backdrop-blur-[2px]" onClick={() => setShowCreateBoard(false)}>
           <div className="w-[360px] rounded-xl border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-bg-card)] shadow-xl p-5 space-y-4"
             onClick={e => e.stopPropagation()}
             style={{ animation: 'scaleIn 0.15s ease-out' }}>
@@ -2385,12 +2385,12 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
 
       {/* Phase A2: 删除看板确认 */}
       {deleteBoardTarget && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 backdrop-blur-[2px]" onClick={() => setDeleteBoardTarget(null)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay/30 backdrop-blur-[2px]" onClick={() => setDeleteBoardTarget(null)}>
           <div className="w-[340px] rounded-xl border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-bg-card)] shadow-xl p-5 space-y-4"
             onClick={e => e.stopPropagation()}
             style={{ animation: 'scaleIn 0.15s ease-out' }}>
             <div className="flex items-center gap-2">
-              <AlertTriangle size={16} strokeWidth={1.5} className="text-amber-500 shrink-0" />
+              <AlertTriangle size={16} strokeWidth={1.5} className="text-warning shrink-0" />
               <span className="text-[0.95rem] font-semibold text-[var(--ui-text-primary)]">删除看板</span>
             </div>
             <p className="text-[0.8rem] text-[var(--ui-text-tertiary)]">
@@ -2398,14 +2398,14 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
             </p>
             <label className="flex items-center gap-2 text-[0.8rem] text-[var(--ui-text-tertiary)]">
               <input type="checkbox" checked={deletePermanently} onChange={e => setDeletePermanently(e.target.checked)}
-                className="rounded border-[var(--ui-stroke-tertiary)] text-red-500 focus:ring-red-500/30" />
+                className="rounded border-[var(--ui-stroke-tertiary)] text-danger focus:ring-danger/30" />
               永久删除（含任务数据，不可恢复）
             </label>
             <div className="flex gap-2 justify-end pt-1">
               <button onClick={() => setDeleteBoardTarget(null)}
                 className="text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors">取消</button>
               <button onClick={handleDeleteBoard}
-                className="text-[0.8rem] px-4 py-1.5 rounded-md border border-red-500/30 bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors">
+                className="text-[0.8rem] px-4 py-1.5 rounded-md border border-danger/30 bg-danger/10 text-danger hover:bg-danger/20 transition-colors">
                 {deletePermanently ? '永久删除' : '删除'}
               </button>
             </div>
@@ -2415,7 +2415,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
 
       {/* Phase A3: 编辑看板模态 */}
       {editBoardTarget && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 backdrop-blur-[2px]" onClick={() => setEditBoardTarget(null)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay/30 backdrop-blur-[2px]" onClick={() => setEditBoardTarget(null)}>
           <div className="w-[360px] rounded-xl border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-bg-card)] shadow-xl p-5 space-y-4"
             onClick={e => e.stopPropagation()}
             style={{ animation: 'scaleIn 0.15s ease-out' }}>
@@ -2467,7 +2467,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
 
       {/* Phase B3: 手动调度模态 */}
       {showDispatch && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 backdrop-blur-[2px]" onClick={() => setShowDispatch(false)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay/30 backdrop-blur-[2px]" onClick={() => setShowDispatch(false)}>
           <div className="w-[380px] rounded-xl border border-[var(--kanban-col-border)] bg-[var(--kanban-card-bg)] shadow-xl p-5 space-y-4"
             onClick={e => e.stopPropagation()}
             style={{ animation: 'scaleIn 0.15s ease-out' }}>
@@ -2499,11 +2499,11 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
             {dispatchResult && (
               <div className={cn('rounded-md border p-3 space-y-1.5 text-[0.75rem]',
                 dispatchResult.error
-                  ? 'border-red-500/20 bg-red-500/5'
+                  ? 'border-danger/20 bg-danger/5'
                   : 'border-[var(--kanban-col-border)] bg-[color-mix(in_srgb,var(--ui-base)_4%,transparent)]'
               )}>
                 {dispatchResult.error ? (
-                  <span className="text-red-500">{dispatchResult.error}</span>
+                  <span className="text-danger">{dispatchResult.error}</span>
                 ) : (
                   <>
                     <div className="font-medium text-[var(--ui-text-primary)]">{dispatchResult.message || '调度完成'}</div>
@@ -2511,7 +2511,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
                       <div className="space-y-0.5 text-[var(--ui-text-tertiary)]">
                         {dispatchResult.result.claimed?.length > 0 && <div>已认领: {dispatchResult.result.claimed.join(', ')}</div>}
                         <div>回收: {dispatchResult.result.reclaimed ?? 0} · 陈旧: {dispatchResult.result.stale?.length ?? 0} · 超时: {dispatchResult.result.timed_out?.length ?? 0} · 提升: {dispatchResult.result.promoted ?? 0}</div>
-                        {dispatchResult.result.dry_run && <div className="text-amber-500 italic">* 预览模式，未实际执行</div>}
+                        {dispatchResult.result.dry_run && <div className="text-warning italic">* 预览模式，未实际执行</div>}
                       </div>
                     )}
                   </>
@@ -2524,7 +2524,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
 
       {/* Phase B5: 重分配模态 */}
       {showReassign && selectedTask && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 backdrop-blur-[2px]" onClick={() => setShowReassign(false)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay/30 backdrop-blur-[2px]" onClick={() => setShowReassign(false)}>
           <div className="w-[340px] rounded-xl border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-bg-card)] shadow-xl p-5 space-y-4"
             onClick={e => e.stopPropagation()}
             style={{ animation: 'scaleIn 0.15s ease-out' }}>

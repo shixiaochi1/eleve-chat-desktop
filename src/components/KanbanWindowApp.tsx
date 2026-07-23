@@ -30,7 +30,7 @@ export default function KanbanWindowApp() {
   if (error) {
     return (
       <div className="flex items-center justify-center h-screen" style={{ background: 'var(--ui-bg-chrome)' }}>
-        <p className="text-sm text-red-500">{error}</p>
+        <p className="text-sm text-danger">{error}</p>
       </div>
     );
   }

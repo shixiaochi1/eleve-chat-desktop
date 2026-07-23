@@ -63,7 +63,7 @@ export default function WebWindowButton() {
           <WebWindowIcon className="shrink-0" />
           {/* 连接状态指示点 — 连接时绿色脉冲 */}
           {connected && (
-            <span className="absolute right-1 top-1 size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="absolute right-1 top-1 size-1.5 rounded-full bg-success animate-pulse" />
           )}
         </button>
       </DropdownMenuTrigger>
@@ -78,7 +78,7 @@ export default function WebWindowButton() {
             <span
               className={cn(
                 'size-2 shrink-0 rounded-full',
-                connected ? 'animate-pulse bg-emerald-500' : 'bg-muted-foreground/30'
+                connected ? 'animate-pulse bg-success' : 'bg-muted-foreground/30'
               )}
             />
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">

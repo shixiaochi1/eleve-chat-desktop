@@ -285,7 +285,7 @@ export default function CommandCenter({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-start justify-center pt-[15vh] bg-black/50 backdrop-blur-sm" onMouseDown={(e: React.MouseEvent) => { if (e.target === e.currentTarget) onClose?.(); }}>
+    <div className="fixed inset-0 z-[9999] flex items-start justify-center pt-[15vh] bg-overlay/50 backdrop-blur-sm" onMouseDown={(e: React.MouseEvent) => { if (e.target === e.currentTarget) onClose?.(); }}>
       <div className="w-full max-w-lg bg-popover text-popover-foreground rounded-xl shadow-2xl border border-border overflow-hidden" onMouseDown={(e: React.MouseEvent) => e.stopPropagation()}>
         {/* Search input */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border">

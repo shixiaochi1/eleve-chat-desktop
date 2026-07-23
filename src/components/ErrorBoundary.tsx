@@ -51,7 +51,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
           color: '#e0e0e0',
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
         }}>
-          <h2 style={{ color: '#ff6b6b', marginBottom: '12px' }}>渲染错误</h2>
+          <h2 style={{ color: 'var(--ui-red, #ff6b6b)', marginBottom: '12px' }}>渲染错误</h2>
           <p style={{ marginBottom: '16px', opacity: 0.8 }}>
             页面遇到了一个渲染错误。你可以尝试恢复或刷新页面。
           </p>

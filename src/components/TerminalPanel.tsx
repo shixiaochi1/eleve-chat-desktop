@@ -216,10 +216,10 @@ export default function TerminalPanel({ onSend, isStreaming = false, sessionId }
             }`}
             onClick={() => selectTerminal(tab.id)}
           >
-            <TerminalIcon size={11} className={tab.kind === 'agent' ? 'text-blue-400' : ''} />
+            <TerminalIcon size={11} className={tab.kind === 'agent' ? 'text-info' : ''} />
             <span>{tab.title}</span>
             {tab.kind === 'agent' && (
-              <span className="text-[9px] px-0.5 rounded bg-blue-500/20 text-blue-400">agent</span>
+              <span className="text-[9px] px-0.5 rounded bg-info/20 text-info">agent</span>
             )}
             <span
               className="ml-0.5 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive cursor-pointer"
@@ -245,7 +245,7 @@ export default function TerminalPanel({ onSend, isStreaming = false, sessionId }
           <TerminalIcon size={14} className="text-muted-foreground" />
           <span className="text-xs font-medium text-foreground">{activeTab?.title || '终端'}</span>
           {isAgentTab && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">只读</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-info/20 text-info">只读</span>
           )}
           {!isAgentTab && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-accent">Agent</span>

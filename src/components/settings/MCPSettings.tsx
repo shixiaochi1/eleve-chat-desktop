@@ -257,8 +257,8 @@ export default function MCPSettings() {
                     {/* Transport 类型标签 */}
                     <span className={cn(
                       'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
-                      ttype === 'stdio' && 'bg-green-500/10 text-green-500',
-                      ttype === 'http' && 'bg-blue-500/10 text-blue-500',
+                      ttype === 'stdio' && 'bg-success/10 text-success',
+                      ttype === 'http' && 'bg-info/10 text-info',
                       ttype === 'custom' && 'bg-muted-foreground/10 text-muted-foreground',
                     )}>
                       {transportLabel[ttype]}

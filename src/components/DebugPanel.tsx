@@ -118,7 +118,7 @@ export default function DebugPanel({
         </span>
         <span className={cn(
           'flex items-center',
-          t.status === 'done' ? 'text-green-500' :
+          t.status === 'done' ? 'text-success' :
           t.status === 'pending' ? 'text-accent' : 'text-destructive'
         )}>
           {t.status === 'done' ? <CheckIcon size={12} /> : t.status === 'pending' ? <LoadingIcon size={12} className="animate-spin" /> : <DeleteIcon size={12} />}
@@ -226,7 +226,7 @@ export default function DebugPanel({
               <span className="text-muted-foreground">网关状态</span>
               <span className={cn(
                 'flex items-center gap-1',
-                gatewayOnline ? 'text-green-500' : 'text-destructive'
+                gatewayOnline ? 'text-success' : 'text-destructive'
               )}>
                 <StatusDot size={8} fill={gatewayOnline ? 'var(--success)' : 'var(--error)'} />
                 {gatewayOnline ? '在线' : '离线'}

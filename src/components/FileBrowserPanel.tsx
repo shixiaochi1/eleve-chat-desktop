@@ -134,9 +134,9 @@ function TreeNode({
         {/* 图标 */}
         <span className="shrink-0 text-muted-foreground">
           {entry.isDirectory ? (
-            isOpen ? <FolderOpen size={14} className="text-amber-500" /> : <Folder size={14} className="text-amber-500" />
+            isOpen ? <FolderOpen size={14} className="text-warning" /> : <Folder size={14} className="text-warning" />
           ) : (
-            <File size={14} className="text-blue-400" />
+            <File size={14} className="text-info" />
           )}
         </span>
 
@@ -277,7 +277,7 @@ export default function FileBrowserPanel({
 
       {/* 当前工作目录 */}
       <div className="flex items-center gap-1 px-1 py-1 mb-2 text-xs text-muted-foreground truncate border-b border-border" title={rootPath || undefined}>
-        <Folder size={12} className="text-amber-500 shrink-0" />
+        <Folder size={12} className="text-warning shrink-0" />
         <span className="truncate">{dirName}</span>
       </div>
 

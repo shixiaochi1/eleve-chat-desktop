@@ -26,13 +26,13 @@ interface TapItem {
 }
 
 const TRUST_LABELS: Record<string, { label: string; cls: string }> = {
-  builtin:   { label: '官方',    cls: 'bg-blue-500/10 text-blue-500' },
-  trusted:   { label: '可信',    cls: 'bg-green-500/10 text-green-500' },
-  community: { label: '社区',    cls: 'bg-amber-500/10 text-amber-500' },
+  builtin:   { label: '官方',    cls: 'bg-info/10 text-info' },
+  trusted:   { label: '可信',    cls: 'bg-success/10 text-success' },
+  community: { label: '社区',    cls: 'bg-warning/10 text-warning' },
 };
 
 function trustBadge(level: string | undefined, source: string | undefined) {
-  if (source === 'official') return <span className="px-1.5 py-0.5 text-[10px] rounded bg-blue-500/10 text-blue-500">官方</span>;
+  if (source === 'official') return <span className="px-1.5 py-0.5 text-[10px] rounded bg-info/10 text-info">官方</span>;
   const t = TRUST_LABELS[level || ''] || { label: level || '', cls: '' };
   return t.label ? <span className={cn('px-1.5 py-0.5 text-[10px] rounded', t.cls)}>{t.label}</span> : null;
 }

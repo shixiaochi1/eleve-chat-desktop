@@ -350,7 +350,7 @@ export default function InputArea({
                   />
                   <button
                     onClick={() => onRemoveImage?.(img.id)}
-                    className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/90"
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive text-primary-foreground rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/90"
                     title="移除图片"
                     aria-label={`Remove ${img.name}`}
                   >
