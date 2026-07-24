@@ -1,21 +1,17 @@
 /**
- * ProfilePanel — 多 Profile 面板（F9+ Profile 选择器）
+ * ProfilePanel — Agent 面板（多 Profile 选择器 + 新建）
  *
- * 替代原 "Agent 协作" 面板。永久多 Profile 模式：
- * - 每个 Profile（Agent 身份）一张卡片，显示 model/provider/技能数/default 徽章
- * - 点选卡片 → 切换 active profile → 通知 App 切换聊天区 + 设置上下文
- * - 底部折叠区保留当前会话的委托任务监控（决策 B）
+ * 每个 Profile（Agent 身份）一张卡片，显示 model/provider/技能数/default 徽章。
+ * 点选卡片 → 切换 active profile → 通知 App 切换聊天区 + 设置上下文。
+ * 底部操作栏：新建 Agent（内联表单，可选克隆配置）+ 刷新 + 统计。
  */
 import { useState, useEffect, useCallback } from 'react';
-import { fetchProfiles, setActiveProfile } from '../utils/api';
+import { fetchProfiles, setActiveProfile, createProfile } from '../utils/api';
 import { notifySuccess, notifyError } from '../utils/notifications';
-import useAgents from '../hooks/useAgents';
-import { DelegateCard, type DelegateTaskData } from './AgentPanel';
-import { call } from '../utils/bridge';
 import { cn } from '@/lib/utils';
 import {
   Bot, Cpu, Plug, Package, Check, Star, Loader,
-  ChevronDown, ChevronRight, Users, Send, RefreshCw,
+  Users, RefreshCw, Plus,
 } from 'lucide-react';
 
 interface ProfileCardData {
@@ -29,20 +25,13 @@ interface ProfileCardData {
   skill_count: number;
 }
 
-interface MonitorState {
-  modelName?: string;
-  delegateTasks?: Record<string, DelegateTaskData>;
-}
-
 interface ProfilePanelProps {
   currentProfile?: string;
   onProfileChange?: (name: string) => void;
-  monitorState?: MonitorState;
-  sessionId?: string | null;
   [key: string]: unknown;
 }
 
-// ── 单个 Profile 卡片 ──
+// ── 单个 Agent 卡片 ──
 function ProfileCard({
   profile, active, switching, onSelect,
 }: {
@@ -111,19 +100,18 @@ function ProfileCard({
 }
 
 // ── 主面板 ──
-export default function ProfilePanel({ currentProfile, onProfileChange, monitorState, sessionId }: ProfilePanelProps) {
+export default function ProfilePanel({ currentProfile, onProfileChange }: ProfilePanelProps) {
   const [profiles, setProfiles] = useState<ProfileCardData[]>([]);
   const [activeName, setActiveName] = useState<string>(currentProfile || 'default');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
-  const [delegateOpen, setDelegateOpen] = useState(false);
 
-  // 委托任务（决策 B：保留当前会话 delegate 监控）
-  const { activeDelegates, completedDelegates, totalActive, totalAll } = useAgents(monitorState || { delegateTasks: {} });
-  const [steerText, setSteerText] = useState('');
-  const [steering, setSteering] = useState(false);
-  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  // ── 新建 Agent 表单状态 ──
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [cloneSource, setCloneSource] = useState('');
+  const [creatingBusy, setCreatingBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -146,11 +134,6 @@ export default function ProfilePanel({ currentProfile, onProfileChange, monitorS
     if (currentProfile) setActiveName(currentProfile);
   }, [currentProfile]);
 
-  // 出现活跃委托时自动展开折叠区
-  useEffect(() => {
-    if (totalActive > 0) setDelegateOpen(true);
-  }, [totalActive]);
-
   const handleSelect = useCallback(async (name: string) => {
     if (name === activeName) return;
     setSwitching(name);
@@ -167,54 +150,36 @@ export default function ProfilePanel({ currentProfile, onProfileChange, monitorS
     }
   }, [activeName, onProfileChange, load]);
 
-  const handleSteer = useCallback(async () => {
-    if (!steerText.trim() || !sessionId) return;
-    setSteering(true);
-    try {
-      await call('steer_session', { session_id: sessionId, text: steerText.trim() });
-      setSteerText('');
-    } catch (e) {
-      console.error('[ProfilePanel] steer failed:', e);
-    } finally {
-      setSteering(false);
-    }
-  }, [steerText, sessionId]);
-
-  const handleCancel = useCallback(async (taskId: string) => {
-    setCancellingId(taskId);
-    try {
-      await call('abort_chat', { session_id: taskId });
-    } catch (e) {
-      console.error('[ProfilePanel] cancel failed:', e);
-    } finally {
-      setCancellingId(null);
-    }
+  const resetCreateForm = useCallback(() => {
+    setCreating(false);
+    setNewName('');
+    setCloneSource('');
   }, []);
+
+  const handleCreate = useCallback(async () => {
+    const name = newName.trim();
+    if (!name || creatingBusy) return;
+    setCreatingBusy(true);
+    try {
+      await createProfile(name, cloneSource || undefined);
+      notifySuccess(`Agent「${name}」已创建`);
+      resetCreateForm();
+      void load();
+    } catch (err: unknown) {
+      notifyError(err, `创建 ${name} 失败`);
+    } finally {
+      setCreatingBusy(false);
+    }
+  }, [newName, cloneSource, creatingBusy, resetCreateForm, load]);
 
   return (
     <div className="flex flex-col h-full p-3 gap-2">
-      {/* 头部 + 刷新 */}
-      <div className="flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60">
-          <Users size={11} />
-          共 {profiles.length} 个 Agent
-        </div>
-        <button
-          onClick={() => void load()}
-          disabled={loading}
-          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors disabled:opacity-40"
-          title="刷新列表"
-        >
-          <RefreshCw size={12} strokeWidth={1.5} className={loading ? 'animate-spin' : ''} />
-        </button>
-      </div>
-
       {/* 错误 */}
       {error && (
         <div className="px-2 py-1 text-xs text-destructive bg-destructive/5 rounded border border-destructive/20 shrink-0">{error}</div>
       )}
 
-      {/* Profile 卡片列表 */}
+      {/* Agent 卡片列表 */}
       <div className="flex-1 overflow-y-auto space-y-1.5 min-h-0">
         {loading && profiles.length === 0 ? (
           <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">加载中...</div>
@@ -231,57 +196,80 @@ export default function ProfilePanel({ currentProfile, onProfileChange, monitorS
         )}
       </div>
 
-      {/* 底部折叠区：委托任务监控（决策 B） */}
-      <div className="shrink-0 border-t border-border pt-2 space-y-1.5">
-        <button
-          onClick={() => setDelegateOpen(o => !o)}
-          className="flex items-center gap-1.5 w-full text-xs font-medium text-foreground hover:text-primary transition-colors"
-        >
-          {delegateOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          <Users size={12} strokeWidth={1.5} />
-          <span>委托任务</span>
-          {totalActive > 0 && (
-            <span className="px-1 py-0.5 text-[10px] rounded bg-accent/10 text-primary">{totalActive} 活跃</span>
-          )}
-        </button>
-
-        {delegateOpen && (
-          <div className="space-y-1.5 max-h-56 overflow-y-auto">
-            {totalAll === 0 ? (
-              <div className="text-[10px] text-muted-foreground/50 py-2 text-center">暂无活跃的委托任务</div>
-            ) : (
-              <>
-                {activeDelegates.map((t: DelegateTaskData) => (
-                  <DelegateCard key={t.id} task={t} onCancel={handleCancel} cancelling={cancellingId === t.id} />
-                ))}
-                {completedDelegates.map((t: DelegateTaskData) => (
-                  <DelegateCard key={t.id} task={t} />
-                ))}
-              </>
-            )}
-
-            {/* Steer 输入 */}
-            <div className="flex items-center gap-1 pt-1">
-              <input
-                type="text"
-                value={steerText}
-                onChange={(e) => setSteerText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSteer(); } }}
-                placeholder={sessionId ? '输入 /steer 指令…' : '无活跃会话'}
-                disabled={!sessionId || steering}
-                className="flex-1 min-w-0 px-2 py-1 text-xs rounded border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
-              />
+      {/* 底部操作栏（替代原委托任务区） */}
+      <div className="shrink-0 border-t border-border pt-2.5 space-y-2">
+        {creating ? (
+          /* 新建表单 */
+          <div className="space-y-1.5 panel-enter">
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { void handleCreate(); }
+                if (e.key === 'Escape') { resetCreateForm(); }
+              }}
+              placeholder="Agent 名称，如 coder"
+              autoFocus
+              disabled={creatingBusy}
+              className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
+            />
+            <select
+              value={cloneSource}
+              onChange={(e) => setCloneSource(e.target.value)}
+              disabled={creatingBusy}
+              className="w-full px-2 py-1.5 text-xs rounded-md border border-border bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
+            >
+              <option value="">空白配置（不克隆）</option>
+              {profiles.map(p => (
+                <option key={p.name} value={p.name}>克隆自 {p.name}</option>
+              ))}
+            </select>
+            <div className="flex items-center gap-1.5">
               <button
-                onClick={handleSteer}
-                disabled={!steerText.trim() || !sessionId || steering}
-                className="shrink-0 p-1.5 rounded text-primary hover:bg-accent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                title="发送"
+                onClick={() => void handleCreate()}
+                disabled={!newName.trim() || creatingBusy}
+                className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {steering ? <Loader size={13} strokeWidth={1.5} className="animate-spin" /> : <Send size={13} strokeWidth={1.5} />}
+                {creatingBusy ? <Loader size={13} strokeWidth={2} className="animate-spin" /> : <Plus size={13} strokeWidth={2.5} />}
+                创建
+              </button>
+              <button
+                onClick={resetCreateForm}
+                disabled={creatingBusy}
+                className="px-2.5 py-1.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors disabled:opacity-40"
+              >
+                取消
               </button>
             </div>
           </div>
+        ) : (
+          /* 新建按钮 + 刷新 */
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setCreating(true)}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-2.5 py-2 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 active:scale-[0.98] transition-all shadow-sm"
+            >
+              <Plus size={14} strokeWidth={2.5} />
+              新建 Agent
+            </button>
+            <button
+              onClick={() => void load()}
+              disabled={loading}
+              className="p-2 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors disabled:opacity-40"
+              title="刷新列表"
+            >
+              <RefreshCw size={13} strokeWidth={1.5} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
         )}
+
+        {/* 统计行 */}
+        <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60">
+          <Users size={11} />
+          共 {profiles.length} 个 Agent
+          {activeName && <span className="text-muted-foreground/40">· 当前 {activeName}</span>}
+        </div>
       </div>
     </div>
   );

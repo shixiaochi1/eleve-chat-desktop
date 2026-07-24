@@ -190,6 +190,14 @@ export async function getActiveProfile(): Promise<string> {
   return typeof data?.active === 'string' ? data.active : 'default';
 }
 
+/** profiles.create — 新建 Agent（profile），可选从已有 Agent 克隆配置 */
+export async function createProfile(name: string, cloneSource?: string): Promise<any> {
+  return call('create_profile', {
+    name,
+    ...(cloneSource ? { clone_source: cloneSource } : {}),
+  });
+}
+
 // ====== 网关 ======
 
 export async function fetchGatewayStatus(): Promise<any> {
