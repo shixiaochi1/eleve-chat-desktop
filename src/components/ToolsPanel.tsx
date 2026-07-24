@@ -62,7 +62,7 @@ interface ToolsetInfo {
   tools: string[];
 }
 
-function ToolsetsTab() {
+function ToolsetsTab({ currentProfile }: { currentProfile?: string }) {
   const [toolsets, setToolsets] = useState<ToolsetInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,21 +73,21 @@ function ToolsetsTab() {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchToolsets();
+      const data = await fetchToolsets(currentProfile);
       setToolsets(Array.isArray(data) ? data : []);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentProfile]);
 
   useEffect(() => { void load(); }, [load]);
 
   const handleToggle = useCallback(async (ts: ToolsetInfo, enabled: boolean) => {
     setSaving(ts.name);
     try {
-      await toggleToolset(ts.name, enabled);
+      await toggleToolset(ts.name, enabled, currentProfile);
       // 乐观更新
       setToolsets(prev => prev.map(t => t.name === ts.name ? { ...t, enabled } : t));
       const label = TOOLSET_LABELS[ts.name] || ts.name;
@@ -97,7 +97,7 @@ function ToolsetsTab() {
     } finally {
       setSaving(null);
     }
-  }, []);
+  }, [currentProfile]);
 
   const q = search.trim().toLowerCase();
   const filtered = q
@@ -178,7 +178,7 @@ function ToolsetsTab() {
   );
 }
 
-export default function ToolsPanel() {
+export default function ToolsPanel({ currentProfile }: { currentProfile?: string }) {
   const [tools, setTools] = useState<ToolItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -338,7 +338,7 @@ export default function ToolsPanel() {
       )}
 
       {/* ── 工具集 Tab 内容（对齐 Hermes SkillsView → Toolsets）── */}
-      {activeTab === 'toolsets' && <ToolsetsTab />}
+      {activeTab === 'toolsets' && <ToolsetsTab currentProfile={currentProfile} />}
 
       {/* ── 技能管理 Tab 内容 ── */}
       {activeTab === 'skills' && (
