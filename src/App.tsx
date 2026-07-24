@@ -13,7 +13,7 @@ import * as storage from './utils/storage';
 import { loadSettingsFromRust } from './utils/settings-store';
 import { discoverPort, call } from './utils/bridge';
 import { getActiveProfile } from './utils/api';
-import { getWsClient } from './services/ws-client';
+import { getWsClient, setWsActiveProfile } from './services/ws-client';
 import type { ChatMessage } from './types';
 import ErrorBoundary from './components/ErrorBoundary';
 import CredentialCard from './components/CredentialCard';
@@ -101,13 +101,17 @@ export default function App() {
     if (!portReady) return;
     let cancelled = false;
     getActiveProfile()
-      .then((name) => { if (!cancelled) setCurrentProfile(name); })
+      .then((name) => { if (!cancelled) { setWsActiveProfile(name); setCurrentProfile(name); } })
       .catch(() => { /* 网关未就绪时静默，保持 default */ });
     return () => { cancelled = true; };
   }, [portReady]);
 
   // Profile 切换联动：更新全局状态 + 刷新会话列表（会话按 profile 命名空间隔离）
+  // ── F1 多 Profile：setWsActiveProfile 必须同步调用（activeProfile 是模块级变量），
+  //    保证下面 sessionListVersion 触发的列表 refetch 用到新 profile，避免异步 effect 竞态。
+  //    对齐 Hermes setApiRequestProfile：currentProfile 是唯一权威源，sendRpc 单点盖章 params.profile。
   const handleProfileChange = useCallback((name: string) => {
+    setWsActiveProfile(name);
     setCurrentProfile(name);
     setSessionListVersion((v) => v + 1);
   }, []);

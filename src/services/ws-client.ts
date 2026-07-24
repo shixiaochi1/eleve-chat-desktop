@@ -63,6 +63,15 @@ const RECONNECT_MAX_MS = 15000  // 对齐 Hermes: 上限 15s（1s→2s→4s→8s
 const RECONNECT_MAX_ATTEMPTS = 20
 const IDLE_PING_INTERVAL_MS = 30000
 
+// ── 多 Profile：当前活动 profile（对齐 Hermes setApiRequestProfile 模式）──
+// 单点注入：sendRpc 自动给作用域 RPC 盖章 params.profile，避免逐调用点遗漏。
+// 对齐 Hermes hermes-profile-scope 契约："every backend-targeted action must carry the active gateway profile"。
+// 单 profile / default → null（省略），后端回退 launch profile（default），行为不变。
+let activeProfile: string | null = null
+export function setWsActiveProfile(profile: string | null | undefined): void {
+  activeProfile = profile && profile !== 'default' ? profile : null
+}
+
 // ── WS 客户端类 ──
 
 export class GatewayWsClient {
@@ -344,6 +353,12 @@ export class GatewayWsClient {
   /** 发送 JSON-RPC 请求，返回 Promise<result>
    *  Phase 1: WS 未连接时排队等待，连接后自动发送 */
   sendRpc(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+    // 多 Profile 单点注入：活动 profile 盖章到 params（调用方未显式指定 profile 时）。
+    // 后端仅 6 个会话作用域 RPC（session.list/create/search、analytics.usage、prompt.submit）消费 params.profile，
+    // 其余 RPC 忽略该字段，故广覆盖盖章安全。单 profile（activeProfile=null）时省略 → 后端 default。
+    if (activeProfile && params.profile === undefined) {
+      params = { ...params, profile: activeProfile }
+    }
     return new Promise((resolve, reject) => {
       // WS 已连接：直接发送
       if (this.ws?.readyState === WebSocket.OPEN) {
