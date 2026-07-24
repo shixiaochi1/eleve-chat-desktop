@@ -13,7 +13,7 @@ import MemoryPanel from './MemoryPanel';
 import UsagePanel from './UsagePanel';
 import ChannelsPanel from './ChannelsPanel';
 // kanban 移至 OverlayView 弹出（需要更大空间展示5列看板）
-import AgentPanel from './AgentPanel';
+import ProfilePanel from './ProfilePanel';
 import {
   ChatIcon, CronIcon,
   DebugIcon, ToolIcon, MemoryIcon,
@@ -33,7 +33,7 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
   if (!activePanel) return null;
 
   const panels: Record<string, { title: string; Icon: React.ComponentType<any>; component: React.ComponentType<any> }> = {
-    agents:   { title: 'Agent 协作', Icon: AgentIcon,   component: AgentPanel },
+    agents:   { title: '多 Profile', Icon: AgentIcon,   component: ProfilePanel },
     gateway:  { title: '网关状态',   Icon: Radio,       component: GatewayPanel },
     sessions: { title: '会话',     Icon: ChatIcon,    component: SessionsPanel },
     projects: { title: '项目',     Icon: FolderGit,  component: ProjectTreePanel },

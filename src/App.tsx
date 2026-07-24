@@ -12,6 +12,7 @@ import { loadMarkdownDeps } from './utils/markdown';
 import * as storage from './utils/storage';
 import { loadSettingsFromRust } from './utils/settings-store';
 import { discoverPort, call } from './utils/bridge';
+import { getActiveProfile } from './utils/api';
 import { getWsClient } from './services/ws-client';
 import type { ChatMessage } from './types';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -84,6 +85,7 @@ export default function App() {
   const [depsReady, setDepsReady] = useState<boolean>(false);
   const [portReady, setPortReady] = useState<boolean>(false); // 需要 discoverPort 后才就绪
   const [sessionListVersion, setSessionListVersion] = useState<number>(0);  // 刷新会话列表
+  const [currentProfile, setCurrentProfile] = useState<string>('default');  // F9+ 当前活动 Profile（多 Profile 全局状态）
   const [activeClarify, setActiveClarify] = useState<{ clarify_id: string; question: string; choices: string[] } | null>(null);
   const [activeApproval, setActiveApproval] = useState<{ command: string; description: string; pattern: string; choices: string[]; run_id: string } | null>(null);
   const [activeSudo, setActiveSudo] = useState<{ request_id: string; prompt?: string } | null>(null);
@@ -93,6 +95,22 @@ export default function App() {
   const [overlayPanel, setOverlayPanel] = useState<string | null>(null);
   const handleOpenOverlay = useCallback((panelName: string) => setOverlayPanel(panelName), []);
   const handleCloseOverlay = useCallback(() => setOverlayPanel(null), []);
+
+  // ── F9+ 多 Profile：启动后拉取当前 active profile ──
+  useEffect(() => {
+    if (!portReady) return;
+    let cancelled = false;
+    getActiveProfile()
+      .then((name) => { if (!cancelled) setCurrentProfile(name); })
+      .catch(() => { /* 网关未就绪时静默，保持 default */ });
+    return () => { cancelled = true; };
+  }, [portReady]);
+
+  // Profile 切换联动：更新全局状态 + 刷新会话列表（会话按 profile 命名空间隔离）
+  const handleProfileChange = useCallback((name: string) => {
+    setCurrentProfile(name);
+    setSessionListVersion((v) => v + 1);
+  }, []);
 
   // ── model picker state ──
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
@@ -545,6 +563,8 @@ export default function App() {
                 <SidePanel
                   activePanel={activePanel}
                   onPanelChange={setActivePanel}
+                  currentProfile={currentProfile}
+                  onProfileChange={handleProfileChange}
                   onOpenSettings={() => handleOpenOverlay('settings')}
                   onRestart={handleRestartService}
                   sessionId={sess.sessionId}

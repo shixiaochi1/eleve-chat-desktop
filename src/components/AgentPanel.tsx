@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-interface DelegateTaskData {
+export interface DelegateTaskData {
   id: string;
   status: string;
   goal?: string;
@@ -62,7 +62,7 @@ interface MonitorState {
   delegateTasks?: Record<string, DelegateTaskData>;
 }
 
-interface DelegateCardProps {
+export interface DelegateCardProps {
   task: DelegateTaskData;
   onCancel?: (taskId: string) => void;
   cancelling?: boolean;
@@ -82,7 +82,7 @@ function fmtDuration(durationSec: number | null | undefined): string | null {
 }
 
 // ── 单条委托任务卡片 ──
-function DelegateCard({ task, onCancel, cancelling }: DelegateCardProps) {
+export function DelegateCard({ task, onCancel, cancelling }: DelegateCardProps) {
   const isRunning = task.status === 'running';
   const isFailed = task.status === 'failed' || task.status === 'error';
   const isDone = !isRunning && !isFailed;

@@ -166,6 +166,30 @@ export async function toggleToolset(name: string, enabled: boolean, profile?: st
   return resp.json();
 }
 
+// ====== 多 Profile 管理（F9+ Profile 选择器，对齐 Hermes profile list/use） ======
+
+/** profiles.list — 列出所有 profile（含 model/provider/skill_count/has_env 富信息）
+ *  返回 { profiles: ProfileInfo[], active: string }
+ */
+export async function fetchProfiles(): Promise<{ profiles: any[]; active: string }> {
+  const data = await call('list_profiles', {});
+  return {
+    profiles: Array.isArray(data?.profiles) ? data.profiles : [],
+    active: typeof data?.active === 'string' ? data.active : 'default',
+  };
+}
+
+/** profiles.set_active — 切换活动 profile（对齐 Hermes `profile use`） */
+export async function setActiveProfile(name: string): Promise<any> {
+  return call('set_active_profile', { name });
+}
+
+/** profiles.get_active — 查询当前活动 profile 名 */
+export async function getActiveProfile(): Promise<string> {
+  const data = await call('get_active_profile', {});
+  return typeof data?.active === 'string' ? data.active : 'default';
+}
+
 // ====== 网关 ======
 
 export async function fetchGatewayStatus(): Promise<any> {

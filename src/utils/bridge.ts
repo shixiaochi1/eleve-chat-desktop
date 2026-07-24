@@ -113,6 +113,10 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   manage_hub_tap:         'skills.hub.tap.manage',
   list_tools:             'tools.list',
   list_toolsets:          'tools.toolsets',
+  // 多 Profile 管理（F9+ Profile 选择器）
+  list_profiles:          'profiles.list',
+  set_active_profile:     'profiles.set_active',
+  get_active_profile:     'profiles.get_active',
   list_memories:          'memory.list',
   delete_memory:          'memory.delete',
   // get_settings, update_settings → CONFIG_HTTP_MAP

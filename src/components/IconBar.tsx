@@ -33,7 +33,7 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
     { id: 'sessions', icon: ChatIcon,    label: '会话' },
     { id: 'projects', icon: FolderGit,  label: '项目' },
     { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true },
-    { id: 'agents',   icon: AgentIcon,   label: 'Agent 协作' },
+    { id: 'agents',   icon: AgentIcon,   label: '多 Profile' },
     { id: 'channels', icon: ChannelsIcon, label: '频道' },
     { id: 'memory',   icon: MemoryIcon,  label: '记忆' },
     { id: 'cron',     icon: CronIcon,     label: '定时任务' },
