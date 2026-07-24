@@ -2114,7 +2114,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
           {/* C1: Profile 列表 */}
           {profiles.length > 0 && (
             <div className="mt-1.5 pt-1.5 border-t border-warning/15">
-              <div className="flex items-center gap-2 font-semibold text-warning mb-1"><UserCircle size={12} /> 可用 Profile ({profiles.length})</div>
+              <div className="flex items-center gap-2 font-semibold text-warning mb-1"><UserCircle size={12} /> 可用 Agent ({profiles.length})</div>
               <div className="flex flex-wrap gap-1.5">
                 {profiles.map((p, i) => (
                   <span key={i} className="px-1.5 py-0.5 rounded text-[0.7rem] font-mono bg-warning/10 text-warning border border-warning/15">
@@ -2272,9 +2272,9 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay/50" onClick={() => setShowBulkReassign(false)} style={{ animation: 'fadeIn 150ms ease-out' }}>
           <div className="flex flex-col gap-4 p-5 rounded-lg border border-[var(--ui-stroke-tertiary)] bg-[var(--kanban-overlay)] shadow-2xl backdrop-blur-sm min-w-[280px]" onClick={e => e.stopPropagation()} style={{ animation: 'scaleIn 150ms ease-out' }}>
             <span className="text-[0.9rem] font-semibold text-[var(--ui-text-primary)]">批量重分配</span>
-            <p className="text-[0.8rem] text-[var(--ui-text-tertiary)]">将 {checkedIds.size} 个任务分配到指定 Profile</p>
+            <p className="text-[0.8rem] text-[var(--ui-text-tertiary)]">将 {checkedIds.size} 个任务分配到指定 Agent</p>
             <input value={bulkReassignProfile} onChange={e => setBulkReassignProfile(e.target.value)} autoFocus onKeyDown={e => { if (e.key === 'Enter') handleBulkReassign(); if (e.key === 'Escape') setShowBulkReassign(false); }}
-              placeholder="Profile 名称"
+              placeholder="Agent 名称"
               className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--ui-stroke-tertiary)] bg-[var(--kanban-overlay)] text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none focus:border-[var(--kanban-hover-bg)]" />
             <div className="flex gap-2 justify-end">
               <button onClick={() => setShowBulkReassign(false)} className="text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors">取消</button>
@@ -2534,7 +2534,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
             </div>
             <div className="space-y-3">
               <div>
-                <label className="block text-[0.75rem] font-medium text-[var(--ui-text-tertiary)] mb-1">目标 Profile *</label>
+                <label className="block text-[0.75rem] font-medium text-[var(--ui-text-tertiary)] mb-1">目标 Agent *</label>
                 <input value={reassignProfile} onChange={e => setReassignProfile(e.target.value)} placeholder="例如：default" autoFocus
                   className="w-full text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none focus:border-[var(--kanban-hover-bg)]" />
               </div>

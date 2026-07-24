@@ -73,7 +73,7 @@ function ProfileCard({
         </div>
         <span className="text-xs font-medium text-foreground truncate flex-1">{profile.name}</span>
         {profile.is_default && (
-          <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] bg-muted text-muted-foreground" title="默认 Profile">
+          <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] bg-muted text-muted-foreground" title="默认 Agent">
             <Star size={9} strokeWidth={1.5} />
             默认
           </span>
@@ -157,7 +157,7 @@ export default function ProfilePanel({ currentProfile, onProfileChange, monitorS
     try {
       await setActiveProfile(name);
       setActiveName(name);
-      notifySuccess(`已切换到 Profile：${name}`);
+      notifySuccess(`已切换到 Agent：${name}`);
       onProfileChange?.(name);
       void load(); // 刷新列表更新 is_active 标记
     } catch (err: unknown) {
@@ -197,7 +197,7 @@ export default function ProfilePanel({ currentProfile, onProfileChange, monitorS
       <div className="flex items-center justify-between shrink-0">
         <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60">
           <Users size={11} />
-          共 {profiles.length} 个 Profile
+          共 {profiles.length} 个 Agent
         </div>
         <button
           onClick={() => void load()}

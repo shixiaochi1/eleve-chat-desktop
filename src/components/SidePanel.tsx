@@ -33,7 +33,7 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
   if (!activePanel) return null;
 
   const panels: Record<string, { title: string; Icon: React.ComponentType<any>; component: React.ComponentType<any> }> = {
-    agents:   { title: '多 Profile', Icon: AgentIcon,   component: ProfilePanel },
+    agents:   { title: '多 Agent', Icon: AgentIcon,   component: ProfilePanel },
     gateway:  { title: '网关状态',   Icon: Radio,       component: GatewayPanel },
     sessions: { title: '会话',     Icon: ChatIcon,    component: SessionsPanel },
     projects: { title: '项目',     Icon: FolderGit,  component: ProjectTreePanel },
