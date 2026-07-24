@@ -138,6 +138,27 @@ export async function fetchTools(): Promise<any> {
   return call('list_tools', {});
 }
 
+/** GET /api/tools/toolsets — 工具集列表（含真实 enabled 状态，对齐 Hermes getToolsets） */
+export async function fetchToolsets(): Promise<any[]> {
+  const resp = await fetch(`${getApiBase()}/api/tools/toolsets`);
+  if (!resp.ok) throw new Error(`GET /api/tools/toolsets: ${resp.status}`);
+  return resp.json();
+}
+
+/** PUT /api/tools/toolsets/:name — 切换工具集开关（D5，对齐 Hermes toggleToolset） */
+export async function toggleToolset(name: string, enabled: boolean): Promise<any> {
+  const resp = await fetch(`${getApiBase()}/api/tools/toolsets/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error || `PUT /api/tools/toolsets/${name}: ${resp.status}`);
+  }
+  return resp.json();
+}
+
 // ====== 网关 ======
 
 export async function fetchGatewayStatus(): Promise<any> {
