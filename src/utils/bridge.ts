@@ -362,7 +362,8 @@ const KANBAN_HTTP_MAP: Record<string, KanbanMapping> = {
 
   // Task log / events
   get_kanban_task_log:    { method: 'GET',  path: (a) => `/api/kanban/tasks/${a.task_id}/log?tail=${a.tail || ''}&board=${encodeURIComponent(a.board || 'default')}` },
-  poll_kanban_events:     { method: 'GET',  path: (a) => `/api/kanban/events?since=${a.since || ''}&board=${encodeURIComponent(a.board || 'default')}` },
+  // JSON 轮询端点是 /api/kanban/events/poll；/api/kanban/events 是 SSE stream（EventSource 专用），不能按 JSON 消费
+  poll_kanban_events:     { method: 'GET',  path: (a) => `/api/kanban/events/poll?since=${a.since || ''}&board=${encodeURIComponent(a.board || 'default')}` },
 
   // Attachments
   get_kanban_attachments:     { method: 'GET',  path: (a) => `/api/kanban/tasks/${a.task_id}/attachments?board=${encodeURIComponent(a.board || 'default')}` },
