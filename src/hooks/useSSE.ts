@@ -566,21 +566,11 @@ export function useSSE(callbacks: SSECallbacks = {}): {
     // 注册事件监听器 — WS 推送 → routeWsEvent → processEvent → SSECallbacks
     wsClient.addEventListener(routeWsEvent);
 
-    // 重连恢复回调：WS 重连成功后请求 session.info
-    // 对齐 Eleve: gateway.ready → session.resume
-    const handleWsOpen = (wasReconnect: boolean) => {
-      if (wasReconnect) {
-        const sid = currentSessionRef.current;
-        if (sid) {
-          wsClient.sendRpc('session.info', { session_id: sid }).catch(() => {});
-        }
-      }
-    };
-    wsClient.setReconnectCallback(handleWsOpen);
+    // 注：原重连恢复回调（请求 session.info）已移除 — session.info 仅为后端推送事件，
+    // 无请求 handler，旧调用注定 METHOD_NOT_FOUND 被吞。重连后的会话信息靠后端推送恢复。
 
     return () => {
       wsClient.removeEventListener(routeWsEvent);
-      wsClient.setReconnectCallback(null);
     };
   }, [routeWsEvent]);
 
