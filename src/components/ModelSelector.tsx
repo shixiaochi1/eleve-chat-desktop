@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { fetchModels, fetchConfig, setModel } from '../utils/api';
+import { listPoolProviders } from '../utils/settings-store';
 import { ModelIcon, CheckIcon } from './Icons';
 
 interface ModelSelectorProps {
@@ -41,11 +42,31 @@ export default function ModelSelector({ portReady, portVersion, onModelChange }:
         }
       } catch { /* ignore */ }
 
+      // Phase P5: 从全局 Provider 池加载模型（provider_id/model_name 格式）
+      try {
+        const poolProviders = await listPoolProviders();
+        for (const pp of poolProviders) {
+          for (const m of pp.models) {
+            const ref = `${pp.id}/${m.name}`;
+            if (!modelList.includes(ref)) modelList.push(ref);
+          }
+        }
+      } catch { /* pool 未初始化时忽略 */ }
+
       let activeModel = '';
       try {
         const config: Record<string, unknown> = await fetchConfig();
-        if (config?.model && typeof config.model === 'string') {
-          activeModel = config.model;
+        if (config?.model) {
+          if (typeof config.model === 'string') {
+            activeModel = config.model;
+          } else if (typeof config.model === 'object' && config.model !== null) {
+            const modelObj = config.model as Record<string, string>;
+            // Phase P5: 优先读 ref（model_ref 格式）
+            activeModel = modelObj.ref || '';
+            if (!activeModel && modelObj.provider && modelObj.default) {
+              activeModel = `${modelObj.provider}/${modelObj.default}`;
+            }
+          }
         }
       } catch { /* ignore */ }
 

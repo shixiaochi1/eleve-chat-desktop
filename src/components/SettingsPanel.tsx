@@ -225,8 +225,18 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       if (bc.model) {
         if (typeof bc.model === 'object' && bc.model !== null) {
           const modelObj = bc.model as Record<string, string>;
-          const cfgProvider = modelObj.provider || '';
-          const cfgModel = modelObj.default || '';
+          // Phase P5: 优先读 model_ref（新格式 "provider_id/model_name"）
+          let cfgProvider = modelObj.provider || '';
+          let cfgModel = modelObj.default || '';
+          if (modelObj.ref) {
+            const slashIdx = modelObj.ref.indexOf('/');
+            if (slashIdx > 0) {
+              cfgProvider = modelObj.ref.slice(0, slashIdx);
+              cfgModel = modelObj.ref.slice(slashIdx + 1);
+            } else {
+              cfgProvider = modelObj.ref;
+            }
+          }
           setMainProvider(cfgProvider);
           setMainModel(cfgModel);
           // ── R3 修复：config.yaml 的 provider/model 自动同步到 settings.json ──
@@ -489,7 +499,12 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     }
 
     if (mainProvider) {
-      backendCfg.model = { provider: mainProvider, default: mainModel };
+      // Phase P5: 写 model_ref（新格式，ProviderResolver 第 2 级优先解析）+ 兼容旧格式
+      backendCfg.model = {
+        ref: mainModel ? `${mainProvider}/${mainModel}` : mainProvider,
+        provider: mainProvider,
+        default: mainModel,
+      };
     }
 
     const fbFiltered = fallbackList.filter(f => f.providerId);
