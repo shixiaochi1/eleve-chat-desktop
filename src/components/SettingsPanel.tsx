@@ -492,6 +492,30 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       };
     }
 
+    // ── Auxiliary → config.yaml auxiliary 段（字段名转 snake_case 对齐 Rust serde）──
+    const auxObj: Record<string, Record<string, unknown>> = {};
+    for (const [key, cfg] of Object.entries(auxConfig)) {
+      const taskCfg: Record<string, unknown> = {
+        provider: cfg.providerId || 'auto',
+        timeout: cfg.timeout,
+      };
+      if (cfg.model) taskCfg.model = cfg.model;
+      if (cfg.temperature != null) taskCfg.temperature = cfg.temperature;
+      if (cfg.extraBody != null) taskCfg.extra_body = cfg.extraBody;
+      if (cfg.downloadTimeout != null) taskCfg.download_timeout = cfg.downloadTimeout;
+      auxObj[key] = taskCfg;
+    }
+    if (Object.keys(auxObj).length > 0) backendCfg.auxiliary = auxObj;
+
+    // ── Delegation → config.yaml delegation 段 ──
+    if (delProvider) {
+      backendCfg.delegation = {
+        provider: delProvider,
+        ...(delModel ? { model: delModel } : {}),
+        max_iterations: delMaxIterations,
+      };
+    }
+
     try {
       await call('update_config', { config: backendCfg });
     } catch (e: unknown) {
