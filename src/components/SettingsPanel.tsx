@@ -387,6 +387,8 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       if (res.warnings.length > 0) {
         setStatus({ text: `已删除，但有引用: ${res.warnings.join('; ')}`, className: 'text-yellow-500 text-xs' });
       }
+    }).catch((e: unknown) => {
+      setStatus({ text: `全局池删除失败: ${(e as Error).message}`, className: 'text-destructive text-xs' });
     });
 
     // P6-D: 同步清 per-profile config.yaml 的 providers.<id> 残留（全局池收敛，修“删而不净”）
@@ -425,8 +427,12 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     }).then(() => {
       // 如果有 API key，同步保存到池
       if (provider.apiKey && provider.apiKey.length >= 8) {
-        savePoolProviderKey(provider.id, provider.apiKey);
+        savePoolProviderKey(provider.id, provider.apiKey).catch((e: unknown) => {
+          setStatus({ text: `API Key 保存失败: ${(e as Error).message}`, className: 'text-destructive text-xs' });
+        });
       }
+    }).catch((e: unknown) => {
+      setStatus({ text: `全局池同步失败: ${(e as Error).message}`, className: 'text-destructive text-xs' });
     });
   };
 

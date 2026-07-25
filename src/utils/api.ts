@@ -191,9 +191,10 @@ export async function getActiveProfile(): Promise<string> {
 }
 
 /** profiles.create — 新建 Agent（profile），可选从已有 Agent 克隆配置 */
-export async function createProfile(name: string, cloneSource?: string): Promise<any> {
+export async function createProfile(name: string, displayName?: string, cloneSource?: string): Promise<any> {
   return call('create_profile', {
     name,
+    ...(displayName ? { display_name: displayName } : {}),
     ...(cloneSource ? { clone_source: cloneSource } : {}),
   });
 }

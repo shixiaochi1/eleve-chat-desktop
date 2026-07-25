@@ -17,6 +17,7 @@ import {
 
 interface ProfileCardData {
   name: string;
+  display_name?: string | null;
   path: string;
   is_default: boolean;
   is_active: boolean;
@@ -64,7 +65,12 @@ function ProfileCard({
         )}>
           <Bot size={13} strokeWidth={1.5} />
         </div>
-        <span className="text-xs font-medium text-foreground truncate flex-1">{profile.name}</span>
+        <span className="text-xs font-medium text-foreground truncate flex-1">
+          {profile.display_name || profile.name}
+          {profile.display_name && profile.display_name !== profile.name && (
+            <span className="ml-1 text-[10px] text-muted-foreground/60 font-normal">({profile.name})</span>
+          )}
+        </span>
         {profile.is_default && (
           <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] bg-muted text-muted-foreground" title="默认 Agent">
             <Star size={9} strokeWidth={1.5} />
@@ -124,6 +130,7 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
   // ── 新建 Agent 表单状态 ──
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
+  const [newDisplayName, setNewDisplayName] = useState('');
   const [cloneSource, setCloneSource] = useState('');
   const [creatingBusy, setCreatingBusy] = useState(false);
 
@@ -172,6 +179,7 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
   const resetCreateForm = useCallback(() => {
     setCreating(false);
     setNewName('');
+    setNewDisplayName('');
     setCloneSource('');
   }, []);
 
@@ -180,8 +188,9 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
     if (!name || creatingBusy) return;
     setCreatingBusy(true);
     try {
-      await createProfile(name, cloneSource || undefined);
-      notifySuccess(`Agent「${name}」已创建`);
+      const dn = newDisplayName.trim() || undefined;
+      await createProfile(name, dn, cloneSource || undefined);
+      notifySuccess(`Agent「${dn || name}」已创建`);
       resetCreateForm();
       void load();
     } catch (err: unknown) {
@@ -189,7 +198,7 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
     } finally {
       setCreatingBusy(false);
     }
-  }, [newName, cloneSource, creatingBusy, resetCreateForm, load]);
+  }, [newName, newDisplayName, cloneSource, creatingBusy, resetCreateForm, load]);
 
   const cancelDelete = useCallback(() => {
     setDeletingTarget(null);
@@ -249,8 +258,20 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
                 if (e.key === 'Enter') { void handleCreate(); }
                 if (e.key === 'Escape') { resetCreateForm(); }
               }}
-              placeholder="Agent 名称，如 coder"
+              placeholder="Agent ID（英文小写，如 coder）"
               autoFocus
+              disabled={creatingBusy}
+              className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
+            />
+            <input
+              type="text"
+              value={newDisplayName}
+              onChange={(e) => setNewDisplayName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { void handleCreate(); }
+                if (e.key === 'Escape') { resetCreateForm(); }
+              }}
+              placeholder="显示名称（可选，支持中文，如「小老虎」）"
               disabled={creatingBusy}
               className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
             />

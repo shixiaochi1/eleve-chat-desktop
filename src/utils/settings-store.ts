@@ -250,24 +250,16 @@ export async function listPoolProviders(): Promise<PoolProvider[]> {
   }
 }
 
-/** 创建/更新 Provider */
+/** 创建/更新 Provider（F3：失败抛错，调用方 toast 提示） */
 export async function upsertPoolProvider(entry: Record<string, unknown>): Promise<PoolProvider | null> {
-  try {
-    const res = await call('provider_upsert', entry) as { provider?: PoolProvider };
-    return res.provider || null;
-  } catch {
-    return null;
-  }
+  const res = await call('provider_upsert', entry) as { provider?: PoolProvider };
+  return res.provider || null;
 }
 
-/** 删除 Provider（返回 warnings） */
+/** 删除 Provider（F3：失败抛错，调用方 toast 提示） */
 export async function removePoolProvider(providerId: string): Promise<{ removed: boolean; warnings: string[] }> {
-  try {
-    const res = await call('provider_remove', { provider_id: providerId }) as { removed?: boolean; warnings?: string[] };
-    return { removed: res.removed || false, warnings: res.warnings || [] };
-  } catch {
-    return { removed: false, warnings: [] };
-  }
+  const res = await call('provider_remove', { provider_id: providerId }) as { removed?: boolean; warnings?: string[] };
+  return { removed: res.removed || false, warnings: res.warnings || [] };
 }
 
 // P6-D：删除 per-profile config.yaml 的 providers.<id> 残留（全局池收敛，修“删而不净”）
@@ -280,24 +272,16 @@ export async function deleteConfigProvider(providerId: string): Promise<boolean>
   }
 }
 
-/** 保存 Provider API Key */
+/** 保存 Provider API Key（F3：失败抛错，调用方 toast 提示） */
 export async function savePoolProviderKey(providerId: string, apiKey: string): Promise<boolean> {
-  try {
-    await call('provider_save_key', { provider_id: providerId, api_key: apiKey });
-    return true;
-  } catch {
-    return false;
-  }
+  await call('provider_save_key', { provider_id: providerId, api_key: apiKey });
+  return true;
 }
 
-/** 清除 Provider 凭证 */
+/** 清除 Provider 凭证（F3：失败抛错，调用方 toast 提示） */
 export async function disconnectPoolProvider(providerId: string): Promise<boolean> {
-  try {
-    await call('provider_disconnect', { provider_id: providerId });
-    return true;
-  } catch {
-    return false;
-  }
+  await call('provider_disconnect', { provider_id: providerId });
+  return true;
 }
 
 /** 列出 Provider 模型目录 */
