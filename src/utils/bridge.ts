@@ -1,3 +1,5 @@
+import yaml from 'js-yaml';
+
 /**
  * IPC 桥接层 — WS JSON-RPC + HTTP REST 双通道（对齐 Hermes）
  * 
@@ -272,9 +274,9 @@ async function configHttpCall(command: string, args: Record<string, any>): Promi
       if (args.yaml_text) {
         yamlText = args.yaml_text;
       } else if (args.config) {
-        yamlText = JSON.stringify(args.config);
+        yamlText = yaml.dump(args.config, { indent: 2, lineWidth: 120, noRefs: true });
       } else {
-        yamlText = JSON.stringify(args);
+        yamlText = yaml.dump(args, { indent: 2, lineWidth: 120, noRefs: true });
       }
       options.body = JSON.stringify({ yaml_text: yamlText });
     } else {

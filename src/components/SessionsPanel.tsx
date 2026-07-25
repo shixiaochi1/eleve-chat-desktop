@@ -271,10 +271,15 @@ export default function SessionsPanel({
   const toggleArchive = useCallback(async (id: string) => {
     const isArchived = archivedIds.has(id);
     try {
-      if (isArchived) {
-        await call('unarchive_session', { session_id: id });
-      } else {
-        await call('archive_session', { session_id: id });
+      const result = isArchived
+        ? await call('unarchive_session', { session_id: id })
+        : await call('archive_session', { session_id: id });
+      // 🔴 T0.3: 后端 session.archive/unarchive 是 stub（返回 "not yet implemented"）
+      // 检测 stub 响应 → 提示用户，不改变 UI 状态（不造假成功）
+      const msg = (result as { message?: string })?.message ?? '';
+      if (msg.includes('not yet implemented')) {
+        notifyInfo('归档功能后端开发中，敬请期待');
+        return;
       }
       setArchivedIds((prev) => {
         const next = new Set(prev);
@@ -283,12 +288,7 @@ export default function SessionsPanel({
       });
       notifySuccess(isArchived ? '已取消归档' : '已归档');
     } catch {
-      setArchivedIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(id)) next.delete(id); else next.add(id);
-        return next;
-      });
-      notifyInfo(isArchived ? '已取消归档（本地）' : '已归档（本地）');
+      notifyInfo(isArchived ? '取消归档失败' : '归档失败，请重试');
     }
   }, [archivedIds]);
 

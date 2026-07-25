@@ -416,27 +416,14 @@ export default function InputArea({
             <CommandMenu commands={commands} onCommand={handleCommandExec} />
             {/* 附件 "+" 菜单 — Hermes 式附件入口（图片接通后端、链接纯前端、文件/文件夹待原生对话框） */}
             {onAddImage && <AttachMenu onPickImage={handleFileSelect} onAddUrl={handleAddUrl} />}
-            {/* 麦克风 — Hermes 式 DictationButton：录音红色脉冲 / 转录转圈 / 空闲 ghost */}
+            {/* 麦克风 — 🔴 T0.4: 后端 voice.record 是 TODO stub（返回假状态），禁用入口防假录音 */}
             <button
-              onClick={() => { void voice.toggle(); }}
-              className={cn(
-                'inline-flex size-(--composer-control-size) shrink-0 cursor-pointer items-center justify-center rounded-md outline-none transition-all duration-150',
-                voice.status === 'recording'
-                  ? 'animate-[voice-recording-pulse_1.6s_ease-in-out_infinite] bg-destructive/15 text-destructive'
-                  : voice.status === 'transcribing'
-                    ? 'text-primary'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-              )}
-              title={voice.status === 'recording' ? '停止录音' : voice.status === 'transcribing' ? '转录中（点击取消）' : '语音输入'}
-              aria-label="语音输入"
+              disabled
+              className="inline-flex size-(--composer-control-size) shrink-0 cursor-not-allowed items-center justify-center rounded-md text-muted-foreground/40 opacity-50"
+              title="语音功能开发中"
+              aria-label="语音输入（开发中）"
             >
-              {voice.status === 'recording' ? (
-                <span className="block size-2.5 rounded-[0.1875rem] bg-current" />
-              ) : voice.status === 'transcribing' ? (
-                <LoadingIcon size={15} className="animate-spin" />
-              ) : (
-                <MicIcon size={15} />
-              )}
+              <MicIcon size={15} />
             </button>
             {/* 模型胶囊 — 模型显示 + 分组下拉切换（Hermes 式 Model Pill） */}
             <ModelPill
