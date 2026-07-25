@@ -198,6 +198,11 @@ export async function createProfile(name: string, cloneSource?: string): Promise
   });
 }
 
+/** profiles.delete — 删除 Agent（移入回收站，可恢复；per-profile 凭证隔离不影响其它 Agent） */
+export async function deleteProfile(name: string): Promise<any> {
+  return call('delete_profile', { name });
+}
+
 // ====== 网关 ======
 
 export async function fetchGatewayStatus(): Promise<any> {

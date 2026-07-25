@@ -1,17 +1,18 @@
 /**
- * ProfilePanel — Agent 面板（多 Profile 选择器 + 新建）
+ * ProfilePanel — Agent 面板（多 Profile 选择器 + 新建 + 删除）
  *
  * 每个 Profile（Agent 身份）一张卡片，显示 model/provider/技能数/default 徽章。
  * 点选卡片 → 切换 active profile → 通知 App 切换聊天区 + 设置上下文。
- * 底部操作栏：新建 Agent（内联表单，可选克隆配置）+ 刷新 + 统计。
+ * 底部操作栏：新建 Agent（内联表单）+ 刷新 + 统计。
+ * 删除：非 default 卡片 hover 显示垃圾桶 → 输名字强确认 → 移入回收站（可恢复）。
  */
 import { useState, useEffect, useCallback } from 'react';
-import { fetchProfiles, setActiveProfile, createProfile } from '../utils/api';
+import { fetchProfiles, setActiveProfile, createProfile, deleteProfile } from '../utils/api';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { cn } from '@/lib/utils';
 import {
   Bot, Cpu, Plug, Package, Check, Star, Loader,
-  Users, RefreshCw, Plus,
+  Users, RefreshCw, Plus, Trash2,
 } from 'lucide-react';
 
 interface ProfileCardData {
@@ -33,19 +34,22 @@ interface ProfilePanelProps {
 
 // ── 单个 Agent 卡片 ──
 function ProfileCard({
-  profile, active, switching, onSelect,
+  profile, active, switching, onSelect, onDelete,
 }: {
   profile: ProfileCardData;
   active: boolean;
   switching: boolean;
   onSelect: (name: string) => void;
+  onDelete?: (name: string) => void;
 }) {
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(profile.name)}
-      disabled={switching}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(profile.name); } }}
       className={cn(
-        'w-full text-left px-2.5 py-2 rounded-lg border transition-colors space-y-1.5',
+        'group w-full text-left px-2.5 py-2 rounded-lg border transition-colors space-y-1.5 cursor-pointer',
         active
           ? 'border-primary/50 bg-accent/5'
           : 'border-border bg-card hover:bg-accent/30',
@@ -72,6 +76,16 @@ function ProfileCard({
         ) : active ? (
           <Check size={13} strokeWidth={2} className="text-primary" />
         ) : null}
+        {/* 删除按钮（非 default，hover 显示） */}
+        {!profile.is_default && onDelete && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(profile.name); }}
+            className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-all"
+            title={`删除 ${profile.name}`}
+          >
+            <Trash2 size={12} strokeWidth={1.5} />
+          </button>
+        )}
       </div>
 
       {/* 元信息 */}
@@ -95,7 +109,7 @@ function ProfileCard({
           <span>{profile.skill_count}</span>
         </span>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -112,6 +126,11 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
   const [newName, setNewName] = useState('');
   const [cloneSource, setCloneSource] = useState('');
   const [creatingBusy, setCreatingBusy] = useState(false);
+
+  // ── 删除 Agent 确认状态 ──
+  const [deletingTarget, setDeletingTarget] = useState<string | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [deletingBusy, setDeletingBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -172,6 +191,26 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
     }
   }, [newName, cloneSource, creatingBusy, resetCreateForm, load]);
 
+  const cancelDelete = useCallback(() => {
+    setDeletingTarget(null);
+    setDeleteConfirmName('');
+  }, []);
+
+  const handleDelete = useCallback(async () => {
+    if (!deletingTarget || deleteConfirmName !== deletingTarget || deletingBusy) return;
+    setDeletingBusy(true);
+    try {
+      await deleteProfile(deletingTarget);
+      notifySuccess(`Agent「${deletingTarget}」已移入回收站`);
+      cancelDelete();
+      void load();
+    } catch (err: unknown) {
+      notifyError(err, `删除 ${deletingTarget} 失败`);
+    } finally {
+      setDeletingBusy(false);
+    }
+  }, [deletingTarget, deleteConfirmName, deletingBusy, cancelDelete, load]);
+
   return (
     <div className="flex flex-col h-full p-3 gap-2">
       {/* 错误 */}
@@ -191,6 +230,7 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
               active={p.name === activeName}
               switching={switching === p.name}
               onSelect={handleSelect}
+              onDelete={(name) => { resetCreateForm(); setDeletingTarget(name); setDeleteConfirmName(''); }}
             />
           ))
         )}
@@ -237,6 +277,48 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
               <button
                 onClick={resetCreateForm}
                 disabled={creatingBusy}
+                className="px-2.5 py-1.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors disabled:opacity-40"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        ) : deletingTarget ? (
+          /* 删除强确认（输名字） */
+          <div className="space-y-1.5 panel-enter">
+            <div className="inline-flex items-center gap-1 text-xs font-semibold text-destructive">
+              <Trash2 size={12} strokeWidth={2} />
+              删除 Agent「{deletingTarget}」
+            </div>
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              将移入回收站（可恢复）。该 Agent 自己的配置、凭证、会话、记忆一并移走，
+              <span className="text-foreground/70">不影响其它 Agent</span>。
+            </p>
+            <input
+              type="text"
+              value={deleteConfirmName}
+              onChange={(e) => setDeleteConfirmName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { void handleDelete(); }
+                if (e.key === 'Escape') { cancelDelete(); }
+              }}
+              placeholder={`输入「${deletingTarget}」确认删除`}
+              autoFocus
+              disabled={deletingBusy}
+              className="w-full px-2.5 py-1.5 text-xs rounded-md border border-destructive/40 bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-destructive/50 disabled:opacity-50"
+            />
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => void handleDelete()}
+                disabled={deleteConfirmName !== deletingTarget || deletingBusy}
+                className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {deletingBusy ? <Loader size={13} strokeWidth={2} className="animate-spin" /> : <Trash2 size={13} strokeWidth={2} />}
+                删除
+              </button>
+              <button
+                onClick={cancelDelete}
+                disabled={deletingBusy}
                 className="px-2.5 py-1.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors disabled:opacity-40"
               >
                 取消

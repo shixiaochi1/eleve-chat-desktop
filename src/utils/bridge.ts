@@ -118,6 +118,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   set_active_profile:     'profiles.set_active',
   get_active_profile:     'profiles.get_active',
   create_profile:         'profiles.create',
+  delete_profile:         'profiles.delete',
   list_memories:          'memory.list',
   delete_memory:          'memory.delete',
   // get_settings, update_settings → CONFIG_HTTP_MAP
