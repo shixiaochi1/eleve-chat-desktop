@@ -32,7 +32,7 @@ export interface AuxTaskEntry {
 export interface SettingsV2 {
   version: number;
   providers: ProviderEntry[];
-  main: { providerId: string; model: string; port: number };
+  main?: { providerId: string; model: string; port: number };
   fallback: Array<{ providerId: string; model: string }>;
   auxiliary: Record<string, { providerId: string; model: string; timeout: number; downloadTimeout?: number }>;
   delegation: { providerId: string; model: string; maxIterations: number };

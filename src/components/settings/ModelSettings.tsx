@@ -12,8 +12,6 @@ import { Input } from '../ui/input';
  * All model-related configuration extracted from the original SettingsPanel.
  */
 export default function ModelSettings({
-  // Main model
-  mainProvider, mainModel, handleMainProviderChange, setMainModel,
   // Fallback
   fallbackList, addFallback, removeFallback, updateFallback,
   // Auxiliary
@@ -25,10 +23,6 @@ export default function ModelSettings({
   // UI state
   expanded, setExpanded,
 }: {
-  mainProvider: string;
-  mainModel: string;
-  handleMainProviderChange: (v: string) => void;
-  setMainModel: (v: string) => void;
   fallbackList: Array<{ providerId: string; model: string }>;
   addFallback: () => void;
   removeFallback: (i: number) => void;
@@ -46,7 +40,6 @@ export default function ModelSettings({
   expanded: string | null;
   setExpanded: (v: string | null) => void;
 }) {
-  const mainModels = getProviderModels(providers, mainProvider);
   const delModels = getProviderModels(providers, delProvider);
 
   const SectionHeader = ({ title, section }: { title: string; section: string }) => (
@@ -64,34 +57,6 @@ export default function ModelSettings({
 
   return (
     <div>
-      {/* ══════════ 主模型配置 ══════════ */}
-      <div className="text-xs font-semibold text-muted-foreground mb-2">
-        <span className="font-medium">主模型（对话使用）</span>
-      </div>
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">提供商</label>
-        <select
-          className="flex h-8 w-full items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-          value={mainProvider}
-          onChange={e => handleMainProviderChange(e.target.value)}
-        >
-          <option value="">选择提供商</option>
-          {providerOptions.map((op: { value: string; label: string }) => <option key={op.value} value={op.value}>{op.label}</option>)}
-        </select>
-      </div>
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">模型</label>
-        <select
-          className="flex h-8 w-full items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-          value={mainModel} onChange={e => setMainModel(e.target.value)} disabled={!mainProvider}
-        >
-          <option value="">选择模型</option>
-          {mainModels.map((m: string) => <option key={m} value={m}>{m}</option>)}
-        </select>
-      </div>
-
-      <div className="border-t border-border my-4" />
-
       {/* ══════════ Fallback 链 ══════════ */}
       <SectionHeader title="Fallback 链" section="fallback" />
       {expanded === 'fallback' && (

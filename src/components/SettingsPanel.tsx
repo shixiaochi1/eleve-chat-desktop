@@ -88,8 +88,6 @@ const KEY_VISIBLE_DURATION = 60_000; // 60 秒
 export default function SettingsPanel({ onBack }: SettingsPanelProps) {
   // ── 核心数据 ──
   const [providers, setProviders] = useState<Provider[]>([]);
-  const [mainProvider, setMainProvider] = useState('');
-  const [mainModel, setMainModel] = useState('');
   const [fallbackList, setFallbackList] = useState<FallbackEntry[]>([]);
   const [auxConfig, setAuxConfig] = useState<Record<string, AuxEntry>>({});
   const [delProvider, setDelProvider] = useState('');
@@ -163,8 +161,6 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
   useEffect(() => {
     const settings = loadSettings();
     setProviders(settings.providers || []);
-    setMainProvider(settings.main?.providerId || '');
-    setMainModel(settings.main?.model || '');
     setFallbackList(settings.fallback || []);
     setAuxConfig(settings.auxiliary || {});
     setDelProvider(settings.delegation?.providerId || '');
@@ -222,40 +218,7 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     try {
       const bc: Record<string, unknown> = await call('get_config', {});
       // ... same logic as original ...
-      if (bc.model) {
-        if (typeof bc.model === 'object' && bc.model !== null) {
-          const modelObj = bc.model as Record<string, string>;
-          // Phase P5: 优先读 model_ref（新格式 "provider_id/model_name"）
-          let cfgProvider = modelObj.provider || '';
-          let cfgModel = modelObj.default || '';
-          if (modelObj.ref) {
-            const slashIdx = modelObj.ref.indexOf('/');
-            if (slashIdx > 0) {
-              cfgProvider = modelObj.ref.slice(0, slashIdx);
-              cfgModel = modelObj.ref.slice(slashIdx + 1);
-            } else {
-              cfgProvider = modelObj.ref;
-            }
-          }
-          setMainProvider(cfgProvider);
-          setMainModel(cfgModel);
-          // ── R3 修复：config.yaml 的 provider/model 自动同步到 settings.json ──
-          // 如果 settings.json 里 main 为空但 config.yaml 有值，自动保存
-          // 否则前端展示选中了但实际没存盘，重启后丢失
-          if (cfgProvider || cfgModel) {
-            const current = loadSettings();
-            if (!current.main?.providerId && !current.main?.model) {
-              const merged = {
-                ...current,
-                main: { providerId: cfgProvider, model: cfgModel, port: 0 },
-              };
-              saveSettings(merged);
-            }
-          }
-        } else if (typeof bc.model === 'string') {
-          setMainModel(bc.model);
-        }
-      }
+      // 主模型选择已迁移到聊天输入框 ModelPill，设置面板不再管理主模型
     } catch { /* ignore */ }
     checkGateway();
   };
@@ -324,7 +287,6 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     if (!p) return;
 
     const references: string[] = [];
-    if (mainProvider === providerId) references.push('主模型');
     fallbackList.forEach((fb, i) => {
       if (fb.providerId === providerId) references.push(`Fallback #${i + 1}`);
     });
@@ -345,8 +307,6 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
 
     // ── 计算删除后的新状态 ──
     const newProviders = providers.filter(p => p.id !== providerId);
-    const newMainProvider = mainProvider === providerId ? '' : mainProvider;
-    const newMainModel = mainProvider === providerId ? '' : mainModel;
     const newFallback = fallbackList.filter(fb => fb.providerId !== providerId);
     const newAux = { ...auxConfig };
     for (const key of Object.keys(newAux)) {
@@ -359,7 +319,6 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
 
     // ── 更新内存 state ──
     setProviders(newProviders);
-    if (mainProvider === providerId) { setMainProvider(''); setMainModel(''); }
     setFallbackList(newFallback);
     setAuxConfig(newAux);
     if (delProvider === providerId) { setDelProvider(''); setDelModel(''); }
@@ -371,7 +330,6 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     const data = {
       version: 2,
       providers: newProviders,
-      main: { providerId: newMainProvider, model: newMainModel, port: 0 },
       fallback: newFallback,
       auxiliary: newAux,
       delegation: { providerId: newDelProvider, model: newDelModel, maxIterations: delMaxIterations },
@@ -472,12 +430,6 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     }));
   };
 
-  // ====== 主模型切换 ======
-  const handleMainProviderChange = (pid: string) => {
-    setMainProvider(pid);
-    setMainModel('');
-  };
-
   // ====== 保存 ======
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -486,7 +438,6 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     const data = {
       version: 2,
       providers,
-      main: { providerId: mainProvider, model: mainModel, port: 0 },
       fallback: fallbackList,
       auxiliary: auxConfig,
       delegation: { providerId: delProvider, model: delModel, maxIterations: delMaxIterations },
@@ -532,15 +483,6 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
         provObj[p.id].key_env = p.keyEnv || `${p.id.toUpperCase().replace(/-/g, '_')}_API_KEY`;
       }
       if (Object.keys(provObj).length) backendCfg.providers = provObj;
-    }
-
-    if (mainProvider) {
-      // Phase P5: 写 model_ref（新格式，ProviderResolver 第 2 级优先解析）+ 兼容旧格式
-      backendCfg.model = {
-        ref: mainModel ? `${mainProvider}/${mainModel}` : mainProvider,
-        provider: mainProvider,
-        default: mainModel,
-      };
     }
 
     const fbFiltered = fallbackList.filter(f => f.providerId);
@@ -591,7 +533,7 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       setGatewayOnline(false);
     }
     setSaving(false);
-  }, [providers, mainProvider, mainModel, fallbackList, auxConfig, delProvider, delModel, delMaxIterations, passwordHash, onBack]);
+  }, [providers, fallbackList, auxConfig, delProvider, delModel, delMaxIterations, passwordHash, onBack]);
 
   // ====== 下拉筛选 ======
   const providerOptions = providers.map(p => ({ value: p.id, label: `${p.name} (${p.id})` }));
@@ -623,10 +565,6 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       case 'models':
         return (
           <ModelSettings
-            mainProvider={mainProvider}
-            mainModel={mainModel}
-            handleMainProviderChange={handleMainProviderChange}
-            setMainModel={setMainModel}
             fallbackList={fallbackList}
             addFallback={addFallback}
             removeFallback={removeFallback}
