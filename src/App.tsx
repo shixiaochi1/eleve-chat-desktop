@@ -121,14 +121,14 @@ export default function App() {
   const handleOpenModelPicker = useCallback(() => setShowModelPicker(true), []);
   const handleCloseModelPicker = useCallback(() => setShowModelPicker(false), []);
 
-  // ── model discovery ──
-  const modelDiscovery = useModels({ enabled: portReady });
-
   const nextId = useRef<number>(0);
   const genId = useCallback(() => `m${++nextId.current}`, []);
 
   // ── session management ──
   const sess = useSessions();
+
+  // ── model discovery（依赖 sess.sessionId，必须在 sess 之后） ──
+  const modelDiscovery = useModels({ enabled: portReady, sessionId: sess.sessionId ?? '' });
 
   // ── gateway health monitoring ──
   const gatewayHealth = useGatewayHealth({

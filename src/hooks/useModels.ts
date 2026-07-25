@@ -93,7 +93,7 @@ function buildFromSettings(): { models: ModelItem[]; grouped: GroupedModels } {
   }
 }
 
-export default function useModels({ enabled = true }: { enabled?: boolean } = {}) {
+export default function useModels({ enabled = true, sessionId = '' }: { enabled?: boolean; sessionId?: string } = {}) {
   const [models, setModels] = useState<ModelItem[]>([]);
   const [grouped, setGrouped] = useState<GroupedModels>({});
   const [loading, setLoading] = useState(false);
@@ -189,20 +189,30 @@ export default function useModels({ enabled = true }: { enabled?: boolean } = {}
       const slashIdx = modelId.indexOf('/');
       const provider = slashIdx > 0 ? modelId.slice(0, slashIdx) : modelId;
       const model = slashIdx > 0 ? modelId.slice(slashIdx + 1) : '';
-      await call('update_config', {
-        config: {
-          model: {
-            ref: modelId,
-            provider,
-            default: model,
+      if (sessionId) {
+        // T5.4: session 级切换（不写 config.yaml，ModelPill 语义修正）
+        await call('provider.switch', {
+          session_id: sessionId,
+          provider_id: provider,
+          model,
+        });
+      } else {
+        // 无 session 时 fallback 写 config.yaml（Settings 面板同逻辑）
+        await call('update_config', {
+          config: {
+            model: {
+              ref: modelId,
+              provider,
+              default: model,
+            },
           },
-        },
-      });
+        });
+      }
     } catch (err: unknown) {
       console.warn('[useModels] selectModel failed:', (err as Error).message);
       setError((err as Error).message);
     }
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
     mountedRef.current = true;
