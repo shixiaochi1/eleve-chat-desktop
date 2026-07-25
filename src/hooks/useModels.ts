@@ -217,6 +217,13 @@ export default function useModels({ enabled = true }: { enabled?: boolean } = {}
   useEffect(() => {
     if (enabled) {
       refresh();
+      // 🔴 修复时序竞态：portReady 后后端 HTTP 可能还未完全就绪，首次 fetch 失败后延迟重试
+      const retryTimer = setTimeout(() => {
+        if (mountedRef.current && _cachedModels === null) {
+          refresh();
+        }
+      }, 1500);
+      return () => clearTimeout(retryTimer);
     }
   }, [enabled, refresh]);
 
