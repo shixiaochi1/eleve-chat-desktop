@@ -150,6 +150,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   get_config_schema:      'config.schema',
   get_config_raw:         'config.raw',
   update_config_raw:      'config.set.raw',
+  config_delete_provider: 'config.delete_provider',
   gateway_status:         'gateway.status',
   restart_service:        'gateway.restart',
   open_logs:              'gateway.open_logs',

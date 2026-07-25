@@ -2,7 +2,7 @@
  * 设置数据 v2 存储 — IPC 版
  * 
  * 数据存储在 eleve-app 侧: <eleve_home>/app-data/settings.json
- * API Key 存储在: <eleve_home>/app-data/.keys.enc（加密）
+ * API Key 存储在全局池: <eleve_home>/providers.yaml（凭证单一权威源；.keys.enc 为已废弃遗留文件，后端已主动清理）
  * 
  * 所有 HTTP 调用已替换为 bridge.call()
  */
@@ -267,6 +267,16 @@ export async function removePoolProvider(providerId: string): Promise<{ removed:
     return { removed: res.removed || false, warnings: res.warnings || [] };
   } catch {
     return { removed: false, warnings: [] };
+  }
+}
+
+// P6-D：删除 per-profile config.yaml 的 providers.<id> 残留（全局池收敛，修“删而不净”）
+export async function deleteConfigProvider(providerId: string): Promise<boolean> {
+  try {
+    const res = await call('config_delete_provider', { provider_id: providerId }) as { ok?: boolean };
+    return res.ok || false;
+  } catch {
+    return false;
   }
 }
 

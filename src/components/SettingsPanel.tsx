@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { call } from '../utils/bridge';
-import { loadSettings, saveSettings, saveApiKey, slugifyProviderName, AUX_TASKS, findProvider, listPoolProviders, upsertPoolProvider, removePoolProvider, savePoolProviderKey, disconnectPoolProvider } from '../utils/settings-store';
+import { loadSettings, saveSettings, saveApiKey, slugifyProviderName, AUX_TASKS, findProvider, listPoolProviders, upsertPoolProvider, removePoolProvider, savePoolProviderKey, disconnectPoolProvider, deleteConfigProvider } from '../utils/settings-store';
 import type { ProviderEntry, AuxTaskEntry, PoolProvider } from '../utils/settings-store';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { AlertTriangle, Upload, Download } from 'lucide-react';
@@ -387,6 +387,11 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       if (res.warnings.length > 0) {
         setStatus({ text: `已删除，但有引用: ${res.warnings.join('; ')}`, className: 'text-yellow-500 text-xs' });
       }
+    });
+
+    // P6-D: 同步清 per-profile config.yaml 的 providers.<id> 残留（全局池收敛，修“删而不净”）
+    deleteConfigProvider(providerId).catch((e: unknown) => {
+      console.warn('[settings] config.yaml provider cleanup failed:', e);
     });
   };
 
