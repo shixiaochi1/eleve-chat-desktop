@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { call } from '../utils/bridge';
-import { loadSettings, saveSettings, saveApiKey, slugifyProviderName, AUX_TASKS, findProvider } from '../utils/settings-store';
-import type { ProviderEntry, AuxTaskEntry } from '../utils/settings-store';
+import { loadSettings, saveSettings, saveApiKey, slugifyProviderName, AUX_TASKS, findProvider, listPoolProviders, upsertPoolProvider, removePoolProvider, savePoolProviderKey, disconnectPoolProvider } from '../utils/settings-store';
+import type { ProviderEntry, AuxTaskEntry, PoolProvider } from '../utils/settings-store';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { AlertTriangle, Upload, Download } from 'lucide-react';
 import { Button } from './ui/button';
@@ -26,6 +26,10 @@ import SystemSettings from './settings/SystemSettings';
 interface Provider extends ProviderEntry {
   apiKey?: string;
   keyEnv?: string;
+  // Phase P5: 全局池状态
+  hasKey?: boolean;
+  credentialType?: string;
+  source?: string; // 'global_pool' | 'config' | undefined
 }
 
 interface FallbackEntry {
@@ -171,6 +175,39 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     // 尝试从后端合并
     loadBackendConfig();
 
+    // Phase P5: 从全局 Provider 池合并（pool 优先于 settings.json）
+    (async () => {
+      try {
+        const poolProviders = await listPoolProviders();
+        if (poolProviders.length > 0) {
+          setProviders(prev => {
+            const merged = [...prev];
+            for (const pp of poolProviders) {
+              const existing = merged.findIndex(p => p.id === pp.id);
+              const entry: Provider = {
+                id: pp.id,
+                name: pp.name || pp.id,
+                baseUrl: pp.base_url,
+                transport: pp.transport,
+                models: pp.models.map(m => m.name),
+                hasKey: pp.has_key,
+                credentialType: pp.credential_type,
+                source: 'global_pool',
+              };
+              if (existing >= 0) {
+                // pool 优先：保留 apiKey 字段（用户可能刚输入未保存）
+                entry.apiKey = merged[existing].apiKey;
+                merged[existing] = entry;
+              } else {
+                merged.push(entry);
+              }
+            }
+            return merged;
+          });
+        }
+      } catch { /* pool 未初始化时忽略 */ }
+    })();
+
     // 读取开机自启状态
     (async () => {
       try {
@@ -309,6 +346,13 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     });
     if (delProvider === providerId) { setDelProvider(''); setDelModel(''); }
     setDeleteConfirm(null);
+
+    // Phase P5: 同步从全局池删除
+    removePoolProvider(providerId).then(res => {
+      if (res.warnings.length > 0) {
+        setStatus({ text: `已删除，但有引用: ${res.warnings.join('; ')}`, className: 'text-yellow-500 text-xs' });
+      }
+    });
   };
 
   // ====== 添加提供商 ======
@@ -318,16 +362,32 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
-    setProviders(prev => [...prev, {
+    const provider: Provider = {
       id: newProvider.slug.trim(),
       name: newProvider.name.trim(),
       apiKey: newProvider.apiKey.trim(),
       baseUrl: newProvider.baseUrl.trim(),
       transport: newProvider.transport,
       models: models.length > 0 ? models : [],
-    }]);
+    };
+    setProviders(prev => [...prev, provider]);
     setNewProvider({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', transport: 'auto', modelsRaw: '' });
     setAddProviderOpen(false);
+
+    // Phase P5: 同步到全局池
+    const transport = (provider.transport && provider.transport !== 'auto') ? provider.transport : undefined;
+    upsertPoolProvider({
+      id: provider.id,
+      name: provider.name,
+      base_url: provider.baseUrl || 'https://api.openai.com/v1',
+      transport,
+      models: Object.fromEntries(provider.models.map(m => [m, { context_length: 128000, max_output: 16384 }])),
+    }).then(() => {
+      // 如果有 API key，同步保存到池
+      if (provider.apiKey && provider.apiKey.length >= 8) {
+        savePoolProviderKey(provider.id, provider.apiKey);
+      }
+    });
   };
 
   // 显示名变化时自动生成 slug（异步调后端）
@@ -446,6 +506,25 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       setSaving(false);
       return;
     }
+
+    // Phase P5: 同步到全局 Provider 池（双写，兼容期）
+    const poolPromises = providers.map(async (p) => {
+      const transport = (p.transport && p.transport !== 'auto') ? p.transport : undefined;
+      const modelsMap: Record<string, Record<string, unknown>> = {};
+      for (const m of p.models) { modelsMap[m] = { context_length: 128000, max_output: 16384 }; }
+      await upsertPoolProvider({
+        id: p.id,
+        name: p.name,
+        base_url: p.baseUrl || 'https://api.openai.com/v1',
+        transport,
+        models: modelsMap,
+      });
+      // API Key 同步到池
+      if (p.apiKey && !isPlaceholder(p.apiKey)) {
+        await savePoolProviderKey(p.id, p.apiKey);
+      }
+    });
+    await Promise.allSettled(poolPromises);
 
     try {
       const d = await call('list_models', {});

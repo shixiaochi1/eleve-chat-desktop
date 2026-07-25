@@ -222,3 +222,80 @@ export async function listProviderModels(provider: string): Promise<string[]> {
     return [];
   }
 }
+
+// =============================================================================
+// Phase P5: 全局 Provider 池 CRUD（经 WS RPC，对齐 P3 后端端点）
+// =============================================================================
+
+export interface PoolProvider {
+  id: string;
+  name: string | null;
+  base_url: string;
+  transport: string;
+  timeout: number;
+  default_max_output: number;
+  has_key: boolean;
+  credential_type: string;
+  models: { name: string; context_length: number; max_output: number }[];
+  source?: string;
+}
+
+/** 从全局池列出所有 Provider（脱敏） */
+export async function listPoolProviders(): Promise<PoolProvider[]> {
+  try {
+    const res = await call('provider_list', {}) as { providers?: PoolProvider[] };
+    return res.providers || [];
+  } catch {
+    return [];
+  }
+}
+
+/** 创建/更新 Provider */
+export async function upsertPoolProvider(entry: Record<string, unknown>): Promise<PoolProvider | null> {
+  try {
+    const res = await call('provider_upsert', entry) as { provider?: PoolProvider };
+    return res.provider || null;
+  } catch {
+    return null;
+  }
+}
+
+/** 删除 Provider（返回 warnings） */
+export async function removePoolProvider(providerId: string): Promise<{ removed: boolean; warnings: string[] }> {
+  try {
+    const res = await call('provider_remove', { provider_id: providerId }) as { removed?: boolean; warnings?: string[] };
+    return { removed: res.removed || false, warnings: res.warnings || [] };
+  } catch {
+    return { removed: false, warnings: [] };
+  }
+}
+
+/** 保存 Provider API Key */
+export async function savePoolProviderKey(providerId: string, apiKey: string): Promise<boolean> {
+  try {
+    await call('provider_save_key', { provider_id: providerId, api_key: apiKey });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 清除 Provider 凭证 */
+export async function disconnectPoolProvider(providerId: string): Promise<boolean> {
+  try {
+    await call('provider_disconnect', { provider_id: providerId });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 列出 Provider 模型目录 */
+export async function listPoolProviderModels(providerId: string): Promise<{ name: string; context_length: number; max_output: number }[]> {
+  try {
+    const res = await call('provider_models', { provider_id: providerId }) as { models?: { name: string; context_length: number; max_output: number }[] };
+    return res.models || [];
+  } catch {
+    return [];
+  }
+}

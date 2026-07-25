@@ -119,6 +119,14 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   get_active_profile:     'profiles.get_active',
   create_profile:         'profiles.create',
   delete_profile:         'profiles.delete',
+  // Phase P5: 全局 Provider 池 CRUD（WS RPC，对齐 P3 后端端点）
+  provider_list:          'provider.list',
+  provider_get:           'provider.get',
+  provider_upsert:        'provider.upsert',
+  provider_remove:        'provider.remove',
+  provider_save_key:      'provider.save_key',
+  provider_disconnect:    'provider.disconnect',
+  provider_models:        'provider.models',
   list_memories:          'memory.list',
   delete_memory:          'memory.delete',
   // get_settings, update_settings → CONFIG_HTTP_MAP

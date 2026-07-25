@@ -12,6 +12,10 @@ interface Provider {
   baseUrl?: string;
   transport?: string;
   models: string[];
+  // Phase P5: 全局池状态
+  hasKey?: boolean;
+  credentialType?: string;
+  source?: string;
 }
 
 interface ProviderCardProps {
@@ -126,6 +130,17 @@ export default function ProviderCard({
         <div className={cn('flex items-center gap-2 min-w-0')}>
           <span className={cn('text-sm font-medium text-foreground truncate')}>{provider.name}</span>
           <span className={cn('text-xs text-muted-foreground shrink-0')}>({provider.id})</span>
+          {/* Phase P5: 全局池状态指示 */}
+          {provider.source === 'global_pool' && (
+            <span className={cn('text-[10px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-500 shrink-0')}>池</span>
+          )}
+          {provider.hasKey !== undefined && (
+            <span className={cn('text-[10px] px-1 py-0.5 rounded shrink-0',
+              provider.hasKey ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-400'
+            )}>
+              {provider.hasKey ? '🔑' : '无key'}
+            </span>
+          )}
         </div>
         <span className={cn('text-xs text-muted-foreground shrink-0')}>
           {expanded ? '▾' : '▸'}
