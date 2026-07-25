@@ -342,22 +342,47 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
   const confirmDelete = () => {
     if (!deleteConfirm) return;
     const { providerId } = deleteConfirm;
-    setProviders(prev => prev.filter(p => p.id !== providerId));
-    if (mainProvider === providerId) { setMainProvider(''); setMainModel(''); }
-    setFallbackList(prev => prev.filter(fb => fb.providerId !== providerId));
-    setAuxConfig(prev => {
-      const next = { ...prev };
-      for (const key of Object.keys(next)) {
-        if (next[key]?.providerId === providerId) {
-          next[key] = { providerId: 'auto', model: '', timeout: AUX_TASKS.find((t: AuxTaskEntry) => t.key === key)?.defaultTimeout || 120 };
-        }
+
+    // ── 计算删除后的新状态 ──
+    const newProviders = providers.filter(p => p.id !== providerId);
+    const newMainProvider = mainProvider === providerId ? '' : mainProvider;
+    const newMainModel = mainProvider === providerId ? '' : mainModel;
+    const newFallback = fallbackList.filter(fb => fb.providerId !== providerId);
+    const newAux = { ...auxConfig };
+    for (const key of Object.keys(newAux)) {
+      if (newAux[key]?.providerId === providerId) {
+        newAux[key] = { providerId: 'auto', model: '', timeout: AUX_TASKS.find((t: AuxTaskEntry) => t.key === key)?.defaultTimeout || 120 };
       }
-      return next;
-    });
+    }
+    const newDelProvider = delProvider === providerId ? '' : delProvider;
+    const newDelModel = delProvider === providerId ? '' : delModel;
+
+    // ── 更新内存 state ──
+    setProviders(newProviders);
+    if (mainProvider === providerId) { setMainProvider(''); setMainModel(''); }
+    setFallbackList(newFallback);
+    setAuxConfig(newAux);
     if (delProvider === providerId) { setDelProvider(''); setDelModel(''); }
     setDeleteConfirm(null);
 
-    // Phase P5: 同步从全局池删除
+    // 🔴 Bug 2 修复：持久化删除到 settings.json。
+    // 之前只改内存 state + 全局池，没写 settings.json → 重开面板 loadSettings() 从
+    // settings.json 读回旧 providers → 被删的 provider 复活。镜像 handleSave 的 data 结构写回。
+    const data = {
+      version: 2,
+      providers: newProviders,
+      main: { providerId: newMainProvider, model: newMainModel, port: 0 },
+      fallback: newFallback,
+      auxiliary: newAux,
+      delegation: { providerId: newDelProvider, model: newDelModel, maxIterations: delMaxIterations },
+      settingsPasswordHash: passwordHash,
+    };
+    saveSettings(data).catch((e: unknown) => {
+      console.warn('[settings] persist delete failed:', e);
+      setStatus({ text: `删除已生效，但 settings.json 写入失败: ${(e as Error).message}`, className: 'text-destructive text-xs' });
+    });
+
+    // Phase P5: 同步从全局池删除（后端 pool.remove 持锁落盘 providers.yaml，持久）
     removePoolProvider(providerId).then(res => {
       if (res.warnings.length > 0) {
         setStatus({ text: `已删除，但有引用: ${res.warnings.join('; ')}`, className: 'text-yellow-500 text-xs' });

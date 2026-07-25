@@ -163,29 +163,37 @@ export default function ModelSelector({ portReady, portVersion, onModelChange }:
               暂无可用模型
             </div>
           )}
-          {models.map((m) => (
-            <div
-              key={m}
-              className={cn(
-                'flex cursor-pointer items-center gap-2 px-3 py-2 text-sm transition-colors',
-                'hover:bg-accent hover:text-accent-foreground',
-                m === currentModel && 'bg-accent text-accent-foreground'
-              )}
-              onClick={() => handleSelect(m)}
-            >
-              <span className="flex-1 truncate font-medium">
-                {m.includes('/') ? m.split('/').pop() : m}
-              </span>
-              <span className="hidden truncate text-xs text-muted-foreground group-hover:block">
-                {m}
-              </span>
-              {m === currentModel && (
-                <span className="inline-flex shrink-0 items-center text-primary">
-                  <CheckIcon size={12} />
+          {models.map((m) => {
+            // Phase P5 Bug 修复：下拉项显示「模型名 + provider_id」，不再砍掉 provider 前缀
+            const slashIdx = m.indexOf('/');
+            const hasProvider = slashIdx > 0;
+            const modelName = hasProvider ? m.slice(slashIdx + 1) : m;
+            const providerId = hasProvider ? m.slice(0, slashIdx) : '';
+            return (
+              <div
+                key={m}
+                title={m}
+                className={cn(
+                  'flex cursor-pointer items-center gap-2 px-3 py-2 text-sm transition-colors',
+                  'hover:bg-accent hover:text-accent-foreground',
+                  m === currentModel && 'bg-accent text-accent-foreground'
+                )}
+                onClick={() => handleSelect(m)}
+              >
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate font-medium">{modelName}</span>
+                  {providerId && (
+                    <span className="truncate text-xs text-muted-foreground">{providerId}</span>
+                  )}
                 </span>
-              )}
-            </div>
-          ))}
+                {m === currentModel && (
+                  <span className="inline-flex shrink-0 items-center text-primary">
+                    <CheckIcon size={12} />
+                  </span>
+                )}
+              </div>
+            );
+          })}
           {error && (
             <div className="border-t border-border px-3 py-1.5 text-xs text-destructive">
               {error}
