@@ -9,7 +9,7 @@ import {
   PaletteIcon, ToolIcon, FileIcon, MemoryIcon,
   UsageIcon, ChannelsIcon, KanbanIcon, AgentIcon,
 } from './Icons';
-import { FolderGit, Activity } from 'lucide-react';
+import { FolderGit, Activity, GitCommit, BookOpen } from 'lucide-react';
 import { openKanbanWindow } from '../utils/kanban-window';
 
 interface NavItem {
@@ -39,6 +39,8 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
     { id: 'cron',     icon: CronIcon,     label: '定时任务' },
     { id: 'tools',    icon: ToolIcon,     label: '工具' },
     { id: 'processes', icon: Activity,    label: '进程' },
+    { id: 'learning', icon: BookOpen,    label: '学习' },
+    { id: 'rollback', icon: GitCommit,   label: '回滚' },
     { id: 'usage',    icon: UsageIcon,    label: '用量分析' },
     { id: 'debug',    icon: DebugIcon,    label: '调试' },
   ];

@@ -203,6 +203,48 @@ export async function resolveCommand(name: string): Promise<{ canonical: string;
   return call('resolve_command', { name });
 }
 
+// F4: 信息面板
+
+/** 获取会话洞察 */
+export async function getInsights(sessionId: string, args?: string): Promise<{ insights: string }> {
+  return call('insights_get', { session_id: sessionId, ...(args ? { args } : {}) });
+}
+
+/** 学习时间线 */
+export async function getLearningFrames(): Promise<{ nodes: Array<{ id: string; modified: number }>; [k: string]: unknown }> {
+  return call('learning_frames', {});
+}
+
+/** 学习节点详情 */
+export async function getLearningDetail(id: string): Promise<{ ok: boolean; id: string; content?: string; error?: string }> {
+  return call('learning_detail', { id });
+}
+
+/** 删除学习节点 */
+export async function deleteLearning(id: string): Promise<{ ok: boolean; id: string }> {
+  return call('learning_delete', { id });
+}
+
+/** 编辑学习节点 */
+export async function editLearning(id: string, content: string): Promise<{ ok: boolean; id: string }> {
+  return call('learning_edit', { id, content });
+}
+
+/** 回滚点列表 */
+export async function listRollbacks(cwd: string): Promise<{ rollbacks: Array<{ hash: string; message: string }> }> {
+  return call('rollback_list', { cwd });
+}
+
+/** 回滚差异 */
+export async function getRollbackDiff(hash: string, cwd: string): Promise<{ diff: string }> {
+  return call('rollback_diff', { hash, cwd });
+}
+
+/** 执行回滚 */
+export async function restoreRollback(hash: string, cwd: string): Promise<{ status: string; output: string }> {
+  return call('rollback_restore', { hash, cwd });
+}
+
 // ====== 聊天 ======
 
 /**
