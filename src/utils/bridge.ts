@@ -168,6 +168,10 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   delegation_pause:       'delegation.pause',
   delegation_status:      'delegation.status',
   subagent_interrupt:     'subagent.interrupt',
+  // F3: 输入增强（后端已就绪）
+  complete_path:          'complete.path',
+  complete_slash:         'complete.slash',
+  resolve_command:        'command.resolve',
   get_config_defaults:    'config.defaults',
   get_config_schema:      'config.schema',
   get_config_raw:         'config.raw',

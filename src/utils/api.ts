@@ -180,6 +180,29 @@ export async function interruptSubagent(sessionId: string): Promise<{ status: st
   return call('subagent_interrupt', { session_id: sessionId });
 }
 
+// F3: 输入增强
+
+export interface CompletionItem {
+  text: string;
+  display: string;
+  meta: string;
+}
+
+/** 路径/@引用补全 */
+export async function completePath(word: string): Promise<{ items: CompletionItem[]; replace_from: number }> {
+  return call('complete_path', { word });
+}
+
+/** 斜杠命令补全 */
+export async function completeSlash(text: string): Promise<{ items: CompletionItem[]; replace_from: number }> {
+  return call('complete_slash', { text });
+}
+
+/** 解析命令别名 → 标准名 */
+export async function resolveCommand(name: string): Promise<{ canonical: string; description: string; category: string }> {
+  return call('resolve_command', { name });
+}
+
 // ====== 聊天 ======
 
 /**

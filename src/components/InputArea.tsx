@@ -1,5 +1,5 @@
 import { useRef, useCallback, useEffect, useState } from 'react';
-import { fetchCommands } from '../utils/api';
+import { fetchCommands, completePath } from '../utils/api';
 import CommandMenu from './CommandMenu';
 import ModelPill from './ModelPill';
 import AttachMenu from './AttachMenu';
@@ -101,6 +101,11 @@ export default function InputArea({
   /** 输入框是否有内容 — 驱动发送键的置灰态（仅布尔翻转时触发渲染） */
   const [hasText, setHasText] = useState(false);
   const popupRef = useRef<HTMLDivElement | null>(null);
+  // F3 T3.1: @ 路径补全
+  const [pathItems, setPathItems] = useState<Array<{ text: string; display: string; meta: string }>>([]);
+  const [showPathPopup, setShowPathPopup] = useState(false);
+  const [pathSelectedIndex, setPathSelectedIndex] = useState(0);
+  const pathDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (portReady) {
@@ -143,6 +148,44 @@ export default function InputArea({
   }, [onCommand]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // F3 T3.1: @ 路径补全弹窗键盘导航
+    if (showPathPopup && pathItems.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setPathSelectedIndex(i => (i + 1) % pathItems.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setPathSelectedIndex(i => (i - 1 + pathItems.length) % pathItems.length);
+        return;
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        const item = pathItems[pathSelectedIndex];
+        if (item && inputRef.current) {
+          const el = inputRef.current;
+          const cursorPos = el.selectionStart ?? el.value.length;
+          const textBeforeCursor = el.value.slice(0, cursorPos);
+          const textAfterCursor = el.value.slice(cursorPos);
+          // 替换当前 @word 为补全结果
+          const lastSpace = textBeforeCursor.lastIndexOf(' ');
+          const prefix = lastSpace >= 0 ? textBeforeCursor.slice(0, lastSpace + 1) : '';
+          el.value = prefix + item.text + ' ' + textAfterCursor;
+          el.selectionStart = el.selectionEnd = prefix.length + item.text.length + 1;
+          setShowPathPopup(false);
+          setPathItems([]);
+          el.focus();
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowPathPopup(false);
+        return;
+      }
+    }
+
     if (showPopup && filtered.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -183,7 +226,7 @@ export default function InputArea({
       e.preventDefault();
       handleSend();
     }
-  }, [showPopup, filtered, selectedIndex, handleSend, handleCommandExec]);
+  }, [showPathPopup, pathItems, pathSelectedIndex, showPopup, filtered, selectedIndex, handleSend, handleCommandExec]);
 
   const handleInput = useCallback(() => {
     const el = inputRef.current;
@@ -196,12 +239,33 @@ export default function InputArea({
     setHasText(prev => (prev === nextHasText ? prev : nextHasText));
 
     const val = el.value;
+    // F3: 提取光标处当前词（支持 @ 在文本中间）
+    const cursorPos = el.selectionStart ?? val.length;
+    const textBeforeCursor = val.slice(0, cursorPos);
+    const currentWord = textBeforeCursor.split(/\s/).pop() || '';
+
     if (val.startsWith('/')) {
       const cmdPart = val.replace(/^\//, '').split(/\s/)[0].toLowerCase();
       setFilter(cmdPart);
       setShowPopup(true);
+      setShowPathPopup(false);
+    } else if (currentWord.startsWith('@') && currentWord.length >= 2) {
+      // F3 T3.1: @ 路径补全 — debounce 200ms 调后端
+      setShowPopup(false);
+      if (pathDebounceRef.current) clearTimeout(pathDebounceRef.current);
+      pathDebounceRef.current = setTimeout(async () => {
+        try {
+          const res = await completePath(currentWord);
+          setPathItems(res.items || []);
+          setPathSelectedIndex(0);
+          setShowPathPopup((res.items || []).length > 0);
+        } catch {
+          setShowPathPopup(false);
+        }
+      }, 200);
     } else {
       setShowPopup(false);
+      setShowPathPopup(false);
       setFilter('');
     }
   }, []);
@@ -331,6 +395,42 @@ export default function InputArea({
                   <span className="text-xs text-muted-foreground">({cmd.aliases.join(', ')})</span>
                 )}
                 <span className="text-xs text-muted-foreground ml-auto truncate">{cmd.description}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* F3 T3.1: @ 路径补全弹窗 */}
+        {showPathPopup && pathItems.length > 0 && (
+          <div className="absolute inset-x-0 bottom-full z-50 mb-1.5 max-h-60 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg">
+            {pathItems.map((item, i) => (
+              <div
+                key={item.text}
+                className={cn(
+                  'px-3 py-1.5 text-sm cursor-pointer rounded-md flex items-center gap-2',
+                  i === pathSelectedIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
+                )}
+                onMouseEnter={() => setPathSelectedIndex(i)}
+                onMouseDown={(e: React.MouseEvent) => {
+                  e.preventDefault();
+                  const el = inputRef.current;
+                  if (!el) return;
+                  const cursorPos = el.selectionStart ?? el.value.length;
+                  const textBeforeCursor = el.value.slice(0, cursorPos);
+                  const textAfterCursor = el.value.slice(cursorPos);
+                  const lastSpace = textBeforeCursor.lastIndexOf(' ');
+                  const prefix = lastSpace >= 0 ? textBeforeCursor.slice(0, lastSpace + 1) : '';
+                  el.value = prefix + item.text + ' ' + textAfterCursor;
+                  el.selectionStart = el.selectionEnd = prefix.length + item.text.length + 1;
+                  setShowPathPopup(false);
+                  setPathItems([]);
+                  el.focus();
+                }}
+              >
+                <span className="font-mono text-xs text-foreground">{item.display}</span>
+                {item.meta && (
+                  <span className="text-[10px] text-muted-foreground/60 ml-auto shrink-0">{item.meta}</span>
+                )}
               </div>
             ))}
           </div>
