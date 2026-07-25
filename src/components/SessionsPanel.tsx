@@ -17,14 +17,14 @@ import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import { Skeleton } from './ui/skeleton';
-import { deleteSession } from '../utils/api';
+import { deleteSession, undoSessionTurn, compressSession, branchSession, getSessionUsage } from '../utils/api';
 import { call } from '../utils/bridge';
 import * as storage from '../utils/storage';
 import { notifyError, notifySuccess, notifyInfo } from '../utils/notifications';
 import {
   CheckSquare, Square, Trash2, Download, Pin, PinOff,
   Archive, ArchiveRestore, Edit3, Copy, MoreHorizontal,
-  List, MessageSquare
+  List, MessageSquare, Undo2, Minimize2, GitBranch, BarChart3
 } from 'lucide-react';
 import { DeleteIcon, DotIcon } from './Icons';
 import OutlinePanel from './OutlinePanel';
@@ -291,6 +291,47 @@ export default function SessionsPanel({
       notifyInfo(isArchived ? '取消归档失败' : '归档失败，请重试');
     }
   }, [archivedIds]);
+
+  // ── F1: 会话操作（undo / compress / branch / usage）──
+  const handleUndo = useCallback(async (id: string) => {
+    try {
+      const res = await undoSessionTurn(id);
+      if (res.undone) {
+        notifySuccess('已撤销最后一轮');
+      } else {
+        notifyInfo(res.reason || '没有可撤销的内容');
+      }
+    } catch (e: any) {
+      notifyError(e, '撤销失败');
+    }
+  }, []);
+
+  const handleCompress = useCallback(async (id: string) => {
+    try {
+      const res = await compressSession(id);
+      notifySuccess(res.summary || '上下文已压缩');
+    } catch (e: any) {
+      notifyError(e, '压缩失败');
+    }
+  }, []);
+
+  const handleBranch = useCallback(async (id: string) => {
+    try {
+      const res = await branchSession(id);
+      notifySuccess(`已创建分支: ${res.branch_id?.slice(0, 8) || ''}`);
+    } catch (e: any) {
+      notifyError(e, '分支失败');
+    }
+  }, []);
+
+  const handleUsage = useCallback(async (id: string) => {
+    try {
+      const res = await getSessionUsage(id);
+      notifyInfo(`Tokens: ${res.input_tokens?.toLocaleString()} in / ${res.output_tokens?.toLocaleString()} out / ${res.total_tokens?.toLocaleString()} total`);
+    } catch (e: any) {
+      notifyError(e, '获取用量失败');
+    }
+  }, []);
 
   // ── 重命名 ──
   const handleRename = useCallback(async (id: string, newTitle: string) => {
@@ -632,6 +673,11 @@ export default function SessionsPanel({
             { icon: <Edit3 size={14} />, label: '重命名', shortcut: 'F2', onSelect: () => setRenameTarget({ id: ctxMenu.sessionId, title: ctxMenu.title }) },
             { icon: pinnedIds.has(ctxMenu.sessionId) ? <PinOff size={14} /> : <Pin size={14} />, label: pinnedIds.has(ctxMenu.sessionId) ? '取消置顶' : '置顶', onSelect: () => togglePin(ctxMenu.sessionId) },
             { icon: archivedIds.has(ctxMenu.sessionId) ? <ArchiveRestore size={14} /> : <Archive size={14} />, label: archivedIds.has(ctxMenu.sessionId) ? '取消归档' : '归档', onSelect: () => toggleArchive(ctxMenu.sessionId) },
+            '---' as any,
+            { icon: <Undo2 size={14} />, label: '撤销上一轮', onSelect: () => handleUndo(ctxMenu.sessionId) },
+            { icon: <Minimize2 size={14} />, label: '压缩上下文', onSelect: () => handleCompress(ctxMenu.sessionId) },
+            { icon: <GitBranch size={14} />, label: '分支会话', onSelect: () => handleBranch(ctxMenu.sessionId) },
+            { icon: <BarChart3 size={14} />, label: '用量详情', onSelect: () => handleUsage(ctxMenu.sessionId) },
             '---' as any,
             { icon: <Download size={14} />, label: '导出', onSelect: () => handleExport(ctxMenu.sessionId, ctxMenu.title) },
             { icon: <Copy size={14} />, label: '复制 ID', onSelect: () => handleCopyId(ctxMenu.sessionId) },
