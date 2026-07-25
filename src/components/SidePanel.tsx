@@ -11,6 +11,7 @@ import ToolsPanel from './ToolsPanel';
 import GatewayPanel from './GatewayPanel';
 import MemoryPanel from './MemoryPanel';
 import UsagePanel from './UsagePanel';
+import ProcessPanel from './ProcessPanel';
 import ChannelsPanel from './ChannelsPanel';
 // kanban 移至 OverlayView 弹出（需要更大空间展示5列看板）
 import ProfilePanel from './ProfilePanel';
@@ -19,7 +20,7 @@ import {
   DebugIcon, ToolIcon, MemoryIcon,
   UsageIcon, ChannelsIcon, AgentIcon,
 } from './Icons';
-import { Radio, FolderGit } from 'lucide-react';
+import { Radio, FolderGit, Activity } from 'lucide-react';
 import ProjectTreePanel from './ProjectTreePanel';
 
 interface SidePanelProps {
@@ -41,6 +42,7 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
     cron:     { title: '定时任务', Icon: CronIcon,    component: CronPanel },
     memory:   { title: '记忆',     Icon: MemoryIcon,  component: MemoryPanel },
     tools:    { title: '工具',     Icon: ToolIcon,    component: ToolsPanel },
+    processes: { title: '进程',     Icon: Activity,    component: ProcessPanel },
     debug:    { title: '调试',     Icon: DebugIcon,   component: DebugPanel },
     usage:    { title: '用量分析', Icon: UsageIcon,   component: UsagePanel },
   };

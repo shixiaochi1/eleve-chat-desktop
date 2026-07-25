@@ -611,7 +611,7 @@ export default function App() {
               </button>
             )}
             <main className="chat-area" id="page-chat">
-              <ToolStatusBar />
+              <ToolStatusBar sessionId={sess.sessionId} isStreaming={isStreaming} />
               {!portReady && messages.length === 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', opacity: 0.6 }}>
                   <div className="spinner" style={{ width: 32, height: 32, border: '3px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />

@@ -132,6 +132,54 @@ export async function getActiveSessions(): Promise<{ sessions: string[] }> {
   return call('get_active_sessions', {});
 }
 
+// F2: 进程与委托管理
+
+export interface ProcessInfo {
+  session_id: string;
+  command: string;
+  cwd: string;
+  pid: number;
+  started_at: number;
+  uptime_seconds: number;
+  status: 'running' | 'exited';
+  output_preview: string;
+  output_tail: string;
+  exit_code?: number;
+  completion_reason?: string;
+  session_scoped?: boolean;
+  detached?: boolean;
+}
+
+/** 列出后台进程 */
+export async function listProcesses(sessionId: string): Promise<{ processes: ProcessInfo[] }> {
+  return call('process_list', { session_id: sessionId });
+}
+
+/** 杀单个进程 */
+export async function killProcess(sessionId: string, processId: string): Promise<any> {
+  return call('process_kill', { session_id: sessionId, process_id: processId });
+}
+
+/** 杀全部进程 */
+export async function stopAllProcesses(): Promise<{ killed: number }> {
+  return call('process_stop', {});
+}
+
+/** 暂停/恢复委托 */
+export async function setDelegationPause(sessionId: string, paused: boolean): Promise<{ paused: boolean }> {
+  return call('delegation_pause', { session_id: sessionId, paused });
+}
+
+/** 获取委托状态 */
+export async function getDelegationStatus(sessionId: string): Promise<{ running: boolean; has_subagents: boolean; paused: boolean }> {
+  return call('delegation_status', { session_id: sessionId });
+}
+
+/** 中断子 Agent */
+export async function interruptSubagent(sessionId: string): Promise<{ status: string }> {
+  return call('subagent_interrupt', { session_id: sessionId });
+}
+
 // ====== 聊天 ======
 
 /**

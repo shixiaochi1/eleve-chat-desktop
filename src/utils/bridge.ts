@@ -161,6 +161,13 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   get_most_recent_sessions: 'session.most_recent',
   set_session_cwd:        'session.cwd.set',
   get_active_sessions:    'session.active_list',
+  // F2: 进程与委托管理（后端已就绪，前端零消费）
+  process_list:           'process.list',
+  process_kill:           'process.kill',
+  process_stop:           'process.stop',
+  delegation_pause:       'delegation.pause',
+  delegation_status:      'delegation.status',
+  subagent_interrupt:     'subagent.interrupt',
   get_config_defaults:    'config.defaults',
   get_config_schema:      'config.schema',
   get_config_raw:         'config.raw',
