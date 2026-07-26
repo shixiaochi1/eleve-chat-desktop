@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { call } from '../utils/bridge';
-import { loadSettings, saveSettings, slugifyProviderName, AUX_TASKS, findProvider, listPoolProviders, upsertPoolProvider, removePoolProvider, savePoolProviderKey, disconnectPoolProvider, deleteConfigProvider } from '../utils/settings-store';
+import { loadSettings, saveSettings, slugifyProviderName, AUX_TASKS, findProvider, listPoolProviders, upsertPoolProvider, removePoolProvider, savePoolProviderKey, disconnectPoolProvider } from '../utils/settings-store';
 import type { ProviderEntry, AuxTaskEntry, PoolProvider } from '../utils/settings-store';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { AlertTriangle, Upload, Download } from 'lucide-react';
@@ -68,21 +68,6 @@ interface SettingsPanelProps {
 
 // ====== 常量 ======
 
-/**
- * 对齐 Eleve determine_api_mode (providers.py L502-548)
- * URL 启发式推断 transport 协议
- */
-function inferTransport(providerId: string, baseUrl?: string): string {
-  if (!baseUrl) return 'openai_chat';
-  const url = baseUrl.replace(/\/+$/, '').toLowerCase();
-  // URL-based heuristics — 对齐 Eleve
-  if (url.includes('api.kimi.com/coding')) return 'anthropic_messages';
-  if (url.endsWith('/anthropic') || url.includes('api.anthropic.com')) return 'anthropic_messages';
-  if (url.includes('api.openai.com')) return 'openai_chat';
-  // provider name fallback
-  if (providerId === 'anthropic' || providerId === 'claude') return 'anthropic_messages';
-  return 'openai_chat';
-}
 const KEY_VISIBLE_DURATION = 60_000; // 60 秒
 
 export default function SettingsPanel({ onBack }: SettingsPanelProps) {
@@ -348,11 +333,6 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     }).catch((e: unknown) => {
       setStatus({ text: `全局池删除失败: ${(e as Error).message}`, className: 'text-destructive text-xs' });
     });
-
-    // P6-D: 同步清 per-profile config.yaml 的 providers.<id> 残留（全局池收敛，修“删而不净”）
-    deleteConfigProvider(providerId).catch((e: unknown) => {
-      console.warn('[settings] config.yaml provider cleanup failed:', e);
-    });
   };
 
   // ====== 添加提供商 ======
@@ -450,31 +430,9 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     // 不再单独前置 saveApiKey（旧 HTTP .env 路径已废弃，池是权威源）
 
     const backendCfg: Record<string, unknown> = {};
-    if (providers.length > 0) {
-      const provObj: Record<string, any> = {};
-      for (const p of providers) {
-        // V5.1: 优先用户手动指定 transport，否则 URL 启发式推断
-        const transport = (p.transport && p.transport !== 'auto')
-          ? p.transport
-          : inferTransport(p.id, p.baseUrl);
-        // models: HashMap<String, ModelEntry> 格式（对齐 Rust ProviderConfig.models）
-        const modelsMap: Record<string, Record<string, unknown>> = {};
-        for (const m of p.models) { modelsMap[m] = {}; }
-        provObj[p.id] = {
-          name: p.name,
-          base_url: p.baseUrl,
-          // 🔴 不设 model 字段：用户选择的模型走 config.model.default（上面 L433），
-          // provider.model 会覆盖 model.default → 导致重启后模型不对
-          transport,
-          models: modelsMap,
-        };
-        // api_key 不写入 config.yaml——真实 key 只走 save_api_key 专用通道
-        // config.yaml 只保留 key_env 引用，避免脱敏值污染
-        // key_env: 优先用已有值，否则从 id 自动生成
-        provObj[p.id].key_env = p.keyEnv || `${p.id.toUpperCase().replace(/-/g, '_')}_API_KEY`;
-      }
-      if (Object.keys(provObj).length) backendCfg.providers = provObj;
-    }
+    // 🔴 config.yaml providers段已删除：池是唯一权威源，Provider 元数据 + 凭证统一走
+    // upsertPoolProvider + savePoolProviderKey 写入 providers.yaml。
+    // config.yaml 只保留 fallback/auxiliary/delegation 等非 Provider 配置。
 
     const fbFiltered = fallbackList.filter(f => f.providerId);
     if (fbFiltered.length) {

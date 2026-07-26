@@ -94,7 +94,7 @@ function buildFromSettings(): { models: ModelItem[]; grouped: GroupedModels } {
   }
 }
 
-export default function useModels({ enabled = true }: { enabled?: boolean } = {}) {
+export default function useModels({ enabled = true, sessionId = '' }: { enabled?: boolean; sessionId?: string } = {}) {
   const [models, setModels] = useState<ModelItem[]>([]);
   const [grouped, setGrouped] = useState<GroupedModels>({});
   const [loading, setLoading] = useState(false);
@@ -181,11 +181,11 @@ export default function useModels({ enabled = true }: { enabled?: boolean } = {}
   }, []);
 
   /**
-   * 选中模型 → 写 config.yaml model.ref（持久化默认模型）
+   * 选中模型 → 调 provider.switch RPC（per-session override，对齐 Hermes 桌面端）
    *
-   * 单一职责：ModelPill 选中 = 设为默认。
-   * 会话级即时生效由 prompt.submit 携带 model 参数完成（usePromptActions），
-   * 无需额外 provider.switch RPC（与 prompt.submit 重复）。
+   * 🔴 ModelPill = per-session override，不写 config.yaml。
+   * 永久默认模型在 Settings → Model 设置（写 config.yaml model.ref）。
+   * 会话级即时生效由 prompt.submit 携带 model 参数完成（usePromptActions）。
    */
   const selectModel = useCallback(async (modelId: string) => {
     if (!modelId) return;
@@ -194,20 +194,30 @@ export default function useModels({ enabled = true }: { enabled?: boolean } = {}
       const slashIdx = modelId.indexOf('/');
       const provider = slashIdx > 0 ? modelId.slice(0, slashIdx) : modelId;
       const model = slashIdx > 0 ? modelId.slice(slashIdx + 1) : '';
-      await call('update_config', {
-        config: {
-          model: {
-            ref: modelId,
-            provider,
-            default: model,
+      // per-session override：走 provider.switch RPC（后端 v7.1 switch_runtime_inner 统一路径）
+      if (sessionId) {
+        await call('provider_switch', {
+          session_id: sessionId,
+          provider_id: provider,
+          model,
+        });
+      } else {
+        // 无活跃会话时回退写 config.yaml（下次 session.create 带过去）
+        await call('update_config', {
+          config: {
+            model: {
+              ref: modelId,
+              provider,
+              default: model,
+            },
           },
-        },
-      });
+        });
+      }
     } catch (err: unknown) {
       console.warn('[useModels] selectModel failed:', (err as Error).message);
       setError((err as Error).message);
     }
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
     mountedRef.current = true;

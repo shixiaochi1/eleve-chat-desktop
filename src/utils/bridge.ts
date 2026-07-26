@@ -91,8 +91,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   // 配置类（原 HTTP，已统一迁 WS——WS 天然支持 profile 路由）
   get_config:             'config.get',
   update_config:          'config.set.raw',
-  save_api_key:           'provider.save_key',
-  load_api_key:           'model.load_key',
+  // save_api_key 已删除：与 provider_save_key 重复映射同一 WS 方法，唯一消费方 saveApiKey() 已死
   get_settings:           'settings.get',
   update_settings:        'settings.update',
   list_models:            'model.options',
@@ -187,7 +186,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   get_config_schema:      'config.schema',
   get_config_raw:         'config.raw',
   update_config_raw:      'config.set.raw',
-  config_delete_provider: 'config.delete_provider',
+  // config_delete_provider 已删除：池是唯一权威源，不再写 config.yaml providers段
   gateway_status:         'gateway.status',
   restart_service:        'gateway.restart',
   open_logs:              'gateway.open_logs',
@@ -221,9 +220,7 @@ function adaptParams(command: string, args: Record<string, any>): Record<string,
       const obj = args.config ?? args;
       return { yaml_text: yaml.dump(obj, { indent: 2, lineWidth: 120, noRefs: true }) };
     }
-    case 'load_api_key':
-      // {provider_id} → {slug}（WS model.load_key 期望 slug）
-      return { slug: args.provider_id || args.slug || '' };
+
     default:
       return args;
   }

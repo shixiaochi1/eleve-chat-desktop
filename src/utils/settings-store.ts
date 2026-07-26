@@ -170,20 +170,6 @@ export async function saveSettings(data: SettingsV2): Promise<void> {
   }
 }
 
-// ====== API Key 安全存储（加密） ======
-
-export async function saveApiKey(providerId: string, apiKey: string): Promise<void> {
-  await call('save_api_key', { provider_id: providerId, api_key: apiKey });
-}
-
-export async function loadApiKey(providerId: string): Promise<string | null> {
-  try {
-    return await call('load_api_key', { provider_id: providerId });
-  } catch {
-    return null;
-  }
-}
-
 // ====== 查找 provider ======
 export function findProvider(providers: ProviderEntry[], id: string): ProviderEntry | null {
   return providers.find(p => p.id === id) || null;
@@ -260,16 +246,6 @@ export async function upsertPoolProvider(entry: Record<string, unknown>): Promis
 export async function removePoolProvider(providerId: string): Promise<{ removed: boolean; warnings: string[] }> {
   const res = await call('provider_remove', { provider_id: providerId }) as { removed?: boolean; warnings?: string[] };
   return { removed: res.removed || false, warnings: res.warnings || [] };
-}
-
-// P6-D：删除 per-profile config.yaml 的 providers.<id> 残留（全局池收敛，修“删而不净”）
-export async function deleteConfigProvider(providerId: string): Promise<boolean> {
-  try {
-    const res = await call('config_delete_provider', { provider_id: providerId }) as { ok?: boolean };
-    return res.ok || false;
-  } catch {
-    return false;
-  }
 }
 
 /** 保存 Provider API Key（F3：失败抛错，调用方 toast 提示） */
