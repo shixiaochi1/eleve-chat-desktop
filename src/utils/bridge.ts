@@ -78,16 +78,13 @@ export async function discoverPort(maxRetries = 50, delayMs = 200): Promise<bool
  * command → WS JSON-RPC method 映射（不含 Kanban，Kanban 走 HTTP 对齐 Hermes）
  */
 const COMMAND_TO_WS_METHOD: Record<string, string> = {
-  // A类：已有 WS 方法（16个）
-  steer_session:          'session.steer',
-  abort_chat:             'session.interrupt',
+  // A类：已有 WS 方法
   sudo_respond:           'sudo.respond',
   secret_respond:         'secret.respond',
   list_sessions:          'session.list',
   create_session:         'session.create',
   delete_session:         'session.delete',
   activate_session:       'session.activate',
-  set_session_title:      'session.title',
   // 配置类（原 HTTP，已统一迁 WS——WS 天然支持 profile 路由）
   get_config:             'config.get',
   update_config:          'config.set.raw',
@@ -108,14 +105,12 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   resume_job:             'jobs.resume',
   run_job:                'jobs.run',
   list_skills:            'skills.list',
-  toggle_skill:           'skills.toggle',
   search_skills_hub:      'skills.hub.search',
   install_skill:          'skills.hub.install',
   list_hub_skills:        'skills.hub.list',
   list_hub_taps:          'skills.hub.taps',
   manage_hub_tap:         'skills.hub.tap.manage',
   list_tools:             'tools.list',
-  list_toolsets:          'tools.toolsets',
   // 多 Profile 管理（F9+ Profile 选择器）
   list_profiles:          'profiles.list',
   set_active_profile:     'profiles.set_active',
@@ -124,7 +119,6 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   delete_profile:         'profiles.delete',
   // Phase P5: 全局 Provider 池 CRUD（WS RPC，对齐 P3 后端端点）
   provider_list:          'provider.list',
-  provider_get:           'provider.get',
   provider_upsert:        'provider.upsert',
   provider_remove:        'provider.remove',
   provider_save_key:      'provider.save_key',
@@ -141,27 +135,17 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
 
   // C类：Session 补充 + Config 补充 + Gateway + Auth + Utils
   get_session_context:    'session.context.get',
-  set_session_context:    'session.context.set',
   get_session_messages:   'session.history',
-  search_sessions:        'session.search',
   export_session:         'session.export',
   rename_session:         'session.rename',
   archive_session:        'session.archive',
   unarchive_session:      'session.unarchive',
   reset_session:          'session.reset',
   // F1: 会话管理补全（后端已就绪，前端断线）
-  resume_session:         'session.resume',
   branch_session:         'session.branch',
   compress_session:       'session.compress',
   undo_session_turn:      'session.undo',
-  save_session:           'session.save',
-  close_session:          'session.close',
-  get_session_status:     'session.status',
   get_session_usage:      'session.usage',
-  get_session_context_breakdown: 'session.context_breakdown',
-  get_most_recent_sessions: 'session.most_recent',
-  set_session_cwd:        'session.cwd.set',
-  get_active_sessions:    'session.active_list',
   // F2: 进程与委托管理（后端已就绪，前端零消费）
   process_list:           'process.list',
   process_kill:           'process.kill',
@@ -182,9 +166,6 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   rollback_list:          'rollback.list',
   rollback_diff:          'rollback.diff',
   rollback_restore:       'rollback.restore',
-  get_config_defaults:    'config.defaults',
-  get_config_schema:      'config.schema',
-  get_config_raw:         'config.raw',
   update_config_raw:      'config.set.raw',
   // config_delete_provider 已删除：池是唯一权威源，不再写 config.yaml providers段
   gateway_status:         'gateway.status',
@@ -200,7 +181,6 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   migrate_app_data:       'app_data.migrate',
   files_list:             'files.list',
   projects_tree:          'projects.tree',
-  projects_project_sessions: 'projects.project_sessions',
 };
 
 /**

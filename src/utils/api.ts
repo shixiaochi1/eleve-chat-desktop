@@ -37,10 +37,6 @@ export async function activateSession(id: string): Promise<any> {
   return call('activate_session', { session_id: id });
 }
 
-export async function setSessionTitle(sessionId: string, title: string): Promise<any> {
-  return call('set_session_title', { session_id: sessionId, title });
-}
-
 export async function getSessionHistory(id: string): Promise<any> {
   return call('get_session_messages', { session_id: id });
 }
@@ -52,10 +48,6 @@ export async function fetchSessionContext(sessionId: string | null | undefined):
   } catch {
     return null;
   }
-}
-
-export async function searchSessions(query: string, limit: number = 20): Promise<any> {
-  return call('search_sessions', { query, limit });
 }
 
 // F1: 会话管理补全（后端已就绪，前端断线）
@@ -75,61 +67,12 @@ export async function branchSession(sessionId: string, name?: string): Promise<{
   return call('branch_session', { session_id: sessionId, ...(name ? { name } : {}) });
 }
 
-/** 恢复命名会话分支 */
-export async function resumeSession(sessionId: string, name: string): Promise<{ status: string; message: string }> {
-  return call('resume_session', { session_id: sessionId, name });
-}
-
-/** 显式持久化会话 */
-export async function saveSession(sessionId: string): Promise<{ status: string; session_id: string }> {
-  return call('save_session', { session_id: sessionId });
-}
-
-/** 关闭会话并清理 */
-export async function closeSession(sessionId: string): Promise<{ closed: boolean; session_id: string; close_error?: string }> {
-  return call('close_session', { session_id: sessionId });
-}
-
-/** 获取会话运行状态 */
-export async function getSessionStatus(sessionId: string): Promise<{
-  session_id: string; running: boolean; model: string; provider: string;
-  title: string; message_count: number; yolo_mode: boolean;
-  input_tokens: number; output_tokens: number;
-}> {
-  return call('get_session_status', { session_id: sessionId });
-}
-
 /** 获取会话 token 用量 */
 export async function getSessionUsage(sessionId: string): Promise<{
   session_id: string; usage: string;
   input_tokens: number; output_tokens: number; total_tokens: number;
 }> {
   return call('get_session_usage', { session_id: sessionId });
-}
-
-/** 获取会话上下文分项统计 */
-export async function getSessionContextBreakdown(sessionId: string): Promise<{
-  session_id: string; turn_count: number; model?: string;
-  tokens_input: number; tokens_output: number; reasoning_tokens?: number;
-  last_prompt_tokens?: number; completed?: boolean; interrupted?: boolean;
-  max_iterations?: number; estimated_cost_usd?: number;
-}> {
-  return call('get_session_context_breakdown', { session_id: sessionId });
-}
-
-/** 获取最近 N 个会话 ID */
-export async function getMostRecentSessions(limit: number = 20): Promise<{ sessions: string[]; count: number }> {
-  return call('get_most_recent_sessions', { limit });
-}
-
-/** 设置会话工作目录 */
-export async function setSessionCwd(sessionId: string, cwd: string): Promise<any> {
-  return call('set_session_cwd', { session_id: sessionId, cwd });
-}
-
-/** 获取所有活跃会话 ID */
-export async function getActiveSessions(): Promise<{ sessions: string[] }> {
-  return call('get_active_sessions', {});
 }
 
 // F2: 进程与委托管理

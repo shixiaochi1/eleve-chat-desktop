@@ -107,6 +107,11 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
 
   return (
     <div>
+      {/* 开发中提示 */}
+      <div className="mb-4 rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-600 dark:text-yellow-400">
+        ⚠️ 语音功能（STT / TTS）后端尚未实现，以下配置可保存但暂不生效。
+      </div>
+
       {/* ══════════ 语音转文字 (STT) ══════════ */}
       <h3 className="text-sm font-medium mb-3">语音转文字 (STT)</h3>
 

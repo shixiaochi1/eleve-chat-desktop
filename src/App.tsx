@@ -554,6 +554,10 @@ export default function App() {
         gatewayOnline={gatewayHealth.online}
         gatewayChecking={gatewayHealth.checking}
         sessionId={debugInfo.sessionId}
+        modelName={modelDiscovery.selectedModel || monitorState.modelName || undefined}
+        profileName={currentProfile}
+        tokensIn={debugInfo.tokensIn}
+        tokensOut={debugInfo.tokensOut}
         onOpenSettings={() => handleOpenOverlay('settings')}
       >
         {/* ===== PaneShell 三栏布局：图标栏 + 侧边面板 + 聊天区 ===== */}
