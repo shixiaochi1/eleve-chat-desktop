@@ -190,7 +190,12 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
     try {
       const dn = newDisplayName.trim() || undefined;
       await createProfile(name, dn, cloneSource || undefined);
-      notifySuccess(`Agent「${dn || name}」已创建`);
+      // 🔴 G1: 创建后自动切换到新 Agent（对齐 Hermes: 创建即可用）
+      // 复用 handleSelect 同款链路：setActiveProfile → onProfileChange → App 全量切换
+      await setActiveProfile(name);
+      setActiveName(name);
+      onProfileChange?.(name);
+      notifySuccess(`Agent「${dn || name}」已创建并切换`);
       resetCreateForm();
       void load();
     } catch (err: unknown) {
@@ -198,7 +203,7 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
     } finally {
       setCreatingBusy(false);
     }
-  }, [newName, newDisplayName, cloneSource, creatingBusy, resetCreateForm, load]);
+  }, [newName, newDisplayName, cloneSource, creatingBusy, resetCreateForm, load, onProfileChange]);
 
   const cancelDelete = useCallback(() => {
     setDeletingTarget(null);

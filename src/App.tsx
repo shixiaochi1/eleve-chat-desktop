@@ -106,7 +106,10 @@ export default function App() {
     return () => { cancelled = true; };
   }, [portReady]);
 
-  // Profile 切换联动：更新全局状态 + 刷新会话列表（会话按 profile 命名空间隔离）
+  // ── session management（必须在 handleProfileChange 之前，切换 Agent 需要重置 session） ──
+  const sess = useSessions();
+
+  // Profile 切换联动：更新全局状态 + 重置会话 + 刷新会话列表
   // ── F1 多 Profile：setWsActiveProfile 必须同步调用（activeProfile 是模块级变量），
   //    保证下面 sessionListVersion 触发的列表 refetch 用到新 profile，避免异步 effect 竞态。
   //    对齐 Hermes setApiRequestProfile：currentProfile 是唯一权威源，sendRpc 单点盖章 params.profile。
@@ -114,7 +117,14 @@ export default function App() {
     setWsActiveProfile(name);
     setCurrentProfile(name);
     setSessionListVersion((v) => v + 1);
-  }, []);
+    // 🔴 切换 Agent 必须清空当前 session，否则旧 session_id（agent:default:ws:xxx）
+    //    路由到旧 Agent → 上下文/人设/记忆全是旧的
+    sess.setSessionId(null);
+    storage.save('session_id', null);
+    sess.setFreshDraftReady(true);  // 下次发消息自动创建新 session（带新 profile 前缀）
+    getWsClient().switchSession('');  // 清 WS client 内部 sessionId fallback
+    storeSetMessages([]);  // 清空聊天界面（全局消息 store）
+  }, [sess.setSessionId, sess.setFreshDraftReady]);
 
   // ── model picker state ──
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
@@ -123,9 +133,6 @@ export default function App() {
 
   const nextId = useRef<number>(0);
   const genId = useCallback(() => `m${++nextId.current}`, []);
-
-  // ── session management ──
-  const sess = useSessions();
 
   // ── model discovery（依赖 sess.sessionId，必须在 sess 之后） ──
   const modelDiscovery = useModels({ enabled: portReady, sessionId: sess.sessionId ?? undefined });
