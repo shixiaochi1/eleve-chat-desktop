@@ -97,17 +97,10 @@ function inferFromPlatforms(statusPlatforms: Record<string, PlatformStatus>): Ch
 }
 
 /**
- * 如果后端全无响应，兜底一个 WeChat 占位渠道
+ * 如果后端全无响应，返回空列表（不造假数据）
  */
-function fallbackWeChatChannel(gatewayOnline: boolean): ChannelItem[] {
-  return [{
-    id: 'wechat',
-    name: '微信',
-    platform: 'wechat',
-    status: gatewayOnline ? 'online' : 'offline',
-    lastActivity: null,
-    config: null,
-  }];
+function fallbackEmpty(): ChannelItem[] {
+  return [];
 }
 
 export function useChannels({ gatewayOnline = false }: { gatewayOnline?: boolean } = {}) {
@@ -126,7 +119,7 @@ export function useChannels({ gatewayOnline = false }: { gatewayOnline?: boolean
       if (status && status.platforms) {
         const inferred = inferFromPlatforms(status.platforms);
         if (mountedRef.current) {
-          setChannels(inferred.length > 0 ? inferred : fallbackWeChatChannel(gatewayOnline));
+          setChannels(inferred.length > 0 ? inferred : fallbackEmpty());
           setLoading(false);
           return;
         }
@@ -137,7 +130,7 @@ export function useChannels({ gatewayOnline = false }: { gatewayOnline?: boolean
 
     // 回退：基于网关在线状态展示 WeChat
     if (mountedRef.current) {
-      setChannels(fallbackWeChatChannel(gatewayOnline));
+      setChannels(fallbackEmpty());
       setError('无法获取渠道状态');
       setLoading(false);
     }
