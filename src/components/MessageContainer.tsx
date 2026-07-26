@@ -18,7 +18,7 @@ import ReasoningBlock from './ReasoningBlock'
 import ToolCallGroup, { isSpecialTool, type ToolCallItem } from './ToolCallGroup'
 import HoistedTodoPanel, { todosFromMessageParts } from './HoistedTodoPanel'
 import type { ChatMessage, ChatMessagePart } from '@/types'
-import { loadSettings, isSettingsReady } from '@/utils/settings-store'
+import { isSettingsReady } from '@/utils/settings-store'
 
 const ESTIMATED_ITEM_HEIGHT = 220
 const OVERSCAN = 4
@@ -68,6 +68,8 @@ interface VirtualizedThreadProps {
   gatewayOnline?: boolean
   onGatewayRetry?: () => void
   onOpenSettings?: () => void
+  /** 池是否有可用模型（P1：从 App 层 useModels 传入，不再读 settings.json providers） */
+  hasModels?: boolean
 }
 
 export function VirtualizedThread({
@@ -75,7 +77,8 @@ export function VirtualizedThread({
   onRegenerate,
   gatewayOnline,
   onGatewayRetry,
-  onOpenSettings
+  onOpenSettings,
+  hasModels
 }: VirtualizedThreadProps) {
   const messageSignature = useMessageSignature()
   const groups = useMemo(() => buildGroups(messageSignature ?? ''), [messageSignature])
@@ -147,8 +150,9 @@ export function VirtualizedThread({
                     <p className="text-sm text-muted-foreground">加载中…</p>
                   );
                 }
-                const settings = loadSettings();
-                const hasProvider = settings.providers.length > 0;
+                // P1 修复：池是唯一权威源。旧代码读 settings.providers.length，
+                // 但 F5 后 settings.json providers 已清空 → 永久假弹“尚未配置”。
+                const hasProvider = !!hasModels;
                 if (!hasProvider) {
                   return (
                     <div className="flex flex-col items-center gap-3 p-5 rounded-xl border border-border bg-card text-center max-w-xs">
@@ -157,9 +161,7 @@ export function VirtualizedThread({
                       </div>
                       <span className="text-sm font-medium">尚未配置模型</span>
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        {false
-                          ? '主模型已选择，但 API Key 未设置，无法连接'
-                          : '请先选择主模型提供商并设置 API Key'}
+                        请先选择主模型提供商并设置 API Key
                       </p>
                       <button
                         className={cn(

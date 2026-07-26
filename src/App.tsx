@@ -671,6 +671,7 @@ export default function App() {
                     gatewayOnline={gatewayHealth.online}
                     onGatewayRetry={gatewayHealth.checkNow}
                     onOpenSettings={() => handleOpenOverlay('settings')}
+                    hasModels={modelDiscovery.models.length > 0}
                   />
                   {activeClarify && (
                     <ClarifyCard
