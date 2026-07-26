@@ -543,6 +543,19 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     });
     await Promise.allSettled(poolPromises);
 
+    // 🔴 保存成功后立即从权威源（全局池）刷新 hasKey 徽章。
+    // pool 列表只在面板挂载时拉一次，若不刷新，即使 key 已写入池，
+    // UI 仍显示陈旧的"无key"（必须重开面板才更新）→ 从权威源 re-derive 保证 UI 如实。
+    try {
+      const fresh = await listPoolProviders();
+      if (fresh.length > 0) {
+        setProviders(prev => prev.map(p => {
+          const pp = fresh.find(f => f.id === p.id);
+          return pp ? { ...p, hasKey: pp.has_key, credentialType: pp.credential_type } : p;
+        }));
+      }
+    } catch { /* 刷新失败不影响保存结果 */ }
+
     try {
       const d = await call('list_models', {});
       if (d) {
