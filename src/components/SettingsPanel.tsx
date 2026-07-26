@@ -142,50 +142,29 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
   // ── 新建提供商表单 ──
   const [newProvider, setNewProvider] = useState<NewProviderForm>({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', transport: 'auto', modelsRaw: '' });
 
-  // ====== 加载 ======
+  // ====== 加载（F5: 池=provider权威源，config.yaml=aux/fallback/del权威源） ======
   useEffect(() => {
+    // settings.json 仅提供 passwordHash（UI 级设置，非 Provider 数据）
     const settings = loadSettings();
-    setProviders(settings.providers || []);
-    setFallbackList(settings.fallback || []);
-    setAuxConfig(settings.auxiliary || {});
-    setDelProvider(settings.delegation?.providerId || '');
-    setDelModel(settings.delegation?.model || '');
-    setDelMaxIterations(settings.delegation?.maxIterations || 30);
     setPasswordHash(settings.settingsPasswordHash || '');
 
-    // 尝试从后端合并
+    // 从后端加载 aux/fallback/del + 开机自启
     loadBackendConfig();
 
-    // Phase P5: 从全局 Provider 池合并（pool 优先于 settings.json）
+    // Provider 列表：从全局池加载（唯一权威源，不再从 settings.json 读）
     (async () => {
       try {
         const poolProviders = await listPoolProviders();
-        if (poolProviders.length > 0) {
-          setProviders(prev => {
-            const merged = [...prev];
-            for (const pp of poolProviders) {
-              const existing = merged.findIndex(p => p.id === pp.id);
-              const entry: Provider = {
-                id: pp.id,
-                name: pp.name || pp.id,
-                baseUrl: pp.base_url,
-                transport: pp.transport,
-                models: pp.models.map(m => m.name),
-                hasKey: pp.has_key,
-                credentialType: pp.credential_type,
-                source: 'global_pool',
-              };
-              if (existing >= 0) {
-                // pool 优先：保留 apiKey 字段（用户可能刚输入未保存）
-                entry.apiKey = merged[existing].apiKey;
-                merged[existing] = entry;
-              } else {
-                merged.push(entry);
-              }
-            }
-            return merged;
-          });
-        }
+        setProviders(poolProviders.map(pp => ({
+          id: pp.id,
+          name: pp.name || pp.id,
+          baseUrl: pp.base_url,
+          transport: pp.transport,
+          models: pp.models.map(m => m.name),
+          hasKey: pp.has_key,
+          credentialType: pp.credential_type,
+          source: 'global_pool' as const,
+        })));
       } catch { /* pool 未初始化时忽略 */ }
     })();
 
@@ -201,9 +180,40 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
 
   const loadBackendConfig = async () => {
     try {
-      const bc: Record<string, unknown> = await call('get_config', {});
-      // ... same logic as original ...
-      // 主模型选择已迁移到聊天输入框 ModelPill，设置面板不再管理主模型
+      const bc = await call('get_config', {}) as Record<string, any>;
+      if (!bc) return;
+
+      // F5: 从 config.yaml 加载 auxiliary/fallback/delegation（权威源）
+      // 后端 Config 结构是 snake_case，前端是 camelCase，需要映射
+      if (bc.auxiliary && typeof bc.auxiliary === 'object') {
+        const aux: Record<string, AuxEntry> = {};
+        for (const [key, val] of Object.entries(bc.auxiliary as Record<string, any>)) {
+          if (val && typeof val === 'object') {
+            aux[key] = {
+              providerId: val.provider || 'auto',
+              model: val.model || '',
+              timeout: val.timeout ?? 120,
+              temperature: val.temperature ?? null,
+              extraBody: val.extra_body ?? null,
+              downloadTimeout: val.download_timeout ?? undefined,
+            };
+          }
+        }
+        if (Object.keys(aux).length > 0) setAuxConfig(aux);
+      }
+
+      if (bc.fallback?.providers && Array.isArray(bc.fallback.providers)) {
+        setFallbackList(bc.fallback.providers.map((f: any) => ({
+          providerId: f.provider || '',
+          model: f.model || '',
+        })));
+      }
+
+      if (bc.delegation && typeof bc.delegation === 'object') {
+        setDelProvider(bc.delegation.provider || '');
+        setDelModel(bc.delegation.model || '');
+        setDelMaxIterations(bc.delegation.max_iterations ?? 30);
+      }
     } catch { /* ignore */ }
     checkGateway();
   };
@@ -309,23 +319,10 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     if (delProvider === providerId) { setDelProvider(''); setDelModel(''); }
     setDeleteConfirm(null);
 
-    // 🔴 Bug 2 修复：持久化删除到 settings.json。
-    // 之前只改内存 state + 全局池，没写 settings.json → 重开面板 loadSettings() 从
-    // settings.json 读回旧 providers → 被删的 provider 复活。镜像 handleSave 的 data 结构写回。
-    const data = {
-      version: 2,
-      providers: newProviders,
-      fallback: newFallback,
-      auxiliary: newAux,
-      delegation: { providerId: newDelProvider, model: newDelModel, maxIterations: delMaxIterations },
-      settingsPasswordHash: passwordHash,
-    };
-    saveSettings(data).catch((e: unknown) => {
-      console.warn('[settings] persist delete failed:', e);
-      setStatus({ text: `删除已生效，但 settings.json 写入失败: ${(e as Error).message}`, className: 'text-destructive text-xs' });
-    });
+    // F5: 不再写 settings.json。provider 列表从池加载，删除池条目即永久生效。
+    // 级联变更（fallback/aux 重置）在内存 state 中，用户点保存时经 update_config 持久化。
 
-    // Phase P5: 同步从全局池删除（后端 pool.remove 持锁落盘 providers.yaml，持久）
+    // 同步从全局池删除（后端 pool.remove 持锁落盘 providers.yaml，持久）
     removePoolProvider(providerId).then(res => {
       if (res.warnings.length > 0) {
         setStatus({ text: `已删除，但有引用: ${res.warnings.join('; ')}`, className: 'text-yellow-500 text-xs' });
@@ -415,19 +412,18 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     setSaving(true);
     setStatus({ text: '保存中…', className: 'text-muted-foreground text-xs' });
 
-    const data = {
+    // F5: settings.json 仅存 passwordHash（UI 级设置）
+    // Provider/aux/fallback/del 不再写 settings.json，分别走池和 config.yaml
+    await saveSettings({
       version: 2,
-      providers,
-      fallback: fallbackList,
-      auxiliary: auxConfig,
-      delegation: { providerId: delProvider, model: delModel, maxIterations: delMaxIterations },
+      providers: [],  // 清空：provider 权威源是池
+      fallback: [],
+      auxiliary: {},
+      delegation: { providerId: '', model: '', maxIterations: 30 },
       settingsPasswordHash: passwordHash,
-    };
-    await saveSettings(data);
+    }).catch(() => { /* passwordHash 保存失败不阻塞主流程 */ });
 
     const isPlaceholder = (k: string) => k.includes('...') || k.includes('••') || k.includes('***') || k.length < 8;
-    // API Key 统一在下方 upsertPoolProvider 之后通过 savePoolProviderKey 写入全局池（步骤⑥）
-    // 不再单独前置 saveApiKey（旧 HTTP .env 路径已废弃，池是权威源）
 
     const backendCfg: Record<string, unknown> = {};
     // 🔴 config.yaml providers段已删除：池是唯一权威源，Provider 元数据 + 凭证统一走
