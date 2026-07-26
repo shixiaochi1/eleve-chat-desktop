@@ -1,4 +1,4 @@
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 
 /**
  * IPC 桥接层 — WS JSON-RPC + HTTP REST 双通道（对齐 Hermes）
