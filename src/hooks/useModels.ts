@@ -188,13 +188,17 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
     if (enabled) {
       refresh();
       loadCurrentModel();
-      // 🔴 修复时序竞态：portReady 后后端可能还未完全就绪，首次失败后延迟重试
-      const retryTimer = setTimeout(() => {
-        if (mountedRef.current && _cachedModels === null) {
-          refresh();
-        }
-      }, 1500);
-      return () => clearTimeout(retryTimer);
+      // 🔴 池加载需要时间（providers.yaml 读取 + watcher 初始化，实测约 15-20s）。
+      // 单次 1500ms 重试远远不够。用递增延迟多次重试，直到拿到模型或超过最大次数。
+      const RETRY_DELAYS = [1500, 4000, 8000, 15000, 25000];
+      const timers = RETRY_DELAYS.map((delay) =>
+        setTimeout(() => {
+          if (mountedRef.current && _cachedModels === null) {
+            refresh();
+          }
+        }, delay)
+      );
+      return () => timers.forEach(clearTimeout);
     }
   }, [enabled, refresh, loadCurrentModel]);
 
