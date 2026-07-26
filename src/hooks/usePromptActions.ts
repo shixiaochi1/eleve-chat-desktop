@@ -33,6 +33,7 @@ export function usePromptActions({
   handleNewSession,
   currentModel,
   currentProvider,
+  onSlashConfirm,
 }: {
   sess: SessionManagerHandle
   addTimeBadge: () => void
@@ -47,6 +48,8 @@ export function usePromptActions({
   /** 对齐 Hermes: UI 选择的模型，传入 session.create 作为 per-session override */
   currentModel?: string
   currentProvider?: string
+  /** 破坏性斜杠命令确认回调（D1 slash_confirm GUI） */
+  onSlashConfirm?: (data: { confirmId: string; command: string; description: string }) => void
 }): {
   handleSend: (text: string) => void
   handleAbort: () => void
@@ -105,7 +108,18 @@ export function usePromptActions({
     try {
       // 走 WS slash.exec（对齐 Phase 6: 命令走 WS 而非 HTTP）
       const ws = getWsClient();
-      const result = await ws.slashExec(`${cmdName} ${args || ''}`.trim(), sess.sessionId || undefined) as { output?: string; session_id?: string };
+      const result = await ws.slashExec(`${cmdName} ${args || ''}`.trim(), sess.sessionId || undefined) as { type?: string; output?: string; session_id?: string; confirm_id?: string; command?: string; description?: string };
+
+      // D1: 破坏性命令二次确认 — 后端返回 pending_confirm，前端渲染 SlashConfirmCard
+      if (result?.type === 'pending_confirm' && result.confirm_id) {
+        onSlashConfirm?.({
+          confirmId: result.confirm_id,
+          command: result.command || cmdName,
+          description: result.description || '',
+        });
+        return;
+      }
+
       const output = result?.output || '';
       const session_id = result?.session_id;
       if (session_id && session_id !== sess.sessionId) {
@@ -127,7 +141,7 @@ export function usePromptActions({
     } catch (err) {
       storeSetMessages((prev) => [...prev, { id: genId(), role: 'assistant', parts: [textPart(`${(err as Error).message}`)], error: `${(err as Error).message}` } as ChatMessage]);
     }
-  }, [sess, addTimeBadge, genId, setDebugInfo, setSessionListVersion]);
+  }, [sess, addTimeBadge, genId, setDebugInfo, setSessionListVersion, onSlashConfirm]);
 
   // ── send message ──
   const handleSend = useCallback(async (text: string) => {

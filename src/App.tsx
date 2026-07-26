@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useMessages, setMessages as storeSetMessages, getMessages } from './store/messages';
+import { textPart } from '@/lib/chat-messages';
 import { useSessions } from './hooks/useSessions';
 import { useGatewayHealth } from './hooks/useGatewayHealth';
 import { useMessageStream } from './hooks/useMessageStream';
@@ -31,6 +32,7 @@ import InputArea from './components/InputArea';
 import ContextBar from './components/ContextBar';
 import ClarifyCard from './components/ClarifyCard';
 import ApprovalCard from './components/ApprovalCard';
+import SlashConfirmCard from './components/SlashConfirmCard';
 import AppShell from './components/AppShell';
 import PaneShell, { Pane, PaneMain, PaneCollapseBtn } from './components/PaneShell';
 import FileBrowserPanel from './components/FileBrowserPanel';
@@ -90,6 +92,7 @@ export default function App() {
   const [activeApproval, setActiveApproval] = useState<{ command: string; description: string; pattern: string; choices: string[]; run_id: string } | null>(null);
   const [activeSudo, setActiveSudo] = useState<{ request_id: string; prompt?: string } | null>(null);
   const [activeSecret, setActiveSecret] = useState<{ request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> } | null>(null);
+  const [activeSlashConfirm, setActiveSlashConfirm] = useState<{ confirmId: string; command: string; description: string } | null>(null);
 
   // ── overlay panel state (settings, about) ──
   const [overlayPanel, setOverlayPanel] = useState<string | null>(null);
@@ -262,6 +265,7 @@ export default function App() {
       }
       return undefined;
     })(),
+    onSlashConfirm: (data) => setActiveSlashConfirm(data),
   });
 
   // ── useImageAttachments: 图片附件状态管理 ──
@@ -476,6 +480,31 @@ export default function App() {
     setActiveApproval(null);
   }, []);
 
+  // ── slash confirm done（D1：破坏性命令确认结果处理）──
+  const handleSlashConfirmDone = useCallback((choice: string, result?: any) => {
+    setActiveSlashConfirm(null);
+    if (choice === 'cancel' || !result) return;
+    // 后端已重新执行命令，返回 { type: "exec", output, session_id? }
+    const output = result?.output || '';
+    const newSid = result?.session_id;
+    if (newSid && newSid !== sess.sessionId) {
+      if (sess.sessionId) {
+        storeSetMessages((prev) => {
+          sess.saveCache((cache) => ({ ...cache, [sess.sessionId!]: prev }));
+          return prev;
+        });
+      }
+      sess.setSessionId(newSid);
+      storage.save('session_id', newSid);
+      sess.refresh();
+      setDebugInfo((prev) => ({ ...prev, sessionId: newSid, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
+      storeSetMessages([{ id: genId(), role: 'system', parts: [textPart(output)] } as ChatMessage]);
+      if (setSessionListVersion) setSessionListVersion(v => v + 1);
+    } else {
+      storeSetMessages((prev) => [...prev, { id: genId(), role: 'system', parts: [textPart(output)] } as ChatMessage]);
+    }
+  }, [sess, genId, setDebugInfo, setSessionListVersion]);
+
   // ── sudo done (TODO: implement dialog response) ──
   const handleSudoDone = useCallback(async (password: string) => {
     if (!activeSudo) return;
@@ -659,6 +688,16 @@ export default function App() {
                       choices={activeApproval.choices}
                       run_id={activeApproval.run_id}
                       onDone={handleApprovalDone}
+                    />
+                  )}
+                  {/* SlashConfirmCard — 破坏性斜杠命令确认（D1） */}
+                  {activeSlashConfirm && (
+                    <SlashConfirmCard
+                      confirmId={activeSlashConfirm.confirmId}
+                      command={activeSlashConfirm.command}
+                      description={activeSlashConfirm.description}
+                      sessionId={sess.sessionId ?? undefined}
+                      onDone={handleSlashConfirmDone}
                     />
                   )}
                   {/* SudoCard — 密码输入 */}
