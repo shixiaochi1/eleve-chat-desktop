@@ -81,7 +81,6 @@ interface RenameTarget {
 
 // ── 持久化键 ──
 const PINNED_KEY = 'eleve.pinned-sessions';
-const ARCHIVED_KEY = 'eleve.archived-sessions';
 
 // ── 系统会话来源（对齐后端 exclude_sources + Eleve _HIDDEN_SESSION_SOURCES）──
 const HIDDEN_SOURCES = new Set(['tool', 'cron', 'api']);
@@ -229,7 +228,7 @@ export default function SessionsPanel({
 
   // ── 置顶/归档状态 ──
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => loadSet(PINNED_KEY));
-  const [archivedIds, setArchivedIds] = useState<Set<string>>(() => loadSet(ARCHIVED_KEY));
+  const [archivedIds, setArchivedIds] = useState<Set<string>>(() => new Set());
   const [showArchived, setShowArchived] = useState(false);
 
   // ── 右键菜单 ──
@@ -240,7 +239,6 @@ export default function SessionsPanel({
 
   // 持久化置顶/归档
   useEffect(() => { saveSet(PINNED_KEY, pinnedIds); }, [pinnedIds]);
-  useEffect(() => { saveSet(ARCHIVED_KEY, archivedIds); }, [archivedIds]);
 
 
 
@@ -271,16 +269,9 @@ export default function SessionsPanel({
   const toggleArchive = useCallback(async (id: string) => {
     const isArchived = archivedIds.has(id);
     try {
-      const result = isArchived
+      isArchived
         ? await call('unarchive_session', { session_id: id })
         : await call('archive_session', { session_id: id });
-      // 🔴 T0.3: 后端 session.archive/unarchive 是 stub（返回 "not yet implemented"）
-      // 检测 stub 响应 → 提示用户，不改变 UI 状态（不造假成功）
-      const msg = (result as { message?: string })?.message ?? '';
-      if (msg.includes('not yet implemented')) {
-        notifyInfo('归档功能后端开发中，敬请期待');
-        return;
-      }
       setArchivedIds((prev) => {
         const next = new Set(prev);
         if (next.has(id)) next.delete(id); else next.add(id);
