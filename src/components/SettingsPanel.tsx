@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { call } from '../utils/bridge';
-import { loadSettings, saveSettings, saveApiKey, slugifyProviderName, AUX_TASKS, findProvider, listPoolProviders, upsertPoolProvider, removePoolProvider, savePoolProviderKey, disconnectPoolProvider, deleteConfigProvider } from '../utils/settings-store';
+import { loadSettings, saveSettings, slugifyProviderName, AUX_TASKS, findProvider, listPoolProviders, upsertPoolProvider, removePoolProvider, savePoolProviderKey, disconnectPoolProvider, deleteConfigProvider } from '../utils/settings-store';
 import type { ProviderEntry, AuxTaskEntry, PoolProvider } from '../utils/settings-store';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { AlertTriangle, Upload, Download } from 'lucide-react';
@@ -445,18 +445,9 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     };
     await saveSettings(data);
 
-    const keyErrors: string[] = [];
     const isPlaceholder = (k: string) => k.includes('...') || k.includes('••') || k.includes('***') || k.length < 8;
-    // 🔧 修复"保存慢"：API Key 并行保存（之前串行每个都 await）
-    const keyPromises = providers
-      .filter(p => p.apiKey && !isPlaceholder(p.apiKey))
-      .map(p => saveApiKey(p.id, p.apiKey!).catch((e: Error) => keyErrors.push(`${p.name || p.id}: ${e.message}`)));
-    await Promise.all(keyPromises);
-    if (keyErrors.length > 0) {
-      setStatus({ text: `密钥保存失败: ${keyErrors.join('; ')}`, className: 'text-destructive text-xs' });
-      setSaving(false);
-      return;
-    }
+    // API Key 统一在下方 upsertPoolProvider 之后通过 savePoolProviderKey 写入全局池（步骤⑥）
+    // 不再单独前置 saveApiKey（旧 HTTP .env 路径已废弃，池是权威源）
 
     const backendCfg: Record<string, unknown> = {};
     if (providers.length > 0) {
