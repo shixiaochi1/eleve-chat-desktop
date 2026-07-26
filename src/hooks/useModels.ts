@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { call } from '../utils/bridge';
 import { listPoolProviders } from '../utils/settings-store';
 import type { PoolProvider } from '../utils/settings-store';
+import { getWsClient } from '@/services/ws-client';
 
 export interface ModelItem {
   /** 完整 ref: "provider_id/model_name" */
@@ -105,7 +106,7 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
         if (mountedRef.current) {
           setModels([]);
           setGrouped({});
-          setError('No models available');
+          setError('empty'); // 语义化标记：池空（未配置），非连接错误
         }
       }
     } catch (err: unknown) {
@@ -185,21 +186,28 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
   }, []);
 
   useEffect(() => {
-    if (enabled) {
-      refresh();
-      loadCurrentModel();
-      // 🔴 池加载需要时间（providers.yaml 读取 + watcher 初始化，实测约 15-20s）。
-      // 单次 1500ms 重试远远不够。用递增延迟多次重试，直到拿到模型或超过最大次数。
-      const RETRY_DELAYS = [1500, 4000, 8000, 15000, 25000];
-      const timers = RETRY_DELAYS.map((delay) =>
-        setTimeout(() => {
-          if (mountedRef.current && _cachedModels === null) {
-            refresh();
-          }
-        }, delay)
-      );
-      return () => timers.forEach(clearTimeout);
-    }
+    if (!enabled) return;
+    refresh();
+    loadCurrentModel();
+
+    // 冷启动兖底：池加载需要时间（providers.yaml 读取 + watcher 初始化）
+    const coldTimer = setTimeout(() => {
+      if (mountedRef.current && _cachedModels === null) refresh();
+    }, 3000);
+
+    // 事件驱动：后端池变更（upsert/remove/save_key/disconnect）→ 立即刷新
+    const ws = getWsClient();
+    const unsubscribe = ws.addEventListener((eventName) => {
+      if (eventName === 'provider.pool_changed' && mountedRef.current) {
+        _cachedModels = null; // 清除缓存，强制重新拉取
+        refresh();
+      }
+    });
+
+    return () => {
+      clearTimeout(coldTimer);
+      unsubscribe();
+    };
   }, [enabled, refresh, loadCurrentModel]);
 
   return {

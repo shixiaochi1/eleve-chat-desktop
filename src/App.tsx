@@ -740,6 +740,7 @@ export default function App() {
                 modelLoading={modelDiscovery.loading}
                 modelError={modelDiscovery.error}
                 onSelectModel={modelDiscovery.selectModel}
+                onOpenSettings={() => handleOpenOverlay('settings')}
               />
             </main>
             </div>

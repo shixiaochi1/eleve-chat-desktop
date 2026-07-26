@@ -49,6 +49,8 @@ interface InputAreaProps {
   modelError?: string | null;
   /** 切换模型（调用后端 setModel） */
   onSelectModel?: (modelId: string) => void;
+  /** 打开设置面板（模型胶囊池空时引导配置） */
+  onOpenSettings?: () => void;
 }
 
 /**
@@ -92,6 +94,7 @@ export default function InputArea({
   modelLoading,
   modelError,
   onSelectModel,
+  onOpenSettings,
 }: InputAreaProps) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [commands, setCommands] = useState<CommandDef[]>([]);
@@ -532,6 +535,7 @@ export default function InputArea({
               loading={modelLoading}
               error={modelError}
               onSelect={onSelectModel}
+              onOpenSettings={onOpenSettings}
             />
             {/* 思考深度 — 低/中/高，config.set 持久化（对齐 Hermes reasoning_effort） */}
             <ThinkingButton />

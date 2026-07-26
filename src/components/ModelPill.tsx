@@ -21,6 +21,8 @@ interface ModelPillProps {
   error?: string | null;
   /** 切换模型（调用后端 setModel） */
   onSelect?: (modelId: string) => void;
+  /** 打开设置面板（池空时引导用户配置） */
+  onOpenSettings?: () => void;
 }
 
 /**
@@ -32,7 +34,7 @@ interface ModelPillProps {
  *
  * 微交互：展开时箭头旋转 180°、菜单缩放入场（下拉组件内置）、选中项打勾高亮。
  */
-export default function ModelPill({ model, grouped = {}, loading, error, onSelect }: ModelPillProps) {
+export default function ModelPill({ model, grouped = {}, loading, error, onSelect, onOpenSettings }: ModelPillProps) {
   const groups = Object.values(grouped);
   const hasModels = groups.length > 0;
   const displayName = model || (loading ? '模型加载中' : hasModels ? '选择模型' : '无模型');
@@ -63,8 +65,21 @@ export default function ModelPill({ model, grouped = {}, loading, error, onSelec
 
       <DropdownMenuContent align="end" className="w-64">
         {loading && <DropdownMenuLabel>模型列表加载中…</DropdownMenuLabel>}
-        {!loading && error && !hasModels && (
-          <DropdownMenuLabel className="text-destructive">模型加载失败：{error}</DropdownMenuLabel>
+        {!loading && error === 'empty' && !hasModels && (
+          <DropdownMenuLabel className="flex flex-col gap-1.5">
+            <span className="text-muted-foreground">未配置 Provider</span>
+            {onOpenSettings && (
+              <button
+                className="mt-1 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90"
+                onClick={onOpenSettings}
+              >
+                前往设置
+              </button>
+            )}
+          </DropdownMenuLabel>
+        )}
+        {!loading && error && error !== 'empty' && !hasModels && (
+          <DropdownMenuLabel className="text-destructive">连接失败：{error}</DropdownMenuLabel>
         )}
         {!loading && !error && !hasModels && <DropdownMenuLabel>无可用模型</DropdownMenuLabel>}
         {groups.map((group, gi) => (
