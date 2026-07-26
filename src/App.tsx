@@ -137,6 +137,13 @@ export default function App() {
   // ── model discovery（依赖 sess.sessionId，必须在 sess 之后） ──
   const modelDiscovery = useModels({ enabled: portReady, sessionId: sess.sessionId ?? undefined });
 
+  // 🔴 打开模型选择器时自动 refresh（修复：启动重试窗口过期后池才有数据 → 永远空列表）
+  useEffect(() => {
+    if (showModelPicker) {
+      modelDiscovery.refresh();
+    }
+  }, [showModelPicker]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── gateway health monitoring ──
   const gatewayHealth = useGatewayHealth({
     interval: 10000,
