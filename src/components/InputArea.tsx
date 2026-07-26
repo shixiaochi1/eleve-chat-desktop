@@ -51,6 +51,8 @@ interface InputAreaProps {
   onSelectModel?: (modelId: string) => void;
   /** 打开设置面板（模型胶囊池空时引导配置） */
   onOpenSettings?: () => void;
+  /** 模型胶囊下拉展开时强制刷新（FIX-C 兜底） */
+  onRefreshModels?: () => void;
 }
 
 /**
@@ -95,6 +97,7 @@ export default function InputArea({
   modelError,
   onSelectModel,
   onOpenSettings,
+  onRefreshModels,
 }: InputAreaProps) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [commands, setCommands] = useState<CommandDef[]>([]);
@@ -536,6 +539,7 @@ export default function InputArea({
               error={modelError}
               onSelect={onSelectModel}
               onOpenSettings={onOpenSettings}
+              onRefresh={onRefreshModels}
             />
             {/* 思考深度 — 低/中/高，config.set 持久化（对齐 Hermes reasoning_effort） */}
             <ThinkingButton />

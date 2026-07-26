@@ -74,13 +74,13 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
   const [selectedModel, setSelectedModel] = useState('');
   const mountedRef = useRef(true);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     if (!enabled) return;
     setLoading(true);
     setError(null);
 
-    // Use cache if valid
-    if (isCacheValid()) {
+    // Use cache if valid（force=true 跳过缓存：下拉展开/池变更时强制拉取）
+    if (!force && isCacheValid()) {
       setModels(_cachedModels!);
       setGrouped(_cachedGrouped!);
       setLoading(false);
@@ -196,11 +196,13 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
     }, 3000);
 
     // 事件驱动：后端池变更（upsert/remove/save_key/disconnect）→ 立即刷新
+    // ⚠️ 已知后端缺陷：ws_clients 仅注册带 session_id 的连接，前端主连接不传 session_id
+    //    （对齐 Hermes），导致 pool_changed 广播可能收不到。下方 empty 轮询是兜底。
     const ws = getWsClient();
     const unsubscribe = ws.addEventListener((eventName) => {
       if (eventName === 'provider.pool_changed' && mountedRef.current) {
         _cachedModels = null; // 清除缓存，强制重新拉取
-        refresh();
+        refresh(true);
       }
     });
 
@@ -209,6 +211,18 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
       unsubscribe();
     };
   }, [enabled, refresh, loadCurrentModel]);
+
+  // 🔴 FIX-C 兜底轮询：池空（error='empty'）时每 5s 重试，直到拿到模型。
+  // 根因：后端 broadcast_pool_changed 遍历 ws_clients，而前端主连接未注册
+  // （连接不带 session_id），事件永久丢失 → 保存 Provider 后下拉一直空。
+  // empty 不写缓存，故轮询每次都会真实请求；拿到模型后 error 清除、轮询自停。
+  useEffect(() => {
+    if (!enabled || error !== 'empty') return;
+    const timer = setInterval(() => {
+      if (mountedRef.current) refresh(true);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [enabled, error, refresh]);
 
   return {
     models,

@@ -741,6 +741,7 @@ export default function App() {
                 modelError={modelDiscovery.error}
                 onSelectModel={modelDiscovery.selectModel}
                 onOpenSettings={() => handleOpenOverlay('settings')}
+                onRefreshModels={() => modelDiscovery.refresh(true)}
               />
             </main>
             </div>

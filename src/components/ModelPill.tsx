@@ -23,6 +23,8 @@ interface ModelPillProps {
   onSelect?: (modelId: string) => void;
   /** 打开设置面板（池空时引导用户配置） */
   onOpenSettings?: () => void;
+  /** 下拉展开时强制刷新模型列表（FIX-C：兜底后端广播丢失） */
+  onRefresh?: () => void;
 }
 
 /**
@@ -34,13 +36,13 @@ interface ModelPillProps {
  *
  * 微交互：展开时箭头旋转 180°、菜单缩放入场（下拉组件内置）、选中项打勾高亮。
  */
-export default function ModelPill({ model, grouped = {}, loading, error, onSelect, onOpenSettings }: ModelPillProps) {
+export default function ModelPill({ model, grouped = {}, loading, error, onSelect, onOpenSettings, onRefresh }: ModelPillProps) {
   const groups = Object.values(grouped);
   const hasModels = groups.length > 0;
   const displayName = model || (loading ? '模型加载中' : hasModels ? '选择模型' : '无模型');
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={(open) => { if (open) onRefresh?.(); }}>
       <DropdownMenuTrigger asChild>
         <button
           className={cn(

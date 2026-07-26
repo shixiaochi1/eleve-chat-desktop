@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { call } from '../utils/bridge';
-import { loadSettings, saveSettings, slugifyProviderName, AUX_TASKS, findProvider, listPoolProviders, upsertPoolProvider, removePoolProvider, savePoolProviderKey, disconnectPoolProvider } from '../utils/settings-store';
+import { loadSettings, saveSettings, slugifyProviderName, AUX_TASKS, PROVIDER_REGISTRY, findProvider, listPoolProviders, upsertPoolProvider, removePoolProvider, savePoolProviderKey, disconnectPoolProvider } from '../utils/settings-store';
 import type { ProviderEntry, AuxTaskEntry, PoolProvider } from '../utils/settings-store';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { AlertTriangle, Upload, Download } from 'lucide-react';
@@ -29,7 +29,7 @@ interface Provider extends ProviderEntry {
   // Phase P5: 全局池状态
   hasKey?: boolean;
   credentialType?: string;
-  source?: string; // 'global_pool' | 'config' | undefined
+  source?: string; // 'global_pool' | 'preset' | 'config' | undefined
 }
 
 interface FallbackEntry {
@@ -151,11 +151,14 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     // 从后端加载 aux/fallback/del + 开机自启
     loadBackendConfig();
 
-    // Provider 列表：从全局池加载（唯一权威源，不再从 settings.json 读）
+    // Provider 列表：全局池（唯一权威源）+ 预设合并（FIX-A）
+    // F5 回归修复：纯池加载导致首次配置面板空白（预设消失）。
+    // 池中已有的以池为准；未配置的预设显示为建议卡片，保存时一键入池。
     (async () => {
+      let fromPool: Provider[] = [];
       try {
         const poolProviders = await listPoolProviders();
-        setProviders(poolProviders.map(pp => ({
+        fromPool = poolProviders.map(pp => ({
           id: pp.id,
           name: pp.name || pp.id,
           baseUrl: pp.base_url,
@@ -164,8 +167,16 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
           hasKey: pp.has_key,
           credentialType: pp.credential_type,
           source: 'global_pool' as const,
-        })));
+        }));
       } catch { /* pool 未初始化时忽略 */ }
+      const poolIds = new Set(fromPool.map(p => p.id));
+      const presets: Provider[] = PROVIDER_REGISTRY
+        .filter(r => !poolIds.has(r.id))
+        .map(r => ({
+          ...JSON.parse(JSON.stringify(r)),
+          source: 'preset' as const,
+        }));
+      setProviders([...fromPool, ...presets]);
     })();
 
     // 读取开机自启状态
@@ -371,18 +382,32 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     });
   };
 
-  // 显示名变化时自动生成 slug（异步调后端）
+  // 显示名变化时自动生成 slug
+  // FIX-D：预设厂商直接用预设 ID（aliyun-bailian），不走后端 slugify
+  // （后端拼音化会生成 a1-li3-yu2n-ba3i-lia4n 这种带声调的坏 ID），
+  // 同时自动填充 baseUrl + 默认模型，省去手动输入。
   const handleProviderNameChange = async (name: string) => {
     setNewProvider(prev => ({ ...prev, name }));
-    if (name.trim()) {
-      try {
-        const result = await slugifyProviderName(name.trim());
-        setNewProvider(prev => ({ ...prev, slug: result.slug, keyEnv: result.key_env }));
-      } catch {
-        // fallback: 简易英文slugify
-        const fallback = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-        setNewProvider(prev => ({ ...prev, slug: fallback || 'provider', keyEnv: (fallback || 'provider').toUpperCase().replace(/-/g, '_') + '_API_KEY' }));
-      }
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const preset = PROVIDER_REGISTRY.find(r => r.name === trimmed || r.id === trimmed);
+    if (preset) {
+      setNewProvider(prev => ({
+        ...prev,
+        slug: preset.id,
+        keyEnv: preset.id.toUpperCase().replace(/-/g, '_') + '_API_KEY',
+        baseUrl: preset.baseUrl,
+        modelsRaw: preset.models.join(', '),
+      }));
+      return;
+    }
+    try {
+      const result = await slugifyProviderName(trimmed);
+      setNewProvider(prev => ({ ...prev, slug: result.slug, keyEnv: result.key_env }));
+    } catch {
+      // fallback: 简易英文slugify
+      const fallback = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      setNewProvider(prev => ({ ...prev, slug: fallback || 'provider', keyEnv: (fallback || 'provider').toUpperCase().replace(/-/g, '_') + '_API_KEY' }));
     }
   };
 
@@ -469,11 +494,13 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       return;
     }
 
-    // Phase P5: 同步到全局 Provider 池（双写，兼容期）
+    // Phase P5: 同步到全局 Provider 池（池=唯一权威源）
     const poolPromises = providers.map(async (p) => {
       const transport = (p.transport && p.transport !== 'auto') ? p.transport : undefined;
       const modelsMap: Record<string, Record<string, unknown>> = {};
       for (const m of p.models) { modelsMap[m] = { context_length: 128000, max_output: 16384 }; }
+      // FIX-B 诊断日志：核实闭包捕获的 models 是否最新（下轮测试可删）
+      console.log('[SettingsPanel] upsert', p.id, 'models:', JSON.stringify(p.models));
       await upsertPoolProvider({
         id: p.id,
         name: p.name,
@@ -496,7 +523,16 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       if (fresh.length > 0) {
         setProviders(prev => prev.map(p => {
           const pp = fresh.find(f => f.id === p.id);
-          return pp ? { ...p, hasKey: pp.has_key, credentialType: pp.credential_type } : p;
+          if (!pp) return p;
+          // FIX-B：从权威源同步回 models + hasKey，预设卡片入池后标记 global_pool
+          const poolModels = pp.models.map(m => m.name);
+          return {
+            ...p,
+            models: poolModels.length > 0 ? poolModels : p.models,
+            hasKey: pp.has_key,
+            credentialType: pp.credential_type,
+            source: 'global_pool' as const,
+          };
         }));
       }
     } catch { /* 刷新失败不影响保存结果 */ }
