@@ -1,7 +1,7 @@
 /**
  * useModels — Provider + Model discovery hook
  *
- * 数据源：全局 Provider 池（listPoolProviders）→ settings.json providers 兜底。
+ * 数据源：全局 Provider 池（listPoolProviders，唯一权威源）。
  * 选中模型 → update_config 写 config.yaml model.ref（持久化默认模型）。
  * 会话级即时生效由 prompt.submit 携带 model 参数完成（usePromptActions）。
  * 当前模型 → get_config 读 model.ref。
@@ -10,7 +10,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { call } from '../utils/bridge';
-import { loadSettings, listPoolProviders } from '../utils/settings-store';
+import { listPoolProviders } from '../utils/settings-store';
 import type { PoolProvider } from '../utils/settings-store';
 
 export interface ModelItem {
@@ -63,36 +63,7 @@ function buildFromPool(providers: PoolProvider[]): { models: ModelItem[]; groupe
   return { models, grouped };
 }
 
-/** 兜底：从 settings.json providers 构建 */
-function buildFromSettings(): { models: ModelItem[]; grouped: GroupedModels } {
-  try {
-    const settings = loadSettings();
-    if (!settings?.providers) return { models: [], grouped: {} };
-    const models: ModelItem[] = [];
-    const grouped: GroupedModels = {};
-    for (const p of settings.providers) {
-      const group: ModelGroup = {
-        providerId: p.id,
-        providerName: p.name || p.id,
-        models: [],
-      };
-      if (Array.isArray(p.models)) {
-        for (const m of p.models) {
-          const ref = `${p.id}/${m}`;
-          const item: ModelItem = { id: ref, owned_by: p.id, providerName: p.name || p.id };
-          models.push(item);
-          group.models.push(item);
-        }
-      }
-      if (group.models.length > 0) {
-        grouped[p.id] = group;
-      }
-    }
-    return { models, grouped };
-  } catch {
-    return { models: [], grouped: {} };
-  }
-}
+
 
 export default function useModels({ enabled = true, sessionId = '' }: { enabled?: boolean; sessionId?: string } = {}) {
   const [models, setModels] = useState<ModelItem[]>([]);
@@ -120,10 +91,7 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
       const poolProviders = await listPoolProviders();
       let result = buildFromPool(poolProviders);
 
-      // Fallback: settings.json providers
-      if (result.models.length === 0) {
-        result = buildFromSettings();
-      }
+      // 池是唯一权威源，池空 = 无可用模型（不再兜底 settings.json）
 
       if (result.models.length > 0) {
         _cachedModels = result.models;
@@ -141,17 +109,9 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
         }
       }
     } catch (err: unknown) {
-      console.warn('[useModels] pool fetch failed, falling back to settings:', (err as Error).message);
-      const result = buildFromSettings();
-      if (result.models.length > 0) {
-        if (mountedRef.current) {
-          setModels(result.models);
-          setGrouped(result.grouped);
-        }
-      } else {
-        if (mountedRef.current) {
-          setError((err as Error).message);
-        }
+      console.warn('[useModels] pool fetch failed:', (err as Error).message);
+      if (mountedRef.current) {
+        setError((err as Error).message || '无法连接 Provider 池');
       }
     } finally {
       if (mountedRef.current) {
