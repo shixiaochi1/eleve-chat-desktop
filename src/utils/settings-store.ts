@@ -41,7 +41,6 @@ export interface SettingsV2 {
 
 // ====== 提供商注册表预设（含 Base URL 和模型，无 Key） ======
 export const PROVIDER_REGISTRY: ProviderEntry[] = [
-  { id: 'zhongguo-yidong', name: '中国移动',   baseUrl: 'https://zhenze-huhehaote.cmecloud.cn/api/coding/v1', models: ['cm-code-latest'] },
   { id: 'aliyun-bailian',  name: '阿里云百炼', baseUrl: 'https://coding.dashscope.aliyuncs.com/v1',  models: ['qwen3-coder-plus', 'qwen3.5-plus', 'qwen3-coder-next'] },
 ];
 
