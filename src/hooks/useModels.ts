@@ -2,7 +2,8 @@
  * useModels — Provider + Model discovery hook
  *
  * 数据源：全局 Provider 池（listPoolProviders）→ settings.json providers 兜底。
- * 选中模型 → update_config 写 config.yaml model.ref（与设置面板同逻辑）。
+ * 选中模型 → update_config 写 config.yaml model.ref（持久化默认模型）。
+ * 会话级即时生效由 prompt.submit 携带 model 参数完成（usePromptActions）。
  * 当前模型 → get_config 读 model.ref。
  *
  * Returns: { models, grouped, loading, error, refresh, selectedModel, selectModel }
@@ -93,7 +94,7 @@ function buildFromSettings(): { models: ModelItem[]; grouped: GroupedModels } {
   }
 }
 
-export default function useModels({ enabled = true, sessionId = '' }: { enabled?: boolean; sessionId?: string } = {}) {
+export default function useModels({ enabled = true }: { enabled?: boolean } = {}) {
   const [models, setModels] = useState<ModelItem[]>([]);
   const [grouped, setGrouped] = useState<GroupedModels>({});
   const [loading, setLoading] = useState(false);
@@ -180,7 +181,11 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
   }, []);
 
   /**
-   * 选中模型 → 写 config.yaml model.ref（与设置面板 handleSave 同逻辑）
+   * 选中模型 → 写 config.yaml model.ref（持久化默认模型）
+   *
+   * 单一职责：ModelPill 选中 = 设为默认。
+   * 会话级即时生效由 prompt.submit 携带 model 参数完成（usePromptActions），
+   * 无需额外 provider.switch RPC（与 prompt.submit 重复）。
    */
   const selectModel = useCallback(async (modelId: string) => {
     if (!modelId) return;
@@ -189,30 +194,20 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
       const slashIdx = modelId.indexOf('/');
       const provider = slashIdx > 0 ? modelId.slice(0, slashIdx) : modelId;
       const model = slashIdx > 0 ? modelId.slice(slashIdx + 1) : '';
-      if (sessionId) {
-        // T5.4: session 级切换（不写 config.yaml，ModelPill 语义修正）
-        await call('provider.switch', {
-          session_id: sessionId,
-          provider_id: provider,
-          model,
-        });
-      } else {
-        // 无 session 时 fallback 写 config.yaml（Settings 面板同逻辑）
-        await call('update_config', {
-          config: {
-            model: {
-              ref: modelId,
-              provider,
-              default: model,
-            },
+      await call('update_config', {
+        config: {
+          model: {
+            ref: modelId,
+            provider,
+            default: model,
           },
-        });
-      }
+        },
+      });
     } catch (err: unknown) {
       console.warn('[useModels] selectModel failed:', (err as Error).message);
       setError((err as Error).message);
     }
-  }, [sessionId]);
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;

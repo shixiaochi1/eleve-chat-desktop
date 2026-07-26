@@ -128,7 +128,7 @@ export default function App() {
   const sess = useSessions();
 
   // ── model discovery（依赖 sess.sessionId，必须在 sess 之后） ──
-  const modelDiscovery = useModels({ enabled: portReady, sessionId: sess.sessionId ?? '' });
+  const modelDiscovery = useModels({ enabled: portReady });
 
   // ── gateway health monitoring ──
   const gatewayHealth = useGatewayHealth({
