@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { renderMarkdown } from '../utils/markdown';
 import { resolveMediaText } from '../utils/media';
 import { formatMessageTime } from '../utils/time';
-import { CopyIcon, CheckIcon, RegenerateIcon, BotIcon, Edit3Icon } from './Icons';
-import { notifySuccess } from '../utils/notifications';
+import { CopyIcon, CheckIcon, RegenerateIcon, BotIcon } from './Icons';
 import { cn } from '@/lib/utils';
 
 interface AgentAttribution {
@@ -17,7 +17,6 @@ interface MessageBubbleProps {
   streaming?: boolean;
   timestamp?: number;
   onRegenerate?: () => void;
-  onEdit?: (text: string) => void;
   agentAttribution?: AgentAttribution;
 }
 
@@ -39,13 +38,10 @@ function mayHaveLocalImage(text?: string): boolean {
  * 只做简单换行显示。流式结束后一次性渲染完整 Markdown。
  * 避免每次 content 变化都全量重渲染 → O(n²) DOM 操作 → 内存/CPU 爆炸
  */
-export default function MessageBubble({ type, content, streaming, timestamp, onRegenerate, onEdit, agentAttribution }: MessageBubbleProps) {
+export default function MessageBubble({ type, content, streaming, timestamp, onRegenerate, agentAttribution }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [displayContent, setDisplayContent] = useState(content);
   const [zoomedSrc, setZoomedSrc] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
-  const [editText, setEditText] = useState('');
-  const editRef = useRef<HTMLTextAreaElement | null>(null);
   const textRef = useRef<HTMLSpanElement | null>(null);
 
   // 解析本地图片引用（仅非流式时，避免流式期间频繁异步 resolve）
@@ -86,8 +82,8 @@ export default function MessageBubble({ type, content, streaming, timestamp, onR
 
   useEffect(() => {
     if (!zoomedSrc) return;
-    const close = (e: KeyboardEvent | MouseEvent) => {
-      if ((e as KeyboardEvent).key === 'Escape' || e.type === 'click') setZoomedSrc(null);
+    const close = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setZoomedSrc(null);
     };
     document.addEventListener('keydown', close);
     return () => document.removeEventListener('keydown', close);
@@ -117,79 +113,29 @@ export default function MessageBubble({ type, content, streaming, timestamp, onR
   }
 
   if (type === 'user') {
-    // 编辑模式
-    if (editing) {
-      return (
-        <div className="bg-user-bubble rounded-2xl rounded-br-sm px-4 py-2.5 text-sm max-w-[80%] ml-auto border border-user-bubble-border">
-          <textarea
-            ref={editRef}
-            className="desktop-input-chrome w-full rounded-md border px-3 py-2 text-sm outline-none resize-none min-h-[60px]"
-            value={editText}
-            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setEditText(e.target.value)}
-            onKeyDown={(e: React.KeyboardEvent) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (editText.trim() && editText.trim() !== content) {
-                  onEdit?.(editText.trim());
-                  notifySuccess('消息已编辑');
-                }
-                setEditing(false);
-              }
-              if (e.key === 'Escape') setEditing(false);
-            }}
-            autoFocus
-          />
-          <div className="flex gap-2 justify-end mt-2">
-            <button
-              className={cn(
-                'inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md text-xs font-medium',
-                'transition-all outline-none h-7 px-3',
-                'hover:bg-accent hover:text-accent-foreground'
-              )}
-              onClick={() => setEditing(false)}
-            >取消</button>
-            <button
-              className={cn(
-                'inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md text-xs font-medium',
-                'transition-all outline-none h-7 px-3',
-                'bg-primary text-primary-foreground hover:bg-primary/90',
-                'disabled:pointer-events-none disabled:opacity-50'
-              )}
-              disabled={!editText.trim() || editText.trim() === content}
-              onClick={() => {
-                if (editText.trim() && editText.trim() !== content) {
-                  onEdit?.(editText.trim());
-                  notifySuccess('消息已编辑');
-                }
-                setEditing(false);
-              }}
-            >确认</button>
-          </div>
-        </div>
-      );
-    }
     return (
-      <div className="w-fit max-w-[80%] ml-auto">
-        <div className="bg-user-bubble text-foreground rounded-2xl rounded-br-sm px-4 py-2.5 text-sm leading-relaxed relative group select-text border border-user-bubble-border shadow-sm">
+      <div className="group w-fit max-w-[80%] ml-auto">
+        <div className="bg-user-bubble text-foreground rounded-2xl rounded-br-sm px-4 py-2.5 text-sm leading-relaxed select-text border border-user-bubble-border shadow-sm">
           <span className="whitespace-pre-wrap break-words">{content}</span>
+        </div>
+        {/* 操作栏 + 时间 — 右下角：时间常显，复制 hover 显示（与 agent 气泡一致） */}
+        <div className="flex items-center gap-1.5 mt-0.5 justify-end">
           <button
-            className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent"
-            title="编辑消息"
-            onClick={() => { setEditText(content || ''); setEditing(true); }}
-          >
-            <Edit3Icon size={12} />
-          </button>
-          <button
-            className="absolute bottom-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent"
+            className={cn(
+              'inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md p-0.5 text-xs',
+              'transition-all outline-none opacity-0 group-hover:opacity-100',
+              'text-muted-foreground hover:text-foreground hover:bg-accent',
+              copied && 'opacity-100 text-success'
+            )}
             title={copied ? '已复制' : '复制'}
             onClick={handleCopy}
           >
             {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
           </button>
+          {timestamp != null && (
+            <span className="text-[10px] text-muted-foreground/70 select-none">{formatMessageTime(timestamp)}</span>
+          )}
         </div>
-        {timestamp != null && (
-          <div className="text-[10px] text-muted-foreground/70 text-right mt-0.5 select-none">{formatMessageTime(timestamp)}</div>
-        )}
       </div>
     );
   }
@@ -198,8 +144,6 @@ export default function MessageBubble({ type, content, streaming, timestamp, onR
   // 流式期间：纯文本 + 简单换行（跳过 marked/DOMPurify/addCopyButtons，根治 O(n²) 重渲染）
   // 流式结束：完整 Markdown 渲染（含代码高亮 + 复制按钮）
   if (streaming) {
-    // 🔴 w-fit：气泡宽度跟随内容（修复 flex stretch 拉满问题）
-    // 流式期间不显示操作栏（内容未定稿），结束后统一渲染
     return (
       <div className="w-fit max-w-[85%] min-w-0 select-text">
         <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed border border-border shadow-sm overflow-hidden">
@@ -212,8 +156,6 @@ export default function MessageBubble({ type, content, streaming, timestamp, onR
   }
 
   // 非流式：完整 Markdown 渲染（useMemo 缓存）
-  // 🔴 w-fit：气泡宽度跟随内容（修复 flex stretch 拉满问题）
-  // 🔴 操作栏移出气泡：hover 显示，气泡最小宽度不再被按钮行撑开
   return (
     <div className="group w-fit max-w-[85%] min-w-0 select-text">
       <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed border border-border shadow-sm overflow-hidden">
@@ -229,20 +171,7 @@ export default function MessageBubble({ type, content, streaming, timestamp, onR
             )}
           </div>
         )}
-        <span ref={textRef} className="prose prose-sm max-w-none [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_img]:max-w-full" dangerouslySetInnerHTML={{ __html: renderedHtml || '<em>(无内容)</em>' }} />
-        {zoomedSrc && (
-          <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center"
-            style={{ background: 'var(--ui-bg-chrome)', cursor: 'zoom-out' }}
-            onClick={() => setZoomedSrc(null)}
-          >
-            <img
-              src={zoomedSrc}
-              className="max-w-[95vw] max-h-[95vh] object-contain"
-              alt="放大预览"
-            />
-          </div>
-        )}
+        <span ref={textRef} className="prose max-w-none [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_img]:max-w-full" dangerouslySetInnerHTML={{ __html: renderedHtml || '<em>(无内容)</em>' }} />
       </div>
       {/* 操作栏 + 时间 — 右下角：时间常显，按钮 hover 显示 */}
       <div className="flex items-center gap-1.5 mt-1 justify-end">
@@ -273,6 +202,21 @@ export default function MessageBubble({ type, content, streaming, timestamp, onR
           <span className="text-[10px] text-muted-foreground/70 select-none">{formatMessageTime(timestamp)}</span>
         )}
       </div>
+      {/* 图片放大灯箱 — portal 到 body，避免外层 contain-[layout_paint] 裁剪 fixed 定位 */}
+      {zoomedSrc && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center"
+          style={{ background: 'var(--ui-bg-chrome)', cursor: 'zoom-out' }}
+          onClick={() => setZoomedSrc(null)}
+        >
+          <img
+            src={zoomedSrc}
+            className="max-w-[95vw] max-h-[95vh] object-contain"
+            alt="放大预览"
+          />
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

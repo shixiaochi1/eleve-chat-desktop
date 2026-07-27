@@ -187,6 +187,7 @@ export function useMessageStream({
             role: 'assistant' as const,
             parts: seed(),
             pending: true,
+            timestamp: Date.now(),
           },
         ]
       })
@@ -335,7 +336,7 @@ export function useMessageStream({
 
         // No pending message — create a completed one
         if (finalText) {
-          return [...prev, { id: genId(), role: 'assistant' as const, parts: [textPart(finalText)], pending: false }]
+          return [...prev, { id: genId(), role: 'assistant' as const, parts: [textPart(finalText)], pending: false, timestamp: Date.now() }]
         }
         return prev
       })
@@ -661,7 +662,7 @@ export function useMessageStream({
       if (getMessages().some(m => m.id === errorStreamId)) {
         updateMessage(errorStreamId, { error: msg, pending: false })
       } else {
-        storeSetMessages((prev) => [...prev, { id: genId(), role: 'assistant', parts: [textPart(msg)], error: msg } as ChatMessage]);
+        storeSetMessages((prev) => [...prev, { id: genId(), role: 'assistant', parts: [textPart(msg)], error: msg, timestamp: Date.now() } as ChatMessage]);
       }
       setConnectionStatus('error');
       import('../utils/notifications').then(({ notifyError }) => {

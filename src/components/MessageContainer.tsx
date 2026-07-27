@@ -511,12 +511,7 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
 
       const flushToolBuffer = () => {
         if (toolBuffer.length === 0) return
-        if (toolBuffer.length === 1) {
-          // 单工具 — 也走 ToolCallGroup（内部会渲染为独立卡片）
-          renderItems.push({ kind: 'tool-group', key: bufferKey, tools: [...toolBuffer] })
-        } else {
-          renderItems.push({ kind: 'tool-group', key: bufferKey, tools: [...toolBuffer] })
-        }
+        renderItems.push({ kind: 'tool-group', key: bufferKey, tools: [...toolBuffer] })
         toolBuffer = []
         bufferKey = ''
       }
