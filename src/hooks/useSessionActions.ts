@@ -1,4 +1,4 @@
-import { useCallback, type MutableRefObject } from 'react';
+import { useCallback } from 'react';
 import { activateSession } from '../utils/api';
 import { setMessages as storeSetMessages, getMessages } from '../store/messages';
 import * as storage from '../utils/storage';
@@ -27,14 +27,12 @@ export function useSessionActions({
   genId,
   setDebugInfo,
   setSessionListVersion,
-  lastTimeRef,
   resetSendingLock,
 }: {
   sess: SessionManagerHandle
   genId: () => string
   setDebugInfo: React.Dispatch<React.SetStateAction<Record<string, unknown>>>
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
-  lastTimeRef?: MutableRefObject<string>
   resetSendingLock?: () => void
 }): {
   handleSwitchSession: (id: string) => Promise<void>
@@ -50,7 +48,6 @@ export function useSessionActions({
     }
     sess.switchTo(id);
     sess.refresh();
-    if (lastTimeRef) lastTimeRef.current = '';
     setDebugInfo((prev) => ({ ...prev, sessionId: id, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
 
     try {
@@ -78,7 +75,7 @@ export function useSessionActions({
         }
       });
     }
-  }, [sess, genId, setDebugInfo, lastTimeRef, resetSendingLock]);
+  }, [sess, genId, setDebugInfo, resetSendingLock]);
 
   // ── session delete handler ──
   const handleDeleteSession = useCallback(async (id: string) => {

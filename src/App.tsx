@@ -245,7 +245,6 @@ export default function App() {
     genId,
     setDebugInfo: setDebugInfo as any,
     setSessionListVersion,
-    lastTimeRef,
     resetSendingLock: undefined, // will be wired after usePromptActions
   });
 
