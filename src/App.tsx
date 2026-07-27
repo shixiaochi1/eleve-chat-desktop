@@ -356,11 +356,6 @@ export default function App() {
         if (restoredId && restoredId !== sess.sessionId) {
           sess.setSessionId(restoredId);
         }
-        // 对齐 Hermes Desktop: 不在启动时自动创建 session
-        // Hermes Desktop: session 在用户发消息时通过 session.create RPC 创建
-        if (false && !restoredId && !sess.sessionId) {
-          // 已删除：不再在启动时创建 session
-        }
         const restoredCache = storage.load('msg_cache', {} as Record<string, ChatMessage[]>) as Record<string, ChatMessage[]>;
         const restoredTitles = storage.load('titles', {} as Record<string, string>) as Record<string, string>;
         if (Object.keys(restoredCache).length > 0 && Object.keys(sess.msgCache).length === 0) {
@@ -405,11 +400,6 @@ export default function App() {
         const restoredId = storage.load('session_id', null) as string | null;
         if (restoredId && restoredId !== sess.sessionId) {
           sess.setSessionId(restoredId);
-        }
-        // 对齐 Hermes Desktop: 不在启动时自动创建 session
-        // Hermes Desktop: session 在用户发消息时通过 session.create RPC 创建
-        if (false && !restoredId && !sess.sessionId) {
-          // 已删除：不再在启动时创建 session
         }
         const restoredCache = storage.load('msg_cache', {} as Record<string, ChatMessage[]>) as Record<string, ChatMessage[]>;
         const restoredTitles = storage.load('titles', {} as Record<string, string>) as Record<string, string>;

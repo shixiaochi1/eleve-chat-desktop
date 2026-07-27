@@ -39,7 +39,9 @@ interface ModelPillProps {
 export default function ModelPill({ model, grouped = {}, loading, error, onSelect, onOpenSettings, onRefresh }: ModelPillProps) {
   const groups = Object.values(grouped);
   const hasModels = groups.length > 0;
-  const displayName = model || (loading ? '模型加载中' : hasModels ? '选择模型' : '无模型');
+  // P3：友好显示名 — "provider/model" ref 只显示模型名（完整 ref 在 title/下拉项里）
+  const shortModel = model ? (model.includes('/') ? model.slice(model.indexOf('/') + 1) : model) : '';
+  const displayName = shortModel || (loading ? '模型加载中' : hasModels ? '选择模型' : '无模型');
 
   return (
     <DropdownMenu onOpenChange={(open) => { if (open) onRefresh?.(); }}>
