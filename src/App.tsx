@@ -42,6 +42,7 @@ import RightSidebarTabs from './components/RightSidebarTabs';
 import CommandCenter from './components/CommandCenter';
 import Toast from './components/Toast';
 import GridModeView from './components/GridModeView';
+import { toggleDeepSeek, hideDeepSeek } from './utils/deepseek-webview';
 import type { Window } from '@tauri-apps/api/window';
 
 // ── Tauri window API (lazy) ──
@@ -87,6 +88,8 @@ export default function App() {
   const [currentProfile, setCurrentProfile] = useState<string>('default');  // F9+ 当前活动 Profile（多 Profile 全局状态）
   const [viewMode, setViewMode] = useState<'single' | 'grid'>('single');  // 多 Agent 视图模式
   const [agentCount, setAgentCount] = useState<number>(1);  // Agent 数量（宫格按钮禁用判断）
+  const [deepseekVisible, setDeepseekVisible] = useState<boolean>(false);  // DeepSeek 嵌入 WebView 显隐
+  const chatCardRef = useRef<HTMLDivElement>(null);  // DeepSeek WebView 锚点
   const [activeClarify, setActiveClarify] = useState<{ clarify_id: string; question: string; choices: string[] } | null>(null);
   const [activeApproval, setActiveApproval] = useState<{ command: string; description: string; pattern: string; choices: string[]; run_id: string } | null>(null);
   const [activeSudo, setActiveSudo] = useState<{ request_id: string; prompt?: string } | null>(null);
@@ -120,7 +123,19 @@ export default function App() {
 
   // ── 多 Agent UI：Ctrl+G 切换单视图/宫格 ──
   const toggleViewMode = useCallback(() => {
-    setViewMode((prev) => (prev === 'single' ? 'grid' : 'single'));
+    setViewMode((prev) => {
+      const next = prev === 'single' ? 'grid' : 'single';
+      if (next === 'grid') hideDeepSeek().then(() => setDeepseekVisible(false));
+      return next;
+    });
+  }, []);
+
+  // ── DeepSeek 嵌入 WebView toggle ──
+  const handleToggleDeepSeek = useCallback(async () => {
+    const anchor = chatCardRef.current;
+    if (!anchor) return;
+    const nowVisible = await toggleDeepSeek(anchor);
+    setDeepseekVisible(nowVisible);
   }, []);
 
   useEffect(() => {
@@ -133,6 +148,13 @@ export default function App() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, []);
+
+  // ── 面板切换时自动隐藏 DeepSeek WebView ──
+  useEffect(() => {
+    if (deepseekVisible) {
+      hideDeepSeek().then(() => setDeepseekVisible(false));
+    }
+  }, [activePanel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── session management（必须在 handleProfileChange 之前，切换 Agent 需要重置 session） ──
   const sess = useSessions();
@@ -623,7 +645,7 @@ export default function App() {
         >
           {/* 左侧面板：图标栏 + 侧边面板卡片 */}
           <Pane side="left" className="pane-left-column">
-            <IconBar activePanel={activePanel} onPanelChange={setActivePanel} onOpenOverlay={handleOpenOverlay} gatewayOnline={gatewayHealth.online} onToggleFiles={handleToggleFiles} />
+            <IconBar activePanel={activePanel} onPanelChange={setActivePanel} onOpenOverlay={handleOpenOverlay} gatewayOnline={gatewayHealth.online} onToggleFiles={handleToggleFiles} deepseekVisible={deepseekVisible} onToggleDeepSeek={handleToggleDeepSeek} />
             {activePanel && (
               <div className="side-panel-card">
                 <SidePanel
@@ -664,7 +686,7 @@ export default function App() {
                 <GridModeView currentProfile={currentProfile} onExitGrid={toggleViewMode} />
               </div>
             ) : (
-            <div className="chat-card">
+            <div className="chat-card" ref={chatCardRef}>
             {responsiveCollapsed && (
               <button
                 className="absolute top-2 left-2 z-20 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground transition-colors"

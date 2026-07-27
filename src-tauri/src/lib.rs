@@ -358,6 +358,70 @@ fn resolve_media(text: String) -> Result<serde_json::Value, String> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// DEEPSEEK EMBED — 子 WebView 创建（带 initialization_script 注入）
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// 创建 DeepSeek 嵌入子 WebView（带布局裁剪 + 主题注入）
+///
+/// 前端通过 invoke('create_deepseek_webview', { x, y, width, height }) 调用。
+/// 已存在时复用（show + 重新定位），不重复创建。
+/// 注入脚本通过 include_str! 编译期嵌入，零运行时文件依赖。
+#[tauri::command]
+fn create_deepseek_webview(
+    window: tauri::Window,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<String, String> {
+    use tauri::{LogicalPosition, LogicalSize};
+
+    const LABEL: &str = "deepseek-embed";
+
+    // 已存在 → 复用：show + 重新定位 + 聚焦
+    for wv in window.webviews() {
+        if wv.label() == LABEL {
+            wv.show().map_err(|e| e.to_string())?;
+            wv.set_position(LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
+            wv.set_size(LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
+            wv.set_focus().map_err(|e| e.to_string())?;
+            return Ok(LABEL.to_string());
+        }
+    }
+
+    // 组合注入脚本：主题 CSS（作为 <style> 注入）+ 布局裁剪 JS
+    let theme_css = include_str!("../inject/deepseek-theme.css");
+    let inject_js = include_str!("../inject/deepseek-inject.js");
+    let init_script = format!(
+        "(function(){{var s=document.createElement('style');s.textContent={:?};(document.head||document.documentElement).appendChild(s);}})();\n{}",
+        theme_css, inject_js
+    );
+
+    let url = "https://chat.deepseek.com/"
+        .parse()
+        .map_err(|e| format!("URL parse error: {}", e))?;
+
+    let builder = tauri::webview::WebviewBuilder::new(
+        LABEL,
+        tauri::WebviewUrl::External(url),
+    )
+    .initialization_script(&init_script)
+    .focused(true)
+    .disable_drag_drop_handler();
+
+    let wv = window
+        .add_child(
+            builder,
+            LogicalPosition::new(x, y),
+            LogicalSize::new(width, height),
+        )
+        .map_err(|e| format!("create deepseek webview failed: {}", e))?;
+
+    eprintln!("[TAURI] DeepSeek webview created: {}", wv.label());
+    Ok(wv.label().to_string())
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ELEVED 子进程管理
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -857,6 +921,7 @@ pub fn run() {
             get_auto_start,
             set_auto_start,
             resolve_media,
+            create_deepseek_webview,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();

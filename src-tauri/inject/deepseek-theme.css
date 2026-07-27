@@ -1,0 +1,89 @@
+/**
+ * DeepSeek 嵌入主题适配 CSS — 通过 initialization_script 注入
+ *
+ * 目标：让 DeepSeek 页面的视觉风格融入 Eleve 桌面端。
+ * 策略：用 CSS 变量覆盖 DeepSeek 自身的主题色，
+ *       圆角/字体/间距向 Eleve 设计系统靠拢。
+ *
+ * 维护：DeepSeek 改版时只需更新此文件。
+ */
+
+/* ── 全局字体对齐 Eleve ── */
+body, input, textarea, button, select {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans SC", sans-serif !important;
+}
+
+/* ── 背景色：跟随 Eleve 深蓝背板 ── */
+body,
+[class*="chat"],
+[class*="Chat"],
+[class*="message"],
+[class*="Message"] {
+  background-color: var(--eleve-bg, #0f1923) !important;
+}
+
+/* ── 输入区：圆角 + 边框适配 ── */
+textarea,
+[class*="input-area"],
+[class*="InputArea"],
+[class*="chat-input"],
+[class*="ChatInput"],
+[class*="composer"],
+[class*="Composer"] {
+  border-radius: 12px !important;
+  border-color: var(--eleve-border, rgba(255,255,255,0.08)) !important;
+  background-color: var(--eleve-surface, rgba(255,255,255,0.04)) !important;
+}
+
+/* ── 消息气泡：圆角 12px（对齐 Eleve .icard） ── */
+[class*="bubble"],
+[class*="Bubble"],
+[class*="message-content"],
+[class*="MessageContent"] {
+  border-radius: 12px !important;
+}
+
+/* ── 用户气泡：Eleve 主题色 ── */
+[class*="user"] [class*="bubble"],
+[class*="User"] [class*="Bubble"],
+[class*="human"] [class*="message"],
+[class*="Human"] [class*="Message"] {
+  background-color: var(--eleve-accent, rgba(99,140,255,0.15)) !important;
+}
+
+/* ── 按钮：圆角统一 ── */
+button, [role="button"] {
+  border-radius: 8px !important;
+}
+
+/* ── 滚动条：细窄风格（对齐 Eleve） ── */
+::-webkit-scrollbar {
+  width: 6px !important;
+  height: 6px !important;
+}
+::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12) !important;
+  border-radius: 3px !important;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.2) !important;
+}
+
+/* ── 代码块：深色背景 ── */
+pre, code, [class*="code-block"], [class*="CodeBlock"] {
+  border-radius: 8px !important;
+  background-color: rgba(0,0,0,0.3) !important;
+}
+
+/* ── 思考过程折叠区（DeepThink）：保留但视觉降级 ── */
+[class*="thinking"],
+[class*="Thinking"],
+[class*="reasoning"],
+[class*="Reasoning"] {
+  opacity: 0.85 !important;
+  border-left: 2px solid var(--eleve-border, rgba(255,255,255,0.08)) !important;
+}
