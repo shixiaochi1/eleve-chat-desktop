@@ -108,7 +108,7 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
 
   if (type === 'error') {
     return (
-      <div className="bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2 text-sm text-destructive">
+      <div className="w-fit max-w-[85%] bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2 text-sm text-destructive">
         {content}
       </div>
     );
@@ -191,82 +191,76 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
   // 流式期间：纯文本 + 简单换行（跳过 marked/DOMPurify/addCopyButtons，根治 O(n²) 重渲染）
   // 流式结束：完整 Markdown 渲染（含代码高亮 + 复制按钮）
   if (streaming) {
+    // 🔴 w-fit：气泡宽度跟随内容（修复 flex stretch 拉满问题）
+    // 流式期间不显示操作栏（内容未定稿），结束后统一渲染
     return (
-      <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-3 py-2 text-sm border border-border shadow-sm max-w-[85%] overflow-hidden min-w-0 select-text group">
-        <span ref={textRef} className="whitespace-pre-wrap break-words">
-          {displayContent || ''}
-        </span>
-        <div className="flex gap-1 mt-1.5 justify-end">
-          <button
-            className={cn(
-              'inline-flex shrink-0 cursor-pointer items-center justify-center rounded text-xs',
-              'transition-all outline-none opacity-50 hover:opacity-100',
-              'text-muted-foreground hover:text-foreground',
-              copied && 'opacity-100'
-            )}
-            title={copied ? '已复制' : '复制'}
-            onClick={handleCopy}
-          >
-            {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-          </button>
+      <div className="w-fit max-w-[85%] min-w-0 select-text">
+        <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-3 py-2 text-sm border border-border shadow-sm overflow-hidden">
+          <span ref={textRef} className="whitespace-pre-wrap break-words">
+            {displayContent || ''}
+          </span>
         </div>
       </div>
     );
   }
 
   // 非流式：完整 Markdown 渲染（useMemo 缓存）
+  // 🔴 w-fit：气泡宽度跟随内容（修复 flex stretch 拉满问题）
+  // 🔴 操作栏移出气泡：hover 显示，气泡最小宽度不再被按钮行撑开
   return (
-    <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-3 py-2 text-sm border border-border shadow-sm max-w-[85%] overflow-hidden min-w-0 select-text">
-      {agentAttribution && (
-        <div
-          className="flex items-center gap-1 text-xs text-muted-foreground mb-1.5"
-          title={`来自委托 Agent: ${agentAttribution.model || ''} — ${agentAttribution.goal || ''}`}
-        >
-          <BotIcon size={10} />
-          <span className="font-medium">{agentAttribution.model || '子 Agent'}</span>
-          {agentAttribution.goal && (
-            <span className="text-muted-foreground/70 truncate">{agentAttribution.goal}</span>
-          )}
-        </div>
-      )}
-      <span ref={textRef} className="prose prose-sm max-w-none [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_img]:max-w-full" dangerouslySetInnerHTML={{ __html: renderedHtml || '<em>(无内容)</em>' }} />
-      <div className="flex gap-1 mt-1.5 justify-end">
+    <div className="group w-fit max-w-[85%] min-w-0 select-text">
+      <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-3 py-2 text-sm border border-border shadow-sm overflow-hidden">
+        {agentAttribution && (
+          <div
+            className="flex items-center gap-1 text-xs text-muted-foreground mb-1.5"
+            title={`来自委托 Agent: ${agentAttribution.model || ''} — ${agentAttribution.goal || ''}`}
+          >
+            <BotIcon size={10} />
+            <span className="font-medium">{agentAttribution.model || '子 Agent'}</span>
+            {agentAttribution.goal && (
+              <span className="text-muted-foreground/70 truncate">{agentAttribution.goal}</span>
+            )}
+          </div>
+        )}
+        <span ref={textRef} className="prose prose-sm max-w-none [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_img]:max-w-full" dangerouslySetInnerHTML={{ __html: renderedHtml || '<em>(无内容)</em>' }} />
+        {zoomedSrc && (
+          <div
+            className="fixed inset-0 z-[9999] flex items-center justify-center"
+            style={{ background: 'var(--ui-bg-chrome)', cursor: 'zoom-out' }}
+            onClick={() => setZoomedSrc(null)}
+          >
+            <img
+              src={zoomedSrc}
+              className="max-w-[95vw] max-h-[95vh] object-contain"
+              alt="放大预览"
+            />
+          </div>
+        )}
+      </div>
+      {/* 操作栏 — 气泡外，hover 显示 */}
+      <div className="flex gap-0.5 mt-1 opacity-0 translate-y-[-2px] transition-all duration-150 group-hover:opacity-100 group-hover:translate-y-0 pointer-events-none group-hover:pointer-events-auto">
         <button
           className={cn(
-            'inline-flex shrink-0 cursor-pointer items-center justify-center rounded text-xs',
-            'transition-all outline-none opacity-50 hover:opacity-100',
-            'text-muted-foreground hover:text-foreground',
-            copied && 'opacity-100'
+            'inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md p-1 text-xs',
+            'transition-all outline-none',
+            'text-muted-foreground hover:text-foreground hover:bg-accent',
+            copied && 'opacity-100 text-success'
           )}
           title={copied ? '已复制' : '复制'}
           onClick={handleCopy}
         >
-          {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+          {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
         </button>
         {onRegenerate && (
           <button
-            className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded text-xs text-muted-foreground opacity-50 hover:opacity-100 hover:text-foreground transition-all outline-none"
+            className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-all outline-none"
             title="重新生成"
             onClick={onRegenerate}
           >
-            <RegenerateIcon size={14} />
+            <RegenerateIcon size={13} />
           </button>
         )}
       </div>
-
-      {zoomedSrc && (
-        <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center"
-          style={{ background: 'var(--ui-bg-chrome)', cursor: 'zoom-out' }}
-          onClick={() => setZoomedSrc(null)}
-        >
-          <img
-            src={zoomedSrc}
-            className="max-w-[95vw] max-h-[95vh] object-contain"
-            alt="放大预览"
-          />
-        </div>
-      )}
     </div>
   );
 }
