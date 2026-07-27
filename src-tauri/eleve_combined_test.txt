@@ -1,4 +1,0 @@
-=== Combined Test File ===
-Test Time: 2026-06-05
-Test Content: File + Kanban + SubAgent
-Status: Phase 1 PASSED
