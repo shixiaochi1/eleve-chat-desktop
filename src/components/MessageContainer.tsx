@@ -494,7 +494,7 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
   if (m.parts && m.parts.length > 0) {
     if (m.role === 'user') {
       const text = m.parts.filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text').map(p => p.text).join('')
-      return <div className="flex justify-end px-4 mb-1.5"><MessageBubble type="user" content={text} /></div>
+      return <div className="flex justify-end px-4 mb-1.5"><MessageBubble type="user" content={text} timestamp={m.timestamp} /></div>
     }
 
     if (m.role === 'assistant') {
@@ -582,6 +582,7 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
                     type="agent"
                     content={item.text}
                     streaming={!!m.pending && item.isLast}
+                    timestamp={m.timestamp}
                     onRegenerate={onRegenerate ? () => onRegenerate(m) : undefined}
                   />
                 )
@@ -607,7 +608,7 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
   let element
   switch (m.type) {
     case 'user':
-      element = <MessageBubble type="user" content={m.content} />
+      element = <MessageBubble type="user" content={m.content} timestamp={m.timestamp} />
       break
     case 'agent':
       element = (
@@ -615,6 +616,7 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
           type="agent"
           content={m.content}
           streaming={!!m._streaming}
+          timestamp={m.timestamp}
           onRegenerate={onRegenerate ? () => onRegenerate(m) : undefined}
           agentAttribution={m.agentAttribution as unknown as Parameters<typeof MessageBubble>[0]['agentAttribution']}
         />

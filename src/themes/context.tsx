@@ -97,7 +97,7 @@ const mixesFor = (isDark: boolean) => ({
   '--theme-mix-sidebar': '100%',
   '--theme-mix-card': isDark ? '38%' : '22%',
   '--theme-mix-elevated': isDark ? '46%' : '28%',
-  '--theme-mix-bubble': isDark ? '46%' : '0%',
+  '--theme-mix-bubble': isDark ? '46%' : '100%',
 })
 
 /** 合并预设主题颜色和自定义覆盖 */

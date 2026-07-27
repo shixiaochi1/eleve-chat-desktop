@@ -54,10 +54,6 @@ let tauriWindow: Window | null = null;
 })();
 
 // ── helpers ──
-function timeLabel(): string {
-  const d = new Date();
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
-}
 
 export default function App() {
   // ── 三栏布局 state ──
@@ -214,16 +210,6 @@ export default function App() {
     });
   }, []);
 
-  // ── time badge — derived from timestamps, not separate messages ──
-  const lastTimeRef = useRef<string>('');
-  const addTimeBadge = useCallback(() => {
-    const t = timeLabel();
-    if (t === lastTimeRef.current) return;
-    lastTimeRef.current = t;
-    // Time badges are derived from message timestamps; no message created here
-  }, []);
-
-
   // ── drain queue ref (wired after usePromptActions) ──
   const drainQueueRef = useRef<any>(null);
 
@@ -273,7 +259,6 @@ export default function App() {
     resetSendingLock,
   } = usePromptActions({
     sess,
-    addTimeBadge,
     genId,
     setConnectionStatus,
     setDebugInfo: setDebugInfo as any,

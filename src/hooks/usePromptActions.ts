@@ -22,7 +22,6 @@ const _submitInFlight = new Set<string>()
  */
 export function usePromptActions({
   sess,
-  addTimeBadge,
   genId,
   setConnectionStatus,
   setDebugInfo,
@@ -36,7 +35,6 @@ export function usePromptActions({
   onSlashConfirm,
 }: {
   sess: SessionManagerHandle
-  addTimeBadge: () => void
   genId: () => string
   setConnectionStatus: React.Dispatch<React.SetStateAction<string>>
   setDebugInfo: React.Dispatch<React.SetStateAction<Record<string, unknown>>>
@@ -78,8 +76,7 @@ export function usePromptActions({
       await storage.init();
     }
 
-    addTimeBadge();
-    storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(next)] } as ChatMessage]);
+    storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(next)], timestamp: Date.now() } as ChatMessage]);
 
     // 对齐架构原则：后端是 session 生命周期权威源，drainQueue 不预创建 session
     // 直接发 prompt.submit，后端自动处理
@@ -93,7 +90,7 @@ export function usePromptActions({
     setDebugInfo((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: next.slice(0, 40) }));
     addDebugEvent('text', `user: ${next.slice(0, 60)}`);
     send(next, sess.sessionId as null | undefined, modelOpts);
-  }, [sess, addTimeBadge, genId, send, addDebugEvent, setConnectionStatus, setDebugInfo]);
+  }, [sess, genId, send, addDebugEvent, setConnectionStatus, setDebugInfo]);
 
   // keep ref fresh for onDone callback
   drainQueueRef.current = drainQueue;
@@ -101,8 +98,7 @@ export function usePromptActions({
   // ── slash command handler ──
   const handleCommand = useCallback(async (cmdName: string, args?: string) => {
     const display = args ? `/${cmdName} ${args}` : `/${cmdName}`;
-    addTimeBadge();
-    storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(display)] } as ChatMessage]);
+    storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(display)], timestamp: Date.now() } as ChatMessage]);
 
     try {
       // 走 WS slash.exec（对齐 Phase 6: 命令走 WS 而非 HTTP）
@@ -140,7 +136,7 @@ export function usePromptActions({
     } catch (err) {
       storeSetMessages((prev) => [...prev, { id: genId(), role: 'assistant', parts: [textPart(`${(err as Error).message}`)], error: `${(err as Error).message}` } as ChatMessage]);
     }
-  }, [sess, addTimeBadge, genId, setDebugInfo, setSessionListVersion, onSlashConfirm]);
+  }, [sess, genId, setDebugInfo, setSessionListVersion, onSlashConfirm]);
 
   // ── send message ──
   const handleSend = useCallback(async (text: string) => {
@@ -170,14 +166,13 @@ export function usePromptActions({
     // 流式期间 → 排队，结束后自动发送
     if (isSendingRef.current) {
       pendingQueue.current.push(text);
-      storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)] } as ChatMessage]);
+      storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage]);
       return;
     }
 
     // 直接发送
     isSendingRef.current = true;
-    addTimeBadge();
-    storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)] } as ChatMessage]);
+    storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage]);
 
     // ── 确保 WS 已连接 ──
     const wsClient = getWsClient();
@@ -238,7 +233,7 @@ export function usePromptActions({
     if (sess.freshDraftReady) {
       sess.setFreshDraftReady(false);
     }
-  }, [sess, addTimeBadge, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, setDebugInfo]);
+  }, [sess, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, setDebugInfo]);
 
   // ── abort streaming ──
   const handleAbort = useCallback(() => {

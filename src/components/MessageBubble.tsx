@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { renderMarkdown } from '../utils/markdown';
 import { resolveMediaText } from '../utils/media';
+import { formatMessageTime } from '../utils/time';
 import { CopyIcon, CheckIcon, RegenerateIcon, BotIcon, Edit3Icon } from './Icons';
 import { notifySuccess } from '../utils/notifications';
 import { cn } from '@/lib/utils';
@@ -14,6 +15,7 @@ interface MessageBubbleProps {
   type: string;
   content?: string;
   streaming?: boolean;
+  timestamp?: number;
   onRegenerate?: () => void;
   onEdit?: (text: string) => void;
   agentAttribution?: AgentAttribution;
@@ -37,7 +39,7 @@ function mayHaveLocalImage(text?: string): boolean {
  * 只做简单换行显示。流式结束后一次性渲染完整 Markdown。
  * 避免每次 content 变化都全量重渲染 → O(n²) DOM 操作 → 内存/CPU 爆炸
  */
-export default function MessageBubble({ type, content, streaming, onRegenerate, onEdit, agentAttribution }: MessageBubbleProps) {
+export default function MessageBubble({ type, content, streaming, timestamp, onRegenerate, onEdit, agentAttribution }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [displayContent, setDisplayContent] = useState(content);
   const [zoomedSrc, setZoomedSrc] = useState<string | null>(null);
@@ -167,22 +169,27 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
       );
     }
     return (
-      <div className="bg-user-bubble text-foreground rounded-2xl rounded-br-sm px-4 py-2.5 text-sm leading-relaxed max-w-[80%] ml-auto relative group select-text border border-user-bubble-border shadow-sm">
-        <span className="whitespace-pre-wrap break-words">{content}</span>
-        <button
-          className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent"
-          title="编辑消息"
-          onClick={() => { setEditText(content || ''); setEditing(true); }}
-        >
-          <Edit3Icon size={12} />
-        </button>
-        <button
-          className="absolute bottom-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent"
-          title={copied ? '已复制' : '复制'}
-          onClick={handleCopy}
-        >
-          {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
-        </button>
+      <div className="w-fit max-w-[80%] ml-auto">
+        <div className="bg-user-bubble text-foreground rounded-2xl rounded-br-sm px-4 py-2.5 text-sm leading-relaxed relative group select-text border border-user-bubble-border shadow-sm">
+          <span className="whitespace-pre-wrap break-words">{content}</span>
+          <button
+            className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent"
+            title="编辑消息"
+            onClick={() => { setEditText(content || ''); setEditing(true); }}
+          >
+            <Edit3Icon size={12} />
+          </button>
+          <button
+            className="absolute bottom-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent"
+            title={copied ? '已复制' : '复制'}
+            onClick={handleCopy}
+          >
+            {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
+          </button>
+        </div>
+        {timestamp != null && (
+          <div className="text-[10px] text-muted-foreground/70 text-right mt-0.5 select-none">{formatMessageTime(timestamp)}</div>
+        )}
       </div>
     );
   }
@@ -237,28 +244,33 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
           </div>
         )}
       </div>
-      {/* 操作栏 — 气泡外右下角，hover 显示（复制按钮统一右下角） */}
-      <div className="flex gap-0.5 mt-1 justify-end opacity-0 translate-y-[-2px] transition-all duration-150 group-hover:opacity-100 group-hover:translate-y-0 pointer-events-none group-hover:pointer-events-auto">
-        <button
-          className={cn(
-            'inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md p-1 text-xs',
-            'transition-all outline-none',
-            'text-muted-foreground hover:text-foreground hover:bg-accent',
-            copied && 'opacity-100 text-success'
-          )}
-          title={copied ? '已复制' : '复制'}
-          onClick={handleCopy}
-        >
-          {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-        </button>
-        {onRegenerate && (
+      {/* 操作栏 + 时间 — 右下角：时间常显，按钮 hover 显示 */}
+      <div className="flex items-center gap-1.5 mt-1 justify-end">
+        <div className="flex gap-0.5 opacity-0 translate-y-[-2px] transition-all duration-150 group-hover:opacity-100 group-hover:translate-y-0 pointer-events-none group-hover:pointer-events-auto">
           <button
-            className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-all outline-none"
-            title="重新生成"
-            onClick={onRegenerate}
+            className={cn(
+              'inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md p-1 text-xs',
+              'transition-all outline-none',
+              'text-muted-foreground hover:text-foreground hover:bg-accent',
+              copied && 'opacity-100 text-success'
+            )}
+            title={copied ? '已复制' : '复制'}
+            onClick={handleCopy}
           >
-            <RegenerateIcon size={13} />
+            {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
           </button>
+          {onRegenerate && (
+            <button
+              className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-all outline-none"
+              title="重新生成"
+              onClick={onRegenerate}
+            >
+              <RegenerateIcon size={13} />
+            </button>
+          )}
+        </div>
+        {timestamp != null && (
+          <span className="text-[10px] text-muted-foreground/70 select-none">{formatMessageTime(timestamp)}</span>
         )}
       </div>
     </div>

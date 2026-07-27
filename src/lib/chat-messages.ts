@@ -698,7 +698,7 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
       id: `${message.timestamp || Date.now()}-${index}-${message.role}`,
       role: message.role as 'user' | 'assistant',
       parts,
-      timestamp: message.timestamp,
+      timestamp: message.timestamp ?? Date.now(),
     })
 
     activeAssistantIndex = message.role === 'assistant' ? result.length - 1 : null
