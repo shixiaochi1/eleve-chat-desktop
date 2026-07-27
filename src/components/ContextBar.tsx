@@ -2,6 +2,7 @@ import { memo, useState, useEffect, useRef, useCallback } from 'react';
 import { Plus, MessageSquareText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fetchSessionContext } from '../utils/api';
+import ModeSwitchButton from './ModeSwitchButton';
 
 /**
  * 格式化数字（如 134800 → "134.8k"）
@@ -23,6 +24,12 @@ interface ContextBarProps {
   sessionStartedAt?: number | null;
   onNewSession?: () => void;
   onBtw?: () => void;
+  /** 多 Agent 视图模式（single=单视图, grid=宫格） */
+  viewMode?: 'single' | 'grid';
+  /** 切换视图模式 */
+  onToggleViewMode?: () => void;
+  /** Agent 数量（< 2 时宫格按钮禁用） */
+  agentCount?: number;
 }
 
 /**
@@ -34,7 +41,7 @@ interface ContextBarProps {
  * to avoid triggering React re-renders every second. This prevents layout
  * thrashing that destabilizes the virtualizer's scroll position.
  */
-const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNewSession, onBtw }: ContextBarProps) {
+const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNewSession, onBtw, viewMode = 'single', onToggleViewMode, agentCount = 1 }: ContextBarProps) {
   const [ctx, setCtx] = useState<ContextData | null>(null);
   const elapsedRef = useRef<HTMLSpanElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -107,6 +114,9 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
             <MessageSquareText size={14} strokeWidth={1.5} />
             <span>临时提问</span>
           </button>
+          {onToggleViewMode && (
+            <ModeSwitchButton mode={viewMode} onToggle={onToggleViewMode} agentCount={agentCount} />
+          )}
         </div>
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground/70">
           <span>

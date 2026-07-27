@@ -13,7 +13,7 @@ import { loadMarkdownDeps } from './utils/markdown';
 import * as storage from './utils/storage';
 import { loadSettingsFromRust } from './utils/settings-store';
 import { discoverPort, call } from './utils/bridge';
-import { getActiveProfile } from './utils/api';
+import { getActiveProfile, fetchProfiles } from './utils/api';
 import { getWsClient, setWsActiveProfile } from './services/ws-client';
 import type { ChatMessage } from './types';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -41,6 +41,7 @@ import PreviewPanel from './components/PreviewPanel';
 import RightSidebarTabs from './components/RightSidebarTabs';
 import CommandCenter from './components/CommandCenter';
 import Toast from './components/Toast';
+import GridModeView from './components/GridModeView';
 import type { Window } from '@tauri-apps/api/window';
 
 // ── Tauri window API (lazy) ──
@@ -88,6 +89,8 @@ export default function App() {
   const [portReady, setPortReady] = useState<boolean>(false); // 需要 discoverPort 后才就绪
   const [sessionListVersion, setSessionListVersion] = useState<number>(0);  // 刷新会话列表
   const [currentProfile, setCurrentProfile] = useState<string>('default');  // F9+ 当前活动 Profile（多 Profile 全局状态）
+  const [viewMode, setViewMode] = useState<'single' | 'grid'>('single');  // 多 Agent 视图模式
+  const [agentCount, setAgentCount] = useState<number>(1);  // Agent 数量（宫格按钮禁用判断）
   const [activeClarify, setActiveClarify] = useState<{ clarify_id: string; question: string; choices: string[] } | null>(null);
   const [activeApproval, setActiveApproval] = useState<{ command: string; description: string; pattern: string; choices: string[]; run_id: string } | null>(null);
   const [activeSudo, setActiveSudo] = useState<{ request_id: string; prompt?: string } | null>(null);
@@ -108,6 +111,32 @@ export default function App() {
       .catch(() => { /* 网关未就绪时静默，保持 default */ });
     return () => { cancelled = true; };
   }, [portReady]);
+
+  // ── 多 Agent UI：拉取 Agent 数量（宫格按钮禁用判断）──
+  useEffect(() => {
+    if (!portReady) return;
+    let cancelled = false;
+    fetchProfiles()
+      .then((data) => { if (!cancelled) setAgentCount(data.profiles.length); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [portReady]);
+
+  // ── 多 Agent UI：Ctrl+G 切换单视图/宫格 ──
+  const toggleViewMode = useCallback(() => {
+    setViewMode((prev) => (prev === 'single' ? 'grid' : 'single'));
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'g') {
+        e.preventDefault();
+        setViewMode((prev) => (prev === 'single' ? 'grid' : 'single'));
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   // ── session management（必须在 handleProfileChange 之前，切换 Agent 需要重置 session） ──
   const sess = useSessions();
@@ -638,6 +667,11 @@ export default function App() {
 
           {/* 右侧聊天主区域 */}
           <PaneMain>
+            {viewMode === 'grid' ? (
+              <div className="chat-card">
+                <GridModeView currentProfile={currentProfile} onExitGrid={toggleViewMode} />
+              </div>
+            ) : (
             <div className="chat-card">
             {responsiveCollapsed && (
               <button
@@ -715,7 +749,7 @@ export default function App() {
                       onDismiss={() => setActiveSecret(null)}
                     />
                   )}
-                  <ContextBar sessionId={sess.sessionId} sessionStartedAt={debugInfo.sessionStartedAt} onNewSession={handleNewSession} onBtw={handleBtw} />
+                  <ContextBar sessionId={sess.sessionId} sessionStartedAt={debugInfo.sessionStartedAt} onNewSession={handleNewSession} onBtw={handleBtw} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount} />
                 </>
               )}
               <InputArea
@@ -740,6 +774,7 @@ export default function App() {
               />
             </main>
             </div>
+            )}
           </PaneMain>
 
           {/* 右侧面板：文件浏览器 / 终端 / 预览 (靠标签切换) — 只在 rightOpen 时渲染子元素，避免 TerminalPanel 在 0 宽容器中初始化 xterm.js */}

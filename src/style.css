@@ -1028,6 +1028,17 @@ canvas {
   position: relative;
 }
 
+/* ── 宫格拖拽态（GridModeView 直接操作 DOM class）── */
+.grid-cell-dragging {
+  z-index: 20;
+  cursor: grabbing !important;
+  border-radius: 12px;   /* 与内部卡片圆角对齐，阴影才是圆角 */
+  border-color: transparent !important;
+  opacity: 1 !important;
+  box-shadow: 0 18px 44px rgba(0,0,0,0.5), 0 0 0 2px var(--drag-ring, rgba(0,83,253,0.35)) !important;
+  will-change: transform;
+}
+
 /* ================================================================
    侧边面板 — 中间栏
    ================================================================ */
