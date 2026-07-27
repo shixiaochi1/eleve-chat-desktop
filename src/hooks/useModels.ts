@@ -142,11 +142,12 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
   }, []);
 
   /**
-   * 选中模型 → 调 provider.switch RPC（per-session override，对齐 Hermes 桌面端）
+   * 选中模型 = 设默认（老大 2026-07-26 决策）— 双写闭环：
    *
-   * 🔴 ModelPill = per-session override，不写 config.yaml。
-   * 永久默认模型在 Settings → Model 设置（写 config.yaml model.ref）。
-   * 会话级即时生效由 prompt.submit 携带 model 参数完成（usePromptActions）。
+   * 1. update_config 写 config.yaml model.ref — 持久默认（重启生效）。
+   *    config 热更新触发 engine LlmClient 刷新（bootstrap 双源 select）。
+   * 2. provider.switch — 当前会话即时生效（per-session 显式覆盖，
+   *    后端解析链守卫保证显式参数不被 model_ref 默认劫持）。
    */
   const selectModel = useCallback(async (modelId: string) => {
     if (!modelId) return;
@@ -155,23 +156,22 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
       const slashIdx = modelId.indexOf('/');
       const provider = slashIdx > 0 ? modelId.slice(0, slashIdx) : modelId;
       const model = slashIdx > 0 ? modelId.slice(slashIdx + 1) : '';
-      // per-session override：走 provider.switch RPC（后端 v7.1 switch_runtime_inner 统一路径）
+      // ① 持久默认：写 config.yaml model.ref（新旧字段同写，兼容解析链两个读取点）
+      await call('update_config', {
+        config: {
+          model: {
+            ref: modelId,
+            provider,
+            default: model,
+          },
+        },
+      });
+      // ② 当前会话即时生效：per-session override（无会话时仅靠 ①，下次 session.create 带过去）
       if (sessionId) {
         await call('provider_switch', {
           session_id: sessionId,
           provider_id: provider,
           model,
-        });
-      } else {
-        // 无活跃会话时回退写 config.yaml（下次 session.create 带过去）
-        await call('update_config', {
-          config: {
-            model: {
-              ref: modelId,
-              provider,
-              default: model,
-            },
-          },
         });
       }
     } catch (err: unknown) {
@@ -195,9 +195,9 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
       if (mountedRef.current && _cachedModels === null) refresh();
     }, 3000);
 
-    // 事件驱动：后端池变更（upsert/remove/save_key/disconnect）→ 立即刷新
-    // ⚠️ 已知后端缺陷：ws_clients 仅注册带 session_id 的连接，前端主连接不传 session_id
-    //    （对齐 Hermes），导致 pool_changed 广播可能收不到。下方 empty 轮询是兜底。
+    // 事件驱动：后端池变更（upsert/remove/save_key/disconnect）→ 立即刷新。
+    // 后端经 ws_conns 连接广播表推送（连接建立即注册，不依赖 session_id）。
+    // 下方 empty 轮询保留为二道保险（网络抖动/事件丢失兜底）。
     const ws = getWsClient();
     const unsubscribe = ws.addEventListener((eventName) => {
       if (eventName === 'provider.pool_changed' && mountedRef.current) {
@@ -212,9 +212,8 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
     };
   }, [enabled, refresh, loadCurrentModel]);
 
-  // 🔴 FIX-C 兜底轮询：池空（error='empty'）时每 5s 重试，直到拿到模型。
-  // 根因：后端 broadcast_pool_changed 遍历 ws_clients，而前端主连接未注册
-  // （连接不带 session_id），事件永久丢失 → 保存 Provider 后下拉一直空。
+  // 兜底轮询：池空（error='empty'）时每 5s 重试，直到拿到模型。
+  // 主路径是 provider.pool_changed 事件（后端 ws_conns 广播）；此轮询为二道保险。
   // empty 不写缓存，故轮询每次都会真实请求；拿到模型后 error 清除、轮询自停。
   useEffect(() => {
     if (!enabled || error !== 'empty') return;

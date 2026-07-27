@@ -358,11 +358,12 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       transport: newProvider.transport,
       models: models.length > 0 ? models : [],
     };
-    setProviders(prev => [...prev, provider]);
     setNewProvider({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', transport: 'auto', modelsRaw: '' });
     setAddProviderOpen(false);
 
-    // Phase P5: 同步到全局池
+    // F-P1-2 修复：先写池、成功后才入 UI（防幽灵 Provider）。
+    // 旧实现先 setProviders 后异步 upsert，失败不回滚 → 面板残留假卡片，
+    // 再点保存会把幽灵带进批量写。池是权威源：入池成功 = 存在，UI 如实反映。
     const transport = (provider.transport && provider.transport !== 'auto') ? provider.transport : undefined;
     upsertPoolProvider({
       id: provider.id,
@@ -371,14 +372,15 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       transport,
       models: Object.fromEntries(provider.models.map(m => [m, { context_length: 128000, max_output: 16384 }])),
     }).then(() => {
-      // 如果有 API key，同步保存到池
+      setProviders(prev => [...prev, { ...provider, source: 'global_pool' as const }]);
+      // 如果有 API key，同步保存到池（Provider 已入池，key 失败不回滚 Provider，可重试）
       if (provider.apiKey && provider.apiKey.length >= 8) {
         savePoolProviderKey(provider.id, provider.apiKey).catch((e: unknown) => {
           setStatus({ text: `API Key 保存失败: ${(e as Error).message}`, className: 'text-destructive text-xs' });
         });
       }
     }).catch((e: unknown) => {
-      setStatus({ text: `全局池同步失败: ${(e as Error).message}`, className: 'text-destructive text-xs' });
+      setStatus({ text: `添加失败（池写入）: ${(e as Error).message}`, className: 'text-destructive text-xs' });
     });
   };
 
@@ -499,8 +501,6 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       const transport = (p.transport && p.transport !== 'auto') ? p.transport : undefined;
       const modelsMap: Record<string, Record<string, unknown>> = {};
       for (const m of p.models) { modelsMap[m] = { context_length: 128000, max_output: 16384 }; }
-      // FIX-B 诊断日志：核实闭包捕获的 models 是否最新（下轮测试可删）
-      console.log('[SettingsPanel] upsert', p.id, 'models:', JSON.stringify(p.models));
       await upsertPoolProvider({
         id: p.id,
         name: p.name,
@@ -513,9 +513,22 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
         await savePoolProviderKey(p.id, p.apiKey);
       }
     });
-    await Promise.allSettled(poolPromises);
+    // F-P1-1 修复：逐项检查池写入结果。allSettled 永不 reject，
+    // 旧实现吞掉所有失败照样显示“✓ 已生效”→ 池里没数据但用户以为成功。
+    const poolResults = await Promise.allSettled(poolPromises);
+    const poolFailures = poolResults
+      .map((r, i) => ({ r, id: providers[i]?.id ?? '?' }))
+      .filter(({ r }) => r.status === 'rejected');
+    if (poolFailures.length > 0) {
+      const msgs = poolFailures
+        .map(({ r, id }) => `${id}: ${(r as PromiseRejectedResult).reason?.message ?? '未知错误'}`)
+        .join('；');
+      setStatus({ text: `保存失败（池写入）: ${msgs}`, className: 'text-destructive text-xs' });
+      setSaving(false);
+      return;
+    }
 
-    // 🔴 保存成功后立即从权威源（全局池）刷新 hasKey 徽章。
+    // 保存成功后立即从权威源（全局池）刷新 hasKey 徽章。
     // pool 列表只在面板挂载时拉一次，若不刷新，即使 key 已写入池，
     // UI 仍显示陈旧的"无key"（必须重开面板才更新）→ 从权威源 re-derive 保证 UI 如实。
     try {
