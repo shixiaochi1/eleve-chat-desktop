@@ -2,7 +2,11 @@
  * Markdown 渲染 + 代码高亮
  * 需要 marked, highlight.js (核心+常用语言), DOMPurify 已在全局可用
  */
-let marked: { setOptions(opts: Record<string, unknown>): void; parse(text: string, ...args: unknown[]): string } | null = null;
+let marked: {
+  setOptions(opts: Record<string, unknown>): void;
+  use(extension: Record<string, unknown>): void;
+  parse(text: string, ...args: unknown[]): string;
+} | null = null;
 let hljs: { registerLanguage(name: string, lang: unknown): void; getLanguage(name: string): unknown; highlight(code: string, options: { language: string }): { value: string }; highlightAuto(code: string): { value: string } } | null = null;
 let DOMPurify: { sanitize(html: string, opts?: Record<string, unknown>): string } | null = null;
 let depsReady = false;
@@ -44,14 +48,23 @@ export async function loadMarkdownDeps(): Promise<void> {
     if (mod.default) hljs!.registerLanguage(langNames[i], mod.default);
   });
   DOMPurify = d.default;
-  marked!.setOptions({
-    breaks: true,
-    gfm: true,
-    highlight(code: string, lang: string) {
-      if (lang && hljs!.getLanguage(lang)) {
-        return hljs!.highlight(code, { language: lang }).value;
-      }
-      return hljs!.highlightAuto(code).value;
+  marked!.setOptions({ breaks: true, gfm: true });
+  // 🔴 marked v5+ 删除了 highlight 选项（项目用 v18，旧写法被静默忽略 → 高亮从未生效）
+  // 改用 renderer 扩展接 hljs（v13+ token 对象签名）
+  marked!.use({
+    renderer: {
+      code(token: { text: string; lang?: string }) {
+        const lang = (token.lang || '').trim();
+        let body: string;
+        try {
+          body = lang && hljs!.getLanguage(lang)
+            ? hljs!.highlight(token.text, { language: lang }).value
+            : hljs!.highlightAuto(token.text).value;
+        } catch {
+          body = escapeHtml(token.text);
+        }
+        return `<pre><code class="hljs">${body}</code></pre>`;
+      },
     },
   });
   depsReady = true;

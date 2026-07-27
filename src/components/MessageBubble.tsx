@@ -237,8 +237,8 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
           </div>
         )}
       </div>
-      {/* 操作栏 — 气泡外，hover 显示 */}
-      <div className="flex gap-0.5 mt-1 opacity-0 translate-y-[-2px] transition-all duration-150 group-hover:opacity-100 group-hover:translate-y-0 pointer-events-none group-hover:pointer-events-auto">
+      {/* 操作栏 — 气泡外右下角，hover 显示（复制按钮统一右下角） */}
+      <div className="flex gap-0.5 mt-1 justify-end opacity-0 translate-y-[-2px] transition-all duration-150 group-hover:opacity-100 group-hover:translate-y-0 pointer-events-none group-hover:pointer-events-auto">
         <button
           className={cn(
             'inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md p-1 text-xs',

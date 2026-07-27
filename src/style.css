@@ -1398,7 +1398,7 @@ canvas {
 .code-block-wrapper { position: relative; }
 .code-block-wrapper .copy-btn {
   position: absolute;
-  top: 0.45em;
+  bottom: 0.45em;
   right: 0.45em;
   padding: 0.2em 0.55em;
   font-size: 11px;
@@ -1420,3 +1420,18 @@ canvas {
   color: var(--ui-green);
   opacity: 1;
 }
+
+/* ── hljs token 颜色 — 不导入官方主题 CSS（硬编码颜色违反主题铁律），
+   全部从 --ui-* 语义色派生，随主题自动适配深浅 ── */
+.prose .hljs-keyword, .prose .hljs-selector-tag, .prose .hljs-built_in,
+.prose .hljs-type, .prose .hljs-meta { color: var(--ui-purple); }
+.prose .hljs-string, .prose .hljs-attr, .prose .hljs-addition { color: var(--ui-green); }
+.prose .hljs-number, .prose .hljs-literal, .prose .hljs-regexp { color: var(--ui-orange); }
+.prose .hljs-comment, .prose .hljs-quote, .prose .hljs-deletion {
+  color: var(--dt-muted-foreground);
+  font-style: italic;
+}
+.prose .hljs-title, .prose .hljs-function, .prose .hljs-section { color: var(--ui-blue); }
+.prose .hljs-variable, .prose .hljs-template-variable, .prose .hljs-name { color: var(--ui-cyan); }
+.prose .hljs-attribute, .prose .hljs-symbol, .prose .hljs-bullet, .prose .hljs-link { color: var(--ui-yellow); }
+.prose .hljs-params, .prose .hljs-selector-id, .prose .hljs-selector-class { color: var(--ui-pink); }
