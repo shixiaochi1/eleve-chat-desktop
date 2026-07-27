@@ -17,7 +17,7 @@ const _submitInFlight = new Set<string>()
  * Extracted from App.jsx. Manages message sending (direct and queued during
  * streaming), command execution (/commands), regenerate, abort, and /btw.
  *
- * Returns { handleSend, handleAbort, handleRegenerate, handleCommand, handleBtw,
+ * Returns { handleSend, handleAbort, handleRegenerate, handleCommand,
  *           pendingQueue, isSendingRef, drainQueue, drainQueueRef }
  */
 export function usePromptActions({
@@ -55,7 +55,6 @@ export function usePromptActions({
   handleAbort: () => void
   handleRegenerate: (agentMsg?: { id?: string }) => void
   handleCommand: (cmdName: string, args?: string) => Promise<void>
-  handleBtw: () => void
   pendingQueue: MutableRefObject<string[]>
   isSendingRef: MutableRefObject<boolean>
   drainQueue: () => void
@@ -259,13 +258,6 @@ export function usePromptActions({
     }
   }, [handleSend]);
 
-  // ── /btw — 临时提问 ──
-  const handleBtw = useCallback(() => {
-    const question = window.prompt('临时提问（不污染上下文，不使用工具）:');
-    if (!question?.trim()) return;
-    handleCommand('btw', question.trim());
-  }, [handleCommand]);
-
   // ── 重置发送锁 ──
   const resetSendingLock = useCallback(() => {
     isSendingRef.current = false;
@@ -277,7 +269,6 @@ export function usePromptActions({
     handleAbort,
     handleRegenerate,
     handleCommand,
-    handleBtw,
     pendingQueue,
     isSendingRef,
     drainQueue,

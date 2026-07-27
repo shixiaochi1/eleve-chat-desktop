@@ -1,9 +1,10 @@
 import { useState, useCallback } from 'react';
+import { ShieldCheck, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getWsClient } from '../services/ws-client';
 
 /**
- * ApprovalCard — 危险操作审批卡片
+ * ApprovalCard — 危险操作审批卡片（中断型交互卡片家族 · warning 变体）
  *
  * 对齐 Hermes approval: 当终端等工具执行危险命令时，
  * 前端显示此卡片让用户选择审批级别。
@@ -21,18 +22,18 @@ interface ApprovalCardProps {
   onDone?: (choice: string) => void;
 }
 
+const choiceLabels: Record<string, string> = {
+  once: '批准本次',
+  session: '批准此会话',
+  always: '始终批准',
+  deny: '拒绝',
+};
+
 export default function ApprovalCard({ command, description, pattern, choices, run_id, onDone }: ApprovalCardProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const choiceLabels: Record<string, string> = {
-    once: '批准本次',
-    session: '批准此会话',
-    always: '始终批准',
-    deny: '拒绝',
-  };
 
   const handleChoice = useCallback(async (choice: string) => {
     if (submitting || submitted) return;
@@ -58,77 +59,105 @@ export default function ApprovalCard({ command, description, pattern, choices, r
     }
   }, [submitting, submitted, onDone, run_id]);
 
+  // ── 已完成折叠态 ──
   if (submitted) {
     return (
-      <div className={cn(
-        'rounded-lg border bg-card px-4 py-3 shadow-sm',
-        'opacity-60'
-      )}>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-            <polyline points="22 4 12 14.01 9 11.01" />
-          </svg>
-          <span>已{selected === 'deny' ? '拒绝' : '批准'}</span>
+      <div className="icard icard--done">
+        <div className="icard-head">
+          <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
+            <span className="icard-check">
+              <Check size={11} strokeWidth={3} />
+            </span>
+            <span>{selected === 'deny' ? '已拒绝' : '已批准'}</span>
+            {command && (
+              <span className="font-mono text-[10px] text-muted-foreground/60 truncate max-w-[320px]">{command}</span>
+            )}
+          </div>
         </div>
       </div>
     );
   }
 
+  const choiceList = choices || ['once', 'session', 'always', 'deny'];
+  const denyChoices = choiceList.filter((c) => c === 'deny');
+  const approveChoices = choiceList.filter((c) => c !== 'deny');
+
   return (
-    <div className={cn(
-      'rounded-lg border bg-card px-4 py-3 shadow-sm'
-    )}>
-      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-        </svg>
-        <span>需要审批</span>
-        {pattern && (
-          <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-            {pattern}
-          </span>
-        )}
-      </div>
-
-      <div className="mt-3 space-y-2">
-        {description && (
-          <div className="text-sm text-muted-foreground">{description}</div>
-        )}
-        <div className={cn(
-          'rounded-md bg-muted p-2',
-          'font-mono text-xs leading-relaxed text-foreground'
-        )}>
-          <code>{command}</code>
+    <div className="icard icard--warning">
+      {/* 头部：类型色图标 + 标题 + pattern 徽章 */}
+      <div className="icard-head">
+        <div className="icard-icon">
+          <ShieldCheck size={14} strokeWidth={2} />
         </div>
+        <span className="icard-title">需要审批 · 危险命令</span>
+        {pattern && <span className="icard-badge">{pattern}</span>}
       </div>
 
-      {error && (
-        <div className="mt-2 text-sm text-destructive">{error}</div>
-      )}
+      <div className="icard-body">
+        {description && (
+          <p className="text-xs text-muted-foreground leading-relaxed mb-2.5">{description}</p>
+        )}
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {(choices || ['once', 'session', 'always', 'deny']).map((choice) => (
-          <button
-            key={choice}
-            className={cn(
-              'inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-              'disabled:pointer-events-none disabled:opacity-50',
-              choice === 'deny'
-                ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
-                : 'bg-primary text-primary-foreground hover:bg-primary/90',
-              selected === choice && !submitting && 'ring-2 ring-ring ring-offset-1 ring-offset-card'
-            )}
-            onClick={() => handleChoice(choice)}
-            disabled={submitting}
-          >
-            {submitting && selected === choice ? (
-              <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            ) : null}
-            {choiceLabels[choice] || choice}
-          </button>
-        ))}
+        {/* 终端式命令块 */}
+        {command && (
+          <div className="icard-cmd">
+            <span className="prompt">$</span>
+            <span className="text-foreground">{command}</span>
+          </div>
+        )}
+
+        {error && (
+          <p className="mt-2 text-xs text-destructive">{error}</p>
+        )}
+
+        {/* 按钮层级：拒绝(幽灵) ← 弹性间隔 → 次级批准 → 主操作 */}
+        <div className="flex items-center gap-2 mt-3.5">
+          {denyChoices.map((choice) => (
+            <button
+              key={choice}
+              className={cn(
+                'inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
+                'border border-destructive/25 text-destructive',
+                'hover:bg-destructive/10 hover:border-destructive/50',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40',
+                'disabled:pointer-events-none disabled:opacity-50',
+                'active:scale-95'
+              )}
+              onClick={() => void handleChoice(choice)}
+              disabled={submitting}
+            >
+              {submitting && selected === choice && (
+                <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              )}
+              ✕ {choiceLabels[choice] || choice}
+            </button>
+          ))}
+          <span className="flex-1" />
+          {approveChoices.map((choice, i) => {
+            const isPrimary = i === approveChoices.length - 1;
+            return (
+              <button
+                key={choice}
+                className={cn(
+                  'inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/40',
+                  'disabled:pointer-events-none disabled:opacity-50',
+                  'active:scale-95',
+                  isPrimary
+                    ? 'bg-warning text-background shadow-sm hover:brightness-110 hover:-translate-y-px'
+                    : 'border border-border bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground'
+                )}
+                onClick={() => void handleChoice(choice)}
+                disabled={submitting}
+              >
+                {submitting && selected === choice && (
+                  <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                )}
+                {choiceLabels[choice] || choice}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

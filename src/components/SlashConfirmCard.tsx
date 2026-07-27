@@ -1,9 +1,10 @@
 import { useState, useCallback } from 'react';
+import { AlertTriangle, Terminal, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getWsClient } from '../services/ws-client';
 
 /**
- * SlashConfirmCard — 破坏性斜杠命令确认卡片
+ * SlashConfirmCard — 破坏性斜杠命令确认卡片（中断型交互卡片家族 · danger 变体）
  *
  * 对齐 Hermes destructive_slash_confirm：/new, /undo, /reset 执行前的二次确认。
  * Choices: "once"（执行一次）| "always"（始终允许并持久化）| "cancel"（取消）
@@ -50,64 +51,93 @@ export default function SlashConfirmCard({
     }
   }, [submitting, submitted, confirmId, command, sessionId, onDone]);
 
+  // ── 已完成折叠态 ──
   if (submitted) {
     const label = submitted === 'cancel' ? '已取消' : submitted === 'always' ? '已始终允许' : '已确认执行';
     return (
-      <div className="mx-4 my-2 rounded-lg border border-border/60 bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
-        ⚠️ /{command} — {label}
+      <div className="icard icard--done">
+        <div className="icard-head">
+          <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
+            <span className="icard-check">
+              <Check size={11} strokeWidth={3} />
+            </span>
+            <span className="font-mono">/{command}</span>
+            <span>{label}</span>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-4 my-2 rounded-lg border border-yellow-500/40 bg-yellow-500/5 px-4 py-3">
-      <div className="flex items-start gap-2.5">
-        <span className="text-base leading-none mt-0.5">⚠️</span>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-foreground mb-0.5">
-            确认执行 /{command}？
-          </p>
-          <p className="text-xs text-muted-foreground mb-3">{description}</p>
+    <div className="icard icard--danger">
+      {/* 头部 */}
+      <div className="icard-head">
+        <div className="icard-icon">
+          <AlertTriangle size={14} strokeWidth={2} />
+        </div>
+        <span className="icard-title">破坏性操作确认</span>
+        <span className="icard-badge">不可撤销</span>
+      </div>
 
-          {error && (
-            <p className="text-xs text-red-500 mb-2">{error}</p>
-          )}
+      <div className="icard-body">
+        {/* 斜杠命令徽章 */}
+        <div className="icard-slash mb-2.5">
+          <Terminal size={12} strokeWidth={2.5} />
+          /{command}
+        </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              disabled={submitting}
-              onClick={() => void handleChoice('once')}
-              className={cn(
-                'px-3 py-1 rounded-md text-xs font-medium transition-colors',
-                'bg-primary text-primary-foreground hover:bg-primary/90',
-                submitting && 'opacity-50 cursor-not-allowed',
-              )}
-            >
-              {submitting ? '处理中…' : '确认执行'}
-            </button>
-            <button
-              disabled={submitting}
-              onClick={() => void handleChoice('always')}
-              className={cn(
-                'px-3 py-1 rounded-md text-xs font-medium transition-colors',
-                'border border-border text-muted-foreground hover:bg-muted/50',
-                submitting && 'opacity-50 cursor-not-allowed',
-              )}
-            >
-              始终允许
-            </button>
-            <button
-              disabled={submitting}
-              onClick={() => void handleChoice('cancel')}
-              className={cn(
-                'px-3 py-1 rounded-md text-xs font-medium transition-colors',
-                'border border-border text-muted-foreground hover:bg-muted/50',
-                submitting && 'opacity-50 cursor-not-allowed',
-              )}
-            >
-              取消
-            </button>
-          </div>
+        <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
+
+        {error && (
+          <p className="mt-2 text-xs text-destructive">{error}</p>
+        )}
+
+        {/* 按钮层级：取消(幽灵) ← 间隔 → 执行一次(次级) → 始终允许(危险主操作) */}
+        <div className="flex items-center gap-2 mt-3.5">
+          <button
+            disabled={submitting}
+            onClick={() => void handleChoice('cancel')}
+            className={cn(
+              'inline-flex items-center justify-center rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-all',
+              'hover:bg-muted/60 hover:text-foreground',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+              'disabled:pointer-events-none disabled:opacity-50',
+              'active:scale-95'
+            )}
+          >
+            取消
+          </button>
+          <span className="flex-1" />
+          <button
+            disabled={submitting}
+            onClick={() => void handleChoice('once')}
+            className={cn(
+              'inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-all',
+              'hover:bg-muted/70 hover:text-foreground',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/40',
+              'disabled:pointer-events-none disabled:opacity-50',
+              'active:scale-95'
+            )}
+          >
+            {submitting ? (
+              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            ) : null}
+            执行一次
+          </button>
+          <button
+            disabled={submitting}
+            onClick={() => void handleChoice('always')}
+            className={cn(
+              'inline-flex items-center justify-center gap-1.5 rounded-lg bg-destructive px-3 py-1.5 text-xs font-semibold text-destructive-foreground shadow-sm transition-all',
+              'hover:brightness-110 hover:-translate-y-px',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/40',
+              'disabled:pointer-events-none disabled:opacity-50',
+              'active:scale-95'
+            )}
+          >
+            始终允许
+          </button>
         </div>
       </div>
     </div>

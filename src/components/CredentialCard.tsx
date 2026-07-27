@@ -1,8 +1,7 @@
 /**
- * CredentialCard — sudo/secret 凭据输入卡片
+ * CredentialCard — sudo/secret 凭据输入卡片（中断型交互卡片家族 · secret 变体）
  *
  * 用于 Agent 请求 sudo 密码或 secret/凭据值时弹出的输入框
- * 样式对齐 ClarifyCard / ApprovalCard
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Shield, KeyRound, X, Send } from 'lucide-react';
@@ -51,57 +50,61 @@ export default function CredentialCard({ type, title, description, onSubmit, onD
   const placeholder = type === 'sudo' ? '输入 sudo 密码…' : '输入凭据值…';
 
   return (
-    <div className={cn(
-      'mx-2 mb-2 rounded-lg border border-border bg-card p-3 shadow-sm',
-      'animate-in slide-in-from-bottom-2 duration-200',
-    )}>
-      {/* Header */}
-      <div className="flex items-center gap-2 mb-2">
-        <div className={cn(
-          'flex items-center justify-center w-7 h-7 rounded-md',
-          type === 'sudo' ? 'bg-warning/10 text-warning' : 'bg-info/10 text-info',
-        )}>
-          <Icon size={14} />
+    <div className="icard icard--secret">
+      {/* 头部 */}
+      <div className="icard-head">
+        <div className="icard-icon">
+          <Icon size={14} strokeWidth={2} />
         </div>
-        <span className="text-xs font-semibold text-foreground flex-1">{title}</span>
+        <span className="icard-title">{title}</span>
         <button
-          className="p-1 rounded text-muted-foreground hover:bg-muted/50 transition-colors"
+          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
           onClick={onDismiss}
-          title="取消"
+          title="取消 (Esc)"
         >
-          <X size={12} />
+          <X size={13} />
         </button>
       </div>
 
-      {/* Description */}
-      <p className="text-[11px] text-muted-foreground mb-2 leading-relaxed">{description}</p>
+      <div className="icard-body">
+        <p className="text-[11px] text-muted-foreground leading-relaxed mb-2.5">{description}</p>
 
-      {/* Input row */}
-      <div className="flex items-center gap-1.5">
-        <input
-          ref={inputRef}
-          type={inputType}
-          className="flex-1 h-7 px-2 text-xs font-mono bg-muted/30 border border-input rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          disabled={submitting}
-          autoComplete="off"
-        />
-        <button
-          className={cn(
-            'flex items-center justify-center w-7 h-7 rounded-md transition-colors',
-            value.trim() && !submitting
-              ? 'bg-accent text-accent-foreground hover:bg-accent/90'
-              : 'bg-muted/30 text-muted-foreground cursor-not-allowed',
-          )}
-          onClick={handleSubmit}
-          disabled={!value.trim() || submitting}
-          title="提交"
-        >
-          <Send size={12} />
-        </button>
+        {/* 输入行 */}
+        <div className="flex items-center gap-2">
+          <input
+            ref={inputRef}
+            type={inputType}
+            className={cn(
+              'h-8 min-w-0 flex-1 rounded-lg border border-border bg-muted/30 px-3 font-mono text-xs text-foreground outline-none transition-all',
+              'placeholder:text-muted-foreground/40',
+              'focus:border-accent-purple/50 focus:bg-accent-purple/5 focus:ring-2 focus:ring-accent-purple/15',
+              'disabled:pointer-events-none disabled:opacity-50'
+            )}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            disabled={submitting}
+            autoComplete="off"
+          />
+          <button
+            className={cn(
+              'flex size-8 shrink-0 items-center justify-center rounded-lg transition-all',
+              value.trim() && !submitting
+                ? 'bg-accent-purple text-background shadow-sm hover:brightness-110 hover:-translate-y-px active:scale-95'
+                : 'bg-muted/40 text-muted-foreground/40 cursor-not-allowed'
+            )}
+            onClick={handleSubmit}
+            disabled={!value.trim() || submitting}
+            title="提交 (Enter)"
+          >
+            {submitting ? (
+              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            ) : (
+              <Send size={13} />
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
