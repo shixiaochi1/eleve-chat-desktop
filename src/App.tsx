@@ -252,7 +252,6 @@ export default function App() {
   const {
     handleSend: rawHandleSend,
     handleAbort,
-    handleRegenerate,
     handleCommand,
     drainQueue,
     resetSendingLock,
@@ -688,7 +687,6 @@ export default function App() {
               ) : (
                 <>
                   <MessageContainer
-                    onRegenerate={handleRegenerate}
                     gatewayOnline={gatewayHealth.online}
                     onGatewayRetry={gatewayHealth.checkNow}
                     onOpenSettings={() => handleOpenOverlay('settings')}

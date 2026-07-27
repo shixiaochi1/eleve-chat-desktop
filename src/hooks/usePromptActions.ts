@@ -12,12 +12,12 @@ import type { SessionManagerHandle } from './useMessageStream';
 const _submitInFlight = new Set<string>()
 
 /**
- * usePromptActions — send/regenerate/abort/queue logic
+ * usePromptActions — send/abort/queue logic
  *
  * Extracted from App.jsx. Manages message sending (direct and queued during
- * streaming), command execution (/commands), regenerate, abort, and /btw.
+ * streaming), command execution (/commands), abort, and /btw.
  *
- * Returns { handleSend, handleAbort, handleRegenerate, handleCommand,
+ * Returns { handleSend, handleAbort, handleCommand,
  *           pendingQueue, isSendingRef, drainQueue, drainQueueRef }
  */
 export function usePromptActions({
@@ -51,7 +51,6 @@ export function usePromptActions({
 }): {
   handleSend: (text: string) => void
   handleAbort: () => void
-  handleRegenerate: (agentMsg?: { id?: string }) => void
   handleCommand: (cmdName: string, args?: string) => Promise<void>
   pendingQueue: MutableRefObject<string[]>
   isSendingRef: MutableRefObject<boolean>
@@ -240,19 +239,6 @@ export function usePromptActions({
     abort?.();
   }, [abort]);
 
-  // ── regenerate ──
-  const handleRegenerate = useCallback((agentMsg?: { id?: string }) => {
-    if (!agentMsg?.id) return;
-    const msgs = getMessages();
-    const idx = msgs.findIndex((m) => m.id === agentMsg.id);
-    if (idx < 1) return;
-    const prev = msgs[idx - 1];
-    if (prev.role === 'user') {
-      const prevText = prev.parts.filter(p => p.type === 'text').map(p => p.text).join('');
-      handleSend(prevText || "");
-    }
-  }, [handleSend]);
-
   // ── 重置发送锁 ──
   const resetSendingLock = useCallback(() => {
     isSendingRef.current = false;
@@ -262,7 +248,6 @@ export function usePromptActions({
   return {
     handleSend,
     handleAbort,
-    handleRegenerate,
     handleCommand,
     pendingQueue,
     isSendingRef,

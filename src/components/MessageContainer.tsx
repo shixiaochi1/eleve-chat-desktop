@@ -12,7 +12,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, memo } from '
 import { cn } from '@/lib/utils'
 import { setScrolledUp } from '@/store/scroll'
 import { useIsStreaming } from '@/store/messages'
-import { useMessage, useMessageSignature, getMessages } from '@/store/messages'
+import { useMessage, useMessageSignature, getMessages, setMessages } from '@/store/messages'
 import MessageBubble from './MessageBubble'
 import ReasoningBlock from './ReasoningBlock'
 import ToolCallGroup, { isSpecialTool, type ToolCallItem } from './ToolCallGroup'
@@ -64,7 +64,6 @@ function buildGroups(signature: string): MessageGroup[] {
 
 interface VirtualizedThreadProps {
   sessionKey?: string | null
-  onRegenerate?: (msg?: ChatMessage) => void
   gatewayOnline?: boolean
   onGatewayRetry?: () => void
   onOpenSettings?: () => void
@@ -74,7 +73,6 @@ interface VirtualizedThreadProps {
 
 export function VirtualizedThread({
   sessionKey,
-  onRegenerate,
   gatewayOnline,
   onGatewayRetry,
   onOpenSettings,
@@ -219,11 +217,11 @@ export function VirtualizedThread({
                         data-slot="aui_turn-pair"
                       >
                         {group.indices.map(index => (
-                          <SingleMessageItem key={index} index={index} onRegenerate={onRegenerate} />
+                          <SingleMessageItem key={index} index={index} />
                         ))}
                       </div>
                     ) : (
-                      <SingleMessageItem index={group.index} onRegenerate={onRegenerate} />
+                      <SingleMessageItem index={group.index} />
                     )}
                   </div>
                 )
@@ -483,18 +481,21 @@ function useThreadScrollAnchor({ enabled, groupCount, scrollerRef, sessionKey, v
 
 interface SingleMessageItemProps {
   index: number
-  onRegenerate?: (msg?: ChatMessage) => void
 }
 
-const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate }: SingleMessageItemProps) {
+const SingleMessageItem = memo(function SingleMessageItem({ index }: SingleMessageItemProps) {
   const m = useMessage(index)
   if (!m || m.hidden) return null
+
+  const handleDelete = useCallback((messageId: string) => {
+    setMessages(prev => prev.filter(msg => msg.id !== messageId))
+  }, [])
 
   // ── Parts-based rendering ──
   if (m.parts && m.parts.length > 0) {
     if (m.role === 'user') {
       const text = m.parts.filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text').map(p => p.text).join('')
-      return <div className="flex justify-end px-4 mb-1.5"><MessageBubble type="user" content={text} timestamp={m.timestamp} /></div>
+      return <div className="flex justify-end px-4 mb-1.5"><MessageBubble type="user" content={text} timestamp={m.timestamp} messageId={m.id} onDelete={handleDelete} /></div>
     }
 
     if (m.role === 'assistant') {
@@ -578,7 +579,8 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
                     content={item.text}
                     streaming={!!m.pending && item.isLast}
                     timestamp={m.timestamp}
-                    onRegenerate={onRegenerate ? () => onRegenerate(m) : undefined}
+                    messageId={m.id}
+                    onDelete={handleDelete}
                   />
                 )
               case 'tool-group':
@@ -603,7 +605,7 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
   let element
   switch (m.type) {
     case 'user':
-      element = <MessageBubble type="user" content={m.content} timestamp={m.timestamp} />
+      element = <MessageBubble type="user" content={m.content} timestamp={m.timestamp} messageId={m.id} onDelete={handleDelete} />
       break
     case 'agent':
       element = (
@@ -612,7 +614,8 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
           content={m.content}
           streaming={!!m._streaming}
           timestamp={m.timestamp}
-          onRegenerate={onRegenerate ? () => onRegenerate(m) : undefined}
+          messageId={m.id}
+          onDelete={handleDelete}
           agentAttribution={m.agentAttribution as unknown as Parameters<typeof MessageBubble>[0]['agentAttribution']}
         />
       )
