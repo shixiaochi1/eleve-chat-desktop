@@ -118,7 +118,7 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
     // 编辑模式
     if (editing) {
       return (
-        <div className="bg-primary/10 rounded-2xl rounded-br-sm px-3 py-2 text-sm max-w-[80%] ml-auto">
+        <div className="bg-primary/10 rounded-2xl rounded-br-sm px-4 py-2.5 text-sm max-w-[80%] ml-auto">
           <textarea
             ref={editRef}
             className="desktop-input-chrome w-full rounded-md border px-3 py-2 text-sm outline-none resize-none min-h-[60px]"
@@ -167,7 +167,7 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
       );
     }
     return (
-      <div className="bg-primary text-primary-foreground rounded-2xl rounded-br-sm px-3 py-2 text-sm max-w-[80%] ml-auto relative group select-text">
+      <div className="bg-primary text-primary-foreground rounded-2xl rounded-br-sm px-4 py-2.5 text-sm leading-relaxed max-w-[80%] ml-auto relative group select-text">
         <span className="whitespace-pre-wrap break-words">{content}</span>
         <button
           className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded p-0.5 text-primary-foreground/70 hover:text-primary-foreground hover:bg-accent/10"
@@ -195,7 +195,7 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
     // 流式期间不显示操作栏（内容未定稿），结束后统一渲染
     return (
       <div className="w-fit max-w-[85%] min-w-0 select-text">
-        <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-3 py-2 text-sm border border-border shadow-sm overflow-hidden">
+        <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed border border-border shadow-sm overflow-hidden">
           <span ref={textRef} className="whitespace-pre-wrap break-words">
             {displayContent || ''}
           </span>
@@ -209,7 +209,7 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
   // 🔴 操作栏移出气泡：hover 显示，气泡最小宽度不再被按钮行撑开
   return (
     <div className="group w-fit max-w-[85%] min-w-0 select-text">
-      <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-3 py-2 text-sm border border-border shadow-sm overflow-hidden">
+      <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed border border-border shadow-sm overflow-hidden">
         {agentAttribution && (
           <div
             className="flex items-center gap-1 text-xs text-muted-foreground mb-1.5"

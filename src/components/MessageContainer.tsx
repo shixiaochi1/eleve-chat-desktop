@@ -208,14 +208,14 @@ export function VirtualizedThread({
 
                 return (
                   <div
-                    className="flex min-w-0 flex-col gap-3 pb-3"
+                    className="flex min-w-0 flex-col gap-4 pb-3"
                     data-index={virtualItem.index}
                     key={virtualItem.key}
                     ref={virtualizer.measureElement}
                   >
                     {group.kind === 'turn' ? (
                       <div
-                        className="relative flex min-w-0 flex-col gap-3"
+                        className="relative flex min-w-0 flex-col gap-4"
                         data-slot="aui_turn-pair"
                       >
                         {group.indices.map(index => (
@@ -569,7 +569,7 @@ const SingleMessageItem = memo(function SingleMessageItem({ index, onRegenerate 
       const hoistedTodos = todosFromMessageParts(m.parts)
 
       return (
-        <div className="flex flex-col gap-2 px-4 mb-1.5">
+        <div className="flex flex-col gap-2.5 px-4 mb-1.5">
           {hoistedTodos.length > 0 && <HoistedTodoPanel todos={hoistedTodos} />}
           {renderItems.map(item => {
             switch (item.kind) {
