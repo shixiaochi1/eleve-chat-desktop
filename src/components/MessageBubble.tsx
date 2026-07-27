@@ -118,7 +118,7 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
     // 编辑模式
     if (editing) {
       return (
-        <div className="bg-primary/10 rounded-2xl rounded-br-sm px-4 py-2.5 text-sm max-w-[80%] ml-auto">
+        <div className="bg-primary/10 rounded-2xl rounded-br-sm px-4 py-2.5 text-sm max-w-[80%] ml-auto border border-primary/25">
           <textarea
             ref={editRef}
             className="desktop-input-chrome w-full rounded-md border px-3 py-2 text-sm outline-none resize-none min-h-[60px]"
@@ -167,17 +167,17 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
       );
     }
     return (
-      <div className="bg-primary text-primary-foreground rounded-2xl rounded-br-sm px-4 py-2.5 text-sm leading-relaxed max-w-[80%] ml-auto relative group select-text">
+      <div className="bg-primary/10 text-foreground rounded-2xl rounded-br-sm px-4 py-2.5 text-sm leading-relaxed max-w-[80%] ml-auto relative group select-text border border-primary/15 shadow-sm">
         <span className="whitespace-pre-wrap break-words">{content}</span>
         <button
-          className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded p-0.5 text-primary-foreground/70 hover:text-primary-foreground hover:bg-accent/10"
+          className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent"
           title="编辑消息"
           onClick={() => { setEditText(content || ''); setEditing(true); }}
         >
           <Edit3Icon size={12} />
         </button>
         <button
-          className="absolute bottom-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded p-0.5 text-primary-foreground/70 hover:text-primary-foreground hover:bg-accent/10"
+          className="absolute bottom-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent"
           title={copied ? '已复制' : '复制'}
           onClick={handleCopy}
         >
