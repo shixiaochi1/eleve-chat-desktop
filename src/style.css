@@ -21,6 +21,8 @@
   --color-ring: var(--dt-ring);
   --color-destructive: var(--dt-destructive);
   --color-destructive-foreground: var(--dt-destructive-foreground);
+  --color-user-bubble: var(--dt-user-bubble);
+  --color-user-bubble-border: var(--dt-user-bubble-border);
 
   --color-success: var(--ui-green);
   --color-warning: var(--ui-yellow);
@@ -1267,3 +1269,154 @@ canvas {
   transition: background 0.15s;
 }
 .btw-exit:hover { background: color-mix(in srgb, var(--ui-purple) 14%, transparent); }
+
+/* ================================================================
+   .prose — 气泡内 Markdown 排版系统
+   项目未装 @tailwindcss/typography，prose 类原本无效，
+   所有 Markdown 元素回落浏览器默认样式（hr 是灰色 inset 粗线、
+   行内代码无背景、列表边距混乱）。此处补齐完整排版规则。
+   🔴 颜色全部从主题变量派生，零硬编码。
+   ================================================================ */
+.prose {
+  color: var(--dt-foreground);
+  line-height: 1.65;
+  word-break: break-word;
+}
+.prose > :first-child { margin-top: 0; }
+.prose > :last-child { margin-bottom: 0; }
+
+.prose p { margin: 0.5em 0; }
+
+.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+  font-weight: 650;
+  line-height: 1.35;
+  margin: 0.9em 0 0.4em;
+  color: var(--dt-foreground);
+}
+.prose h1 { font-size: 1.25em; }
+.prose h2 { font-size: 1.15em; }
+.prose h3 { font-size: 1.05em; }
+.prose h4, .prose h5, .prose h6 { font-size: 1em; }
+
+/* 🔴 "气泡里一根线"真凶：LLM 回复含 --- 分隔符 → <hr> →
+   浏览器默认 hr 是灰色 inset 粗线 + 大外边距 */
+.prose hr {
+  border: none;
+  height: 1px;
+  background: var(--dt-border);
+  margin: 0.9em 0;
+}
+
+.prose ul, .prose ol {
+  margin: 0.5em 0;
+  padding-left: 1.4em;
+}
+.prose ul { list-style: disc; }
+.prose ol { list-style: decimal; }
+.prose li { margin: 0.25em 0; }
+.prose li::marker { color: var(--dt-muted-foreground); }
+
+.prose a {
+  color: var(--dt-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, var(--dt-primary) 40%, transparent);
+  transition: text-decoration-color 0.15s ease;
+}
+.prose a:hover { text-decoration-color: var(--dt-primary); }
+
+.prose strong { font-weight: 650; }
+
+/* 行内代码 — 消费 --ui-inline-code-* 三件套（原已定义未消费） */
+.prose code {
+  font-family: var(--dt-font-mono);
+  font-size: 0.86em;
+  background: var(--ui-inline-code-background);
+  border: 1px solid var(--ui-inline-code-border);
+  color: var(--ui-inline-code-foreground);
+  padding: 0.1em 0.35em;
+  border-radius: 0.3em;
+  word-break: break-word;
+}
+
+/* 块级代码 — 软卡片风格，与整体软背景语言一致，自动适配深浅主题 */
+.prose pre {
+  background: color-mix(in srgb, var(--dt-foreground) 4%, var(--dt-card));
+  border: 1px solid var(--dt-border);
+  border-radius: 0.5em;
+  padding: 0.7em 0.9em;
+  margin: 0.6em 0;
+  overflow-x: auto;
+}
+.prose pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.85em;
+  line-height: 1.6;
+  color: var(--dt-foreground);
+  word-break: normal;
+  white-space: pre;
+}
+
+.prose blockquote {
+  margin: 0.6em 0;
+  padding: 0.35em 0.9em;
+  border-left: 3px solid var(--dt-border);
+  background: color-mix(in srgb, var(--dt-foreground) 3%, transparent);
+  border-radius: 0 0.4em 0.4em 0;
+  color: var(--dt-muted-foreground);
+}
+.prose blockquote p { margin: 0.25em 0; }
+
+.prose table {
+  display: block;
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 0.92em;
+  overflow-x: auto;
+}
+.prose th, .prose td {
+  border: 1px solid var(--dt-border);
+  padding: 0.35em 0.7em;
+  text-align: left;
+}
+.prose th {
+  background: color-mix(in srgb, var(--dt-foreground) 4%, transparent);
+  font-weight: 600;
+}
+
+.prose img {
+  max-width: 100%;
+  border-radius: 0.5em;
+  margin: 0.4em 0;
+}
+
+/* ── 代码块复制按钮（markdown.ts addCopyButtons 注入，原无样式裸奔） ── */
+.code-block-wrapper { position: relative; }
+.code-block-wrapper .copy-btn {
+  position: absolute;
+  top: 0.45em;
+  right: 0.45em;
+  padding: 0.2em 0.55em;
+  font-size: 11px;
+  font-family: var(--dt-font-sans);
+  border-radius: 0.35em;
+  border: 1px solid var(--dt-border);
+  background: color-mix(in srgb, var(--dt-card) 85%, transparent);
+  color: var(--dt-muted-foreground);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.code-block-wrapper:hover .copy-btn { opacity: 1; }
+.code-block-wrapper .copy-btn:hover {
+  color: var(--dt-foreground);
+  background: var(--dt-card);
+}
+.code-block-wrapper .copy-btn.copied {
+  color: var(--ui-green);
+  opacity: 1;
+}

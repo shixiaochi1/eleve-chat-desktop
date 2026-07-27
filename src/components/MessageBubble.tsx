@@ -118,7 +118,7 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
     // 编辑模式
     if (editing) {
       return (
-        <div className="bg-primary/10 rounded-2xl rounded-br-sm px-4 py-2.5 text-sm max-w-[80%] ml-auto border border-primary/25">
+        <div className="bg-user-bubble rounded-2xl rounded-br-sm px-4 py-2.5 text-sm max-w-[80%] ml-auto border border-user-bubble-border">
           <textarea
             ref={editRef}
             className="desktop-input-chrome w-full rounded-md border px-3 py-2 text-sm outline-none resize-none min-h-[60px]"
@@ -167,7 +167,7 @@ export default function MessageBubble({ type, content, streaming, onRegenerate, 
       );
     }
     return (
-      <div className="bg-primary/10 text-foreground rounded-2xl rounded-br-sm px-4 py-2.5 text-sm leading-relaxed max-w-[80%] ml-auto relative group select-text border border-primary/15 shadow-sm">
+      <div className="bg-user-bubble text-foreground rounded-2xl rounded-br-sm px-4 py-2.5 text-sm leading-relaxed max-w-[80%] ml-auto relative group select-text border border-user-bubble-border shadow-sm">
         <span className="whitespace-pre-wrap break-words">{content}</span>
         <button
           className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent"
