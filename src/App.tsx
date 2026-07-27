@@ -344,7 +344,8 @@ export default function App() {
       document.documentElement.dataset.theme = savedTheme;
     }
 
-    loadSettingsFromRust();
+    // 🔴 P1：loadSettingsFromRust 已移至 WS connect 后（下方 portReady effect）。
+    // 旧实现在 mount 时调（WS 未连，sendRpc state='disconnected' 必 reject，无重试）→ 死代码。
     loadMarkdownDeps().then(() => setDepsReady(true));
 
     if (typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) {
@@ -446,6 +447,9 @@ export default function App() {
         onClose: (code, reason) => console.log('[App] WS closed:', code, reason),
         onError: (err) => console.error('[App] WS error:', err),
       });
+      // P1 修复：settings RPC 在 WS 连接发起后调用 — connecting 期间 sendRpc
+      // 排队等待，连接建立后冲刷。幂等，仅首连分支调（sessionId 变化不重复）。
+      loadSettingsFromRust();
     } else if (wsClient.state === 'connected' && sess.sessionId) {
       // WS 已连、session 变化 → 更新 wsClient 的 sessionId（不重连）
       wsClient.sessionId = sess.sessionId;
