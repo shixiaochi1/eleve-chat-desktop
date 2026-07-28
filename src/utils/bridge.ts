@@ -310,7 +310,12 @@ async function kanbanHttpFallback(command: string, args: Record<string, any>): P
   }
 
   const path = typeof mapping.path === 'function' ? mapping.path(args) : mapping.path;
-  const url = `${_httpBase}${path}`;
+  // 🔴 Phase 2c: 多 Profile 统一注入 — 非 default profile 加 /p/<profile>/ 前缀
+  // 对齐 WS 层 setWsActiveProfile 盖章机制，HTTP 层等价实现
+  const { getWsActiveProfile } = await import('../services/ws-client');
+  const profile = getWsActiveProfile();
+  const profilePrefix = profile ? `/p/${profile}` : '';
+  const url = `${_httpBase}${profilePrefix}${path}`;
 
   const options: RequestInit = {
     method: mapping.method,

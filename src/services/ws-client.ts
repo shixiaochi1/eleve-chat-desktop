@@ -71,6 +71,10 @@ let activeProfile: string | null = null
 export function setWsActiveProfile(profile: string | null | undefined): void {
   activeProfile = profile && profile !== 'default' ? profile : null
 }
+/** 获取当前 WS 层活跃 profile（null = default） */
+export function getWsActiveProfile(): string | null {
+  return activeProfile
+}
 
 // ── WS 客户端类 ──
 
