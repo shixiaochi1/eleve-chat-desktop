@@ -133,8 +133,10 @@ export default function App() {
   // ── DeepSeek 嵌入 WebView toggle ──
   const handleToggleDeepSeek = useCallback(async () => {
     const anchor = chatCardRef.current;
+    console.log('[DeepSeek] toggle clicked, anchor:', anchor ? 'found' : 'NULL');
     if (!anchor) return;
     const nowVisible = await toggleDeepSeek(anchor);
+    console.log('[DeepSeek] result:', nowVisible);
     setDeepseekVisible(nowVisible);
   }, []);
 

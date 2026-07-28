@@ -367,7 +367,7 @@ fn resolve_media(text: String) -> Result<serde_json::Value, String> {
 /// 已存在时复用（show + 重新定位），不重复创建。
 /// 注入脚本通过 include_str! 编译期嵌入，零运行时文件依赖。
 #[tauri::command]
-fn create_deepseek_webview(
+async fn create_deepseek_webview(
     window: tauri::Window,
     x: f64,
     y: f64,
@@ -376,11 +376,14 @@ fn create_deepseek_webview(
 ) -> Result<String, String> {
     use tauri::{LogicalPosition, LogicalSize};
 
+    eprintln!("[TAURI] create_deepseek_webview called: x={}, y={}, w={}, h={}", x, y, width, height);
+
     const LABEL: &str = "deepseek-embed";
 
     // 已存在 → 复用：show + 重新定位 + 聚焦
     for wv in window.webviews() {
         if wv.label() == LABEL {
+            eprintln!("[TAURI] DeepSeek webview exists, reusing");
             wv.show().map_err(|e| e.to_string())?;
             wv.set_position(LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
             wv.set_size(LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
@@ -401,6 +404,8 @@ fn create_deepseek_webview(
         .parse()
         .map_err(|e| format!("URL parse error: {}", e))?;
 
+    eprintln!("[TAURI] Building webview...");
+
     let builder = tauri::webview::WebviewBuilder::new(
         LABEL,
         tauri::WebviewUrl::External(url),
@@ -409,13 +414,18 @@ fn create_deepseek_webview(
     .focused(true)
     .disable_drag_drop_handler();
 
+    eprintln!("[TAURI] Calling add_child...");
+
     let wv = window
         .add_child(
             builder,
             LogicalPosition::new(x, y),
             LogicalSize::new(width, height),
         )
-        .map_err(|e| format!("create deepseek webview failed: {}", e))?;
+        .map_err(|e| {
+            eprintln!("[TAURI] add_child FAILED: {}", e);
+            format!("create deepseek webview failed: {}", e)
+        })?;
 
     eprintln!("[TAURI] DeepSeek webview created: {}", wv.label());
     Ok(wv.label().to_string())
