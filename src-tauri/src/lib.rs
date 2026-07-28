@@ -373,10 +373,13 @@ async fn create_deepseek_webview(
     y: f64,
     width: f64,
     height: f64,
+    bg_r: u8,
+    bg_g: u8,
+    bg_b: u8,
 ) -> Result<String, String> {
     use tauri::{LogicalPosition, LogicalSize};
 
-    eprintln!("[TAURI] create_deepseek_webview called: x={}, y={}, w={}, h={}", x, y, width, height);
+    eprintln!("[TAURI] create_deepseek_webview called: x={}, y={}, w={}, h={}, bg=({},{},{})", x, y, width, height, bg_r, bg_g, bg_b);
 
     const LABEL: &str = "deepseek-embed";
 
@@ -392,12 +395,14 @@ async fn create_deepseek_webview(
         }
     }
 
-    // 组合注入脚本：主题 CSS（作为 <style> 注入）+ 布局裁剪 JS
+    // 组合注入脚本：主题 CSS 通过全局变量传给 inject_js，
+    // 由 inject_js 在 DOMContentLoaded 时机统一注入（document-start 时 head 尚不存在，
+    // 即时 appendChild 会抛 TypeError 导致 CSS 丢失 —— 这是圆角不生效的根因）
     let theme_css = include_str!("../inject/deepseek-theme.css");
     let inject_js = include_str!("../inject/deepseek-inject.js");
     let init_script = format!(
-        "(function(){{var s=document.createElement('style');s.textContent={:?};(document.head||document.documentElement).appendChild(s);}})();\n{}",
-        theme_css, inject_js
+        "window.__ELEVE_DEEPSEEK_THEME__ = {:?};\nwindow.__ELEVE_DEEPSEEK_BG__ = 'rgb({},{},{})';\n{}",
+        theme_css, bg_r, bg_g, bg_b, inject_js
     );
 
     let url = "https://chat.deepseek.com/"
@@ -411,6 +416,10 @@ async fn create_deepseek_webview(
         tauri::WebviewUrl::External(url),
     )
     .initialization_script(&init_script)
+    // 颜色匹配法：WebView 原生背景 = Eleve 背板色（不透明）
+    // body CSS 做 12px 圆角裁剪，四角露出 WebView 底色 = 背板色 = 视觉无缝
+    // （WebView2 子窗口是独立 HWND，不支持逐像素透明合成，不能用 transparent）
+    .background_color(tauri::webview::Color(bg_r, bg_g, bg_b, 255))
     .focused(true)
     .disable_drag_drop_handler();
 

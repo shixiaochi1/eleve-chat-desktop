@@ -21,82 +21,23 @@
   // ═══════════════════════════════════════════════════════════
   const STYLE_ID = 'eleve-deepseek-inject';
 
+  /** 主题 CSS：由 Rust 侧通过全局变量传入（见 lib.rs init_script） */
+  const THEME_CSS = window.__ELEVE_DEEPSEEK_THEME__ || '';
+  /** 背板色：由 Rust 侧传入，填充 --ev-backboard 变量 */
+  const BACKBOARD = window.__ELEVE_DEEPSEEK_BG__ || 'rgb(10,22,40)';
+
   function injectCSS() {
     if (document.getElementById(STYLE_ID)) return;
+    // document-start 时 head 可能尚不存在，等 DOM 就绪
+    const host = document.head || document.documentElement;
+    if (!host) return;
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      /* ── 隐藏侧边栏（会话历史面板） ── */
-      [class*="sidebar"],
-      [class*="Sidebar"],
-      [class*="session-list"],
-      [class*="SessionList"],
-      [class*="conversation-list"],
-      [class*="history-panel"],
-      [class*="left-panel"],
-      [class*="LeftPanel"],
-      [class*="aside"],
-      nav[aria-label*="conversation"],
-      nav[aria-label*="history"],
-      nav[aria-label*="sidebar"] {
-        display: none !important;
-        width: 0 !important;
-        min-width: 0 !important;
-        max-width: 0 !important;
-        overflow: hidden !important;
-        visibility: hidden !important;
-        pointer-events: none !important;
-      }
-
-      /* ── 隐藏顶栏（Logo + 模型选择器 + 搜索） ── */
-      header,
-      [class*="header"],
-      [class*="Header"],
-      [class*="topbar"],
-      [class*="TopBar"],
-      [class*="top-bar"],
-      [class*="navbar"],
-      [class*="NavBar"],
-      [class*="nav-bar"] {
-        display: none !important;
-        height: 0 !important;
-        min-height: 0 !important;
-        max-height: 0 !important;
-        overflow: hidden !important;
-        visibility: hidden !important;
-        pointer-events: none !important;
-      }
-
-      /* ── 聊天区全宽 ── */
-      [class*="chat-container"],
-      [class*="ChatContainer"],
-      [class*="chat-main"],
-      [class*="ChatMain"],
-      [class*="main-content"],
-      [class*="MainContent"],
-      [class*="chat-area"],
-      [class*="ChatArea"],
-      main {
-        width: 100% !important;
-        max-width: 100% !important;
-        margin-left: 0 !important;
-        padding-left: 0 !important;
-      }
-
-      /* ── 侧边栏折叠按钮也隐藏 ── */
-      [class*="collapse-btn"],
-      [class*="CollapseBtn"],
-      [class*="sidebar-toggle"],
-      [class*="SidebarToggle"],
-      [aria-label*="sidebar"],
-      [aria-label*="menu"] {
-        display: none !important;
-      }
-
-      /* ── 去除页面自身滚动条（由 Eleve 容器控制） ── */
-      html, body {
-        overflow: hidden !important;
-      }
+      /* ── 背板色变量（html 画布底色 = 四角颜色） ── */
+      :root { --ev-backboard: ${BACKBOARD}; }
+      /* ── 主题适配（来自 deepseek-theme.css，圆角核心） ── */
+      ${THEME_CSS}
     `;
     (document.head || document.documentElement).appendChild(style);
   }
@@ -105,14 +46,38 @@
   // JS 注入 — MutationObserver 兜底
   // ═══════════════════════════════════════════════════════════
 
-  /** 需要隐藏的元素的匹配规则 */
-  const HIDE_PATTERNS = [
-    // 侧边栏
-    /sidebar/i, /session.?list/i, /conversation.?list/i,
-    /history.?panel/i, /left.?panel/i,
-    // 顶栏
-    /topbar/i, /top.?bar/i, /navbar/i, /nav.?bar/i,
-  ];
+  /** 需要隐藏的元素的匹配规则（临时清空，先隔离验证圆角） */
+  const HIDE_PATTERNS = [];
+
+  /** 需要按文本内容隐藏的元素（临时清空，先隔离验证圆角） */
+  const HIDE_TEXTS = [];
+
+  function hideEl(el) {
+    el.style.setProperty('display', 'none', 'important');
+    el.style.setProperty('visibility', 'hidden', 'important');
+    el.style.setProperty('height', '0', 'important');
+    el.style.setProperty('overflow', 'hidden', 'important');
+    el.style.setProperty('pointer-events', 'none', 'important');
+  }
+
+  /** 按文本内容隐藏免责声明容器 */
+  function hideDisclaimer(root) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node;
+    const toHide = [];
+    while ((node = walker.nextNode())) {
+      const txt = (node.textContent || '').trim();
+      if (HIDE_TEXTS.some(t => txt.includes(t))) {
+        // 向上找到合适的容器（最多 3 层，避免误伤整个页面）
+        let el = node.parentElement;
+        for (let i = 0; i < 3 && el && el.parentElement; i++) {
+          el = el.parentElement;
+        }
+        if (el) toHide.push(el);
+      }
+    }
+    toHide.forEach(hideEl);
+  }
 
   function shouldHide(el) {
     if (!(el instanceof HTMLElement)) return false;
@@ -140,6 +105,7 @@
   function init() {
     injectCSS();
     sweepAndHide(document.body);
+    hideDisclaimer(document.body);
 
     // MutationObserver：捕获 React 动态渲染的新元素
     const observer = new MutationObserver((mutations) => {
@@ -156,6 +122,7 @@
             }
             // 子树也扫一遍（React 可能一次挂载整棵子树）
             sweepAndHide(node);
+            hideDisclaimer(node);
           }
         }
       }

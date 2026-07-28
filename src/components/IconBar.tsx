@@ -9,7 +9,7 @@ import {
   PaletteIcon, ToolIcon, FileIcon, MemoryIcon,
   UsageIcon, ChannelsIcon, KanbanIcon, AgentIcon,
 } from './Icons';
-import { FolderGit, Activity, GitCommit, BookOpen, Bot } from 'lucide-react';
+import { FolderGit, Activity, GitCommit, BookOpen } from 'lucide-react';
 import { openKanbanWindow } from '../utils/kanban-window';
 
 interface NavItem {
@@ -18,7 +18,6 @@ interface NavItem {
   label: string;
   isWindow?: boolean;
   isOverlay?: boolean;
-  isExternal?: boolean;
 }
 
 interface IconBarProps {
@@ -27,11 +26,9 @@ interface IconBarProps {
   onOpenOverlay?: (id: string) => void;
   gatewayOnline?: boolean;
   onToggleFiles?: () => void;
-  deepseekVisible?: boolean;
-  onToggleDeepSeek?: () => void;
 }
 
-export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gatewayOnline, onToggleFiles, deepseekVisible, onToggleDeepSeek }: IconBarProps) {
+export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gatewayOnline, onToggleFiles }: IconBarProps) {
   const navItems: NavItem[] = [
     { id: 'sessions', icon: ChatIcon,    label: '会话' },
     { id: 'projects', icon: FolderGit,  label: '项目' },
@@ -45,7 +42,6 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
     { id: 'learning', icon: BookOpen,    label: '学习' },
     { id: 'rollback', icon: GitCommit,   label: '回滚' },
     { id: 'usage',    icon: UsageIcon,    label: '用量分析' },
-    { id: 'deepseek', icon: Bot,          label: 'DeepSeek', isExternal: true },
     { id: 'debug',    icon: DebugIcon,    label: '调试' },
   ];
 
@@ -56,7 +52,7 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
   const logoActive = activePanel === 'gateway';
 
   const renderButton = (item: NavItem) => {
-    const isActive = item.isExternal ? deepseekVisible === true : activePanel === item.id;
+    const isActive = activePanel === item.id;
     const Icon = item.icon;
     return (
       <button
@@ -70,9 +66,7 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
         title={item.label}
         aria-label={item.label}
         onClick={() => {
-          if (item.isExternal) {
-            onToggleDeepSeek?.();
-          } else if (item.isOverlay) {
+          if (item.isOverlay) {
             onOpenOverlay?.(item.id);
           } else if (item.isWindow) {
             openKanbanWindow();

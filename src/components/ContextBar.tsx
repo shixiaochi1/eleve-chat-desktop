@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, MessageSquareText } from 'lucide-react';
+import { Plus, MessageSquareText, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fetchSessionContext } from '../utils/api';
 import ModeSwitchButton from './ModeSwitchButton';
@@ -30,6 +30,9 @@ interface ContextBarProps {
   onToggleViewMode?: () => void;
   /** Agent 数量（< 2 时宫格按钮禁用） */
   agentCount?: number;
+  /** DeepSeek 嵌入 WebView 显隐 */
+  deepseekVisible?: boolean;
+  onToggleDeepSeek?: () => void;
 }
 
 /**
@@ -41,7 +44,7 @@ interface ContextBarProps {
  * to avoid triggering React re-renders every second. This prevents layout
  * thrashing that destabilizes the virtualizer's scroll position.
  */
-const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNewSession, onBtw, viewMode = 'single', onToggleViewMode, agentCount = 1 }: ContextBarProps) {
+const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNewSession, onBtw, viewMode = 'single', onToggleViewMode, agentCount = 1, deepseekVisible, onToggleDeepSeek }: ContextBarProps) {
   const [ctx, setCtx] = useState<ContextData | null>(null);
   const elapsedRef = useRef<HTMLSpanElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -116,6 +119,21 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
           </button>
           {onToggleViewMode && (
             <ModeSwitchButton mode={viewMode} onToggle={onToggleViewMode} agentCount={agentCount} />
+          )}
+          {onToggleDeepSeek && (
+            <button
+              className={cn(
+                'flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors',
+                deepseekVisible
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:text-foreground bg-secondary/60 hover:bg-accent/50'
+              )}
+              title="DeepSeek 嵌入"
+              onClick={onToggleDeepSeek}
+            >
+              <Bot size={14} strokeWidth={1.5} />
+              <span>DeepSeek</span>
+            </button>
           )}
         </div>
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground/70">

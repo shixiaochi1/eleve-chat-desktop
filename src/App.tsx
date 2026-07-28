@@ -98,7 +98,11 @@ export default function App() {
 
   // ── overlay panel state (settings, about) ──
   const [overlayPanel, setOverlayPanel] = useState<string | null>(null);
-  const handleOpenOverlay = useCallback((panelName: string) => setOverlayPanel(panelName), []);
+  const handleOpenOverlay = useCallback((panelName: string) => {
+    // 打开弹出卡片时隐藏 DeepSeek WebView，避免被盖住
+    hideDeepSeek().then(() => setDeepseekVisible(false));
+    setOverlayPanel(panelName);
+  }, []);
   const handleCloseOverlay = useCallback(() => setOverlayPanel(null), []);
 
   // ── F9+ 多 Profile：启动后拉取当前 active profile ──
@@ -647,7 +651,7 @@ export default function App() {
         >
           {/* 左侧面板：图标栏 + 侧边面板卡片 */}
           <Pane side="left" className="pane-left-column">
-            <IconBar activePanel={activePanel} onPanelChange={setActivePanel} onOpenOverlay={handleOpenOverlay} gatewayOnline={gatewayHealth.online} onToggleFiles={handleToggleFiles} deepseekVisible={deepseekVisible} onToggleDeepSeek={handleToggleDeepSeek} />
+            <IconBar activePanel={activePanel} onPanelChange={setActivePanel} onOpenOverlay={handleOpenOverlay} gatewayOnline={gatewayHealth.online} onToggleFiles={handleToggleFiles} />
             {activePanel && (
               <div className="side-panel-card">
                 <SidePanel
@@ -764,7 +768,7 @@ export default function App() {
                       onDismiss={() => setActiveSecret(null)}
                     />
                   )}
-                  <ContextBar sessionId={sess.sessionId} sessionStartedAt={debugInfo.sessionStartedAt} onNewSession={handleNewSession} onBtw={enterBtwMode} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount} />
+                  <ContextBar sessionId={sess.sessionId} sessionStartedAt={debugInfo.sessionStartedAt} onNewSession={handleNewSession} onBtw={enterBtwMode} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount} deepseekVisible={deepseekVisible} onToggleDeepSeek={handleToggleDeepSeek} />
                 </>
               )}
               <InputArea
