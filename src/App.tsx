@@ -180,6 +180,22 @@ export default function App() {
     sess.refresh();
   }, [currentProfile]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 🔴 启动时恢复 per-profile session（用 per-profile 指针，不用全局 session_id）
+  const startupRestored = useRef(false);
+  useEffect(() => {
+    if (!portReady || startupRestored.current) return;
+    startupRestored.current = true;
+    const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
+    const targetId = map[currentProfile] || (storage.load('session_id', null) as string | null);
+    if (targetId) {
+      sess.setSessionId(targetId);
+      getWsClient().switchSession(targetId);
+      sess.loadHistory(targetId).then((msgs) => {
+        if (msgs?.length) storeSetMessages(msgs as ChatMessage[]);
+      });
+    }
+  }, [portReady, currentProfile, sess]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── model picker state ──
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
   const handleOpenModelPicker = useCallback(() => setShowModelPicker(true), []);
@@ -315,6 +331,7 @@ export default function App() {
     setDebugInfo: setDebugInfo as any,
     setSessionListVersion,
     resetSendingLock: undefined, // will be wired after usePromptActions
+    resetStream,
   });
 
   // ── usePromptActions: send/regenerate/abort/queue ──
