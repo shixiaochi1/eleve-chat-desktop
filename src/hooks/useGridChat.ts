@@ -13,6 +13,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getWsClient } from '@/services/ws-client';
 import { call } from '../utils/bridge';
+import { profileFromSessionId, sessionIdMatchesProfile } from '../utils/session';
 import { toChatMessages, textPart, type SessionMessage } from '@/lib/chat-messages';
 import type { ChatMessage } from '@/types';
 
@@ -44,15 +45,6 @@ function emptyState(): AgentChatState {
     isLoadingMore: false, status: 'idle', streamText: '', streamReasoning: '',
     pendingApproval: null, pendingClarify: null, pendingSudo: null, pendingSecret: null, lastActivity: 0,
   };
-}
-
-/** session_id → profile 解析（agent:<profile>:...，main 归一为 default） */
-function profileFromSessionId(sid: string | undefined | null): string | null {
-  if (!sid) return null;
-  const parts = sid.split(':');
-  if (parts[0] !== 'agent' || parts.length < 2) return null;
-  const p = parts[1];
-  return p === 'main' ? 'default' : p;
 }
 
 let gridMsgSeq = 0;
@@ -127,7 +119,9 @@ export function useGridChat(active: boolean): {
   const sendTo = useCallback(async (profile: string, text: string) => {
     if (!text.trim()) return;
     const s = statesRef.current[profile];
-    const sessionId = s?.sessionId ?? undefined;
+    // 🔴 串台防御：sessionId 的 profile 前缀必须匹配目标 profile，否则丢弃（让后端新建）
+    const rawSid = s?.sessionId ?? undefined;
+    const sessionId = sessionIdMatchesProfile(rawSid, profile) ? rawSid : undefined;
     // 乐观追加用户消息
     const userMsg: ChatMessage = {
       id: gridMsgId(), role: 'user', parts: [textPart(text)], timestamp: Date.now(),

@@ -21,6 +21,7 @@ import * as storage from '../utils/storage';
 import { Square } from 'lucide-react';
 import { useGridChat, type AgentChatState } from '../hooks/useGridChat';
 import AgentChatCard, { type AgentProfileInfo, type AgentCardColor } from './AgentChatCard';
+import { sessionIdMatchesProfile } from '../utils/session';
 
 // ── Agent 颜色调色板（对齐 --ui-* 设计 token）──
 const AGENT_COLORS: AgentCardColor[] = [
@@ -166,7 +167,8 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
     for (const p of profiles) {
       // 当前 profile 优先用 App 实时 sessionId（map 可能未及更新），其余用 per-profile 指针
       const sid = map[p.name] || (p.name === currentProfile ? currentSessionId : null);
-      if (sid) loadLatest(p.name, sid);
+      // 🔴 串台防御：map 指针可能被污染（指向其他 profile 的 session），校验后才加载
+      if (sid && sessionIdMatchesProfile(sid, p.name)) loadLatest(p.name, sid);
     }
   }, [profiles, loadLatest, currentProfile, currentSessionId]);
 

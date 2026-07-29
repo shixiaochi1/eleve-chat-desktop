@@ -15,6 +15,7 @@ import { loadSettingsFromRust } from './utils/settings-store';
 import { discoverPort, call } from './utils/bridge';
 import { getActiveProfile, fetchProfiles } from './utils/api';
 import { getWsClient, setWsActiveProfile } from './services/ws-client';
+import { sessionIdMatchesProfile } from './utils/session';
 import type { ChatMessage } from './types';
 import ErrorBoundary from './components/ErrorBoundary';
 import CredentialCard from './components/CredentialCard';
@@ -186,7 +187,9 @@ export default function App() {
     if (!portReady || startupRestored.current) return;
     startupRestored.current = true;
     const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
-    const targetId = map[currentProfile] || (storage.load('session_id', null) as string | null);
+    // 🔴 串台防御：map 指针或全局 fallback 可能指向其他 profile 的 session，校验后才恢复
+    const rawTarget = map[currentProfile] || (storage.load('session_id', null) as string | null);
+    const targetId = rawTarget && sessionIdMatchesProfile(rawTarget, currentProfile) ? rawTarget : null;
     if (targetId) {
       sess.setSessionId(targetId);
       getWsClient().switchSession(targetId);
@@ -283,7 +286,10 @@ export default function App() {
   const handleProfileChange = useCallback((name: string) => {
     // ── Step 1: 记住指针（每个 Agent 上次用哪个 session） ──
     const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
-    if (sess.sessionId) map[currentProfile] = sess.sessionId;
+    // 🔴 串台防御：只写入归属正确的 session 指针，防止污染扩散
+    if (sess.sessionId && sessionIdMatchesProfile(sess.sessionId, currentProfile)) {
+      map[currentProfile] = sess.sessionId;
+    }
     storage.save('profile_session_map', map);
 
     // ── Step 2: 重置流式状态（清流式指示器 + 累加器 + streamId） ──
@@ -297,7 +303,9 @@ export default function App() {
     sess.refresh();
 
     // ── Step 4: 恢复目标会话（后端是权威源，始终 loadHistory） ──
-    const targetId = map[name] || null;
+    // 🔴 串台防御：map 指针可能被历史污染，校验归属后才恢复
+    const rawTargetId = map[name] || null;
+    const targetId = rawTargetId && sessionIdMatchesProfile(rawTargetId, name) ? rawTargetId : null;
     if (targetId) {
       sess.setSessionId(targetId);
       storage.save('session_id', targetId);
