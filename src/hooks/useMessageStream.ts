@@ -67,6 +67,8 @@ export interface UseMessageStreamProps {
   sess: SessionManagerHandle
   drainQueueRef: MutableRefObject<(() => void) | null>
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
+  /** 🔴 宫格/单视图互斥：grid 模式传 false 暂停 useSSE（useGridChat 接管 WS 事件） */
+  enabled?: boolean
 }
 
 /**
@@ -119,6 +121,7 @@ export function useMessageStream({
   sess,
   drainQueueRef,
   setSessionListVersion,
+  enabled = true,
 }: UseMessageStreamProps): {
   isStreaming: boolean
   send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string }) => Promise<void>
@@ -892,7 +895,7 @@ export function useMessageStream({
     },
   } satisfies SSECallbacks;
 
-  const { isStreaming, send, abort, resetStream: resetSSEStream } = useSSE(sseCallbacks.current, currentSessionIdRef);
+  const { isStreaming, send, abort, resetStream: resetSSEStream } = useSSE(sseCallbacks.current, currentSessionIdRef, enabled);
 
   // 🔴 多 Agent 隔离：切换会话时重置全部流式状态（SSE 累加器 + streamId）
   const resetStream = useCallback(() => {

@@ -158,12 +158,12 @@ export default function App() {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'g') {
         e.preventDefault();
-        setViewMode((prev) => (prev === 'single' ? 'grid' : 'single'));
+        toggleViewMode();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [toggleViewMode]);
 
   // ── 面板切换时自动隐藏 DeepSeek WebView ──
   useEffect(() => {
@@ -275,6 +275,7 @@ export default function App() {
     sess,
     drainQueueRef,
     setSessionListVersion,
+    enabled: viewMode === 'single',  // 🔴 宫格模式暂停 useSSE，useGridChat 接管 WS 事件
   });
 
   // 🔴 多 Agent 隔离：切换 = 纯前端换视图，后端是消息唯一权威源
@@ -327,6 +328,59 @@ export default function App() {
       storeSetMessages([]);
     }
   }, [sess, currentProfile, resetStream]);
+
+  // 🔴 宫格→单视图：恢复目标 profile 的会话。
+  // 宫格退出/展开前已由 GridModeView.persistPointers 把各 Agent 最新 session 指针写回
+  // profile_session_map，故此处只从 map 读取 + 后端重加载。与 handleProfileChange 的区别：
+  // 不回写“切走”会话（避免用陈旧的全局 sess.sessionId 覆盖宫格刚写回的权威指针）。
+  const restoreProfileSession = useCallback((profile: string) => {
+    const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
+    const targetId = map[profile] || null;
+    resetStream();
+    setWsActiveProfile(profile);
+    setCurrentProfile(profile);
+    if (targetId) {
+      sess.setSessionId(targetId);
+      storage.save('session_id', targetId);
+      sess.setFreshDraftReady(false);
+      getWsClient().switchSession(targetId);
+      const cached = sess.msgCache[targetId];
+      storeSetMessages(cached?.length ? (cached as ChatMessage[]) : []);
+      sess.loadHistory(targetId).then((msgs) => {
+        if (msgs?.length) {
+          storeSetMessages(msgs as ChatMessage[]);
+          sess.saveCache((c) => ({ ...c, [targetId]: msgs }));
+        }
+      });
+      // 恢复 pending 交互弹窗（与 handleProfileChange 一致）
+      call('session.info', { session_id: targetId }).then((info: any) => {
+        const pp = info?.pending_prompts;
+        if (!pp) return;
+        if (pp.approval) setActiveApproval(pp.approval);
+        if (pp.clarify) setActiveClarify(pp.clarify);
+        if (pp.sudo_password) setActiveSudo({ request_id: pp.sudo_password.sudo_id, prompt: pp.sudo_password.prompt });
+        if (pp.secret_capture) setActiveSecret(pp.secret_capture);
+      }).catch(() => { /* session.info 不可用时静默 */ });
+    } else {
+      sess.setSessionId(null);
+      storage.save('session_id', null);
+      sess.setFreshDraftReady(true);
+      getWsClient().switchSession('');
+      storeSetMessages([]);
+    }
+  }, [sess, resetStream]);
+
+  // 退出宫格（回到当前 profile 单视图）
+  const handleExitGrid = useCallback(() => {
+    setViewMode('single');
+    restoreProfileSession(currentProfile);
+  }, [restoreProfileSession, currentProfile]);
+
+  // 展开某个 Agent 为单视图
+  const handleExpandAgent = useCallback((profile: string) => {
+    setViewMode('single');
+    restoreProfileSession(profile);
+  }, [restoreProfileSession]);
 
   // ── useSessionActions: session switch/delete/new ──
   // 先于 usePromptActions 调用，因为 handleNewSession 需要传给 usePromptActions
@@ -756,7 +810,12 @@ export default function App() {
           <PaneMain>
             {viewMode === 'grid' ? (
               <div className="chat-card">
-                <GridModeView currentProfile={currentProfile} onExitGrid={toggleViewMode} />
+                <GridModeView
+                  currentProfile={currentProfile}
+                  currentSessionId={sess.sessionId}
+                  onExitGrid={handleExitGrid}
+                  onExpandAgent={handleExpandAgent}
+                />
               </div>
             ) : (
             <div className="chat-card" ref={chatCardRef}>

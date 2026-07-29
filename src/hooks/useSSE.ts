@@ -517,6 +517,7 @@ function processEvent(
 export function useSSE(
   callbacks: SSECallbacks = {},
   currentSessionIdRef?: React.MutableRefObject<string | null>,
+  enabled: boolean = true,
 ): {
   isStreaming: boolean
   send: (text: string, sessionId?: string | null) => Promise<void>
@@ -570,7 +571,10 @@ export function useSSE(
   }, [currentSessionIdRef]);
 
   // ── WS 连接生命周期 ──
+  // 🔴 宫格/单视图互斥：enabled=false（宫格模式）时 useSSE 暂停、不注册 listener，
+  // 由 useGridChat 接管所有 WS 事件。两者以 viewMode 为键由 App 层驱动，天然互斥。
   useEffect(() => {
+    if (!enabled) return;
     const wsClient = getWsClient();
 
     // 注册事件监听器 — WS 推送 → routeWsEvent → processEvent → SSECallbacks
@@ -582,7 +586,7 @@ export function useSSE(
     return () => {
       wsClient.removeEventListener(routeWsEvent);
     };
-  }, [routeWsEvent]);
+  }, [routeWsEvent, enabled]);
 
   const send = useCallback(async (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string }): Promise<void> => {
     if (!text?.trim()) return;

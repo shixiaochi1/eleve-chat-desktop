@@ -12,12 +12,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, memo } from '
 import { cn } from '@/lib/utils'
 import { setScrolledUp } from '@/store/scroll'
 import { useIsStreaming } from '@/store/messages'
-import { useMessage, useMessageSignature, getMessages, setMessages } from '@/store/messages'
-import MessageBubble from './MessageBubble'
-import ReasoningBlock from './ReasoningBlock'
-import ToolCallGroup, { isSpecialTool, type ToolCallItem } from './ToolCallGroup'
-import HoistedTodoPanel, { todosFromMessageParts } from './HoistedTodoPanel'
-import type { ChatMessage, ChatMessagePart } from '@/types'
+import { useMessage, useMessageSignature, setMessages } from '@/store/messages'
+import MessageRow from './MessageRow'
 import { isSettingsReady } from '@/utils/settings-store'
 
 const ESTIMATED_ITEM_HEIGHT = 220
@@ -483,183 +479,16 @@ interface SingleMessageItemProps {
   index: number
 }
 
+// 渲染逻辑已提取到 MessageRow（纯渲染、store 解耦，单视图/宫格共用）。
+// 本 wrapper 只负责：从全局 store 按 index 读取消息 + 提供删除回调。
+// 注：useCallback 提到 early return 之前（修正原实现的 rules-of-hooks 违规）。
 const SingleMessageItem = memo(function SingleMessageItem({ index }: SingleMessageItemProps) {
   const m = useMessage(index)
-  if (!m || m.hidden) return null
-
   const handleDelete = useCallback((messageId: string) => {
     setMessages(prev => prev.filter(msg => msg.id !== messageId))
   }, [])
-
-  // ── Parts-based rendering ──
-  if (m.parts && m.parts.length > 0) {
-    if (m.role === 'user') {
-      const text = m.parts.filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text').map(p => p.text).join('')
-      return <div className="flex justify-end px-4 mb-1.5"><MessageBubble type="user" content={text} timestamp={m.timestamp} messageId={m.id} onDelete={handleDelete} /></div>
-    }
-
-    if (m.role === 'assistant') {
-      // ── 分组渲染：连续 tool-call 合并为一组（对齐 Eleve groupToolParts）──
-      type RenderItem =
-        | { kind: 'reasoning'; key: string; text: string }
-        | { kind: 'text'; key: string; text: string; isLast: boolean }
-        | { kind: 'tool-group'; key: string; tools: ToolCallItem[] }
-        | { kind: 'special-tool'; key: string; tool: ToolCallItem }
-
-      const renderItems: RenderItem[] = []
-      let toolBuffer: ToolCallItem[] = []
-      let bufferKey = ''
-
-      const flushToolBuffer = () => {
-        if (toolBuffer.length === 0) return
-        renderItems.push({ kind: 'tool-group', key: bufferKey, tools: [...toolBuffer] })
-        toolBuffer = []
-        bufferKey = ''
-      }
-
-      for (let pi = 0; pi < m.parts.length; pi++) {
-        const part = m.parts[pi]
-
-        if (part.type === 'tool-call') {
-          // 特殊工具（todo/image_generate/clarify）不参与分组
-          if (isSpecialTool(part.toolName)) {
-            flushToolBuffer()
-            renderItems.push({
-              kind: 'special-tool',
-              key: `st-${part.toolCallId || pi}`,
-              tool: {
-                name: part.toolName,
-                callId: part.toolCallId,
-                argsStr: part.argsText,
-                resultStr: part.result != null ? (typeof part.result === 'string' ? part.result : JSON.stringify(part.result)) : undefined,
-                status: part.result != null ? 'done' : 'pending',
-              },
-            })
-            continue
-          }
-
-          // 加入工具缓冲区
-          if (toolBuffer.length === 0) bufferKey = `tg-${pi}`
-          toolBuffer.push({
-            name: part.toolName,
-            callId: part.toolCallId,
-            argsStr: part.argsText,
-            resultStr: part.result != null ? (typeof part.result === 'string' ? part.result : JSON.stringify(part.result)) : undefined,
-            status: part.result != null ? 'done' : 'pending',
-          })
-          continue
-        }
-
-        // 非 tool-call → 先刷出缓冲区
-        flushToolBuffer()
-
-        if (part.type === 'reasoning') {
-          renderItems.push({ kind: 'reasoning', key: `r-${pi}`, text: part.text })
-        } else if (part.type === 'text') {
-          renderItems.push({ kind: 'text', key: `t-${pi}`, text: part.text, isLast: pi === m.parts.length - 1 })
-        }
-      }
-      flushToolBuffer()
-
-      // 从 parts 中提取 todo 列表（对齐 Eleve HoistedTodoPanel）
-      const hoistedTodos = todosFromMessageParts(m.parts)
-
-      return (
-        <div className="flex flex-col gap-2.5 px-4 mb-1.5">
-          {hoistedTodos.length > 0 && <HoistedTodoPanel todos={hoistedTodos} />}
-          {renderItems.map(item => {
-            switch (item.kind) {
-              case 'reasoning':
-                return <ReasoningBlock key={item.key} text={item.text} visible={!!item.text} messageId={m.id} pending={!!m.pending} />
-              case 'text':
-                return (
-                  <MessageBubble
-                    key={item.key}
-                    type="agent"
-                    content={item.text}
-                    streaming={!!m.pending && item.isLast}
-                    timestamp={m.timestamp}
-                    messageId={m.id}
-                    onDelete={handleDelete}
-                  />
-                )
-              case 'tool-group':
-                return <ToolCallGroup key={item.key} tools={item.tools} />
-              case 'special-tool':
-                // 特殊工具暂用 ToolCallGroup 单工具渲染
-                return <ToolCallGroup key={item.key} tools={[item.tool]} />
-            }
-          })}
-          {m.error && <MessageBubble type="error" content={m.error} />}
-        </div>
-      )
-    }
-
-    if (m.role === 'system') {
-      const text = m.parts.filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text').map(p => p.text).join('')
-      return <div className="px-4 py-0.5"><MessageBubble type="system" content={text} /></div>
-    }
-  }
-
-  // ── Legacy fallback ──
-  let element
-  switch (m.type) {
-    case 'user':
-      element = <MessageBubble type="user" content={m.content} timestamp={m.timestamp} messageId={m.id} onDelete={handleDelete} />
-      break
-    case 'agent':
-      element = (
-        <MessageBubble
-          type="agent"
-          content={m.content}
-          streaming={!!m._streaming}
-          timestamp={m.timestamp}
-          messageId={m.id}
-          onDelete={handleDelete}
-          agentAttribution={m.agentAttribution as unknown as Parameters<typeof MessageBubble>[0]['agentAttribution']}
-        />
-      )
-      break
-    case 'system':
-      element = <MessageBubble type="system" content={m.content} />
-      break
-    case 'error':
-      element = <MessageBubble type="error" content={m.content || m.error} />
-      break
-    case 'reasoning':
-      element = <ReasoningBlock text={m.content || m.reasoning_content} visible={!!(m.content || m.reasoning_content)} messageId={m.id} pending={!!m.pending} />
-      break
-    case 'tool':
-      element = (
-        <ToolCallGroup
-          tools={[{
-            name: m.toolName || m.tool_name,
-            callId: m.callId || m.tool_call_id,
-            argsStr: m.argsStr || m.tool_input,
-            resultStr: m.resultStr || m.tool_output,
-            status: m.status,
-          }]}
-        />
-      )
-      break
-    case 'usage':
-      element = (
-        <div className="text-xs text-center text-muted-foreground py-1 px-3">
-          Tokens: 输入 {m.inputTokens} | 输出 {m.outputTokens}
-        </div>
-      )
-      break
-    default:
-      return null
-  }
-
-  const alignClass = m.type === 'user'
-    ? 'flex justify-end px-4 mb-1.5'
-    : m.type === 'agent'
-      ? 'flex justify-start px-4 mb-1.5'
-      : 'px-4 py-0.5'
-
-  return <div className={alignClass}>{element}</div>
+  if (!m) return null
+  return <MessageRow message={m} onDelete={handleDelete} />
 })
 
 export default memo(VirtualizedThread)

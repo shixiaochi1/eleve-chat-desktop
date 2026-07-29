@@ -63,8 +63,7 @@ export function useGridChat(active: boolean): {
   loadMore: (profile: string) => Promise<void>;
   sendTo: (profile: string, text: string) => Promise<void>;
   abortAgent: (profile: string) => Promise<void>;
-  respondApproval: (profile: string, runId: string, choice: string) => Promise<void>;
-  respondClarify: (profile: string, clarifyId: string, answer: string) => Promise<void>;
+  clearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo') => void;
 } {
   const [states, setStates] = useState<Record<string, AgentChatState>>({});
 
@@ -162,19 +161,17 @@ export function useGridChat(active: boolean): {
     accRef.current[profile] = { text: '', reasoning: '' };
   }, [patch]);
 
-  // ── 响应交互弹窗 ──
-  const respondApproval = useCallback(async (profile: string, runId: string, choice: string) => {
-    try {
-      await getWsClient().sendRpc('approval.respond', { run_id: runId, choice, profile });
-    } catch { /* ignore */ }
-    patch(profile, (st) => ({ ...st, pendingApproval: null, status: 'streaming' }));
-  }, [patch]);
-
-  const respondClarify = useCallback(async (profile: string, clarifyId: string, answer: string) => {
-    try {
-      await getWsClient().sendRpc('clarify.respond', { clarify_id: clarifyId, answer, profile });
-    } catch { /* ignore */ }
-    patch(profile, (st) => ({ ...st, pendingClarify: null, status: 'streaming' }));
+  // ── 清除 per-agent pending 交互状态 ──
+  // 审批/澄清/sudo 的实际回传由复用的交互卡片组件自行发送（ApprovalCard 走 WS
+  // approval.respond、ClarifyCard 走 HTTP submitClarifyResponse、CredentialCard 由
+  // AgentChatCard 提供 sudo_respond 的 onSubmit）——与单视图完全一致的单一权威路径。
+  // 本 hook 只负责交互状态管理：卡片完成后调用 clearPending 收起弹窗、恢复 streaming。
+  const clearPending = useCallback((profile: string, kind: 'approval' | 'clarify' | 'sudo') => {
+    patch(profile, (st) => {
+      if (kind === 'approval') return { ...st, pendingApproval: null, status: 'streaming' };
+      if (kind === 'clarify') return { ...st, pendingClarify: null, status: 'streaming' };
+      return { ...st, pendingSudo: null, status: 'streaming' };
+    });
   }, [patch]);
 
   // ── WS 事件解复用（active 时接管所有事件） ──
@@ -220,7 +217,15 @@ export function useGridChat(active: boolean): {
           break;
         }
         case 'approval.request':
-          patch(profile, (s) => ({ ...s, pendingApproval: payload, status: 'waiting', lastActivity: Date.now() }));
+          // 🔴 run_id 在顶层（params.run_id = session_id），payload 内没有 → 合并进去，
+          // 供 ApprovalCard 调 approval.respond（对齐 useSSE routeWsEvent 的 chunk 构造，
+          // 否则宫格审批会发 session_id:undefined 导致审批失败）
+          patch(profile, (s) => ({
+            ...s,
+            pendingApproval: { ...payload, run_id: (raw.run_id as string) ?? (raw.session_id as string) },
+            status: 'waiting',
+            lastActivity: Date.now(),
+          }));
           break;
         case 'clarify.request':
           patch(profile, (s) => ({ ...s, pendingClarify: payload, status: 'waiting', lastActivity: Date.now() }));
@@ -265,5 +270,5 @@ export function useGridChat(active: boolean): {
     };
   }, [active, patch]);
 
-  return { states, loadLatest, loadMore, sendTo, abortAgent, respondApproval, respondClarify };
+  return { states, loadLatest, loadMore, sendTo, abortAgent, clearPending };
 }
