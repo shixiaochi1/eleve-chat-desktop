@@ -293,6 +293,9 @@ export default function App() {
     setWsActiveProfile(name);
     setCurrentProfile(name);
 
+    // ── Step 3b: 🔴 S2 修复 — 刷新会话列表（后端按 profile 过滤，S1 保证 sendRpc 盖章新 profile） ──
+    sess.refresh();
+
     // ── Step 4: 恢复目标会话（后端是权威源，始终 loadHistory） ──
     const targetId = map[name] || null;
     if (targetId) {
@@ -339,6 +342,8 @@ export default function App() {
     resetStream();
     setWsActiveProfile(profile);
     setCurrentProfile(profile);
+    // 🔴 S2: 宫格→单视图同样刷新会话列表（与 handleProfileChange 一致）
+    sess.refresh();
     if (targetId) {
       sess.setSessionId(targetId);
       storage.save('session_id', targetId);
