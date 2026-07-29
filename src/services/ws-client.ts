@@ -422,9 +422,15 @@ export class GatewayWsClient {
     }
   }
 
-  /** 发送 JSON-RPC 通知（无 id，不等响应） */
+  /** 发送 JSON-RPC 通知（无 id，不等响应）
+   *  🔴 T4: 与 sendRpc 统一盖章逻辑 — 活动 profile 盖章到 params。
+   *  架构不变量：every backend-targeted action must carry the active gateway profile。 */
   sendNotify(method: string, params: Record<string, unknown> = {}): void {
     if (this.ws?.readyState !== WebSocket.OPEN) return
+    // 多 Profile 单点注入（与 sendRpc L363-365 同一逻辑）
+    if (activeProfile && params.profile === undefined) {
+      params = { ...params, profile: activeProfile }
+    }
     const msg = { jsonrpc: '2.0', method, params }
     this.ws.send(JSON.stringify(msg))
   }
