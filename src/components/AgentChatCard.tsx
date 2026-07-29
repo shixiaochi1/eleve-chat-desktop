@@ -203,20 +203,23 @@ export const AgentChatCard = memo(function AgentChatCard({
           state.messages.map((m) => <MessageRow key={m.id} message={m} />)
         )}
 
-        {/* ── 流式气泡（独立渲染，不重渲染历史列表） ── */}
+        {/* ── 流式气泡 — 经 MessageRow 渲染 = 与单视图 100% 一致（不重复造轮子）──
+            单视图流式 = store 里 pending 消息经 MessageRow（MessageBubble streaming 模式 +
+            ReasoningBlock shimmer/计时器/折叠）。宫格用合成 pending 消息走同一条渲染路径，
+            气泡样式/推理块/间距全自动对齐，MessageRow 任何改动宫格流式同步生效。
+            独立于 state.messages 渲染 → 30fps streamText 更新不重渲染历史列表（性能优化保留）。 */}
         {(state.streamReasoning || state.streamText) && (
-          <div className="flex flex-col gap-2 px-4 mb-1.5">
-            {state.streamReasoning && (
-              <div className="text-[11px] italic text-muted-foreground/70 whitespace-pre-wrap break-words border-l-2 border-border/40 pl-2">
-                {state.streamReasoning}
-              </div>
-            )}
-            {state.streamText && (
-              <div className="w-fit max-w-[85%] min-w-0 bg-card text-card-foreground rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed border border-border shadow-sm overflow-hidden">
-                <span className="whitespace-pre-wrap break-words">{state.streamText}</span>
-              </div>
-            )}
-          </div>
+          <MessageRow
+            message={{
+              id: `${name}-streaming`,
+              role: 'assistant',
+              pending: true,
+              parts: [
+                ...(state.streamReasoning ? [{ type: 'reasoning' as const, text: state.streamReasoning }] : []),
+                ...(state.streamText ? [{ type: 'text' as const, text: state.streamText }] : []),
+              ],
+            }}
+          />
         )}
       </div>
 
