@@ -165,22 +165,54 @@ export default function App() {
   // ── session management（必须在 handleProfileChange 之前，切换 Agent 需要重置 session） ──
   const sess = useSessions();
 
-  // Profile 切换联动：更新全局状态 + 重置会话 + 刷新会话列表
+  // Profile 切换联动：保存当前会话 → 切换 → 恢复目标会话
   // ── F1 多 Profile：setWsActiveProfile 必须同步调用（activeProfile 是模块级变量），
   //    保证下面 sessionListVersion 触发的列表 refetch 用到新 profile，避免异步 effect 竞态。
   //    对齐 Hermes setApiRequestProfile：currentProfile 是唯一权威源，sendRpc 单点盖章 params.profile。
   const handleProfileChange = useCallback((name: string) => {
+    // ── Step 1: 保存当前 profile 的会话状态（对齐 handleSwitchSession 的 saveCache 模式） ──
+    if (sess.sessionId) {
+      sess.saveCache((cache) => ({ ...cache, [sess.sessionId!]: getMessages() }));
+    }
+    // per-profile 会话记忆：记录每个 profile 上次使用的 sessionId
+    const profileSessionMap = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
+    profileSessionMap[currentProfile] = sess.sessionId;
+    storage.save('profile_session_map', profileSessionMap);
+
+    // ── Step 2: 切换到新 profile ──
     setWsActiveProfile(name);
     setCurrentProfile(name);
     setSessionListVersion((v) => v + 1);
-    // 🔴 切换 Agent 必须清空当前 session，否则旧 session_id（agent:default:ws:xxx）
-    //    路由到旧 Agent → 上下文/人设/记忆全是旧的
-    sess.setSessionId(null);
-    storage.save('session_id', null);
-    sess.setFreshDraftReady(true);  // 下次发消息自动创建新 session（带新 profile 前缀）
-    getWsClient().switchSession('');  // 清 WS client 内部 sessionId fallback
-    storeSetMessages([]);  // 清空聊天界面（全局消息 store）
-  }, [sess.setSessionId, sess.setFreshDraftReady]);
+
+    // ── Step 3: 恢复目标 profile 的会话（有历史→恢复，无历史→空白草稿） ──
+    const targetSessionId = profileSessionMap[name] || null;
+    if (targetSessionId) {
+      sess.setSessionId(targetSessionId);
+      storage.save('session_id', targetSessionId);
+      sess.setFreshDraftReady(false);
+      getWsClient().switchSession(targetSessionId);
+      // 缓存优先，fallback 后端加载
+      const cached = sess.msgCache[targetSessionId];
+      if (cached?.length) {
+        storeSetMessages(cached as ChatMessage[]);
+      } else {
+        storeSetMessages([]);
+        sess.loadHistory(targetSessionId).then((msgs) => {
+          if (msgs?.length) {
+            storeSetMessages(msgs as ChatMessage[]);
+            sess.saveCache((cache) => ({ ...cache, [targetSessionId]: msgs }));
+          }
+        });
+      }
+    } else {
+      // 无历史会话 → 空白草稿（下次发消息自动创建带 profile 前缀的新 session）
+      sess.setSessionId(null);
+      storage.save('session_id', null);
+      sess.setFreshDraftReady(true);
+      getWsClient().switchSession('');
+      storeSetMessages([]);
+    }
+  }, [sess, currentProfile]);
 
   // ── model picker state ──
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
