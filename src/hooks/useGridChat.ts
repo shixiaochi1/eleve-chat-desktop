@@ -1,14 +1,46 @@
 /**
  * useGridChat — 宫格多 Agent 全功能聊天引擎
  *
- * 架构原则（对齐多 Agent 独立性北极星）：
- * - 每个 Agent 一个独立状态槽（messages / streaming / pending 交互），互不干扰
- * - 后端是消息唯一权威源：窗口化加载（最新 N 条 + 上翻加载更早），不全量缓存
- * - WS 单连接解复用：事件按 session_id 前缀路由到对应 Agent 槽
- * - 流式高频 delta 只写 ref 累加器，30fps flush 到状态（不触发消息列表重渲染）
- * - 内存可控：每 Agent 最多 WINDOW_MAX 条，超出从头部 evict（ELEVE 常驻内存安全）
+ * ═══════════════════════════════════════════════════════════════════
+ *  多 Profile 宫格模式 — 事件路由与隔离架构
+ * ═══════════════════════════════════════════════════════════════════
  *
- * 与 useSSE 的关系：宫格模式激活时 useSSE 暂停（由 App 层控制），本 hook 接管所有 WS 事件。
+ * 【职责】
+ *   管理 N 个 Agent 的独立聊天状态槽，通过单条 WS 连接解复用事件。
+ *   每个 Agent 拥有独立的: sessionId / messages / streamText / pending 交互。
+ *
+ * 【事件路由机制（核心隔离逻辑）】
+ *
+ *   后端事件帧格式:
+ *     { params: { session_id: "agent:<profile>:ws:<uuid>", type: "message.delta", payload: {...} } }
+ *
+ *   路由链:
+ *     ws-client.emit(eventName, data)
+ *       → handler 提取 data.session_id
+ *       → profileFromSessionId(session_id) 解析出 profile 名
+ *       → patch(profile, ...) 只更新该 profile 的状态槽
+ *
+ *   隔离保证: 事件帧的 session_id 由后端在 session 创建时确定（agent:B:ws:xxx），
+ *   前端仅解析不篡改。只要后端 session 创建正确，事件天然路由到正确 Agent。
+ *
+ * 【串台防御（sendTo 校验）】
+ *
+ *   发送前校验 statesRef[profile].sessionId 的 profile 前缀是否匹配目标 profile。
+ *   不匹配 = localStorage 指针污染 → 丢弃该 sessionId，传空串让后端新建。
+ *   详见 utils/session.ts 文件头的完整架构文档。
+ *
+ * 【与 useSSE 的互斥关系】
+ *
+ *   App 层以 viewMode 为键控制:
+ *     viewMode === 'single' → useSSE(enabled=true),  useGridChat(active=false)
+ *     viewMode === 'grid'   → useSSE(enabled=false), useGridChat(active=true)
+ *
+ *   useSSE enabled=false 时完全卸载 WS listener（useEffect cleanup），
+ *   不存在两个 hook 同时消费 WS 事件的情况。
+ *
+ * 【内存控制】
+ *   每 Agent 最多 WINDOW_MAX 条消息，超出从头部 evict。
+ *   流式 delta 只写 ref 累加器，33ms flush 到状态（不触发消息列表重渲染）。
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getWsClient } from '@/services/ws-client';

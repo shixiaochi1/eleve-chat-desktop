@@ -1,19 +1,52 @@
 /**
  * GridModeView — 多 Agent 宫格全功能视图（模式 B）
  *
- * 北极星（老大 2026-07-30）：同时显示 N 个 Agent 的全功能聊天窗口（和单视图一样），
- * N 无上限（滚动网格），性能优先（ELEVE 常驻内存）。拖拽换位必须有（老大强调）。
+ * ═══════════════════════════════════════════════════════════════════
+ *  多 Profile 宫格视图 — 生命周期与数据流架构
+ * ═══════════════════════════════════════════════════════════════════
  *
- * 架构：
- * - 本组件仅在 viewMode==='grid' 时挂载（App 条件渲染）→ 内部 useGridChat(true) 挂载即
- *   激活、卸载即清理。与单视图 useSSE 以 viewMode 为键天然互斥（App 层同步暂停 useSSE）。
- * - 布局：卡片绝对定位 + transform translate 定位（非 grid 流式布局）。列数按容器宽度
- *   auto-fill 计算（MIN_CELL_W），行数按 N 计算，内容区撑出高度 → 容器可滚动（N 无上限）。
- * - 拖拽换位（零依赖）：拖拽期间零 React 渲染——被拖卡直接写 DOM transform 跟随光标；
- *   换位只更新逻辑顺序 projectedOrder，其余卡 CSS transition 平滑滑过；松手提交 order，
- *   被拖卡弹性滑回槽位。坐标含 scrollTop 补偿 + 边缘自动滚动（多行可拖到不可见区）。
- * - 进入宫格：每个有历史 session 的 profile loadLatest（后端权威源）；无 session 的显示空态。
- * - 退出/展开：先把各 Agent 当前 session 指针写回 profile_session_map，再交回 App 刷新单视图。
+ * 【挂载/卸载生命周期】
+ *
+ *   App 条件渲染: viewMode === 'grid' ? <GridModeView/> : <单视图/>
+ *
+ *   挂载时:
+ *     1. fetchProfiles() 获取所有 Agent 列表
+ *     2. 读 localStorage profile_session_map 获取每个 Agent 上次的 session 指针
+ *     3. 🔴 串台防御: sessionIdMatchesProfile() 校验指针归属，不匹配则跳过
+ *     4. 对通过校验的 profile 调 loadLatest() 从后端加载最新 N 条消息
+ *     5. useGridChat(active=true) 注册 WS listener，接管所有事件
+ *
+ *   卸载时:
+ *     1. persistPointers() 把各 Agent 当前 sessionId 写回 profile_session_map
+ *     2. useGridChat(active=false) 卸载 WS listener
+ *     3. App 层同步恢复 useSSE(enabled=true)
+ *
+ * 【profile_session_map 数据流（localStorage 持久化）】
+ *
+ *   结构: { "default": "agent:default:ws:xxx", "ocean": "agent:ocean:ws:yyy", ... }
+ *
+ *   写入点:
+ *     - persistPointers()（退出宫格/展开单 Agent 时）
+ *     - App.handleProfileChange()（单视图切换 Agent 时）
+ *
+ *   读取点:
+ *     - 本组件进入宫格时（初始化各 Agent 卡片）
+ *     - App 启动恢复时（恢复上次使用的 session）
+ *     - App.handleProfileChange()（切换到目标 Agent 时）
+ *
+ *   🔴 污染风险: map 中的指针可能被错误写入（如旧版全局 session_id fallback），
+ *   所有读取点必须经 sessionIdMatchesProfile() 校验后才能消费。
+ *   详见 utils/session.ts 文件头的完整架构文档。
+ *
+ * 【布局与拖拽】
+ * - 卡片绝对定位 + transform translate（非 grid 流式布局）
+ * - 列数按容器宽度 auto-fill 计算（MIN_CELL_W），N 无上限可滚动
+ * - 拖拽换位零 React 渲染：被拖卡直接写 DOM transform，松手提交 order
+ *
+ * 【与单视图的关系】
+ *   宫格和单视图共享同一个 WS 连接（ws-client 单例），但事件消费者互斥：
+ *   宫格 → useGridChat 按 session_id 解复用到 N 个状态槽
+ *   单视图 → useSSE 按当前 sessionId 过滤
  */
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { fetchProfiles } from '../utils/api';

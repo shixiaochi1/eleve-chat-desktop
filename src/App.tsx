@@ -181,7 +181,18 @@ export default function App() {
     sess.refresh();
   }, [currentProfile]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 🔴 启动时恢复 per-profile session（用 per-profile 指针，不用全局 session_id）
+  // ═══════════════════════════════════════════════════════════════════
+  //  多 Profile 会话恢复 — 启动时从 localStorage 恢复上次会话
+  // ═══════════════════════════════════════════════════════════════════
+  //
+  // 数据源优先级:
+  //   1. profile_session_map[currentProfile] — per-profile 指针（权威）
+  //   2. 全局 session_id（旧版 fallback，可能是其他 profile 的）
+  //
+  // 🔴 串台防御: 无论哪个来源，都必须经 sessionIdMatchesProfile() 校验。
+  // 不匹配 → targetId=null → 不恢复，用户从空会话开始（后端按 profile 新建）。
+  // 详见 utils/session.ts 文件头的完整架构文档。
+  //
   const startupRestored = useRef(false);
   useEffect(() => {
     if (!portReady || startupRestored.current) return;
@@ -281,8 +292,27 @@ export default function App() {
     enabled: viewMode === 'single',  // 🔴 宫格模式暂停 useSSE，useGridChat 接管 WS 事件
   });
 
-  // 🔴 多 Agent 隔离：切换 = 纯前端换视图，后端是消息唯一权威源
-  // 切走不存消息，切回始终从后端加载。WS 事件按 session_id 过滤（useSSE）。
+  // ═══════════════════════════════════════════════════════════════════
+  //  多 Profile 切换 — 单视图 Agent 切换的完整生命周期
+  // ═══════════════════════════════════════════════════════════════════
+  //
+  // 核心原则: 切换 = 纯前端换视图，后端是消息唯一权威源。
+  // 切走不存消息到本地，切回始终从后端 loadHistory（含离开期间的消息）。
+  //
+  // 四步流程:
+  //   Step 1: 记住指针 — 把当前 Agent 的 sessionId 写入 profile_session_map
+  //           🔴 写入前校验归属（sessionIdMatchesProfile），防止污染扩散
+  //   Step 2: 重置流式状态 — 清流式指示器 + 累加器 + streamId
+  //   Step 3: 切换盖章 — setWsActiveProfile(name) 同步更新 WS 默认 profile
+  //           保证后续 sendRpc 的 params.profile 盖章正确
+  //   Step 4: 恢复目标会话 — 从 map 读取目标 Agent 的 session 指针
+  //           🔴 读取后校验归属，不匹配则跳过（用户从空会话开始）
+  //           恢复顺序: setSessionId → switchSession → 缓存秒显 → 后端 loadHistory
+  //           → session.info 恢复 pending 交互弹窗（approval/clarify/sudo/secret）
+  //
+  // profile_session_map 数据流详见 GridModeView.tsx 文件头。
+  // 串台防御完整架构详见 utils/session.ts 文件头。
+  //
   const handleProfileChange = useCallback((name: string) => {
     // ── Step 1: 记住指针（每个 Agent 上次用哪个 session） ──
     const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
