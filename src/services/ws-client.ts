@@ -357,11 +357,11 @@ export class GatewayWsClient {
   /** 发送 JSON-RPC 请求，返回 Promise<result>
    *  Phase 1: WS 未连接时排队等待，连接后自动发送 */
   sendRpc(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
-    // 多 Profile 单点注入：活动 profile 盖章到 params（调用方未显式指定 profile 时）。
-    // 后端仅 6 个会话作用域 RPC（session.list/create/search、analytics.usage、prompt.submit）消费 params.profile，
-    // 其余 RPC 忽略该字段，故广覆盖盖章安全。单 profile（activeProfile=null）时省略 → 后端 default。
-    if (activeProfile && params.profile === undefined) {
-      params = { ...params, profile: activeProfile }
+    // 🔴 S1: 始终盖章 profile（default 也传）— 消灭 null 语义分裂。
+    // 桌面端请求永不 fallback 到 ③（R-B 铁则）。
+    // activeProfile=null 时盖章 "default"，后端按来源判别：桌面 None→default 永不读 ③。
+    if (params.profile === undefined) {
+      params = { ...params, profile: activeProfile ?? 'default' }
     }
     return new Promise((resolve, reject) => {
       // WS 已连接：直接发送
@@ -423,13 +423,13 @@ export class GatewayWsClient {
   }
 
   /** 发送 JSON-RPC 通知（无 id，不等响应）
-   *  🔴 T4: 与 sendRpc 统一盖章逻辑 — 活动 profile 盖章到 params。
-   *  架构不变量：every backend-targeted action must carry the active gateway profile。 */
+   *  🔴 T4+S1: 与 sendRpc 统一始终盖章逻辑 — 活动 profile 盖章到 params（default 也传）。
+   *  架构不变量：every backend-targeted action must carry the active gateway profile（R-B 铁则）。 */
   sendNotify(method: string, params: Record<string, unknown> = {}): void {
     if (this.ws?.readyState !== WebSocket.OPEN) return
-    // 多 Profile 单点注入（与 sendRpc L363-365 同一逻辑）
-    if (activeProfile && params.profile === undefined) {
-      params = { ...params, profile: activeProfile }
+    // 🔴 S1: 始终盖章（与 sendRpc 同一逻辑）
+    if (params.profile === undefined) {
+      params = { ...params, profile: activeProfile ?? 'default' }
     }
     const msg = { jsonrpc: '2.0', method, params }
     this.ws.send(JSON.stringify(msg))
