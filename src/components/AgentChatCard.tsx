@@ -14,7 +14,7 @@
  * - memo 化：父级按 profile patch 状态，未变 profile 的卡片 props 引用不变 → 跳过重渲染
  */
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, memo } from 'react';
-import { Bot, Cpu, Maximize2, Square, Send, Loader2 } from 'lucide-react';
+import { Bot, Cpu, GripVertical, Maximize2, Square, Send, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
 import MessageRow from './MessageRow';
@@ -136,11 +136,18 @@ export const AgentChatCard = memo(function AgentChatCard({
         boxShadow: focused ? `0 0 0 2px ${color.ring}, 0 8px 24px rgba(0,0,0,0.3)` : undefined,
       }}
     >
-      {/* ── 标题栏 ── */}
+      {/* ── 标题栏（⠿ = 拖拽手柄，仅 grip 区域可拖，不与展开按钮冲突） ── */}
       <div
         className="flex items-center gap-2 px-3 py-2 shrink-0 border-b border-border/40 select-none"
         style={{ background: color.bg }}
       >
+        <div
+          data-drag-handle
+          className="flex items-center justify-center -ml-1.5 px-0.5 py-1 rounded cursor-grab active:cursor-grabbing touch-none hover:bg-accent/40 transition-colors shrink-0"
+          title="拖拽换位"
+        >
+          <GripVertical size={13} strokeWidth={1.5} className="text-muted-foreground/40" />
+        </div>
         <div
           className="flex items-center justify-center w-6 h-6 rounded-md shrink-0"
           style={{ background: `${color.dot}22`, color: color.dot }}
