@@ -309,6 +309,15 @@ export default function App() {
           sess.saveCache((c) => ({ ...c, [targetId]: msgs }));
         }
       });
+      // 🔴 恢复 pending 交互弹窗（切走时 approval/clarify/sudo 被 WS 过滤丢弃，切回需重建）
+      call('session.info', { session_id: targetId }).then((info: any) => {
+        const pp = info?.pending_prompts;
+        if (!pp) return;
+        if (pp.approval) setActiveApproval(pp.approval);
+        if (pp.clarify) setActiveClarify(pp.clarify);
+        if (pp.sudo_password) setActiveSudo({ request_id: pp.sudo_password.sudo_id, prompt: pp.sudo_password.prompt });
+        if (pp.secret_capture) setActiveSecret(pp.secret_capture);
+      }).catch(() => { /* session.info 不可用时静默 */ });
     } else {
       // 无历史会话 → 空白草稿
       sess.setSessionId(null);
