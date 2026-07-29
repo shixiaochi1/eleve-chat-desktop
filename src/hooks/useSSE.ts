@@ -512,11 +512,16 @@ function processEvent(
  * SSE streaming hook v2 — 统一事件路由
  *
  * WS 和 SSE 路径共用 processEvent()，事件名已统一为 Eleve 标准。
+ * 🔴 多 Agent 隔离：routeWsEvent 按 session_id 过滤，非当前会话的事件丢弃（后端已持久化）。
  */
-export function useSSE(callbacks: SSECallbacks = {}): {
+export function useSSE(
+  callbacks: SSECallbacks = {},
+  currentSessionIdRef?: React.MutableRefObject<string | null>,
+): {
   isStreaming: boolean
   send: (text: string, sessionId?: string | null) => Promise<void>
   abort: () => Promise<void>
+  resetStream: () => void
 } {
   const isStreaming = useIsStreaming();
   const currentSessionRef = useRef<string | null>(null);
@@ -531,7 +536,7 @@ export function useSSE(callbacks: SSECallbacks = {}): {
     pendingTools: {},
   });
 
-  // ── WS 事件 → 统一路由 ──
+  // ── WS 事件 → 统一路由（含 session 过滤） ──
   const routeWsEvent = useCallback((eventName: string, data: unknown) => {
     const cbs = cbsRef.current;
     const acc = wsAccumulatorsRef.current;
@@ -539,16 +544,21 @@ export function useSSE(callbacks: SSECallbacks = {}): {
     if (!raw) return;
 
     // WS payload 内聚：业务数据在 payload 字段下（对齐 Hermes _emit 格式）
-    // Hermes: params = {type, session_id, payload: {...}}
-    // SSE 路径无 payload 包装，直接用 data
     const chunkBase = (raw.payload && typeof raw.payload === 'object' ? raw.payload : raw) as Record<string, unknown>;
-    // 🔴 对齐 Hermes：session_id/run_id 在 params 顶层（raw），不在 payload 中
-    // 注入到 chunk 中，使 processEvent 的回调能正确读取 session_id
     const chunk: Record<string, unknown> = {
       ...chunkBase,
       ...(raw.session_id != null && chunkBase.session_id == null ? { session_id: raw.session_id } : {}),
       ...(raw.run_id != null && chunkBase.run_id == null ? { run_id: raw.run_id } : {}),
     };
+
+    // 🔴 多 Agent 隔离：事件带 session_id 且不匹配当前会话 → 丢弃
+    // 不带 session_id 的事件（notification/skin/terminal 等全局广播）→ 放行
+    const eventSessionId = chunk.session_id as string | undefined;
+    if (eventSessionId && currentSessionIdRef) {
+      const current = currentSessionIdRef.current;
+      // current 为 null（刚发完 prompt 等响应）→ 放行（send 会立即锁定）
+      if (current && eventSessionId !== current) return;
+    }
 
     const result = processEvent(eventName, chunk, acc, cbs);
 
@@ -557,7 +567,7 @@ export function useSSE(callbacks: SSECallbacks = {}): {
       storeSetIsStreaming(false);
       isStreamingRef.current = false;
     }
-  }, []);
+  }, [currentSessionIdRef]);
 
   // ── WS 连接生命周期 ──
   useEffect(() => {
@@ -624,6 +634,8 @@ export function useSSE(callbacks: SSECallbacks = {}): {
       if (result?.session_id && result.session_id !== sessionId) {
         const newSid = result.session_id;
         storage.save('session_id', newSid);
+        // 🔴 立即锁定 session 过滤 ref（promptSubmit 是 await，streaming 事件在 response 之后才到）
+        if (currentSessionIdRef) currentSessionIdRef.current = newSid;
         if (cbs?.onSessionCreated) {
           cbs.onSessionCreated(newSid);
         }
@@ -659,5 +671,13 @@ export function useSSE(callbacks: SSECallbacks = {}): {
     }
   }, []);
 
-  return { isStreaming, send, abort };
+  // 🔴 多 Agent 隔离：切换会话/Profile 时重置流式状态（清流式指示器 + 累加器）
+  const resetStream = useCallback(() => {
+    storeSetIsStreaming(false);
+    isStreamingRef.current = false;
+    currentSessionRef.current = null;
+    wsAccumulatorsRef.current = { fullText: '', fullReasoning: '', pendingTools: {} };
+  }, []);
+
+  return { isStreaming, send, abort, resetStream };
 }

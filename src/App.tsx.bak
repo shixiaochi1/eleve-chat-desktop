@@ -105,23 +105,13 @@ export default function App() {
   }, []);
   const handleCloseOverlay = useCallback(() => setOverlayPanel(null), []);
 
-  // ── F9+ 多 Profile：启动后拉取当前 active profile（带重试，网关慢启动不静默失败） ──
+  // ── F9+ 多 Profile：启动后拉取当前 active profile ──
   useEffect(() => {
     if (!portReady) return;
     let cancelled = false;
-    let attempts = 0;
-    const tryGetActive = () => {
-      getActiveProfile()
-        .then((name) => { if (!cancelled) { setWsActiveProfile(name); setCurrentProfile(name); } })
-        .catch(() => {
-          // 🔴 决策④：恢复链不再静默失败，重试 5 次（指数退避）
-          if (!cancelled && attempts < 5) {
-            attempts++;
-            setTimeout(tryGetActive, 800 * attempts);
-          }
-        });
-    };
-    tryGetActive();
+    getActiveProfile()
+      .then((name) => { if (!cancelled) { setWsActiveProfile(name); setCurrentProfile(name); } })
+      .catch(() => { /* 网关未就绪时静默，保持 default */ });
     return () => { cancelled = true; };
   }, [portReady]);
 
@@ -175,10 +165,22 @@ export default function App() {
   // ── session management（必须在 handleProfileChange 之前，切换 Agent 需要重置 session） ──
   const sess = useSessions();
 
-  // 🔴 D1 修复：切换 profile 时刷新会话列表（session.list 后端按 params.profile 过滤）
-  useEffect(() => {
-    sess.refresh();
-  }, [currentProfile]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Profile 切换联动：更新全局状态 + 重置会话 + 刷新会话列表
+  // ── F1 多 Profile：setWsActiveProfile 必须同步调用（activeProfile 是模块级变量），
+  //    保证下面 sessionListVersion 触发的列表 refetch 用到新 profile，避免异步 effect 竞态。
+  //    对齐 Hermes setApiRequestProfile：currentProfile 是唯一权威源，sendRpc 单点盖章 params.profile。
+  const handleProfileChange = useCallback((name: string) => {
+    setWsActiveProfile(name);
+    setCurrentProfile(name);
+    setSessionListVersion((v) => v + 1);
+    // 🔴 切换 Agent 必须清空当前 session，否则旧 session_id（agent:default:ws:xxx）
+    //    路由到旧 Agent → 上下文/人设/记忆全是旧的
+    sess.setSessionId(null);
+    storage.save('session_id', null);
+    sess.setFreshDraftReady(true);  // 下次发消息自动创建新 session（带新 profile 前缀）
+    getWsClient().switchSession('');  // 清 WS client 内部 sessionId fallback
+    storeSetMessages([]);  // 清空聊天界面（全局消息 store）
+  }, [sess.setSessionId, sess.setFreshDraftReady]);
 
   // ── model picker state ──
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
@@ -244,7 +246,6 @@ export default function App() {
     isStreaming,
     send,
     abort,
-    resetStream,
   } = useMessageStream({
     genId,
     addDebugEvent,
@@ -260,48 +261,6 @@ export default function App() {
     drainQueueRef,
     setSessionListVersion,
   });
-
-  // 🔴 多 Agent 隔离：切换 = 纯前端换视图，后端是消息唯一权威源
-  // 切走不存消息，切回始终从后端加载。WS 事件按 session_id 过滤（useSSE）。
-  const handleProfileChange = useCallback((name: string) => {
-    // ── Step 1: 记住指针（每个 Agent 上次用哪个 session） ──
-    const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
-    if (sess.sessionId) map[currentProfile] = sess.sessionId;
-    storage.save('profile_session_map', map);
-
-    // ── Step 2: 重置流式状态（清流式指示器 + 累加器 + streamId） ──
-    resetStream();
-
-    // ── Step 3: 切换盖章（同步，保证后续 sendRpc 盖章正确） ──
-    setWsActiveProfile(name);
-    setCurrentProfile(name);
-
-    // ── Step 4: 恢复目标会话（后端是权威源，始终 loadHistory） ──
-    const targetId = map[name] || null;
-    if (targetId) {
-      sess.setSessionId(targetId);
-      storage.save('session_id', targetId);
-      sess.setFreshDraftReady(false);
-      getWsClient().switchSession(targetId);
-      // 缓存秒显（纯 UX 防白屏，始终被后端数据覆盖）
-      const cached = sess.msgCache[targetId];
-      storeSetMessages(cached?.length ? (cached as ChatMessage[]) : []);
-      // 🔴 始终从后端加载完整历史（含离开期间的消息）
-      sess.loadHistory(targetId).then((msgs) => {
-        if (msgs?.length) {
-          storeSetMessages(msgs as ChatMessage[]);
-          sess.saveCache((c) => ({ ...c, [targetId]: msgs }));
-        }
-      });
-    } else {
-      // 无历史会话 → 空白草稿
-      sess.setSessionId(null);
-      storage.save('session_id', null);
-      sess.setFreshDraftReady(true);
-      getWsClient().switchSession('');
-      storeSetMessages([]);
-    }
-  }, [sess, currentProfile, resetStream]);
 
   // ── useSessionActions: session switch/delete/new ──
   // 先于 usePromptActions 调用，因为 handleNewSession 需要传给 usePromptActions

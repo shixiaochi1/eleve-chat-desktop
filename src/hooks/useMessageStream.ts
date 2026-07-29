@@ -123,6 +123,7 @@ export function useMessageStream({
   isStreaming: boolean
   send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string }) => Promise<void>
   abort: () => Promise<void>
+  resetStream: () => void
 } {
   // ── Stream ID — same as Eleve: one unique ID per streaming turn ──
   // [FIX #1] Lazy creation: mutateStream auto-allocates if null
@@ -132,6 +133,10 @@ export function useMessageStream({
   const queuedDeltasRef = useRef<QueuedStreamDeltas>({ assistant: '', reasoning: '' })
   const flushHandleRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastFlushAtRef = useRef<number>(0)
+
+  // 🔴 多 Agent 隔离：跟踪当前显示的 session_id，传给 useSSE 做 WS 事件过滤
+  const currentSessionIdRef = useRef<string | null>(sess.sessionId)
+  useEffect(() => { currentSessionIdRef.current = sess.sessionId }, [sess.sessionId])
 
   // [FIX #3] Track the fullText accumulator from SSE — used by onDone
   // to get the final complete text (same as Eleve message.complete payload)
@@ -887,11 +892,24 @@ export function useMessageStream({
     },
   } satisfies SSECallbacks;
 
-  const { isStreaming, send, abort } = useSSE(sseCallbacks.current);
+  const { isStreaming, send, abort, resetStream: resetSSEStream } = useSSE(sseCallbacks.current, currentSessionIdRef);
+
+  // 🔴 多 Agent 隔离：切换会话时重置全部流式状态（SSE 累加器 + streamId）
+  const resetStream = useCallback(() => {
+    resetSSEStream();
+    streamIdRef.current = null;
+    queuedDeltasRef.current = { assistant: '', reasoning: '' };
+    fullTextRef.current = '';
+    if (flushHandleRef.current !== null) {
+      clearTimeout(flushHandleRef.current);
+      flushHandleRef.current = null;
+    }
+  }, [resetSSEStream]);
 
   return {
     isStreaming,
     send,
     abort,
+    resetStream,
   };
 }
