@@ -122,7 +122,9 @@ function ProfileCard({
 // ── 主面板 ──
 export default function ProfilePanel({ currentProfile, onProfileChange }: ProfilePanelProps) {
   const [profiles, setProfiles] = useState<ProfileCardData[]>([]);
-  const [activeName, setActiveName] = useState<string>(currentProfile || 'default');
+  // 🔴 高亮唯一权威源 = App 的 currentProfile（UI 焦点 ①），经 prop 下发，不读后端 active_profile（③）。
+  // 决策④：UI 切换不写 ③，故 ③ 恒为系统默认（CLI 权威）；若拿 ③ 当高亮源，点选后 load() 会把高亮弹回 default。
+  const activeName = currentProfile || 'default';
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
@@ -145,7 +147,8 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
     try {
       const data = await fetchProfiles();
       setProfiles(data.profiles as ProfileCardData[]);
-      setActiveName(data.active);
+      // 🔴 不用 data.active（③）覆盖高亮 —— ③ 是系统默认（CLI 权威），非 UI 选择源。
+      // 高亮由 currentProfile prop 派生（见 activeName）；load 只刷新列表数据（model/技能数/统计）。
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -155,24 +158,18 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
 
   useEffect(() => { void load(); }, [load]);
 
-  // 外部 currentProfile 变化时同步高亮（App 全局状态驱动）
-  useEffect(() => {
-    if (currentProfile) setActiveName(currentProfile);
-  }, [currentProfile]);
-
-  const handleSelect = useCallback(async (name: string) => {
+  const handleSelect = useCallback((name: string) => {
     if (name === activeName) return;
     setSwitching(name);
     try {
-      // 🔴 决策④：UI 切换 = 纯前端操作，不调后端 set_active（不写 active_profile 文件）
-      // Agent 间零共享可变状态，切换只是换显示界面
-      setActiveName(name);
+      // 🔴 决策④：UI 切换 = 纯前端操作，不调后端 set_active（不写 active_profile 文件）。
+      // Agent 间零共享可变状态，切换只是换显示界面。
+      // 高亮不在此 setState —— onProfileChange 更新 App.currentProfile，经 prop 回流驱动 activeName（受控单向流）。
       onProfileChange?.(name);
-      void load(); // 刷新列表更新高亮
     } finally {
       setSwitching(null);
     }
-  }, [activeName, onProfileChange, load]);
+  }, [activeName, onProfileChange]);
 
   const resetCreateForm = useCallback(() => {
     setCreating(false);
@@ -188,8 +185,8 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
     try {
       const dn = newDisplayName.trim() || undefined;
       await createProfile(name, dn, cloneSource || undefined);
-      // 🔴 G1: 创建后自动切换到新 Agent（纯前端切换，不写后端 active_profile）
-      setActiveName(name);
+      // 🔴 G1: 创建后自动切换到新 Agent（纯前端切换，不写后端 active_profile）。
+      // 高亮经 onProfileChange → App.currentProfile → prop 回流驱动，不在此 setState。
       onProfileChange?.(name);
       notifySuccess(`Agent「${dn || name}」已创建并切换`);
       resetCreateForm();
