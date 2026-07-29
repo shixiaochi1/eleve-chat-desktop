@@ -105,13 +105,23 @@ export default function App() {
   }, []);
   const handleCloseOverlay = useCallback(() => setOverlayPanel(null), []);
 
-  // ── F9+ 多 Profile：启动后拉取当前 active profile ──
+  // ── F9+ 多 Profile：启动后拉取当前 active profile（带重试，网关慢启动不静默失败） ──
   useEffect(() => {
     if (!portReady) return;
     let cancelled = false;
-    getActiveProfile()
-      .then((name) => { if (!cancelled) { setWsActiveProfile(name); setCurrentProfile(name); } })
-      .catch(() => { /* 网关未就绪时静默，保持 default */ });
+    let attempts = 0;
+    const tryGetActive = () => {
+      getActiveProfile()
+        .then((name) => { if (!cancelled) { setWsActiveProfile(name); setCurrentProfile(name); } })
+        .catch(() => {
+          // 🔴 决策④：恢复链不再静默失败，重试 5 次（指数退避）
+          if (!cancelled && attempts < 5) {
+            attempts++;
+            setTimeout(tryGetActive, 800 * attempts);
+          }
+        });
+    };
+    tryGetActive();
     return () => { cancelled = true; };
   }, [portReady]);
 
@@ -164,6 +174,11 @@ export default function App() {
 
   // ── session management（必须在 handleProfileChange 之前，切换 Agent 需要重置 session） ──
   const sess = useSessions();
+
+  // 🔴 D1 修复：切换 profile 时刷新会话列表（session.list 后端按 params.profile 过滤）
+  useEffect(() => {
+    sess.refresh();
+  }, [currentProfile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Profile 切换联动：保存当前会话 → 切换 → 恢复目标会话
   // ── F1 多 Profile：setWsActiveProfile 必须同步调用（activeProfile 是模块级变量），

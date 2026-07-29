@@ -7,7 +7,7 @@
  * 删除：非 default 卡片 hover 显示垃圾桶 → 输名字强确认 → 移入回收站（可恢复）。
  */
 import { useState, useEffect, useCallback } from 'react';
-import { fetchProfiles, setActiveProfile, createProfile, deleteProfile } from '../utils/api';
+import { fetchProfiles, createProfile, deleteProfile } from '../utils/api';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { cn } from '@/lib/utils';
 import {
@@ -164,13 +164,11 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
     if (name === activeName) return;
     setSwitching(name);
     try {
-      await setActiveProfile(name);
+      // 🔴 决策④：UI 切换 = 纯前端操作，不调后端 set_active（不写 active_profile 文件）
+      // Agent 间零共享可变状态，切换只是换显示界面
       setActiveName(name);
-      notifySuccess(`已切换到 Agent：${name}`);
       onProfileChange?.(name);
-      void load(); // 刷新列表更新 is_active 标记
-    } catch (err: unknown) {
-      notifyError(err, `切换到 ${name} 失败`);
+      void load(); // 刷新列表更新高亮
     } finally {
       setSwitching(null);
     }
@@ -190,9 +188,7 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
     try {
       const dn = newDisplayName.trim() || undefined;
       await createProfile(name, dn, cloneSource || undefined);
-      // 🔴 G1: 创建后自动切换到新 Agent（对齐 Hermes: 创建即可用）
-      // 复用 handleSelect 同款链路：setActiveProfile → onProfileChange → App 全量切换
-      await setActiveProfile(name);
+      // 🔴 G1: 创建后自动切换到新 Agent（纯前端切换，不写后端 active_profile）
       setActiveName(name);
       onProfileChange?.(name);
       notifySuccess(`Agent「${dn || name}」已创建并切换`);
