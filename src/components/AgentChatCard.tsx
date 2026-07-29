@@ -138,16 +138,13 @@ export const AgentChatCard = memo(function AgentChatCard({
         boxShadow: focused ? `0 0 0 2px ${color.ring}, 0 8px 24px rgba(0,0,0,0.3)` : undefined,
       }}
     >
-      {/* ── 标题栏（⠿ = 拖拽手柄，仅 grip 区域可拖，不与展开按钮冲突） ── */}
+      {/* ── 标题栏（整条可拖拽换位 · data-drag-handle · 展开按钮经 closest('button') 排除） ── */}
       <div
-        className="flex items-center gap-2 px-3 py-2 shrink-0 border-b border-border/40 select-none"
+        data-drag-handle
+        className="flex items-center gap-2 px-3 py-2 shrink-0 border-b border-border/40 select-none cursor-grab active:cursor-grabbing touch-none"
         style={{ background: color.bg }}
       >
-        <div
-          data-drag-handle
-          className="flex items-center justify-center -ml-1.5 px-0.5 py-1 rounded cursor-grab active:cursor-grabbing touch-none hover:bg-accent/40 transition-colors shrink-0"
-          title="拖拽换位"
-        >
+        <div className="flex items-center justify-center -ml-1.5 px-0.5 py-1 rounded hover:bg-accent/40 transition-colors shrink-0">
           <GripVertical size={13} strokeWidth={1.5} className="text-muted-foreground/40" />
         </div>
         <div
@@ -167,7 +164,7 @@ export const AgentChatCard = memo(function AgentChatCard({
         )}
         <StatusDot status={state.status} />
         <button
-          className="flex items-center justify-center w-5 h-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+          className="flex items-center justify-center w-5 h-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 cursor-pointer"
           title="展开为单视图"
           onClick={() => onExpand(name)}
         >

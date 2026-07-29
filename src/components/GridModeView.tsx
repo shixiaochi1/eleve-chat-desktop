@@ -40,8 +40,8 @@ const EMPTY_AGENT_STATE: AgentChatState = {
 // ── 布局常量 ──
 const GAP = 10;
 const PAD = 10;
-const MIN_CELL_W = 340;   // 卡片最小宽度（列数 = 容器宽度 auto-fill）
-const CELL_H = 480;       // 卡片固定高度（内部消息区自滚动）
+const MIN_CELL_W = 340;   // 卡片最小宽度（列数 = 容器宽度 auto-fill，且不超过 Agent 数）
+const MIN_CELL_H = 320;   // 卡片最小高度（高度随窗口自适应，不足时滚动）
 const SWAP_EASE = 'transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)';
 const AUTO_SCROLL_EDGE = 40;   // 拖拽距容器边缘多少 px 触发自动滚动
 const AUTO_SCROLL_STEP = 10;
@@ -71,19 +71,24 @@ interface DragState {
   ring: string;
 }
 
-// ── 布局计算：列数按宽度 auto-fill，行数按 N，内容区撑高供滚动 ──
-function computeLayout(count: number, W: number) {
-  const cols = Math.max(1, Math.floor((W - PAD * 2 + GAP) / (MIN_CELL_W + GAP)));
+// ── 布局计算：列数按宽度 auto-fill（不超过 Agent 数，少时卡片放大铺满），
+//    高度随窗口自适应（铺满可用高度，不足 MIN_CELL_H 时滚动）──
+function computeLayout(count: number, W: number, H: number) {
+  if (count === 0 || W <= 0 || H <= 0) return { cols: 1, rows: 1, cellW: MIN_CELL_W, cellH: MIN_CELL_H, contentH: 0 };
+  const maxColsByWidth = Math.max(1, Math.floor((W - PAD * 2 + GAP) / (MIN_CELL_W + GAP)));
+  const cols = Math.max(1, Math.min(count, maxColsByWidth));   // 少于列数上限时卡片放大铺满
   const rows = Math.max(1, Math.ceil(count / cols));
   const cellW = (W - PAD * 2 - GAP * (cols - 1)) / cols;
-  const contentH = PAD * 2 + rows * CELL_H + (rows - 1) * GAP;
-  return { cols, rows, cellW, cellH: CELL_H, contentH };
+  const availableH = H - PAD * 2 - GAP * (rows - 1);
+  const cellH = Math.max(MIN_CELL_H, availableH / rows);       // 高度自适应，保证最小可用
+  const contentH = PAD * 2 + rows * cellH + (rows - 1) * GAP;
+  return { cols, rows, cellW, cellH, contentH };
 }
 
-function slotPos(index: number, cols: number, cellW: number) {
+function slotPos(index: number, cols: number, cellW: number, cellH: number) {
   const col = index % cols;
   const row = Math.floor(index / cols);
-  return { x: PAD + col * (cellW + GAP), y: PAD + row * (CELL_H + GAP) };
+  return { x: PAD + col * (cellW + GAP), y: PAD + row * (cellH + GAP) };
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -94,6 +99,7 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
   const [colorMap, setColorMap] = useState<Record<string, number>>({});
   const [focusedName, setFocusedName] = useState<string | null>(currentProfile);
   const [width, setWidth] = useState(0);
+  const [height, setHeight] = useState(0);
 
   // 宫格聊天引擎：挂载即激活（本组件仅 grid 模式挂载）
   const { states, loadLatest, loadMore, sendTo, abortAgent, clearPending } = useGridChat(true);
@@ -112,7 +118,7 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
   const colorMapRef = useRef(colorMap);
   colorMapRef.current = colorMap;
 
-  const layout = computeLayout(order.length, width);
+  const layout = computeLayout(order.length, width, height);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
 
@@ -121,11 +127,14 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
     else cellRefs.current.delete(name);
   }, []);
 
-  // 监听容器宽度（列数随宽度 auto-fill）
+  // 监听容器宽高（列数随宽度 auto-fill，高度随窗口自适应）
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver((entries) => setWidth(entries[0].contentRect.width));
+    const ro = new ResizeObserver((entries) => {
+      setWidth(entries[0].contentRect.width);
+      setHeight(entries[0].contentRect.height);
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -185,8 +194,8 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
   const setCardSlot = useCallback((name: string, index: number, animate: boolean) => {
     const el = cellRefs.current.get(name);
     if (!el) return;
-    const { cols, cellW } = layoutRef.current;
-    const pos = slotPos(index, cols, cellW);
+    const { cols, cellW, cellH } = layoutRef.current;
+    const pos = slotPos(index, cols, cellW, cellH);
     el.style.transition = animate ? SWAP_EASE : 'none';
     el.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
   }, []);
@@ -198,37 +207,13 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
       if (dragRef.current?.active && dragRef.current.name === name) return;
       setCardSlot(name, idx, true);
     });
-  }, [order, width, setCardSlot]);
+  }, [order, width, height, setCardSlot]);
 
-  // ── 指针拖拽（事件委托在容器上，直接操作 DOM，零 React 渲染）──
+  // ── 指针拖拽（标题栏整条可拖 · window 级监听 + 指针捕获，最稳）──
+  // 拖拽期间零 React 渲染：被拖卡直接写 DOM transform 跟手；换位只更新逻辑顺序
+  // projectedOrder，其余卡 CSS transition 平滑滑过；松手提交 order，被拖卡弹性归位。
 
-  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    const handle = (e.target as HTMLElement).closest('[data-drag-handle]');
-    if (!handle) return;
-    const card = handle.closest('[data-agent-name]') as HTMLDivElement | null;
-    if (!card) return;
-    const name = card.dataset.agentName;
-    if (!name) return;
-
-    (handle as HTMLElement).setPointerCapture(e.pointerId);
-
-    const rect = card.getBoundingClientRect();
-    const colorIdx = colorMapRef.current[name] ?? 0;
-
-    dragRef.current = {
-      name,
-      el: card,
-      downX: e.clientX,
-      downY: e.clientY,
-      grabOffsetX: e.clientX - rect.left,
-      grabOffsetY: e.clientY - rect.top,
-      active: false,
-      ring: AGENT_COLORS[colorIdx % AGENT_COLORS.length].ring,
-    };
-    projectedOrderRef.current = [...orderRef.current];
-  }, []);
-
-  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+  const onWindowMove = useCallback((e: PointerEvent) => {
     const d = dragRef.current;
     if (!d) return;
     const container = containerRef.current;
@@ -261,11 +246,11 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
     d.el.style.transform = `translate(${tx}px, ${ty}px) scale(1.03)`;
 
     // 换位检测：光标落在哪个槽位
-    const { cols, rows, cellW } = layoutRef.current;
+    const { cols, rows, cellW, cellH } = layoutRef.current;
     const relX = contentX - PAD;
     const relY = contentY - PAD;
     const col = clamp(Math.floor(relX / (cellW + GAP)), 0, cols - 1);
-    const row = clamp(Math.floor(relY / (CELL_H + GAP)), 0, rows - 1);
+    const row = clamp(Math.floor(relY / (cellH + GAP)), 0, rows - 1);
     const to = row * cols + col;
 
     const proj = projectedOrderRef.current;
@@ -280,29 +265,66 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
     });
   }, [setCardSlot]);
 
-  const endDrag = useCallback(() => {
+  const onWindowUp = useCallback(() => {
     const d = dragRef.current;
-    if (!d) return;
-
-    if (d.active) {
+    if (d && d.active) {
       justDraggedRef.current = true;
       setTimeout(() => { justDraggedRef.current = false; }, 60);
       // 提交逻辑顺序 → effect 会把被拖卡弹性滑回槽位
       setOrder([...projectedOrderRef.current]);
       const el = d.el;
       el.style.zIndex = '';
-      // 回弹动画期间保留"抬起"样式，落定后再移除（有"放下"的感觉）
+      // 回弹动画期间保留“抬起”样式，落定后再移除（有“放下”的感觉）
       setTimeout(() => {
         el.classList.remove('grid-cell-dragging');
         el.style.transition = '';
       }, 400);
     }
-
     dragRef.current = null;
-  }, []);
+    window.removeEventListener('pointermove', onWindowMove);
+    window.removeEventListener('pointerup', onWindowUp);
+    window.removeEventListener('pointercancel', onWindowUp);
+  }, [onWindowMove]);
 
-  const handlePointerUp = useCallback(() => { endDrag(); }, [endDrag]);
-  const handlePointerCancel = useCallback(() => { endDrag(); }, [endDrag]);
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button')) return;   // 排除按钮（展开等），按钮点击不触发拖拽
+    const handle = target.closest('[data-drag-handle]');
+    if (!handle) return;
+    const card = handle.closest('[data-agent-name]') as HTMLDivElement | null;
+    if (!card) return;
+    const name = card.dataset.agentName;
+    if (!name) return;
+
+    // 指针捕获：拖出元素/窗口也不丢事件（window 监听兑底）
+    try { (handle as HTMLElement).setPointerCapture(e.pointerId); } catch { /* ignore */ }
+
+    const rect = card.getBoundingClientRect();
+    const colorIdx = colorMapRef.current[name] ?? 0;
+
+    dragRef.current = {
+      name,
+      el: card,
+      downX: e.clientX,
+      downY: e.clientY,
+      grabOffsetX: e.clientX - rect.left,
+      grabOffsetY: e.clientY - rect.top,
+      active: false,
+      ring: AGENT_COLORS[colorIdx % AGENT_COLORS.length].ring,
+    };
+    projectedOrderRef.current = [...orderRef.current];
+
+    window.addEventListener('pointermove', onWindowMove);
+    window.addEventListener('pointerup', onWindowUp);
+    window.addEventListener('pointercancel', onWindowUp);
+  }, [onWindowMove, onWindowUp]);
+
+  // 卸载时清理可能残留的 window 监听
+  useEffect(() => () => {
+    window.removeEventListener('pointermove', onWindowMove);
+    window.removeEventListener('pointerup', onWindowUp);
+    window.removeEventListener('pointercancel', onWindowUp);
+  }, [onWindowMove, onWindowUp]);
 
   const orderedProfiles = order
     .map((name) => profiles.find((p) => p.name === name))
@@ -324,7 +346,7 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
           {orderedProfiles.length} 个 Agent
         </span>
         <span className="text-[10px] text-muted-foreground/30 ml-auto">
-          拖拽 ⠿ 换位 · 点击卡片聚焦 · 展开按钮切单视图
+          拖拽标题栏换位 · 点击卡片聚焦 · 展开按钮切单视图
         </span>
       </div>
 
@@ -333,11 +355,8 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
         ref={containerRef}
         className="relative flex-1 min-h-0 overflow-y-auto"
         onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerCancel}
       >
-        {width > 0 && (
+        {width > 0 && height > 0 && (
           <div style={{ height: layout.contentH, position: 'relative' }}>
             {orderedProfiles.map((profile) => (
               <div
