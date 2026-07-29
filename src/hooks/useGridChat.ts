@@ -83,7 +83,7 @@ export function useGridChat(active: boolean): {
   const loadLatest = useCallback(async (profile: string, sessionId: string) => {
     patch(profile, (s) => ({ ...s, sessionId }));
     try {
-      const res = await call('session.history', { session_id: sessionId, limit: PAGE_SIZE }) as {
+      const res = await call('get_session_messages', { session_id: sessionId, limit: PAGE_SIZE }) as {
         messages?: SessionMessage[]; has_more?: boolean; oldest_id?: number | null;
       };
       const msgs = toChatMessages((res?.messages ?? []) as SessionMessage[]);
@@ -102,7 +102,7 @@ export function useGridChat(active: boolean): {
     if (!s?.sessionId || !s.hasMore || s.isLoadingMore || s.oldestId == null) return;
     patch(profile, (st) => ({ ...st, isLoadingMore: true }));
     try {
-      const res = await call('session.history', {
+      const res = await call('get_session_messages', {
         session_id: s.sessionId, limit: PAGE_SIZE, before_id: s.oldestId,
       }) as { messages?: SessionMessage[]; has_more?: boolean; oldest_id?: number | null };
       const older = toChatMessages((res?.messages ?? []) as SessionMessage[]);
