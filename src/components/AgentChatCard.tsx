@@ -3,7 +3,7 @@
  *
  * 北极星（老大 2026-07-30）：宫格里每个 Agent 和单视图一样的全功能，不是监视面板。
  * 本卡片 = 标题栏(拖拽手柄+状态灯+展开) + 消息区(窗口化+上翻加载) + 流式气泡 +
- * per-agent 输入框 + 交互弹窗(approval/clarify/sudo)。
+ * per-agent 输入框 + 交互弹窗(approval/clarify/sudo/secret)。
  *
  * 架构原则：
  * - 纯受控：所有数据/动作经 props（state + 回调），本卡片不持有 WS/store 耦合
@@ -44,7 +44,7 @@ interface AgentChatCardProps {
   onSend: (profile: string, text: string) => void;
   onLoadMore: (profile: string) => void;
   onAbort: (profile: string) => void;
-  onClearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo') => void;
+  onClearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret') => void;
   onExpand: (profile: string) => void;
 }
 
@@ -52,6 +52,7 @@ interface AgentChatCardProps {
 interface ApprovalPayload { command?: string; description?: string; pattern?: string; choices?: string[]; run_id?: string }
 interface ClarifyPayload { clarify_id?: string; question?: string; choices?: string[] }
 interface SudoPayload { request_id?: string; prompt?: string }
+interface SecretPayload { request_id?: string; prompt?: string; env_var?: string }
 
 // ── 状态灯：绿=idle / 蓝闪=streaming / 橙闪=waiting ──
 function StatusDot({ status }: { status: AgentChatState['status'] }) {
@@ -121,6 +122,7 @@ export const AgentChatCard = memo(function AgentChatCard({
   const approval = state.pendingApproval as ApprovalPayload | null;
   const clarify = state.pendingClarify as ClarifyPayload | null;
   const sudo = state.pendingSudo as SudoPayload | null;
+  const secret = state.pendingSecret as SecretPayload | null;
   const streaming = state.status === 'streaming';
 
   return (
@@ -255,6 +257,20 @@ export const AgentChatCard = memo(function AgentChatCard({
               onClearPending(name, 'sudo');
             }}
             onDismiss={() => onClearPending(name, 'sudo')}
+          />
+        </div>
+      )}
+      {secret && (
+        <div className="px-2.5 pb-1.5 shrink-0">
+          <CredentialCard
+            type="secret"
+            title="Secret 请求"
+            description={`环境变量 ${secret.env_var ?? ''}: ${secret.prompt ?? '需要凭据'}`}
+            onSubmit={async (value) => {
+              await call('secret_respond', { request_id: secret.request_id, value });
+              onClearPending(name, 'secret');
+            }}
+            onDismiss={() => onClearPending(name, 'secret')}
           />
         </div>
       )}

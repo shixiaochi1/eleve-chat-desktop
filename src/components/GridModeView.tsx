@@ -34,7 +34,7 @@ const AGENT_COLORS: AgentCardColor[] = [
 const EMPTY_AGENT_STATE: AgentChatState = {
   sessionId: null, messages: [], hasMore: false, oldestId: null,
   isLoadingMore: false, status: 'idle', streamText: '', streamReasoning: '',
-  pendingApproval: null, pendingClarify: null, pendingSudo: null, lastActivity: 0,
+  pendingApproval: null, pendingClarify: null, pendingSudo: null, pendingSecret: null, lastActivity: 0,
 };
 
 // ── 布局常量 ──

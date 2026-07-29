@@ -34,6 +34,7 @@ export interface AgentChatState {
   pendingApproval: unknown | null;
   pendingClarify: unknown | null;
   pendingSudo: unknown | null;
+  pendingSecret: unknown | null;
   lastActivity: number;
 }
 
@@ -41,7 +42,7 @@ function emptyState(): AgentChatState {
   return {
     sessionId: null, messages: [], hasMore: false, oldestId: null,
     isLoadingMore: false, status: 'idle', streamText: '', streamReasoning: '',
-    pendingApproval: null, pendingClarify: null, pendingSudo: null, lastActivity: 0,
+    pendingApproval: null, pendingClarify: null, pendingSudo: null, pendingSecret: null, lastActivity: 0,
   };
 }
 
@@ -63,7 +64,7 @@ export function useGridChat(active: boolean): {
   loadMore: (profile: string) => Promise<void>;
   sendTo: (profile: string, text: string) => Promise<void>;
   abortAgent: (profile: string) => Promise<void>;
-  clearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo') => void;
+  clearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret') => void;
 } {
   const [states, setStates] = useState<Record<string, AgentChatState>>({});
 
@@ -166,11 +167,12 @@ export function useGridChat(active: boolean): {
   // approval.respond、ClarifyCard 走 HTTP submitClarifyResponse、CredentialCard 由
   // AgentChatCard 提供 sudo_respond 的 onSubmit）——与单视图完全一致的单一权威路径。
   // 本 hook 只负责交互状态管理：卡片完成后调用 clearPending 收起弹窗、恢复 streaming。
-  const clearPending = useCallback((profile: string, kind: 'approval' | 'clarify' | 'sudo') => {
+  const clearPending = useCallback((profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret') => {
     patch(profile, (st) => {
       if (kind === 'approval') return { ...st, pendingApproval: null, status: 'streaming' };
       if (kind === 'clarify') return { ...st, pendingClarify: null, status: 'streaming' };
-      return { ...st, pendingSudo: null, status: 'streaming' };
+      if (kind === 'sudo') return { ...st, pendingSudo: null, status: 'streaming' };
+      return { ...st, pendingSecret: null, status: 'streaming' };
     });
   }, [patch]);
 
@@ -232,6 +234,10 @@ export function useGridChat(active: boolean): {
           break;
         case 'sudo.request':
           patch(profile, (s) => ({ ...s, pendingSudo: payload, status: 'waiting', lastActivity: Date.now() }));
+          break;
+        case 'secret.request':
+          // 形状与单视图 useSSE onSecret 一致：{ request_id, prompt, env_var, metadata }
+          patch(profile, (s) => ({ ...s, pendingSecret: payload, status: 'waiting', lastActivity: Date.now() }));
           break;
         case 'error':
           patch(profile, (s) => ({ ...s, status: 'idle', streamText: '', streamReasoning: '' }));
