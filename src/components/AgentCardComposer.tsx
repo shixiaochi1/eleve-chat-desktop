@@ -2,8 +2,8 @@
  * AgentCardComposer — 宫格 per-Agent 输入行（全功能紧凑版）
  *
  * 设计（老大 2026-07-31 定稿）：
- *   composer 容器：自动撑大 textarea + 内置功能行 [新建] [📎附件] [🎤语音] … [发送/停止]
- *   - 功能按钮全部收进输入框内部（现代 composer 布局，更整体）
+ *   单行 composer：[新建] [自动撑大 textarea] [📎附件] [🎤语音] [发送/停止] — 全部收进输入框内
+ *   - 小卡片空间紧凑，严禁两行布局；按钮与 textarea 同行，随内容向上撑大
  *   - 新建会话用 SquarePen 图标（与附件 Plus 图标区分，避免视觉冲突）
  * - 输入框单行起、随内容向上自动撑大（max 120px，超出滚动）
  * - `/` 命令补全 — 与单视图 InputArea 共用 useSlashAutocomplete + SlashCommandPopup（零重复）
@@ -223,13 +223,24 @@ export default function AgentCardComposer({
         </div>
       )}
 
-      {/* composer：自动撑大 textarea + 内置功能行（新建 / 附件 / 语音 … 发送）
+      {/* 单行 composer：[新建] [textarea] [附件] [语音] [发送] 全部收进输入框内
           表面复用单视图 composer-surface（边框色静止18%/悬停30%/聚焦45% 完全一致） */}
-      <div className="composer-surface min-w-0 rounded-lg border">
+      <div className="composer-surface min-w-0 rounded-lg border flex items-end gap-0.5 px-1 py-1">
+        {/* 新建会话 — 输入框内最左侧，清空本 Agent 上下文，下条消息后端自动建新 session */}
+        <button
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+          title="新建会话"
+          aria-label="新建会话"
+          onClick={onNewSession}
+        >
+          <SquarePen size={14} strokeWidth={1.8} />
+        </button>
+
+        {/* 自动撑大 textarea — 单行起、随内容向上撑大（max 120 滚动），按钮始终贴底 */}
         <textarea
           ref={inputRef}
-          className="w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-[12px] leading-normal text-foreground outline-none placeholder:text-muted-foreground/30"
-          style={{ minHeight: '30px', maxHeight: `${MAX_INPUT_HEIGHT}px`, overflowY: 'auto' }}
+          className="flex-1 min-w-0 resize-none bg-transparent px-1 py-1.5 text-[12px] leading-normal text-foreground outline-none placeholder:text-muted-foreground/30"
+          style={{ minHeight: '28px', maxHeight: `${MAX_INPUT_HEIGHT}px`, overflowY: 'auto' }}
           placeholder={`发消息给 ${profileName}… ( / 命令)`}
           rows={1}
           autoComplete="off"
@@ -239,50 +250,37 @@ export default function AgentCardComposer({
           onKeyDown={handleKeyDown}
         />
 
-        {/* 内置功能行 — 左：新建/附件/语音，右：发送/停止 */}
-        <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
-          {/* 新建会话 — 清空本 Agent 上下文，下条消息后端自动建新 session */}
-          <button
-            className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
-            title="新建会话"
-            aria-label="新建会话"
-            onClick={onNewSession}
-          >
-            <SquarePen size={14} strokeWidth={1.8} />
-          </button>
+        {/* 附件 + 菜单（图片接通后端、链接插入光标） */}
+        <AttachMenu onPickImage={handleFileSelect} onAddUrl={handleAddUrl} />
 
-          {/* 附件 + 菜单（图片接通后端、链接插入光标） */}
-          <AttachMenu onPickImage={handleFileSelect} onAddUrl={handleAddUrl} />
+        {/* 语音 — 后端 voice.record 是 TODO stub，禁用入口防假录音（与单视图一致） */}
+        <button
+          disabled
+          className="inline-flex size-7 shrink-0 cursor-not-allowed items-center justify-center rounded-md text-muted-foreground/40 opacity-50"
+          title="语音功能开发中"
+          aria-label="语音输入（开发中）"
+        >
+          <MicIcon size={14} />
+        </button>
 
-          {/* 语音 — 后端 voice.record 是 TODO stub，禁用入口防假录音（与单视图一致） */}
-          <button
-            disabled
-            className="inline-flex size-7 shrink-0 cursor-not-allowed items-center justify-center rounded-md text-muted-foreground/40 opacity-50"
-            title="语音功能开发中"
-            aria-label="语音输入（开发中）"
-          >
-            <MicIcon size={14} />
-          </button>
-
-          {/* 发送/停止 — 高对比圆形主按钮，输入框内右对齐（与单视图同一设计语言） */}
-          <button
-            className={cn(
-              'ml-auto inline-flex size-7 shrink-0 items-center justify-center rounded-full p-0 outline-none transition-all duration-150 cursor-pointer',
-              'bg-foreground text-background hover:bg-foreground/90 active:scale-90',
-              'disabled:cursor-not-allowed disabled:bg-foreground/30 disabled:active:scale-100',
-            )}
-            title={isStreaming ? '停止生成' : '发送 (Enter)'}
-            aria-label={isStreaming ? '停止生成' : '发送'}
-            disabled={!isStreaming && !hasText}
-            onClick={isStreaming ? onAbort : handleSend}
-          >
-            {isStreaming ? (
-              <span className="block size-2 rounded-[0.15rem] bg-current" />
-            ) : (
-              <SendIcon size={14} />
-            )}
-          </button>
-        </div>
+        {/* 发送/停止 — 高对比圆形主按钮，最右侧（与单视图同一设计语言） */}
+        <button
+          className={cn(
+            'inline-flex size-7 shrink-0 items-center justify-center rounded-full p-0 outline-none transition-all duration-150 cursor-pointer',
+            'bg-foreground text-background hover:bg-foreground/90 active:scale-90',
+            'disabled:cursor-not-allowed disabled:bg-foreground/30 disabled:active:scale-100',
+          )}
+          title={isStreaming ? '停止生成' : '发送 (Enter)'}
+          aria-label={isStreaming ? '停止生成' : '发送'}
+          disabled={!isStreaming && !hasText}
+          onClick={isStreaming ? onAbort : handleSend}
+        >
+          {isStreaming ? (
+            <span className="block size-2 rounded-[0.15rem] bg-current" />
+          ) : (
+            <SendIcon size={14} />
+          )}
+        </button>
       </div>
     </div>
   );
