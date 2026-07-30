@@ -354,6 +354,31 @@ export function useMessageStream({
     [genId],
   )
 
+  // ── finalizeStepBoundary — 对齐 Hermes _emit_interim_assistant_message 消息分界 ──
+  // step.complete 到达时：当前步骤的 text + tool parts 已全量流入，
+  // 将当前流式消息标记完成（pending:false）并重置 streamId，
+  // 下一步的 delta 自动创建新消息气泡。
+  const finalizeStepBoundary = useCallback(() => {
+    // 先刷尽排队 delta，确保当前步骤文本完整
+    if (flushHandleRef.current !== null) {
+      clearTimeout(flushHandleRef.current)
+      flushHandleRef.current = null
+    }
+    flushQueuedDeltas()
+
+    const streamId = streamIdRef.current
+    if (!streamId) return
+
+    // 标记当前消息完成（保留 parts 原样，不做文本替换）
+    storeSetMessages((prev) =>
+      prev.map(m => m.id === streamId ? { ...m, pending: false } : m)
+    )
+
+    // 重置：下一步 delta 会创建新消息
+    streamIdRef.current = null
+    fullTextRef.current = ''
+  }, [flushQueuedDeltas])
+
   // ── SSE streaming callbacks — aligned with Eleve handleGatewayEvent ──
   sseCallbacks.current = {
     // ── Text delta — 1:1 with Eleve message.delta ──
@@ -900,12 +925,14 @@ export function useMessageStream({
       flushQueuedDeltas();
     },
 
-    // 步骤完成（对齐 Hermes step_callback — 内部记账，仅进 DebugPanel，不渲染为可见消息）
+    // 步骤完成（对齐 Hermes step_callback + _emit_interim_assistant_message 消息分界）
+    // 内部记账进 DebugPanel；同时 finalize 当前流式消息，下一步 delta 创建新气泡
     onStepComplete: (data: { stepNumber: number; toolResults: Array<{ toolName: string; success: boolean }> }) => {
       const text = data.toolResults.length
         ? `步骤 ${data.stepNumber}: ${data.toolResults.map(r => `${r.toolName} ${r.success ? '✓' : '✗'}`).join(', ')}`
         : `步骤 ${data.stepNumber} 完成`;
       addDebugEvent('step_complete', text);
+      finalizeStepBoundary();
     },
 
     // 中间助手消息（对齐 Hermes _emit_interim_assistant_message）

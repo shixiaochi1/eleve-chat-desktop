@@ -141,26 +141,14 @@ export default function MessageBubble({ type, content, streaming, timestamp, mes
     );
   }
 
-  // ── agent 消息 ──
+  // ── agent 消息（统一骨架：流式/非流式只切换内容渲染方式，结构一致消除切换抖动）──
   // 流式期间：纯文本 + 简单换行（跳过 marked/DOMPurify/addCopyButtons，根治 O(n²) 重渲染）
   // 流式结束：完整 Markdown 渲染（含代码高亮 + 复制按钮）
-  if (streaming) {
-    return (
-      <div className="w-fit max-w-[85%] min-w-0 select-text">
-        <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed border border-border shadow-sm overflow-hidden">
-          <span ref={textRef} className="whitespace-pre-wrap break-words">
-            {displayContent || ''}
-          </span>
-        </div>
-      </div>
-    );
-  }
-
-  // 非流式：完整 Markdown 渲染（useMemo 缓存）
+  // 🔴 操作栏 + 时间戳始终渲染（与流式前同结构），避免 message.complete 时突然插入 DOM 导致气泡跳变
   return (
     <div className="group w-fit max-w-[85%] min-w-0 select-text">
       <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed border border-border shadow-sm overflow-hidden">
-        {agentAttribution && (
+        {!streaming && agentAttribution && (
           <div
             className="flex items-center gap-1 text-xs text-muted-foreground mb-1.5"
             title={`来自委托 Agent: ${agentAttribution.model || ''} — ${agentAttribution.goal || ''}`}
@@ -172,9 +160,15 @@ export default function MessageBubble({ type, content, streaming, timestamp, mes
             )}
           </div>
         )}
-        <span ref={textRef} className="prose max-w-none [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_img]:max-w-full" dangerouslySetInnerHTML={{ __html: renderedHtml || '<em>(无内容)</em>' }} />
+        {streaming ? (
+          <span ref={textRef} className="whitespace-pre-wrap break-words leading-[1.75]">
+            {displayContent || ''}
+          </span>
+        ) : (
+          <span ref={textRef} className="prose max-w-none [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_img]:max-w-full" dangerouslySetInnerHTML={{ __html: renderedHtml || '<em>(无内容)</em>' }} />
+        )}
       </div>
-      {/* 操作栏 + 时间 — 时间左下，按钮右下 */}
+      {/* 操作栏 + 时间 — 流式/非流式同结构，消除切换抖动 */}
       <div className="flex items-center gap-1.5 mt-1 justify-between">
         {timestamp != null && (
           <span className="text-[10px] text-muted-foreground/70 select-none">{formatMessageTime(timestamp)}</span>

@@ -486,10 +486,21 @@ export function useGridChat(active: boolean): {
           patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(`⚠ 模型回退: ${fbProvider}/${fbModel}`)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), modelName: fbModel || s.modelName, lastActivity: Date.now() }));
           break;
         }
-        // ── 步骤完成（对齐 Hermes step_callback — 内部记账，不渲染为可见消息）/ 中间消息 / 后台审查 ──
-        case 'step.complete':
-          // 内部记账信息，仅单视图 DebugPanel 可见；宫格无 DebugPanel，静默丢弃
+        // ── 步骤完成（对齐 Hermes _emit_interim_assistant_message 消息分界）/ 中间消息 / 后台审查 ──
+        case 'step.complete': {
+          // finalize 当前累加器 → 写入 messages 为独立气泡，重置累加器供下一步使用
+          const stepParts = finalizeAccumulator(acc);
+          resetAccumulator(acc);
+          if (stepParts.length) {
+            patch(profile, (s) => ({
+              ...s,
+              messages: [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: stepParts, timestamp: Date.now() }].slice(-WINDOW_MAX),
+              streamText: '', streamReasoning: '', streamParts: [],
+              lastActivity: Date.now(),
+            }));
+          }
           break;
+        }
         case 'interim.message': {
           const imContent = (payload.content as string) || '';
           if (imContent) {
