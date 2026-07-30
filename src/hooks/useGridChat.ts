@@ -48,6 +48,7 @@ import { call } from '../utils/bridge';
 import { profileFromSessionId, sessionIdMatchesProfile, persistSessionPointer } from '../utils/session';
 import { toChatMessages, textPart, type SessionMessage, type ChatMessagePart } from '@/lib/chat-messages';
 import { createAccumulator, resetAccumulator, processAccumulatorEvent, finalizeAccumulator, type StreamAccumulator } from '@/lib/ws-event-processor';
+import { handleGlobalEvent } from '@/lib/global-events';
 import type { ChatMessage } from '@/types';
 
 const WINDOW_MAX = 100;   // 每 Agent 内存最多保留消息数（超出 evict 头部）
@@ -328,57 +329,8 @@ export function useGridChat(active: boolean): {
       const sessionId = (raw.session_id ?? payload.session_id) as string | undefined;
       const profile = profileFromSessionId(sessionId);
       if (!profile) {
-        // ── 全局事件（无 session_id）— 宫格模式下 useSSE 已暂停，由此处兜底 ──
-        // 对齐单视图 useMessageStream 的同名回调（动态 import 保持零静态耦合）
-        switch (eventName) {
-          case 'notification.show': {
-            const nLevel = (payload.level as string) || 'info';
-            const nKind = nLevel === 'error' ? 'error' : nLevel === 'warn' || nLevel === 'warning' ? 'warning' : nLevel === 'success' ? 'success' : 'info';
-            const isTtl = payload.kind === 'ttl';
-            import('../utils/notifications').then(({ notify }) => {
-              notify({ kind: nKind, message: (payload.text as string) || '', key: payload.key as string | undefined, durationMs: isTtl ? ((payload.ttl_ms as number) ?? 5000) : undefined });
-            }).catch(() => {});
-            break;
-          }
-          case 'notification.clear':
-            import('../utils/notifications').then(({ dismissNotificationByKey }) => {
-              dismissNotificationByKey((payload.key as string) || '');
-            }).catch(() => {});
-            break;
-          case 'terminal.close':
-            import('@/store/terminals').then(({ closeAgentTerminalByProc }) => {
-              closeAgentTerminalByProc((payload.process_id as string) || '');
-            }).catch(() => {});
-            break;
-          case 'terminal.read.request': {
-            const trReqId = typeof payload.request_id === 'string' ? payload.request_id : '';
-            if (trReqId) {
-              const trStart = typeof payload.start === 'number' ? payload.start : undefined;
-              const trCount = typeof payload.count === 'number' ? payload.count : undefined;
-              (async () => {
-                const { readActiveTerminal } = await import('@/store/terminal-buffer');
-                const result = readActiveTerminal({ start: trStart, count: trCount });
-                getWsClient().sendRpc('terminal.read.respond', {
-                  request_id: trReqId,
-                  text: result ? JSON.stringify(result) : '',
-                }).catch(() => {});
-              })();
-            }
-            break;
-          }
-          case 'browser.progress': {
-            const bpLevel = (payload.level as string) || '';
-            if (bpLevel === 'error' || bpLevel === 'warning') {
-              import('../utils/notifications').then(({ notifyError }) => {
-                notifyError((payload.message as string) || '', bpLevel === 'error' ? '浏览器' : '警告');
-              }).catch(() => {});
-            }
-            break;
-          }
-          // skin.changed — App 层主题重载处理，宫格不额外处理
-          default:
-            break;
-        }
+        // ── 全局事件（无 session_id）— 委托共享处理器（与单视图 useMessageStream 同一权威源）──
+        handleGlobalEvent(eventName, payload);
         return;
       }
 

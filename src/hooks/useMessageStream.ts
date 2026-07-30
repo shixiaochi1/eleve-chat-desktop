@@ -2,7 +2,7 @@ import { useRef, useCallback, useEffect, type MutableRefObject } from 'react';
 import { useSSE, type SSECallbacks } from './useSSE';
 import * as storage from '../utils/storage';
 import { profileFromSessionId, persistSessionPointer } from '../utils/session';
-import { closeAgentTerminalByProc } from '@/store/terminals';
+import { handleGlobalEvent } from '@/lib/global-events';
 import {
   setMessages as storeSetMessages,
   getMessages,
@@ -791,60 +791,31 @@ export function useMessageStream({
       }
     },
 
-    // ── System notice — 对齐 Hermes notification.show WS 事件 ──
-    // Hermes AgentNotice: text, level, kind(sticky|ttl), ttl_ms, key, id
-    // credits 通知: usage_band(info/warn), grant_spent(info), depleted(error), restored(success/ttl)
+    // ── System notice — 委托共享处理器（与宫格 useGridChat 同一权威源）──
     onSystemNotice: (data: { text: string; level?: string; kind?: string; ttl_ms?: number; key?: string; id?: string }) => {
       addDebugEvent('system_notice', `${data.level || 'info'}: ${data.text.slice(0, 60)}`);
-      import('../utils/notifications').then(({ notify }) => {
-        const level = data.level || 'info';
-        const kind = level === 'error' ? 'error'
-          : level === 'warn' || level === 'warning' ? 'warning'
-          : level === 'success' ? 'success'
-          : 'info';
-        // ttl kind: 按 ttl_ms 自动消失; sticky kind: 手动关闭 (duration=0)
-        // error/warning 默认手动关闭，info/success 默认 5s 自动消失
-        const isTtl = data.kind === 'ttl';
-        const durationMs = isTtl ? (data.ttl_ms ?? 5000) : undefined;
-        notify({
-          kind,
-          message: data.text,
-          key: data.key,
-          durationMs,
-        });
-      });
+      handleGlobalEvent('notification.show', data as Record<string, unknown>);
     },
     onNoticeClear: (data: { key: string }) => {
-      // 通知清除 — 对齐 Hermes notification.clear 事件
-      // 按 key 精确清除对应的 sticky 通知
       addDebugEvent('notice_clear', `key=${data.key}`);
-      import('../utils/notifications').then(({ dismissNotificationByKey }) => {
-        dismissNotificationByKey(data.key);
-      });
+      handleGlobalEvent('notification.clear', data as Record<string, unknown>);
     },
 
-    // Phase 6: 浏览器连接进度 — 对齐 Hermes browser.progress
+    // Phase 6: 浏览器连接进度 — 委托共享处理器
     onBrowserProgress: (data: { message: string; level: string }) => {
       addDebugEvent('browser_progress', `${data.level}: ${data.message}`);
-      if (data.level === 'error' || data.level === 'warning') {
-        import('../utils/notifications').then(({ notifyError }) => {
-          notifyError(data.message, data.level === 'error' ? '浏览器' : '警告');
-        });
-      }
+      handleGlobalEvent('browser.progress', data as Record<string, unknown>);
     },
 
-    // Phase 6: 皮肤切换 — 对齐 Hermes skin.changed
+    // Phase 6: 皮肤切换 — App 层处理（重新加载主题配置）
     onSkinChanged: (_data: { skin: unknown }) => {
       addDebugEvent('skin_changed', 'skin updated');
-      // 皮肤切换由 App 层处理（重新加载主题配置）
     },
 
-    // Phase 6: 终端关闭 — 对齐 Hermes terminal.close → closeAgentTerminalByProc
+    // Phase 6: 终端关闭 — 委托共享处理器
     onTerminalClose: (data: { process_id: string }) => {
       addDebugEvent('terminal_close', `process ${data.process_id} closed`);
-      // 对齐 Hermes: gateway-event.ts L547-550
-      // Agent closed its read-only tab via close_terminal tool → drop the view
-      closeAgentTerminalByProc(data.process_id);
+      handleGlobalEvent('terminal.close', data as Record<string, unknown>);
     },
 
     // ── Status update — Eleve status.update (覆盖式状态，按 kind 分流) ──
@@ -904,6 +875,73 @@ export function useMessageStream({
     // handled by onReasoning + onReasoningStart above.
     onReasoningComplete: (_reasoning: string) => {
       // Intentionally no-op — Eleve doesn't process reasoning.completed
+    },
+
+    // ── 🔴 Phase 2b: 补齐单视图缺失的 8 个事件（对齐宫格 useGridChat 已处理）──
+
+    // Agent 思考状态（对齐 Hermes thinking_callback）
+    onThinking: (text: string) => {
+      addDebugEvent('thinking', text.slice(0, 60));
+      setMonitorState((prev) => ({ ...prev, statusText: text }));
+    },
+
+    // 工具参数生成中（drafting spinner）
+    onToolGenerating: (name: string) => {
+      addDebugEvent('tool_generating', name);
+    },
+
+    // 工具进度（对齐 Hermes tool_progress_command）
+    onToolProgress: (data: { eventType: string; toolName: string; preview?: string; args?: unknown; duration?: number; error?: boolean; toolCallId?: string }) => {
+      addDebugEvent('tool_progress', `${data.toolName}: ${data.preview || data.eventType}`);
+      setMonitorState((prev) => ({ ...prev, statusText: data.preview ? `${data.toolName}: ${data.preview}` : `${data.toolName} 执行中...` }));
+    },
+
+    // Fallback 已激活（对齐 Hermes fallback 通知）
+    onFallbackActivated: (data: { model: string; provider: string }) => {
+      addDebugEvent('fallback', `${data.provider}/${data.model}`);
+      setMonitorState((prev) => ({ ...prev, modelName: data.model }));
+      import('../utils/notifications').then(({ notifyWarning }) => {
+        notifyWarning(`模型回退: ${data.provider}/${data.model}`, 'Fallback');
+      }).catch(() => {});
+    },
+
+    // 文本段结束（对齐 Hermes stream_delta_callback(None)）
+    onSectionEnd: () => {
+      flushQueuedDeltas();
+    },
+
+    // 步骤完成（对齐 Hermes step_callback）
+    onStepComplete: (data: { stepNumber: number; toolResults: Array<{ toolName: string; success: boolean }> }) => {
+      const text = data.toolResults.length
+        ? `步骤 ${data.stepNumber}: ${data.toolResults.map(r => `${r.toolName} ${r.success ? '✓' : '✗'}`).join(', ')}`
+        : `步骤 ${data.stepNumber} 完成`;
+      addDebugEvent('step_complete', text);
+      mutateStream(
+        (parts) => [...parts, textPart(text)],
+        () => [textPart(text)],
+      );
+    },
+
+    // 中间助手消息（对齐 Hermes _emit_interim_assistant_message）
+    onInterimMessage: (data: { content: string; alreadyStreamed: boolean }) => {
+      if (data.content && !data.alreadyStreamed) {
+        addDebugEvent('interim_message', data.content.slice(0, 60));
+        mutateStream(
+          (parts) => [...parts, textPart(data.content)],
+          () => [textPart(data.content)],
+        );
+      }
+    },
+
+    // 后台 Review 结果（对齐 Hermes background_review_callback）
+    onBackgroundReview: (data: { summary: string }) => {
+      if (data.summary) {
+        addDebugEvent('background_review', data.summary.slice(0, 60));
+        mutateStream(
+          (parts) => [...parts, textPart(`🔍 后台审查: ${data.summary}`)],
+          () => [textPart(`🔍 后台审查: ${data.summary}`)],
+        );
+      }
     },
   } satisfies SSECallbacks;
 
