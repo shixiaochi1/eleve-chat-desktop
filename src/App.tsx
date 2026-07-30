@@ -15,7 +15,7 @@ import { loadSettingsFromRust } from './utils/settings-store';
 import { discoverPort, call } from './utils/bridge';
 import { getActiveProfile, fetchProfiles } from './utils/api';
 import { getWsClient, setWsActiveProfile } from './services/ws-client';
-import { sessionIdMatchesProfile } from './utils/session';
+import { sessionIdMatchesProfile, profileFromSessionId } from './utils/session';
 import type { ChatMessage } from './types';
 import ErrorBoundary from './components/ErrorBoundary';
 import CredentialCard from './components/CredentialCard';
@@ -448,6 +448,18 @@ export default function App() {
     resetStream,
   });
 
+  // 🔴 宫格模式：点击会话列表 → 解析 session 归属 Agent → 展开为单视图 + 加载该会话。
+  // 单视图模式：透传原始 handleSwitchSession。
+  const gridAwareSwitchSession = useCallback((id: string) => {
+    if (viewMode === 'grid') {
+      const profile = profileFromSessionId(id) || currentProfile;
+      setWsActiveProfile(profile);
+      setCurrentProfile(profile);
+      setViewMode('single');
+    }
+    handleSwitchSession(id);
+  }, [viewMode, currentProfile, handleSwitchSession]);
+
   // ── usePromptActions: send/regenerate/abort/queue ──
   const {
     handleSend: rawHandleSend,
@@ -835,7 +847,7 @@ export default function App() {
                   onRestart={handleRestartService}
                   sessionId={sess.sessionId}
                   sessions={sess.sessions}
-                  onSwitchSession={handleSwitchSession}
+                  onSwitchSession={gridAwareSwitchSession}
                   onDeleteSession={handleDeleteSession}
                   sessionTitles={sess.titles}
                   onNewSession={handleNewSession}
@@ -1030,7 +1042,7 @@ export default function App() {
         sessions={sess.sessions}
         sessionTitles={sess.titles}
         sessionId={sess.sessionId ?? undefined}
-        onSwitchSession={handleSwitchSession}
+        onSwitchSession={gridAwareSwitchSession}
         onNewSession={handleNewSession}
         onCommand={handleCommand}
         onNavigate={handleNavigate}
