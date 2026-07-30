@@ -79,9 +79,16 @@ export function useSessionActions({
   // ── session delete handler ──
   const handleDeleteSession = useCallback(async (id: string) => {
     sess.remove(id);
-    if (sess.sessionId === id) storeSetMessages([]);
+    if (sess.sessionId === id) {
+      storeSetMessages([]);
+      // 🔴 P1-2.4: 删当前会话时释放锁 + 清 WS client session（对齐 handleNewSession）
+      // 不清 switchSession → ws-client 内部 sessionId 仍是已删除 id → 下条消息发到死会话
+      resetSendingLock?.();
+      resetStream?.();
+      getWsClient().switchSession('');
+    }
     if (setSessionListVersion) setSessionListVersion(v => v + 1);
-  }, [sess, setSessionListVersion]);
+  }, [sess, setSessionListVersion, resetSendingLock, resetStream]);
 
   // ── new session — 对齐 Eleve startFreshSessionDraft()
   // 纯前端重置：清消息 + 释放锁 + 设 freshDraftReady

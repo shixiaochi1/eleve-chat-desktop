@@ -76,7 +76,8 @@ export function usePromptActions({
       await storage.init();
     }
 
-    storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(next)], timestamp: Date.now() } as ChatMessage]);
+    // 🔴 P1-2.6: drain 不再追加用户消息（排队时已上屏，再追加 = 重复显示）
+    // storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(next)], timestamp: Date.now() } as ChatMessage]);
 
     // 对齐架构原则：后端是 session 生命周期权威源，drainQueue 不预创建 session
     // 直接发 prompt.submit，后端自动处理

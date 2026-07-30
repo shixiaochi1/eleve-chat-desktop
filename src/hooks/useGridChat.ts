@@ -121,7 +121,7 @@ export function useGridChat(active: boolean): {
   const sendingRef = useRef<Record<string, boolean>>({});
   const queueRef = useRef<Record<string, string[]>>({});
   // sendTo 镜像 ref（供 WS handler message.complete 内 drain 调用，避免循环依赖）
-  const sendToRef = useRef<(profile: string, text: string, modelOpts?: { model?: string; provider?: string }) => Promise<void>>(async () => {});
+  const sendToRef = useRef<(profile: string, text: string, modelOpts?: { model?: string; provider?: string }, fromDrain?: boolean) => Promise<void>>(async () => {});
 
   // 单 Agent 状态更新（不可变 patch）
   const patch = useCallback((profile: string, updater: (s: AgentChatState) => AgentChatState) => {
@@ -159,9 +159,11 @@ export function useGridChat(active: boolean): {
         const merged = [...older, ...st.messages];
         // 内存窗口：超 WINDOW_MAX 从尾部 evict（保留最新）—— 上翻加载的是更早的，插头部
         // 但为内存可控，限制总量；用户继续上翻会再加载
+        // 🔴 P1-2.5: 上翻加载不做尾部裁剪（slice(-WINDOW_MAX) 会把刚加载的旧消息立刻 evict → loadMore 变 no-op）
+        // 内存控制由新消息入队时的尾部 evict 保证（message.complete / step.complete 等）
         return {
           ...st,
-          messages: merged.slice(-WINDOW_MAX),
+          messages: merged,
           hasMore: !!res?.has_more,
           oldestId: res?.oldest_id ?? st.oldestId,
           isLoadingMore: false,
@@ -173,7 +175,7 @@ export function useGridChat(active: boolean): {
   }, [patch]);
 
   // ── 发送消息到指定 Agent（显式 profile + session_id，不切全局盖章） ──
-  const sendTo = useCallback(async (profile: string, text: string, modelOpts?: { model?: string; provider?: string }) => {
+  const sendTo = useCallback(async (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, fromDrain?: boolean) => {
     if (!text.trim()) return;
 
     // 🔴 per-agent 发送锁：流式期间排队，结束后自动发送（对齐单视图 isSendingRef + pendingQueue）
@@ -190,16 +192,23 @@ export function useGridChat(active: boolean): {
     // 🔴 串台防御：sessionId 的 profile 前缀必须匹配目标 profile，否则丢弃（让后端新建）
     const rawSid = s?.sessionId ?? undefined;
     const sessionId = sessionIdMatchesProfile(rawSid, profile) ? rawSid : undefined;
-    // 乐观追加用户消息
-    const userMsg: ChatMessage = {
-      id: gridMsgId(), role: 'user', parts: [textPart(text)], timestamp: Date.now(),
-    };
-    patch(profile, (st) => ({
-      ...st,
-      messages: [...st.messages, userMsg].slice(-WINDOW_MAX),
-      status: 'streaming',
-    }));
+    // 🔴 P1-2.6: drain 路径跳过用户消息追加（排队时已上屏，再追加 = 重复显示）
+    if (!fromDrain) {
+      const userMsg: ChatMessage = {
+        id: gridMsgId(), role: 'user', parts: [textPart(text)], timestamp: Date.now(),
+      };
+      patch(profile, (st) => ({
+        ...st,
+        messages: [...st.messages, userMsg].slice(-WINDOW_MAX),
+        status: 'streaming',
+      }));
+    } else {
+      patch(profile, (st) => ({ ...st, status: 'streaming' }));
+    }
     accRef.current[profile] = createAccumulator();
+
+    // 🔴 P1-2.1: 先加锁再 await 连接（防双击竞态：两条快速消息都见 sendingRef=false → 双提交）
+    sendingRef.current[profile] = true;
 
     // 🔴 WS 连接保障（对齐单视图 handleSend）
     const ws = getWsClient();
@@ -210,7 +219,6 @@ export function useGridChat(active: boolean): {
       await ws.waitForConnected(10000);
     }
 
-    sendingRef.current[profile] = true;
     try {
       const result = await ws.sendRpc('prompt.submit', {
         text, profile, session_id: sessionId ?? '',
@@ -237,10 +245,13 @@ export function useGridChat(active: boolean): {
     const s = statesRef.current[profile];
     if (!s?.sessionId) return;
     try { await getWsClient().abortStream(s.sessionId); } catch { /* ignore */ }
-    // 🔴 释放发送锁 + 清排队（对齐单视图 abort → onDone → drainQueue 语义）
-    // abort 后 message.complete 可能不到达（WS 断连/后端崩溃），不释放 = Agent 锁死
+    // 🔴 P1-2.3: abort 停当前 turn，续发队列（对齐单视图 abort → onDone → drainQueue 语义）
     sendingRef.current[profile] = false;
-    queueRef.current[profile] = [];
+    const abortQ = queueRef.current[profile];
+    if (abortQ?.length) {
+      const next = abortQ.shift()!;
+      sendToRef.current(profile, next, undefined, true);
+    }
     patch(profile, (st) => ({ ...st, status: 'idle', streamText: '', streamReasoning: '' }));
     accRef.current[profile] = createAccumulator();
   }, [patch]);
@@ -374,7 +385,7 @@ export function useGridChat(active: boolean): {
           const q = queueRef.current[profile];
           if (q?.length) {
             const next = q.shift()!;
-            sendToRef.current(profile, next);
+            sendToRef.current(profile, next, undefined, true);
           }
           break;
         }
@@ -442,8 +453,13 @@ export function useGridChat(active: boolean): {
         case 'error':
           patch(profile, (s) => ({ ...s, status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '' }));
           resetAccumulator(acc);
-          // 🔴 释放发送锁（对齐单视图 resetSendingLock）
+          // 🔴 P1-2.2: 释放发送锁 + drain 队列（对齐单视图 onError → drainQueue）
           sendingRef.current[profile] = false;
+          const errQ = queueRef.current[profile];
+          if (errQ?.length) {
+            const next = errQ.shift()!;
+            sendToRef.current(profile, next, undefined, true);
+          }
           break;
         // ── 推理生命周期（对齐单视图 onReasoningStart / onReasoningComplete）──
         case 'reasoning.available':

@@ -189,8 +189,9 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
 function adaptParams(command: string, args: Record<string, any>): Record<string, any> {
   switch (command) {
     case 'execute_command':
-      // HTTP: {command} → WS: {name, arg, session_id}
-      return { name: args.command, arg: '', session_id: '' };
+      // HTTP: {command, args?, session_id?} → WS: {name, arg, session_id}
+      // 🔴 P1-2.8: 透传 args 和 session_id（旧版硬编码空串 → 终端命令参数静默丢失）
+      return { name: args.command, arg: args.args || '', session_id: args.session_id || '' };
     case 'submit_clarify_response':
       // HTTP: {clarify_id, response} → WS: {request_id, answer}
       return { request_id: args.clarify_id, answer: args.response };
