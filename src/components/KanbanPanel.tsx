@@ -1403,7 +1403,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
 
                     const task: KanbanTask = { ...t };
                     switch (evt.kind) {
-              case 'completed': task.status = 'completed'; if (evt.payload?.summary) task.summary = evt.payload.summary; return task;
+              case 'completed': task.status = 'done'; if (evt.payload?.summary) task.summary = evt.payload.summary; return task;
               case 'blocked': task.status = 'blocked'; task.blocked = true; if (evt.payload?.reason) task.block_reason = evt.payload.reason; return task;
               case 'claimed': task.status = 'running'; return task;
               case 'unblocked': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
@@ -1451,7 +1451,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
 
                       const task: KanbanTask = { ...t };
                       switch (evt.kind) {
-                case 'completed': task.status = 'completed'; if (evt.payload?.summary) task.summary = evt.payload.summary; return task;
+                case 'completed': task.status = 'done'; if (evt.payload?.summary) task.summary = evt.payload.summary; return task;
                 case 'blocked': task.status = 'blocked'; task.blocked = true; if (evt.payload?.reason) task.block_reason = evt.payload.reason; return task;
                 case 'claimed': task.status = 'running'; return task;
                 case 'unblocked': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
