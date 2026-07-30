@@ -80,12 +80,17 @@ export default function AgentCardComposer({
       const cmd = text.replace(/^\//, '').split(/\s/)[0].toLowerCase();
       const args = text.replace(/^\/\S+\s*/, '').trim();
       resetInput();
+      // 🔴 对齐单视图 handleSend：/new /reset 走前端重置，不走后端 slash.exec
+      if (cmd === 'new' || cmd === 'reset') {
+        onNewSession();
+        return;
+      }
       onCommand(cmd, args);
       return;
     }
     onSend(text);
     resetInput();
-  }, [value, onSend, onCommand, resetInput]);
+  }, [value, onSend, onCommand, onNewSession, resetInput]);
 
   const handleCommandExec = useCallback(
     (cmdName: string, args = '') => {

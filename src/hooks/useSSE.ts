@@ -3,6 +3,7 @@ import { call } from '../utils/bridge';
 import { useIsStreaming, setIsStreaming as storeSetIsStreaming } from '@/store/messages';
 import { getWsClient } from '@/services/ws-client';
 import * as storage from '../utils/storage';
+import { persistSessionPointer } from '../utils/session';
 
 // ── SSE callback types ──
 
@@ -637,7 +638,7 @@ export function useSSE(
       // 后端自动创建 session 时返回 session_id，前端消费并更新本地状态
       if (result?.session_id && result.session_id !== sessionId) {
         const newSid = result.session_id;
-        storage.save('session_id', newSid);
+        persistSessionPointer(newSid);
         // 🔴 立即锁定 session 过滤 ref（promptSubmit 是 await，streaming 事件在 response 之后才到）
         if (currentSessionIdRef) currentSessionIdRef.current = newSid;
         if (cbs?.onSessionCreated) {

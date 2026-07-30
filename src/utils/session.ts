@@ -78,6 +78,8 @@
  * ═══════════════════════════════════════════════════════════════════
  */
 
+import * as storage from './storage';
+
 /** session_id → profile 解析（agent:<profile>:...，main 归一为 default） */
 export function profileFromSessionId(sid: string | undefined | null): string | null {
   if (!sid) return null;
@@ -102,4 +104,21 @@ export function sessionIdMatchesProfile(sid: string | undefined | null, profile:
   // 非 agent: 前缀的旧格式 session_id 无法判定归属 → 放行（兼容）
   if (owner === null) return true;
   return owner === profile;
+}
+
+/**
+ * 🔴 会话指针持久化（单一权威入口）
+ *
+ * 写 session_id（全局指针）的同时同步更新 profile_session_map（per-profile 索引）。
+ * 所有“后端创建/重置 session → 前端更新指针”的路径必须走此函数，
+ * 禁止裸调 storage.save('session_id', ...)，否则 map 指针陈旧（P0-B 根因）。
+ */
+export function persistSessionPointer(sessionId: string): void {
+  storage.save('session_id', sessionId);
+  const profile = profileFromSessionId(sessionId);
+  if (profile) {
+    const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
+    map[profile] = sessionId;
+    storage.save('profile_session_map', map);
+  }
 }

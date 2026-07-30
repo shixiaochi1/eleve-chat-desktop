@@ -23,6 +23,7 @@ import ClarifyCard from './ClarifyCard';
 import CredentialCard from './CredentialCard';
 import AgentCardComposer from './AgentCardComposer';
 import ModelPill from './ModelPill';
+import SlashConfirmCard from './SlashConfirmCard';
 import { useImageAttachments } from '@/hooks/useImageAttachments';
 import type { GroupedModels } from '@/hooks/useModels';
 import type { AgentChatState } from '../hooks/useGridChat';
@@ -49,7 +50,7 @@ interface AgentChatCardProps {
   onSend: (profile: string, text: string) => void;
   onLoadMore: (profile: string) => void;
   onAbort: (profile: string) => void;
-  onClearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret') => void;
+  onClearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm') => void;
   onExpand: (profile: string) => void;
   /** 新建会话（清空本 Agent 上下文） */
   onNewSession: (profile: string) => void;
@@ -157,6 +158,7 @@ export const AgentChatCard = memo(function AgentChatCard({
   const clarify = state.pendingClarify as ClarifyPayload | null;
   const sudo = state.pendingSudo as SudoPayload | null;
   const secret = state.pendingSecret as SecretPayload | null;
+  const slashConfirm = state.pendingSlashConfirm;
   const streaming = state.status === 'streaming';
 
   return (
@@ -244,7 +246,7 @@ export const AgentChatCard = memo(function AgentChatCard({
             ReasoningBlock shimmer/计时器/折叠）。宫格用合成 pending 消息走同一条渲染路径，
             气泡样式/推理块/间距全自动对齐，MessageRow 任何改动宫格流式同步生效。
             独立于 state.messages 渲染 → 30fps streamText 更新不重渲染历史列表（性能优化保留）。 */}
-        {(state.streamReasoning || state.streamText) && (
+        {(state.streamReasoning || state.streamText || state.streamParts?.length > 0) && (
           <MessageRow
             message={{
               id: `${name}-streaming`,
@@ -252,10 +254,18 @@ export const AgentChatCard = memo(function AgentChatCard({
               pending: true,
               parts: [
                 ...(state.streamReasoning ? [{ type: 'reasoning' as const, text: state.streamReasoning }] : []),
+                ...(state.streamParts || []),
                 ...(state.streamText ? [{ type: 'text' as const, text: state.streamText }] : []),
               ],
             }}
           />
+        )}
+
+        {/* ── 活动提示（thinking / tool.progress / delegate.progress / goal）── */}
+        {state.activityHint && streaming && (
+          <div className="px-3 py-1 text-[10px] text-muted-foreground/50 italic truncate" title={state.activityHint}>
+            {state.activityHint}
+          </div>
         )}
       </div>
 
@@ -307,6 +317,18 @@ export const AgentChatCard = memo(function AgentChatCard({
               onClearPending(name, 'secret');
             }}
             onDismiss={() => onClearPending(name, 'secret')}
+          />
+        </div>
+      )}
+      {/* 🔴 破坏性 slash 命令确认（对齐单视图 SlashConfirmCard） */}
+      {slashConfirm && (
+        <div className="px-2.5 pb-1.5 shrink-0">
+          <SlashConfirmCard
+            confirmId={slashConfirm.confirmId}
+            command={slashConfirm.command}
+            description={slashConfirm.description}
+            sessionId={state.sessionId ?? undefined}
+            onDone={() => onClearPending(name, 'slash_confirm')}
           />
         </div>
       )}

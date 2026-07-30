@@ -1,6 +1,7 @@
 import { useRef, useCallback, useEffect, type MutableRefObject } from 'react';
 import { useSSE, type SSECallbacks } from './useSSE';
 import * as storage from '../utils/storage';
+import { profileFromSessionId, persistSessionPointer } from '../utils/session';
 import { closeAgentTerminalByProc } from '@/store/terminals';
 import {
   setMessages as storeSetMessages,
@@ -442,7 +443,7 @@ export function useMessageStream({
           sess.saveCache((cache) => ({ ...cache, [sess.sessionId!]: getMessages() }));
         }
         sess.setSessionId(sessionId);
-        storage.save('session_id', sessionId);
+        persistSessionPointer(sessionId);
         setDebugInfo((prev) => ({ ...prev, sessionId, sessionStartedAt: Date.now() }));
         if (setSessionListVersion) setSessionListVersion(v => v + 1);
         // 同步 WS 连接到新 session
@@ -648,7 +649,7 @@ export function useMessageStream({
         }
         setTimeout(() => {
           sess.setSessionId(newSessionId);
-          storage.save('session_id', newSessionId);
+          persistSessionPointer(newSessionId);
           sess.refresh();
           if (setSessionListVersion) setSessionListVersion(v => v + 1);
           setDebugInfo((prev) => ({ ...prev, sessionId: newSessionId }));
@@ -685,7 +686,7 @@ export function useMessageStream({
     onSessionReset: ({ new_session_id }: { old_session_id: string; new_session_id: string }) => {
       addDebugEvent('session_reset', `new: ${new_session_id?.slice(0, 8)}`);
       sess.setSessionId(new_session_id);
-      storage.save('session_id', new_session_id);
+      persistSessionPointer(new_session_id);
       storeSetMessages([]);
       sess.refresh();
       if (setSessionListVersion) setSessionListVersion(v => v + 1);
@@ -704,7 +705,7 @@ export function useMessageStream({
     onSessionCreated: (newSessionId: string) => {
       addDebugEvent('session_created', `new: ${newSessionId?.slice(0, 8)}`);
       sess.setSessionId(newSessionId);
-      storage.save('session_id', newSessionId);
+      persistSessionPointer(newSessionId);
       if (setSessionListVersion) setSessionListVersion(v => v + 1);
       setDebugInfo((prev) => ({ ...prev, sessionId: newSessionId, sessionStartedAt: Date.now() }));
       import('@/services/ws-client').then(({ getWsClient }) => {

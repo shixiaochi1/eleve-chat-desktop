@@ -45,8 +45,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getWsClient } from '@/services/ws-client';
 import { call } from '../utils/bridge';
-import { profileFromSessionId, sessionIdMatchesProfile } from '../utils/session';
-import { toChatMessages, textPart, type SessionMessage } from '@/lib/chat-messages';
+import { profileFromSessionId, sessionIdMatchesProfile, persistSessionPointer } from '../utils/session';
+import { toChatMessages, textPart, type SessionMessage, type ChatMessagePart } from '@/lib/chat-messages';
+import { createAccumulator, resetAccumulator, processAccumulatorEvent, finalizeAccumulator, type StreamAccumulator } from '@/lib/ws-event-processor';
 import type { ChatMessage } from '@/types';
 
 const WINDOW_MAX = 100;   // 每 Agent 内存最多保留消息数（超出 evict 头部）
@@ -64,18 +65,31 @@ export interface AgentChatState {
   status: AgentStatus;
   streamText: string;        // 当前流式累积（完成后并入 messages，清空）
   streamReasoning: string;
+  streamParts: ChatMessagePart[];  // 流式中的工具调用 parts（复用 upsertToolPart 权威路径）
   pendingApproval: unknown | null;
   pendingClarify: unknown | null;
   pendingSudo: unknown | null;
   pendingSecret: unknown | null;
+  /** 破坏性 slash 命令二次确认（对齐单视图 SlashConfirmCard） */
+  pendingSlashConfirm: { confirmId: string; command: string; description: string } | null;
+  /** 瞬态活动提示（thinking / tool.progress / delegate.progress，message.complete 清空） */
+  activityHint: string;
+  /** 后端推送的会话标题（session.title 事件） */
+  sessionTitle: string | null;
+  /** 当前模型名（model.name 事件） */
+  modelName: string | null;
+  /** 最近一轮 token 用量（message.complete usage） */
+  lastUsage: { input: number; output: number; reasoning?: number; total?: number } | null;
   lastActivity: number;
 }
 
 function emptyState(): AgentChatState {
   return {
     sessionId: null, messages: [], hasMore: false, oldestId: null,
-    isLoadingMore: false, status: 'idle', streamText: '', streamReasoning: '',
-    pendingApproval: null, pendingClarify: null, pendingSudo: null, pendingSecret: null, lastActivity: 0,
+    isLoadingMore: false, status: 'idle', streamText: '', streamReasoning: '', streamParts: [],
+    pendingApproval: null, pendingClarify: null, pendingSudo: null, pendingSecret: null,
+    pendingSlashConfirm: null, activityHint: '', sessionTitle: null, modelName: null, lastUsage: null,
+    lastActivity: 0,
   };
 }
 
@@ -86,9 +100,9 @@ export function useGridChat(active: boolean): {
   states: Record<string, AgentChatState>;
   loadLatest: (profile: string, sessionId: string) => Promise<void>;
   loadMore: (profile: string) => Promise<void>;
-  sendTo: (profile: string, text: string) => Promise<void>;
+  sendTo: (profile: string, text: string, modelOpts?: { model?: string; provider?: string }) => Promise<void>;
   abortAgent: (profile: string) => Promise<void>;
-  clearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret') => void;
+  clearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm') => void;
   /** 新建会话：清空本 Agent 上下文，下条 sendTo 后端自动建新 session */
   resetAgent: (profile: string) => void;
   /** per-agent slash 命令执行（路由到本 Agent 的 session） */
@@ -97,10 +111,16 @@ export function useGridChat(active: boolean): {
   const [states, setStates] = useState<Record<string, AgentChatState>>({});
 
   // per-agent 流式累加器（ref，高频写不触发渲染）
-  const accRef = useRef<Record<string, { text: string; reasoning: string }>>({});
+  const accRef = useRef<Record<string, StreamAccumulator>>({});
   const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const statesRef = useRef(states);
   statesRef.current = states;
+
+  // 🔴 per-agent 发送锁 + 排队（对齐单视图 isSendingRef + pendingQueue）
+  const sendingRef = useRef<Record<string, boolean>>({});
+  const queueRef = useRef<Record<string, string[]>>({});
+  // sendTo 镜像 ref（供 WS handler message.complete 内 drain 调用，避免循环依赖）
+  const sendToRef = useRef<(profile: string, text: string, modelOpts?: { model?: string; provider?: string }) => Promise<void>>(async () => {});
 
   // 单 Agent 状态更新（不可变 patch）
   const patch = useCallback((profile: string, updater: (s: AgentChatState) => AgentChatState) => {
@@ -152,8 +172,19 @@ export function useGridChat(active: boolean): {
   }, [patch]);
 
   // ── 发送消息到指定 Agent（显式 profile + session_id，不切全局盖章） ──
-  const sendTo = useCallback(async (profile: string, text: string) => {
+  const sendTo = useCallback(async (profile: string, text: string, modelOpts?: { model?: string; provider?: string }) => {
     if (!text.trim()) return;
+
+    // 🔴 per-agent 发送锁：流式期间排队，结束后自动发送（对齐单视图 isSendingRef + pendingQueue）
+    if (sendingRef.current[profile]) {
+      (queueRef.current[profile] ??= []).push(text);
+      patch(profile, (st) => ({
+        ...st,
+        messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
+      }));
+      return;
+    }
+
     const s = statesRef.current[profile];
     // 🔴 串台防御：sessionId 的 profile 前缀必须匹配目标 profile，否则丢弃（让后端新建）
     const rawSid = s?.sessionId ?? undefined;
@@ -167,21 +198,38 @@ export function useGridChat(active: boolean): {
       messages: [...st.messages, userMsg].slice(-WINDOW_MAX),
       status: 'streaming',
     }));
-    accRef.current[profile] = { text: '', reasoning: '' };
+    accRef.current[profile] = createAccumulator();
+
+    // 🔴 WS 连接保障（对齐单视图 handleSend）
+    const ws = getWsClient();
+    if (ws.state === 'disconnected') {
+      ws.connect(undefined);
+      await ws.waitForConnected(10000);
+    } else if (ws.state === 'connecting' || ws.state === 'reconnecting') {
+      await ws.waitForConnected(10000);
+    }
+
+    sendingRef.current[profile] = true;
     try {
-      const ws = getWsClient();
       const result = await ws.sendRpc('prompt.submit', {
         text, profile, session_id: sessionId ?? '',
+        // 🔴 对齐单视图：传递 model/provider（ModelPill 选择的模型生效）
+        ...(modelOpts?.model ? { model: modelOpts.model, provider: modelOpts.provider || '' } : {}),
       }) as { session_id?: string };
-      // 后端可能新建 session → 记录 sessionId
+      // 后端可能新建 session → 记录 sessionId + 🔴 P1-F 即时持久化（防崩溃丢失）
       if (result?.session_id && result.session_id !== sessionId) {
         patch(profile, (st) => ({ ...st, sessionId: result.session_id! }));
+        persistSessionPointer(result.session_id);
       }
     } catch (e) {
+      sendingRef.current[profile] = false;
       patch(profile, (st) => ({ ...st, status: 'idle' }));
       console.error('[useGridChat] sendTo failed:', profile, e);
     }
   }, [patch]);
+
+  // 同步 sendTo 镜像（供 WS handler drain 调用）
+  sendToRef.current = sendTo;
 
   // ── 中止某 Agent 的流 ──
   const abortAgent = useCallback(async (profile: string) => {
@@ -189,7 +237,7 @@ export function useGridChat(active: boolean): {
     if (!s?.sessionId) return;
     try { await getWsClient().abortStream(s.sessionId); } catch { /* ignore */ }
     patch(profile, (st) => ({ ...st, status: 'idle', streamText: '', streamReasoning: '' }));
-    accRef.current[profile] = { text: '', reasoning: '' };
+    accRef.current[profile] = createAccumulator();
   }, [patch]);
 
   // ── 清除 per-agent pending 交互状态 ──
@@ -197,11 +245,12 @@ export function useGridChat(active: boolean): {
   // approval.respond、ClarifyCard 走 HTTP submitClarifyResponse、CredentialCard 由
   // AgentChatCard 提供 sudo_respond 的 onSubmit）——与单视图完全一致的单一权威路径。
   // 本 hook 只负责交互状态管理：卡片完成后调用 clearPending 收起弹窗、恢复 streaming。
-  const clearPending = useCallback((profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret') => {
+  const clearPending = useCallback((profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm') => {
     patch(profile, (st) => {
       if (kind === 'approval') return { ...st, pendingApproval: null, status: 'streaming' };
       if (kind === 'clarify') return { ...st, pendingClarify: null, status: 'streaming' };
       if (kind === 'sudo') return { ...st, pendingSudo: null, status: 'streaming' };
+      if (kind === 'slash_confirm') return { ...st, pendingSlashConfirm: null, status: 'streaming' };
       return { ...st, pendingSecret: null, status: 'streaming' };
     });
   }, [patch]);
@@ -209,7 +258,10 @@ export function useGridChat(active: boolean): {
   // ── 新建会话：清空本 Agent 的 session 指针 + 消息 + 流式/交互状态 ──
   // 下一条 sendTo 的 session_id 为空 → 后端自动新建 session（与单视图 handleNewSession 同语义）。
   const resetAgent = useCallback((profile: string) => {
-    if (accRef.current[profile]) accRef.current[profile] = { text: '', reasoning: '' };
+    // 🔴 abort 旧流，防残影 delta 写入重置后的状态槽
+    const oldSid = statesRef.current[profile]?.sessionId;
+    if (oldSid) getWsClient().abortStream(oldSid).catch(() => {});
+    if (accRef.current[profile]) accRef.current[profile] = createAccumulator();
     patch(profile, (st) => ({
       ...emptyState(),
       lastActivity: st.lastActivity,
@@ -225,7 +277,18 @@ export function useGridChat(active: boolean): {
     // 乐观追加用户命令消息
     patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(display)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX) }));
     try {
-      const result = await getWsClient().slashExec(`${cmdName} ${args}`.trim(), sessionId) as { type?: string; output?: string; message?: string };
+      const result = await getWsClient().slashExec(`${cmdName} ${args}`.trim(), sessionId) as { type?: string; output?: string; message?: string; session_id?: string; confirm_id?: string; command?: string; description?: string };
+
+      // 🔴 对齐单视图 handleCommand：破坏性命令二次确认
+      if (result?.type === 'pending_confirm' && result.confirm_id) {
+        patch(profile, (st) => ({
+          ...st,
+          pendingSlashConfirm: { confirmId: result.confirm_id!, command: result.command || cmdName, description: result.description || '' },
+          status: 'waiting',
+        }));
+        return;
+      }
+
       // CmdAction::Send — 显示确认文本 + 自动提交 kickoff（/goal set 等）
       if (result?.type === 'send' && result.message) {
         if (result.output) {
@@ -235,7 +298,18 @@ export function useGridChat(active: boolean): {
         return;
       }
       const output = result?.output || '';
-      patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'system', parts: [textPart(output)] } as ChatMessage].slice(-WINDOW_MAX) }));
+
+      // 🔴 对齐单视图 handleCommand：命令可能导致 session 切换（如 /new 后端路径）
+      const newSid = result?.session_id;
+      if (newSid && newSid !== sessionId) {
+        patch(profile, (st) => ({
+          ...st,
+          sessionId: newSid,
+          messages: [{ id: gridMsgId(), role: 'system', parts: [textPart(output)] } as ChatMessage],
+        }));
+      } else {
+        patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'system', parts: [textPart(output)] } as ChatMessage].slice(-WINDOW_MAX) }));
+      }
     } catch (err) {
       const msg = (err as Error).message;
       patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'assistant', parts: [textPart(msg)], error: msg, timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX) }));
@@ -253,35 +327,95 @@ export function useGridChat(active: boolean): {
       const payload = (raw.payload && typeof raw.payload === 'object' ? raw.payload : raw) as Record<string, unknown>;
       const sessionId = (raw.session_id ?? payload.session_id) as string | undefined;
       const profile = profileFromSessionId(sessionId);
-      if (!profile) return;   // 无 session_id 的全局事件：宫格不处理
+      if (!profile) {
+        // ── 全局事件（无 session_id）— 宫格模式下 useSSE 已暂停，由此处兜底 ──
+        // 对齐单视图 useMessageStream 的同名回调（动态 import 保持零静态耦合）
+        switch (eventName) {
+          case 'notification.show': {
+            const nLevel = (payload.level as string) || 'info';
+            const nKind = nLevel === 'error' ? 'error' : nLevel === 'warn' || nLevel === 'warning' ? 'warning' : nLevel === 'success' ? 'success' : 'info';
+            const isTtl = payload.kind === 'ttl';
+            import('../utils/notifications').then(({ notify }) => {
+              notify({ kind: nKind, message: (payload.text as string) || '', key: payload.key as string | undefined, durationMs: isTtl ? ((payload.ttl_ms as number) ?? 5000) : undefined });
+            }).catch(() => {});
+            break;
+          }
+          case 'notification.clear':
+            import('../utils/notifications').then(({ dismissNotificationByKey }) => {
+              dismissNotificationByKey((payload.key as string) || '');
+            }).catch(() => {});
+            break;
+          case 'terminal.close':
+            import('@/store/terminals').then(({ closeAgentTerminalByProc }) => {
+              closeAgentTerminalByProc((payload.process_id as string) || '');
+            }).catch(() => {});
+            break;
+          case 'terminal.read.request': {
+            const trReqId = typeof payload.request_id === 'string' ? payload.request_id : '';
+            if (trReqId) {
+              const trStart = typeof payload.start === 'number' ? payload.start : undefined;
+              const trCount = typeof payload.count === 'number' ? payload.count : undefined;
+              (async () => {
+                const { readActiveTerminal } = await import('@/store/terminal-buffer');
+                const result = readActiveTerminal({ start: trStart, count: trCount });
+                getWsClient().sendRpc('terminal.read.respond', {
+                  request_id: trReqId,
+                  text: result ? JSON.stringify(result) : '',
+                }).catch(() => {});
+              })();
+            }
+            break;
+          }
+          case 'browser.progress': {
+            const bpLevel = (payload.level as string) || '';
+            if (bpLevel === 'error' || bpLevel === 'warning') {
+              import('../utils/notifications').then(({ notifyError }) => {
+                notifyError((payload.message as string) || '', bpLevel === 'error' ? '浏览器' : '警告');
+              }).catch(() => {});
+            }
+            break;
+          }
+          // skin.changed — App 层主题重载处理，宫格不额外处理
+          default:
+            break;
+        }
+        return;
+      }
 
-      const acc = (accRef.current[profile] ??= { text: '', reasoning: '' });
+      const acc = (accRef.current[profile] ??= createAccumulator());
 
+      // 🔴 P2-D: 流式累加事件走共享处理器（与单视图 useMessageStream 同一权威路径）
+      if (!processAccumulatorEvent(acc, eventName, payload)) {
       switch (eventName) {
-        case 'message.delta':
-          acc.text += (payload.delta as string) || '';
-          break;
-        case 'reasoning.delta':
-          acc.reasoning += (payload.text as string) || '';
-          break;
         case 'run.started':
         case 'message.start':
           patch(profile, (s) => ({ ...s, status: 'streaming', lastActivity: Date.now() }));
           break;
         case 'message.complete': {
-          // 流式完成：累加器转为消息并入列表
-          const finalText = acc.text;
-          const finalReasoning = acc.reasoning;
-          accRef.current[profile] = { text: '', reasoning: '' };
+          // 🔴 P2-D: 复用 finalizeAccumulator（与单视图同一 parts 组装逻辑）
+          const finalParts = finalizeAccumulator(acc);
+          resetAccumulator(acc);
+          // 🔴 提取 usage（对齐单视图 onUsage）
+          const mUsage = payload.usage as Record<string, unknown> | undefined;
+          const usageData = mUsage ? {
+            input: (mUsage.input_tokens as number) || 0,
+            output: (mUsage.output_tokens as number) || 0,
+            reasoning: mUsage.reasoning_tokens as number | undefined,
+            total: mUsage.total_tokens as number | undefined,
+          } : null;
           patch(profile, (s) => {
-            const parts = [];
-            if (finalReasoning) parts.push({ type: 'reasoning' as const, text: finalReasoning });
-            if (finalText) parts.push(textPart(finalText));
-            const msgs = parts.length
-              ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts, timestamp: Date.now() }]
+            const msgs = finalParts.length
+              ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: finalParts, timestamp: Date.now() }]
               : s.messages;
-            return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamText: '', streamReasoning: '', lastActivity: Date.now() };
+            return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '', lastUsage: usageData, lastActivity: Date.now() };
           });
+          // 🔴 释放发送锁 + 排队消息自动发送（对齐单视图 drainQueue）
+          sendingRef.current[profile] = false;
+          const q = queueRef.current[profile];
+          if (q?.length) {
+            const next = q.shift()!;
+            sendToRef.current(profile, next);
+          }
           break;
         }
         case 'approval.request':
@@ -302,25 +436,158 @@ export function useGridChat(active: boolean): {
           patch(profile, (s) => ({ ...s, pendingSudo: payload, status: 'waiting', lastActivity: Date.now() }));
           break;
         case 'secret.request':
-          // 形状与单视图 useSSE onSecret 一致：{ request_id, prompt, env_var, metadata }
           patch(profile, (s) => ({ ...s, pendingSecret: payload, status: 'waiting', lastActivity: Date.now() }));
           break;
+        // 🔴 P2-D: 审批被其他人/路径响应后收起卡片（对齐单视图 approval.responded）
+        case 'approval.responded':
+          patch(profile, (s) => s.pendingApproval ? { ...s, pendingApproval: null, status: 'streaming' } : s);
+          break;
+        // 🔴 P2-D: 子 Agent 委托事件（对齐单视图 delegate.start/end）
+        case 'delegate.start':
+          patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(`▶ 委托子 Agent: ${(payload.goal as string) || payload.task_id || ''}`)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
+          break;
+        case 'delegate.end':
+          patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(`✔ 子 Agent 完成: ${(payload.summary as string) || payload.status || 'done'}`)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
+          break;
         case 'status.update': {
-          // 后台任务结果回推（kind=background）→ 追加到该 Agent 聊天流（对齐单视图 useMessageStream）
+          // 按 kind 分流（对齐单视图 useMessageStream onStatusUpdate）
           const suKind = payload.kind as string;
           const suText = (payload.text as string) || '';
           if (suKind === 'background' && suText) {
+            // 后台任务结果回推 → 追加到该 Agent 聊天流
             patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(suText)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
+          } else if (suKind === 'lifecycle') {
+            // 🔴 后端 reset 响应（/new /reset 后端路径）— 对齐单视图 onSessionReset
+            const newSid = payload.new_session_id as string | undefined;
+            if (newSid) {
+              patch(profile, (s) => ({
+                ...emptyState(),
+                sessionId: newSid,
+                lastActivity: Date.now(),
+              }));
+              persistSessionPointer(newSid);
+            }
+          } else if ((suKind === 'goal' || suKind === 'compressing') && suText) {
+            // 目标状态 / 压缩进度 → 系统消息 + 活动提示
+            patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(suText)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), activityHint: suText, lastActivity: Date.now() }));
+          } else if (suText) {
+            // 其他 status.update → 活动提示
+            patch(profile, (s) => ({ ...s, activityHint: suText, lastActivity: Date.now() }));
           }
           break;
         }
         case 'error':
-          patch(profile, (s) => ({ ...s, status: 'idle', streamText: '', streamReasoning: '' }));
-          accRef.current[profile] = { text: '', reasoning: '' };
+          patch(profile, (s) => ({ ...s, status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '' }));
+          resetAccumulator(acc);
+          // 🔴 释放发送锁（对齐单视图 resetSendingLock）
+          sendingRef.current[profile] = false;
           break;
+        // ── 推理生命周期（对齐单视图 onReasoningStart / onReasoningComplete）──
+        case 'reasoning.available':
+          // 推理块开始通知（无文本，delta 事件随后到）—— 不额外处理
+          break;
+        case 'reasoning.end': {
+          // 推理结束 → 将累加器中的 reasoning 移入 parts（完成态，停止 shimmer）
+          if (acc.reasoning) {
+            acc.parts = [{ type: 'reasoning' as const, text: acc.reasoning }, ...acc.parts];
+            acc.reasoning = '';
+          }
+          break;
+        }
+        // ── Agent 思考状态（对齐单视图 onThinking）──
+        case 'thinking.delta':
+          patch(profile, (s) => ({ ...s, activityHint: (payload.text as string) || '', lastActivity: Date.now() }));
+          break;
+        // ── 工具进度（对齐单视图 onToolProgress）──
+        case 'tool.progress': {
+          const tpTool = (payload.tool as string) || (payload.tool_name as string) || '';
+          const tpPreview = payload.preview as string | undefined;
+          patch(profile, (s) => ({ ...s, activityHint: tpPreview ? `${tpTool}: ${tpPreview}` : `⚙ ${tpTool} 执行中...`, lastActivity: Date.now() }));
+          break;
+        }
+        // ── 子 Agent 详细进度（对齐单视图 onDelegateProgress）──
+        case 'delegate.progress': {
+          const dpEventType = payload.event_type as string | undefined;
+          const dpSummary = (payload.progress_summary as string) || (payload.summary as string) || '';
+          const dpGoal = payload.goal as string | undefined;
+          const dpTool = payload.tool_name as string | undefined;
+          if (dpEventType === 'complete' || dpEventType === 'end') {
+            patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(`✔ 子 Agent 完成: ${dpSummary || dpGoal || 'done'}`)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), activityHint: '', lastActivity: Date.now() }));
+          } else if (dpTool) {
+            patch(profile, (s) => ({ ...s, activityHint: `↳ 子Agent: ${dpTool}`, lastActivity: Date.now() }));
+          } else if (dpSummary) {
+            patch(profile, (s) => ({ ...s, activityHint: `↳ ${dpSummary}`, lastActivity: Date.now() }));
+          }
+          break;
+        }
+        // ── 会话标题更新（对齐单视图 onSessionTitle）──
+        case 'session.title':
+          patch(profile, (s) => ({ ...s, sessionTitle: (payload.title as string) || null, lastActivity: Date.now() }));
+          break;
+        // ── 模型名 / Fallback（对齐单视图 onModelName / onFallbackActivated）──
+        case 'model.name':
+          patch(profile, (s) => ({ ...s, modelName: (payload.name as string) || null, lastActivity: Date.now() }));
+          break;
+        case 'fallback.activated': {
+          const fbModel = (payload.model as string) || '';
+          const fbProvider = (payload.provider as string) || '';
+          patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(`⚠ 模型回退: ${fbProvider}/${fbModel}`)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), modelName: fbModel || s.modelName, lastActivity: Date.now() }));
+          break;
+        }
+        // ── 步骤完成 / 中间消息 / 后台审查（对齐单视图 onStepComplete / onInterimMessage / onBackgroundReview）──
+        case 'step.complete': {
+          const scNum = (payload.step_number as number) || 0;
+          const scResults = (payload.tool_results as Array<{ tool_name: string; success: boolean }>) || [];
+          const scText = scResults.length
+            ? `步骤 ${scNum}: ${scResults.map(r => `${r.tool_name} ${r.success ? '✓' : '✗'}`).join(', ')}`
+            : `步骤 ${scNum} 完成`;
+          patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(scText)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
+          break;
+        }
+        case 'interim.message': {
+          const imContent = (payload.content as string) || '';
+          if (imContent) {
+            patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'assistant', parts: [textPart(imContent)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
+          }
+          break;
+        }
+        case 'background.review': {
+          const brSummary = (payload.summary as string) || '';
+          if (brSummary) {
+            patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(`🔍 后台审查: ${brSummary}`)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
+          }
+          break;
+        }
+        // ── 会话详情恢复（对齐单视图 onSessionInfo — pending 交互重建）──
+        case 'session.info': {
+          const pp = payload.pending_prompts as Record<string, Record<string, unknown>> | undefined;
+          if (pp) {
+            patch(profile, (s) => {
+              const next = { ...s, lastActivity: Date.now() };
+              let hasPending = false;
+              if (pp.approval) { next.pendingApproval = { ...pp.approval, run_id: (payload.run_id as string) ?? s.sessionId }; hasPending = true; }
+              if (pp.clarify) { next.pendingClarify = pp.clarify; hasPending = true; }
+              if (pp.sudo_password) { next.pendingSudo = pp.sudo_password; hasPending = true; }
+              if (pp.secret_capture) { next.pendingSecret = pp.secret_capture; hasPending = true; }
+              if (pp.slash_confirm) { next.pendingSlashConfirm = { confirmId: (pp.slash_confirm.confirm_id as string) || '', command: (pp.slash_confirm.command as string) || '', description: '' }; hasPending = true; }
+              if (hasPending) next.status = 'waiting';
+              return next;
+            });
+          }
+          break;
+        }
+        // ── 用量汇总（对齐单视图 usage.summary）──
+        case 'usage.summary': {
+          const us = payload.usage as Record<string, unknown> | undefined;
+          if (us) {
+            patch(profile, (s) => ({ ...s, lastUsage: { input: (us.input_tokens as number) || 0, output: (us.output_tokens as number) || 0, reasoning: us.reasoning_tokens as number | undefined, total: us.total_tokens as number | undefined } }));
+          }
+          break;
+        }
         default:
           break;
       }
+      } // end if (!processAccumulatorEvent)
     };
 
     ws.addEventListener(handler);
@@ -336,8 +603,8 @@ export function useGridChat(active: boolean): {
         for (const p of profiles) {
           const a = accs[p];
           const cur = next[p] ?? emptyState();
-          if (cur.streamText !== a.text || cur.streamReasoning !== a.reasoning) {
-            next[p] = { ...cur, streamText: a.text, streamReasoning: a.reasoning };
+          if (cur.streamText !== a.text || cur.streamReasoning !== a.reasoning || cur.streamParts !== a.parts) {
+            next[p] = { ...cur, streamText: a.text, streamReasoning: a.reasoning, streamParts: a.parts };
             changed = true;
           }
         }

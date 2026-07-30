@@ -3,6 +3,7 @@ import type { ChatMessage, Session } from '@/types';
 import * as api from '../utils/api';
 import { call } from '../utils/bridge';
 import * as storage from '../utils/storage';
+import { persistSessionPointer } from '../utils/session';
 import { toChatMessages, type SessionMessage } from '@/lib/chat-messages';
 
 export function useSessions(): {
@@ -69,7 +70,7 @@ export function useSessions(): {
       if (data?.session_id || data?.id) {
         const newId = data.session_id || data.id!;
         setSessionId(newId);
-        storage.save('session_id', newId);
+        persistSessionPointer(newId);
         await refresh();
       }
     } catch { /* offline */ }
@@ -83,7 +84,7 @@ export function useSessions(): {
       if (data?.session_id || data?.id) {
         const newId = data.session_id || data.id!;
         setSessionId(newId);
-        storage.save('session_id', newId);
+        persistSessionPointer(newId);
         await refresh();
       }
     } catch { /* offline */ }
@@ -102,7 +103,7 @@ export function useSessions(): {
   const switchTo = useCallback((id: string): void => {
     if (id === sessionId) return;
     setSessionId(id);
-    storage.save('session_id', id);
+    persistSessionPointer(id);
   }, [sessionId]);
 
   // ── titles ──

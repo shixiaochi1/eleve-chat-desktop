@@ -15,7 +15,7 @@ import { loadSettingsFromRust } from './utils/settings-store';
 import { discoverPort, call } from './utils/bridge';
 import { getActiveProfile, fetchProfiles } from './utils/api';
 import { getWsClient, setWsActiveProfile } from './services/ws-client';
-import { sessionIdMatchesProfile, profileFromSessionId } from './utils/session';
+import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer } from './utils/session';
 import type { ChatMessage } from './types';
 import ErrorBoundary from './components/ErrorBoundary';
 import CredentialCard from './components/CredentialCard';
@@ -346,7 +346,7 @@ export default function App() {
     const targetId = rawTargetId && sessionIdMatchesProfile(rawTargetId, name) ? rawTargetId : null;
     if (targetId) {
       sess.setSessionId(targetId);
-      storage.save('session_id', targetId);
+      persistSessionPointer(targetId);
       sess.setFreshDraftReady(false);
       getWsClient().switchSession(targetId);
       // 缓存秒显（纯 UX 防白屏，始终被后端数据覆盖）
@@ -392,7 +392,7 @@ export default function App() {
     sess.refresh();
     if (targetId) {
       sess.setSessionId(targetId);
-      storage.save('session_id', targetId);
+      persistSessionPointer(targetId);
       sess.setFreshDraftReady(false);
       getWsClient().switchSession(targetId);
       const cached = sess.msgCache[targetId];
@@ -447,6 +447,20 @@ export default function App() {
     resetSendingLock: undefined, // will be wired after usePromptActions
     resetStream,
   });
+
+  // 🔴 宫格"新建会话"全局副作用 — 复用 handleNewSession 同一套工具链，不重复造轮子
+  // resetAgent（per-agent 状态槽归零）在 GridModeView 内部组合，这里只补全局语义：
+  //   清 localStorage 指针 / 同步 WS client / 刷新侧栏会话列表
+  const handleGridNewSessionEffects = useCallback((profile: string) => {
+    // 🔴 P0-C: 先切盖章再 refresh，保证 sess.refresh() 拉的是目标 profile 的会话列表
+    // （事件冒泡顺序：按钮 onClick 先于卡片 onClick，此时 setWsActiveProfile 尚未被 onFocusChange 调用）
+    setWsActiveProfile(profile);
+    const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
+    if (map[profile]) { delete map[profile]; storage.save('profile_session_map', map); }
+    getWsClient().switchSession('');
+    sess.refresh();
+    setSessionListVersion(v => v + 1);
+  }, [sess, setSessionListVersion]);
 
   // 🔴 宫格模式：点击会话列表 → 解析 session 归属 Agent → 展开为单视图 + 加载该会话。
   // 单视图模式：透传原始 handleSwitchSession。
@@ -712,7 +726,7 @@ export default function App() {
         });
       }
       sess.setSessionId(newSid);
-      storage.save('session_id', newSid);
+      persistSessionPointer(newSid);
       sess.refresh();
       setDebugInfo((prev) => ({ ...prev, sessionId: newSid, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
       storeSetMessages([{ id: genId(), role: 'system', parts: [textPart(output)] } as ChatMessage]);
@@ -877,6 +891,7 @@ export default function App() {
                   onSelectModel={modelDiscovery.selectModel}
                   onOpenSettings={() => handleOpenOverlay('settings')}
                   onRefreshModels={() => modelDiscovery.refresh(true)}
+                  onNewSessionEffects={handleGridNewSessionEffects}
                 />
               </div>
             ) : (

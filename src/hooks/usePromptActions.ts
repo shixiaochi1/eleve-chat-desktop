@@ -1,6 +1,7 @@
 import { useRef, useCallback, type MutableRefObject } from 'react';
 import { executeCommand } from '../utils/api';
 import * as storage from '../utils/storage';
+import { persistSessionPointer } from '../utils/session';
 import { setMessages as storeSetMessages, getMessages } from '../store/messages';
 import { textPart } from '@/lib/chat-messages'
 import { getWsClient } from '../services/ws-client';
@@ -140,7 +141,7 @@ export function usePromptActions({
           });
         }
         sess.setSessionId(session_id);
-        storage.save('session_id', session_id);
+        persistSessionPointer(session_id);
         sess.refresh();
         setDebugInfo((prev) => ({ ...prev, sessionId: session_id, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
         storeSetMessages([{ id: genId(), role: 'system', parts: [textPart(output)] } as ChatMessage]);
