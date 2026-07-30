@@ -2,7 +2,7 @@
  * KanbanPanel v3 — 看板全功能版
  *
  * 对齐 Eleve Dashboard 全部交互：
- *   - 6列 (triage/todo/ready/running/blocked/done)
+ *   - 8列 (triage/todo/scheduled/ready/running/blocked/review/done)
  *   - 陈旧度警告 (amber/red 内阴影)
  *   - 进度药丸 (3/5 子任务完成)
  *   - 拖拽移动列 (HTML5 drag)
@@ -46,6 +46,8 @@ import {
   Settings2,
   UserCircle,
   BarChart3,
+  Clock,
+  Eye,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { readFileAsDataURL, base64FromDataURL } from '@/utils/file';
@@ -190,26 +192,29 @@ interface StaleThresholds {
 // ═══════════════════════════════════════════════════════════════
 
 const COLUMNS: ColumnDef[] = [
-  { key: 'triage',  label: 'Triage',  dotColor: 'var(--ui-purple)', emptyText: '暂无待甄别任务', canCreate: true },
-  { key: 'todo',    label: 'Todo',    dotColor: 'var(--ui-text-tertiary)', emptyText: '暂无待办任务', canCreate: false },
-  { key: 'ready',   label: 'Ready',   dotColor: 'var(--ui-yellow)', emptyText: '暂无就绪任务', canCreate: false },
-  { key: 'running', label: 'Running', dotColor: 'var(--ui-green)', emptyText: '暂无运行中任务', canCreate: false },
-  { key: 'blocked', label: 'Blocked', dotColor: 'var(--ui-red)', emptyText: '暂无阻塞任务', canCreate: false },
-  { key: 'done',    label: 'Done',    dotColor: 'var(--ui-blue)', emptyText: '暂无已完成任务', canCreate: false },
+  { key: 'triage',    label: 'Triage',    dotColor: 'var(--ui-purple)', emptyText: '暂无待甄别任务', canCreate: true },
+  { key: 'todo',      label: 'Todo',      dotColor: 'var(--ui-text-tertiary)', emptyText: '暂无待办任务', canCreate: false },
+  { key: 'scheduled', label: 'Scheduled', dotColor: 'var(--ui-cyan)', emptyText: '暂无定时等待任务', canCreate: false },
+  { key: 'ready',     label: 'Ready',     dotColor: 'var(--ui-yellow)', emptyText: '暂无就绪任务', canCreate: false },
+  { key: 'running',   label: 'Running',   dotColor: 'var(--ui-green)', emptyText: '暂无运行中任务', canCreate: false },
+  { key: 'blocked',   label: 'Blocked',   dotColor: 'var(--ui-red)', emptyText: '暂无阻塞任务', canCreate: false },
+  { key: 'review',    label: 'Review',    dotColor: 'var(--ui-orange)', emptyText: '暂无待审任务', canCreate: false },
+  { key: 'done',      label: 'Done',      dotColor: 'var(--ui-blue)', emptyText: '暂无已完成任务', canCreate: false },
 ];
 
 // 列 key → 合法 status 映射
 const COLUMN_STATUS: Record<string, string> = {
-  triage: 'triage', todo: 'todo', ready: 'ready',
-  running: 'running', blocked: 'blocked', done: 'done',
+  triage: 'triage', todo: 'todo', scheduled: 'scheduled', ready: 'ready',
+  running: 'running', blocked: 'blocked', review: 'review', done: 'done',
 };
 
 // ── 陈旧度阈值（秒）— [amber, red]，可被 getKanbanConfig 覆盖 ──
 let staleConfig: Record<string, [number, number]> = {
-  ready:   [3600, 86400],    // 1h / 24h
-  running: [600, 3600],      // 10m / 60m
-  blocked: [3600, 86400],    // 1h / 24h
-  todo:    [604800, 2592000],// 7d / 30d
+  ready:     [3600, 86400],    // 1h / 24h
+  running:   [600, 3600],      // 10m / 60m
+  blocked:   [3600, 86400],    // 1h / 24h
+  scheduled: [3600, 86400],    // 1h / 24h（对齐 blocked）
+  todo:      [604800, 2592000],// 7d / 30d
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -219,9 +224,11 @@ let staleConfig: Record<string, [number, number]> = {
 function taskColumn(task: KanbanTask): string {
   const s = (task.status || '').toLowerCase();
   if (s === 'triage') return 'triage';
+  if (s === 'scheduled') return 'scheduled';
   if (s === 'ready') return 'ready';
   if (s === 'running') return 'running';
   if (s === 'blocked') return 'blocked';
+  if (s === 'review') return 'review';
   if (['completed', 'done', 'success', 'finished', 'ok'].includes(s)) return 'done';
   return 'todo';
 }
@@ -343,7 +350,8 @@ function StatusDot({ status, size = 8 }: { status: string; size?: number }) {
   const s = (status || '').toLowerCase();
   const colorMap: Record<string, string> = {
     triage: 'var(--ui-purple)', todo: 'var(--ui-text-tertiary)',
-    ready: 'var(--ui-yellow)', running: 'var(--ui-green)', blocked: 'var(--ui-red)',
+    scheduled: 'var(--ui-cyan)', ready: 'var(--ui-yellow)', running: 'var(--ui-green)',
+    blocked: 'var(--ui-red)', review: 'var(--ui-orange)',
     done: 'var(--ui-blue)', completed: 'var(--ui-blue)', archived: 'var(--ui-text-quaternary)',
   };
   return <span className="shrink-0 rounded-full" style={{ width: size, height: size, backgroundColor: colorMap[s] || colorMap.todo }} />;
@@ -354,6 +362,8 @@ function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, j
   const blocked = isBlocked(task);
   const done = isDone(task);
   const running = task.status === 'running';
+  const scheduled = (task.status || '').toLowerCase() === 'scheduled';
+  const review = (task.status || '').toLowerCase() === 'review';
   const staleness = getStaleness(task);
   const hasProgress = (task.child_total ?? 0) > 0;
   const progressFull = hasProgress && task.child_done === task.child_total;
@@ -458,6 +468,8 @@ function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, j
           </div>
           <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
             {blocked && <AlertTriangle size={12} strokeWidth={1.5} className="text-warning" />}
+            {scheduled && <Clock size={12} strokeWidth={1.5} className="text-[var(--ui-cyan)]" />}
+            {review && <Eye size={12} strokeWidth={1.5} className="text-[var(--ui-orange)]" />}
             {hasProgress && (
               <span className={cn(
                 'font-mono text-[0.62rem] px-1.5 py-px rounded-sm',
@@ -706,6 +718,8 @@ function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onViewLog, 
   const blocked = isBlocked(task);
   const done = isDone(task);
   const running = task.status === 'running';
+  const scheduled = (task.status || '').toLowerCase() === 'scheduled';
+  const review = (task.status || '').toLowerCase() === 'review';
 
   // 发送评论 → 调 addKanbanComment → 刷新评论列表
   const handleSendComment = async () => {
@@ -1161,15 +1175,36 @@ function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onViewLog, 
           </div>
         )}
 
-        {/* 操作栏 */}
+        {/* 操作栏 — 对齐 Hermes 生命周期语义 */}
         <div className="flex flex-wrap gap-2 px-5 py-3 border-t border-[var(--ui-stroke-tertiary)]">
-          {!running && !done && !blocked && <ActionButton icon={Play} label="开始" color="accent" onClick={() => onAction('start', task.id)} busy={busy} />}
-          {blocked && <ActionButton icon={Play} label="恢复" color="accent" onClick={() => onAction('start', task.id)} busy={busy} />}
+          {/* triage/todo → 推进到 Ready（由 dispatcher 自动 claim 启动） */}
+          {!running && !done && !blocked && !scheduled && !review && (
+            <ActionButton icon={Play} label="推进" color="accent" onClick={() => onAction('promote', task.id)} busy={busy} />
+          )}
+          {/* blocked/scheduled → 恢复到 Ready */}
+          {(blocked || scheduled) && (
+            <ActionButton icon={Play} label="恢复" color="accent" onClick={() => onAction('unblock', task.id)} busy={busy} />
+          )}
+          {/* ready → 可阻塞/滞留 */}
+          {!running && !done && !blocked && !scheduled && !review && task.status === 'ready' && (
+            <>
+              <ActionButton icon={Ban} label="阻塞" color="amber" onClick={() => onAction('block', task.id)} busy={busy} />
+              <ActionButton icon={Clock} label="滞留" color="muted" onClick={() => onAction('schedule', task.id)} busy={busy} />
+            </>
+          )}
           {running && (
             <>
               <ActionButton icon={CheckCircle2} label="完成" color="green" onClick={() => onAction('complete', task.id)} busy={busy} />
               <ActionButton icon={Ban} label="阻塞" color="amber" onClick={() => onAction('block', task.id)} busy={busy} />
+              <ActionButton icon={Clock} label="滞留" color="muted" onClick={() => onAction('schedule', task.id)} busy={busy} />
               <ActionButton icon={ArrowLeftFromLine} label="回收" color="muted" onClick={() => onAction('reclaim', task.id)} busy={busy} />
+            </>
+          )}
+          {/* review → 通过(done) / 阻塞 */}
+          {review && (
+            <>
+              <ActionButton icon={CheckCircle2} label="通过" color="green" onClick={() => onAction('complete', task.id)} busy={busy} />
+              <ActionButton icon={Ban} label="阻塞" color="amber" onClick={() => onAction('block', task.id)} busy={busy} />
             </>
           )}
           {done && (
@@ -1178,7 +1213,7 @@ function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onViewLog, 
               <ActionButton icon={Trash2} label="删除" color="red" onClick={() => onAction('delete', task.id)} busy={busy} />
             </>
           )}
-          {/* Phase 4.3: 分解/指定 */}
+          {/* 分解/指定/重分配 */}
           {!done && (
             <>
               <ActionButton icon={GitBranch} label="分解" color="muted" onClick={() => onAction('decompose', task.id)} busy={busy} />
@@ -1359,7 +1394,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
     // 处理轮询返回的事件（复用 SSE 的 same 逻辑）
     const applyEvents = (events: { task_id: string; kind: string; payload?: { summary?: string; reason?: string } }[]) => {
       if (!events?.length) return;
-      const patchKinds = ['completed','blocked','claimed','unblocked','archived','spawn_failed','gave_up','crashed','timed_out','promoted','recomputed_ready'];
+      const patchKinds = ['completed','blocked','claimed','unblocked','archived','spawn_failed','gave_up','crashed','timed_out','promoted','promoted_manual','recomputed_ready','scheduled'];
       const refreshKinds = ['specified','assigned','reclaimed','decomposed','created','linked','unlinked'];
       for (const evt of events) {
         setApiTasks(prev => {
@@ -1372,8 +1407,9 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
               case 'blocked': task.status = 'blocked'; task.blocked = true; if (evt.payload?.reason) task.block_reason = evt.payload.reason; return task;
               case 'claimed': task.status = 'running'; return task;
               case 'unblocked': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
-              case 'promoted': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
+              case 'promoted': case 'promoted_manual': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
               case 'recomputed_ready': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
+              case 'scheduled': task.status = 'scheduled'; task.blocked = false; task.block_reason = ''; return task;
               case 'archived': return null;
               case 'spawn_failed': case 'gave_up': case 'crashed': case 'timed_out': task.status = 'ready'; return task;
               default: return null;
@@ -1407,7 +1443,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
       eventSource.addEventListener('kanban', (e) => {
         try {
           const evt = JSON.parse(e.data);
-          const patchKinds = ['completed','blocked','claimed','unblocked','archived','spawn_failed','gave_up','crashed','timed_out','promoted','recomputed_ready'];
+          const patchKinds = ['completed','blocked','claimed','unblocked','archived','spawn_failed','gave_up','crashed','timed_out','promoted','promoted_manual','recomputed_ready','scheduled'];
           const refreshKinds = ['specified','assigned','reclaimed','decomposed','created','linked','unlinked'];
           setApiTasks(prev => {
                     const updated = prev.map(t => {
@@ -1419,8 +1455,9 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
                 case 'blocked': task.status = 'blocked'; task.blocked = true; if (evt.payload?.reason) task.block_reason = evt.payload.reason; return task;
                 case 'claimed': task.status = 'running'; return task;
                 case 'unblocked': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
-                case 'promoted': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
+                case 'promoted': case 'promoted_manual': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
                 case 'recomputed_ready': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
+                case 'scheduled': task.status = 'scheduled'; task.blocked = false; task.block_reason = ''; return task;
                 case 'archived': return null;
                 case 'spawn_failed': case 'gave_up': case 'crashed': case 'timed_out': task.status = 'ready'; return task;
                 default: return null;
@@ -1509,12 +1546,12 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
     const newStatus = COLUMN_STATUS[columnKey];
     if (!newStatus) return;
 
-    // 对齐 Eleve: done/blocked/archived 为破坏性操作，需确认
+    // 对齐 Hermes: done/blocked/scheduled/archived 为破坏性操作，需确认
     if (newStatus === 'done') {
-      // 状态门控：只有 ready/running/blocked 可完成（对齐 Eleve complete_task WHERE 条件）
+      // 状态门控：只有 ready/running/blocked/review 可完成（对齐 Hermes complete_task WHERE 条件）
       const task = apiTasks.find(t => t.id === taskId);
-      if (task && !['ready', 'running', 'blocked'].includes(task.status)) {
-        alert(`无法完成该任务：当前状态为「${task.status}」，必须先提升到 ready/running/blocked。\n${task.status === 'todo' ? '提示：该任务有未完成的父任务，请先完成父任务。' : task.status === 'triage' ? '提示：该任务需要先进行细化（specify/decompose）。' : ''}`);
+      if (task && !['ready', 'running', 'blocked', 'review'].includes(task.status)) {
+        alert(`无法完成该任务：当前状态为「${task.status}」，必须先提升到 ready/running/blocked/review。\n${task.status === 'todo' ? '提示：该任务有未完成的父任务，请先完成父任务。' : task.status === 'triage' ? '提示：该任务需要先进行细化（specify/decompose）。' : task.status === 'scheduled' ? '提示：该任务处于定时等待中，请先恢复。' : ''}`);
         return;
       }
       const summary = prompt('请输入完成摘要（必填）：');
@@ -1536,6 +1573,9 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
 
     if (newStatus === 'blocked') {
       if (!confirm('确认将此任务标记为阻塞？')) return;
+    }
+    if (newStatus === 'scheduled') {
+      if (!confirm('确认将此任务设为定时等待（滞留）？')) return;
     }
     if (newStatus === 'archived') {
       if (!confirm('确认归档此任务？')) return;
@@ -1593,9 +1633,14 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
     setLoadingId(taskId);
     try {
       switch (action) {
-        case 'start': await updateKanbanTask(taskId, { status: 'running' }); break;
+        // 对齐 Hermes：不能直接设 running，只能 promote 到 ready 由 dispatcher claim
+        case 'promote': await updateKanbanTask(taskId, { status: 'ready' }); break;
+        // blocked/scheduled → ready（gateway 自动路由 unblock_task）
+        case 'unblock': await updateKanbanTask(taskId, { status: 'ready' }); break;
         case 'complete': await updateKanbanTask(taskId, { status: 'done' }); break;
         case 'block': await updateKanbanTask(taskId, { status: 'blocked' }); break;
+        // 滞留：running/ready → scheduled（gateway 走 schedule_task 关 run 清 claim）
+        case 'schedule': await updateKanbanTask(taskId, { status: 'scheduled' }); break;
         case 'reclaim': await reclaimKanbanTask(taskId, 'manual reclaim'); break;
         case 'archive': await updateKanbanTask(taskId, { status: 'archived' }); break;
         case 'delete': await deleteKanbanTask(taskId); break;
@@ -2155,7 +2200,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
         </div>
       )}
 
-      {/* 6列看板 — 列等高 stretch，min-h-0 确保高度受父级约束 */}
+      {/* 8列看板 — 列等高 stretch，min-h-0 确保高度受父级约束 */}
       <div className="flex flex-1 items-stretch min-h-0 min-w-0 px-4 pb-4" style={{ gap: 'var(--kanban-col-gap)' }}>
         {COLUMNS.map(col => (
           <KanbanColumn key={col.key} column={col} tasks={col.key === 'running' ? grouped.running : grouped[col.key]}
