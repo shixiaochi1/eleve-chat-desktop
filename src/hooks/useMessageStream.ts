@@ -19,6 +19,7 @@ import {
   type ChatMessagePart,
   type GatewayEventPayload,
 } from '@/lib/chat-messages';
+import { extractPendingInteractions } from '@/lib/ws-event-processor';
 import type { ChatMessage } from '@/types';
 import type { Session } from '@/types';
 
@@ -555,23 +556,13 @@ export function useMessageStream({
       }
     }) => {
       addDebugEvent('session_info', `model=${data.model} running=${data.running} branch=${data.branch}`);
-      // T5: 恢复 pending 交互 UI — 对齐 Hermes _pending_prompt_payloads
-      // session.info 每次 push 都是完整快照，pending_prompts 包含当前所有 pending 交互
-      if (data.pending_prompts) {
-        const pp = data.pending_prompts;
-        if (pp.clarify) {
-          setActiveClarify({ clarify_id: pp.clarify.clarify_id, question: pp.clarify.question, choices: pp.clarify.choices });
-        }
-        if (pp.approval) {
-          const approvalChoices = pp.approval.choices || ['once', 'session', 'deny'];
-          setActiveApproval({ command: pp.approval.command, description: '', pattern: '', choices: approvalChoices, run_id: pp.approval.request_id });
-        }
-        if (pp.sudo_password) {
-          setActiveSudo?.({ request_id: pp.sudo_password.sudo_id, prompt: pp.sudo_password.prompt });
-        }
-        if (pp.secret_capture) {
-          setActiveSecret?.({ request_id: pp.secret_capture.secret_id, prompt: pp.secret_capture.prompt, env_var: pp.secret_capture.env_var });
-        }
+      // T5: 恢复 pending 交互 UI — 归一化提取（与宫格 useGridChat 同一权威源）
+      const pending = extractPendingInteractions(data.pending_prompts as Record<string, Record<string, unknown>> | undefined, data.run_id);
+      if (pending) {
+        if (pending.clarify) setActiveClarify(pending.clarify);
+        if (pending.approval) setActiveApproval(pending.approval);
+        if (pending.sudo) setActiveSudo?.(pending.sudo);
+        if (pending.secret) setActiveSecret?.(pending.secret);
       }
       // 更新 monitorState — 同步 usage 绝对值（session.info 每次 push 都是完整快照）
       setMonitorState((prev) => ({
@@ -868,13 +859,12 @@ export function useMessageStream({
       }
     },
 
-    // ── Reasoning completed — NOT wired, Eleve doesn't process this event ──
-    // reasoning.completed is explicitly silenced in useSSE (handled=true, no callback call).
-    // Eleve lifecycle: reasoning.available (start) + reasoning.delta (append) + reasoning.end (complete).
-    // Keep this no-op to satisfy SSECallbacks interface; the event is already
-    // handled by onReasoning + onReasoningStart above.
+    // ── Reasoning completed — 推理块结束通知，无额外处理 ──
+    // 推理生命周期：reasoning.available(开始) + reasoning.delta(追加) + reasoning.end(结束)
+    // reasoning.end 已在 useSSE processEvent 中处理（移累加器 reasoning → parts）
+    // 本回调保留为 no-op 以满足 SSECallbacks 接口完整性
     onReasoningComplete: (_reasoning: string) => {
-      // Intentionally no-op — Eleve doesn't process reasoning.completed
+      // no-op — 推理事件已由 onReasoning + onReasoningStart + processEvent reasoning.end 覆盖
     },
 
     // ── 🔴 Phase 2b: 补齐单视图缺失的 8 个事件（对齐宫格 useGridChat 已处理）──

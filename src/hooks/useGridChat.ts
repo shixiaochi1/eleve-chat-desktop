@@ -47,7 +47,7 @@ import { getWsClient } from '@/services/ws-client';
 import { call } from '../utils/bridge';
 import { profileFromSessionId, sessionIdMatchesProfile, persistSessionPointer } from '../utils/session';
 import { toChatMessages, textPart, type SessionMessage, type ChatMessagePart } from '@/lib/chat-messages';
-import { createAccumulator, resetAccumulator, processAccumulatorEvent, finalizeAccumulator, type StreamAccumulator } from '@/lib/ws-event-processor';
+import { createAccumulator, resetAccumulator, processAccumulatorEvent, finalizeAccumulator, extractPendingInteractions, type StreamAccumulator } from '@/lib/ws-event-processor';
 import { handleGlobalEvent } from '@/lib/global-events';
 import type { ChatMessage } from '@/types';
 
@@ -512,19 +512,21 @@ export function useGridChat(active: boolean): {
         }
         // ── 会话详情恢复（对齐单视图 onSessionInfo — pending 交互重建）──
         case 'session.info': {
-          const pp = payload.pending_prompts as Record<string, Record<string, unknown>> | undefined;
-          if (pp) {
-            patch(profile, (s) => {
-              const next = { ...s, lastActivity: Date.now() };
-              let hasPending = false;
-              if (pp.approval) { next.pendingApproval = { ...pp.approval, run_id: (payload.run_id as string) ?? s.sessionId }; hasPending = true; }
-              if (pp.clarify) { next.pendingClarify = pp.clarify; hasPending = true; }
-              if (pp.sudo_password) { next.pendingSudo = pp.sudo_password; hasPending = true; }
-              if (pp.secret_capture) { next.pendingSecret = pp.secret_capture; hasPending = true; }
-              if (pp.slash_confirm) { next.pendingSlashConfirm = { confirmId: (pp.slash_confirm.confirm_id as string) || '', command: (pp.slash_confirm.command as string) || '', description: '' }; hasPending = true; }
-              if (hasPending) next.status = 'waiting';
-              return next;
-            });
+          const pending = extractPendingInteractions(
+            payload.pending_prompts as Record<string, Record<string, unknown>> | undefined,
+            (payload.run_id as string) ?? statesRef.current[profile]?.sessionId ?? undefined,
+          );
+          if (pending) {
+            patch(profile, (s) => ({
+              ...s,
+              pendingApproval: pending.approval ?? s.pendingApproval,
+              pendingClarify: pending.clarify ?? s.pendingClarify,
+              pendingSudo: pending.sudo ?? s.pendingSudo,
+              pendingSecret: pending.secret ?? s.pendingSecret,
+              pendingSlashConfirm: pending.slashConfirm ?? s.pendingSlashConfirm,
+              status: 'waiting',
+              lastActivity: Date.now(),
+            }));
           }
           break;
         }

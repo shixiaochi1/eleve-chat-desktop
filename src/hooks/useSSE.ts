@@ -1,8 +1,6 @@
 import { useRef, useCallback, useEffect } from 'react';
-import { call } from '../utils/bridge';
 import { useIsStreaming, setIsStreaming as storeSetIsStreaming } from '@/store/messages';
 import { getWsClient } from '@/services/ws-client';
-import * as storage from '../utils/storage';
 import { persistSessionPointer } from '../utils/session';
 import { createAccumulator, processAccumulatorEvent, type StreamAccumulator } from '@/lib/ws-event-processor';
 
