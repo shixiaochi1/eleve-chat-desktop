@@ -24,7 +24,7 @@ import { notifyError, notifySuccess, notifyInfo } from '../utils/notifications';
 import {
   CheckSquare, Square, Trash2, Download, Pin, PinOff,
   Archive, ArchiveRestore, Edit3, Copy, MoreHorizontal,
-  List, Plus, Undo2, Minimize2, GitBranch, BarChart3
+  List, Undo2, Minimize2, GitBranch, BarChart3
 } from 'lucide-react';
 import { DeleteIcon, DotIcon } from './Icons';
 import OutlinePanel from './OutlinePanel';
@@ -51,8 +51,6 @@ interface SessionsPanelProps {
   sessionListVersion?: string;
   /** 当前 Agent 名（合并侧栏区块头显示） */
   agentName?: string;
-  /** 新建会话（合并侧栏区块头 + 按钮） */
-  onNewSession?: () => void;
 }
 
 interface ContextMenuProps {
@@ -225,7 +223,6 @@ export default function SessionsPanel({
   onGatewayRetry,
   onAbort,
   agentName,
-  onNewSession,
 }: SessionsPanelProps) {
   const [activeTab, setActiveTab] = useState<'sessions' | 'outline'>('sessions');
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -547,15 +544,6 @@ export default function SessionsPanel({
               onClick={toggleBatchMode}
             >
               {batchMode ? <Square size={12} strokeWidth={1.5} /> : <CheckSquare size={12} strokeWidth={1.5} />}
-            </button>
-          )}
-          {onNewSession && (
-            <button
-              className="p-1 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-accent/40 transition-colors"
-              title="新建会话 (Ctrl+N)"
-              onClick={onNewSession}
-            >
-              <Plus size={13} strokeWidth={2} />
             </button>
           )}
         </div>
