@@ -269,6 +269,7 @@ export default function App() {
 
   // ── drain queue ref (wired after usePromptActions) ──
   const drainQueueRef = useRef<any>(null);
+  const resetSendingLockRef = useRef<(() => void) | null>(null);
 
   // ── useMessageStream: SSE callbacks + throttle + useSSE ──
   const {
@@ -360,15 +361,9 @@ export default function App() {
           sess.saveCache((c) => ({ ...c, [targetId]: msgs }));
         }
       });
-      // 🔴 恢复 pending 交互弹窗（切走时 approval/clarify/sudo 被 WS 过滤丢弃，切回需重建）
-      call('session.info', { session_id: targetId }).then((info: any) => {
-        const pp = info?.pending_prompts;
-        if (!pp) return;
-        if (pp.approval) setActiveApproval(pp.approval);
-        if (pp.clarify) setActiveClarify(pp.clarify);
-        if (pp.sudo_password) setActiveSudo({ request_id: pp.sudo_password.sudo_id, prompt: pp.sudo_password.prompt });
-        if (pp.secret_capture) setActiveSecret(pp.secret_capture);
-      }).catch(() => { /* session.info 不可用时静默 */ });
+      // 🔴 P0-1.2: pending 交互恢复依赖后端推送的 session.info 事件（WS 流建立时自动推送）
+      // 旧 call('session.info') RPC 已删除：bridge 无此映射 + 后端无此 RPC arm，从未生效
+      // 实时审批/澄清/sudo/secret 由 useSSE/useMessageStream 事件处理器消费
     } else {
       // 无历史会话 → 空白草稿
       sess.setSessionId(null);
@@ -404,15 +399,7 @@ export default function App() {
           sess.saveCache((c) => ({ ...c, [targetId]: msgs }));
         }
       });
-      // 恢复 pending 交互弹窗（与 handleProfileChange 一致）
-      call('session.info', { session_id: targetId }).then((info: any) => {
-        const pp = info?.pending_prompts;
-        if (!pp) return;
-        if (pp.approval) setActiveApproval(pp.approval);
-        if (pp.clarify) setActiveClarify(pp.clarify);
-        if (pp.sudo_password) setActiveSudo({ request_id: pp.sudo_password.sudo_id, prompt: pp.sudo_password.prompt });
-        if (pp.secret_capture) setActiveSecret(pp.secret_capture);
-      }).catch(() => { /* session.info 不可用时静默 */ });
+      // 🔴 P0-1.2: 同上，pending 交互恢复依赖后端推送 session.info 事件
     } else {
       sess.setSessionId(null);
       storage.save('session_id', null);
@@ -445,7 +432,7 @@ export default function App() {
     genId,
     setDebugInfo: setDebugInfo as any,
     setSessionListVersion,
-    resetSendingLock: undefined, // will be wired after usePromptActions
+    resetSendingLock: () => resetSendingLockRef.current?.(), // 🔴 P0-1.1: ref 接线（同 drainQueueRef 模式）
     resetStream,
   });
 
@@ -543,6 +530,8 @@ export default function App() {
 
   // Wire up drainQueueRef after drainQueue is created
   drainQueueRef.current = drainQueue;
+  // 🔴 P0-1.1: Wire up resetSendingLockRef（useSessionActions 在 usePromptActions 之前调用，用 ref 打破循环）
+  resetSendingLockRef.current = resetSendingLock;
 
   // ── 禁用右键菜单 + 键盘刷新（聊天面板不是网页）──
   useEffect(() => {

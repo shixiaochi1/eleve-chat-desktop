@@ -56,7 +56,7 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
     case 'terminal.read.request': {
       const requestId = typeof payload.request_id === 'string' ? payload.request_id : '';
       if (requestId) {
-        const startLine = typeof payload.start === 'number' ? payload.start : undefined;
+        const startLine = typeof payload.start_line === 'number' ? payload.start_line : undefined;
         const count = typeof payload.count === 'number' ? payload.count : undefined;
         (async () => {
           const { readActiveTerminal } = await import('@/store/terminal-buffer');

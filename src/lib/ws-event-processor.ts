@@ -138,7 +138,7 @@ export function extractPendingInteractions(
       description: (pp.approval.description as string) || '',
       pattern: (pp.approval.pattern as string) || '',
       choices: (pp.approval.choices as string[]) || ['once', 'session', 'deny'],
-      run_id: (pp.approval.request_id as string) || fallbackRunId || '',
+      run_id: fallbackRunId || (pp.approval.request_id as string) || '',
     };
     hasAny = true;
   }

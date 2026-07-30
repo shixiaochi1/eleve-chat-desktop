@@ -352,7 +352,7 @@ function processEvent(
     case 'terminal.read.request': {
       const requestId = typeof chunk.request_id === 'string' ? chunk.request_id : '';
       if (requestId) {
-        const startLine = typeof chunk.start === 'number' ? chunk.start : undefined;
+        const startLine = typeof chunk.start_line === 'number' ? chunk.start_line : undefined;
         const count = typeof chunk.count === 'number' ? chunk.count : undefined;
         // IIFE async — processEvent 本身非 async
         (async () => {

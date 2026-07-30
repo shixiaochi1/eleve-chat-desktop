@@ -555,6 +555,9 @@ export function useGridChat(active: boolean): {
           break;
         }
         default:
+          // 🔴 P0-1.4: 带 session_id 的全局事件兜底（后端 build_ws_event 给几乎所有事件注入 session_id，
+          // 不能仅凭“有无 session_id”区分全局/局部）—— notification/terminal.read.request/browser.progress 等
+          handleGlobalEvent(eventName, payload);
           break;
       }
       } // end if (!processAccumulatorEvent)
