@@ -14,13 +14,12 @@ interface ReasoningBlockProps {
 }
 
 /**
- * 思维过程块 — 可折叠 + 渐隐预览 + shimmer动画 + 计时器
+ * 思维过程块 — 可折叠 + 渐隐预览 + 计时器
  * 
  * 对齐 Eleve ThinkingDisclosure:
  *   - 默认折叠，显示前几行 + 渐隐遮罩
  *   - 点击展开完整内容
- *   - pending 时 shimmer 微光流动动画
- *   - pending 时显示 "思考了 Xs" 计时器
+ *   - pending 时静态浅色 + "思考了 Xs" 计时器（无呼吸动画，老大要求取消）
  *   - 🔴 禁止 scrollIntoView — 虚拟化列表中会造成反馈循环
  *   - 思考气泡内 ResizeObserver 自动滚底（仅 preview 模式）
  */
@@ -66,7 +65,7 @@ export default function ReasoningBlock({ text, visible, messageId, pending }: Re
         <button
           className={cn(
             'flex items-center gap-1.5 text-xs transition-colors',
-            pending ? 'reasoning-shimmer text-foreground/55' : 'text-muted-foreground hover:text-foreground'
+            pending ? 'text-foreground/55' : 'text-muted-foreground hover:text-foreground'
           )}
           onClick={() => setExpanded(prev => !prev)}
         >
@@ -94,7 +93,7 @@ export default function ReasoningBlock({ text, visible, messageId, pending }: Re
         ref={contentRef}
         className={cn(
           'text-sm whitespace-pre-wrap break-words select-text',
-          pending ? 'reasoning-shimmer text-muted-foreground/55' : 'text-muted-foreground',
+          pending ? 'text-muted-foreground/55' : 'text-muted-foreground',
           !expanded && isLong && 'max-h-[5.5em] overflow-hidden cursor-pointer [-webkit-mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)] [mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)]',
           expanded && 'select-text',
           isPreview && 'max-h-[5.5em] overflow-y-auto',
