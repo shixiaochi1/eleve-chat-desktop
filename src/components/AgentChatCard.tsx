@@ -14,7 +14,7 @@
  * - memo 化：父级按 profile patch 状态，未变 profile 的卡片 props 引用不变 → 跳过重渲染
  */
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, memo } from 'react';
-import { Bot, GripVertical, Maximize2, Loader2 } from 'lucide-react';
+import { Bot, Maximize2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
 import MessageRow from './MessageRow';
@@ -166,18 +166,11 @@ export const AgentChatCard = memo(function AgentChatCard({
           布局：[状态灯] [拖拽] [头像] [名称]  …  [模型选择] [展开] */}
       <div
         data-drag-handle
-        className="group/bar flex items-center gap-2 h-11 px-3 shrink-0 border-b border-border/40 select-none cursor-grab active:cursor-grabbing touch-none"
+        className="flex items-center gap-2 h-11 px-3 shrink-0 border-b border-border/40 select-none cursor-grab active:cursor-grabbing touch-none"
         style={{ background: color.bg }}
       >
         {/* 状态指示 — 最左侧（柔光晕 + 活跃时呼吸） */}
         <StatusDot status={state.status} />
-
-        {/* 拖拽手柄 — 平时含蓄，悬停标题栏时亮起 */}
-        <GripVertical
-          size={13}
-          strokeWidth={1.5}
-          className="-ml-0.5 shrink-0 text-muted-foreground/25 group-hover/bar:text-muted-foreground/60 transition-colors"
-        />
 
         {/* Agent 身份 — 着色头像 + 名称 */}
         <div
