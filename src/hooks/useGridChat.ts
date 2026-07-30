@@ -305,6 +305,15 @@ export function useGridChat(active: boolean): {
           // 形状与单视图 useSSE onSecret 一致：{ request_id, prompt, env_var, metadata }
           patch(profile, (s) => ({ ...s, pendingSecret: payload, status: 'waiting', lastActivity: Date.now() }));
           break;
+        case 'status.update': {
+          // 后台任务结果回推（kind=background）→ 追加到该 Agent 聊天流（对齐单视图 useMessageStream）
+          const suKind = payload.kind as string;
+          const suText = (payload.text as string) || '';
+          if (suKind === 'background' && suText) {
+            patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(suText)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
+          }
+          break;
+        }
         case 'error':
           patch(profile, (s) => ({ ...s, status: 'idle', streamText: '', streamReasoning: '' }));
           accRef.current[profile] = { text: '', reasoning: '' };

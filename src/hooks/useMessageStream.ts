@@ -864,6 +864,17 @@ export function useMessageStream({
           );
           setMonitorState((prev) => ({ ...prev, modelName: prev.modelName, statusText: text }));
           break;
+        case 'background':
+          // 后台任务结果回推（对齐 Hermes _run_background_task deliver）→ 追加到聊天流 + toast
+          mutateStream(
+            (parts) => [...parts, textPart(text)],
+            () => [textPart(text)],
+          );
+          import('../utils/notifications').then(({ notifySuccess, notifyError }) => {
+            if (text.startsWith('❌')) notifyError(text, '后台任务失败');
+            else notifySuccess('后台任务已完成');
+          });
+          break;
         case 'lifecycle':
         case 'warn':
         case 'error': {
