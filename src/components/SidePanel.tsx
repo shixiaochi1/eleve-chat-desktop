@@ -4,7 +4,7 @@
  * 包含顶部标题 + 内容区
  */
 import { cn } from '@/lib/utils';
-import SessionsPanel from './SessionsPanel';
+import AgentsPanel from './AgentsPanel';
 import CronPanel from './CronPanel';
 import DebugPanel from './DebugPanel';
 import ToolsPanel from './ToolsPanel';
@@ -16,9 +16,8 @@ import RollbackPanel from './RollbackPanel';
 import LearningPanel from './LearningPanel';
 import ChannelsPanel from './ChannelsPanel';
 // kanban 移至 OverlayView 弹出（需要更大空间展示5列看板）
-import ProfilePanel from './ProfilePanel';
 import {
-  ChatIcon, CronIcon,
+  CronIcon,
   DebugIcon, ToolIcon, MemoryIcon,
   UsageIcon, ChannelsIcon, AgentIcon,
 } from './Icons';
@@ -36,9 +35,8 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
   if (!activePanel) return null;
 
   const panels: Record<string, { title: string; Icon: React.ComponentType<any>; component: React.ComponentType<any> }> = {
-    agents:   { title: 'Agent', Icon: AgentIcon,   component: ProfilePanel },
+    agents:   { title: 'Agent', Icon: AgentIcon,   component: AgentsPanel },
     gateway:  { title: '网关状态',   Icon: Radio,       component: GatewayPanel },
-    sessions: { title: '会话',     Icon: ChatIcon,    component: SessionsPanel },
     projects: { title: '项目',     Icon: FolderGit,  component: ProjectTreePanel },
     channels: { title: '频道',     Icon: ChannelsIcon, component: ChannelsPanel },
     cron:     { title: '定时任务', Icon: CronIcon,    component: CronPanel },
@@ -59,8 +57,8 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
 
   return (
     <aside role="tabpanel" aria-label={cfg.title} className="h-full flex flex-col overflow-hidden flex-1 min-w-0">
-      {/* 面板头部 — gateway 面板自带标题，隐藏 */}
-      {activePanel !== 'gateway' && (
+      {/* 面板头部 — gateway/agents 面板自带标题，隐藏 */}
+      {activePanel !== 'gateway' && activePanel !== 'agents' && (
         <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0">
           <HeaderIcon size={16} strokeWidth={1.5} className="text-muted-foreground" />
           <span className="text-sm font-medium text-foreground">{cfg.title}</span>

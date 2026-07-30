@@ -59,7 +59,7 @@ let tauriWindow: Window | null = null;
 
 export default function App() {
   // ── 三栏布局 state ──
-  const [activePanel, setActivePanel] = useState<string | null>('sessions'); // 默认显示会话列表
+  const [activePanel, setActivePanel] = useState<string | null>('agents'); // 默认显示统一侧栏（Agent + 会话）
   const [panelWidth, setPanelWidth] = useState<number>(260);  // 侧边面板宽度（可拖动）
 
   // ── Responsive: auto-collapse left sidebar when window < 800px ──
@@ -822,7 +822,7 @@ export default function App() {
           leftOpen={true}
           leftWidth={activePanel ? `${52 + panelWidth}px` : '52px'}
           onLeftResize={(w: number) => setPanelWidth(Math.max(180, Math.min(500, w - 52)))}
-          onLeftToggle={() => setActivePanel(activePanel ? null : 'sessions')}
+          onLeftToggle={() => setActivePanel(activePanel ? null : 'agents')}
           minLeftWidth={180}
           maxLeftWidth={500}
           rightOpen={rightOpen}
@@ -896,7 +896,7 @@ export default function App() {
                 className="absolute top-2 left-2 z-20 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground transition-colors"
                 aria-label="Expand sidebar"
                 title="展开侧边面板"
-                onClick={() => setActivePanel('sessions')}
+                onClick={() => setActivePanel('agents')}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />

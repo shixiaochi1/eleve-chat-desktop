@@ -24,7 +24,7 @@ import { notifyError, notifySuccess, notifyInfo } from '../utils/notifications';
 import {
   CheckSquare, Square, Trash2, Download, Pin, PinOff,
   Archive, ArchiveRestore, Edit3, Copy, MoreHorizontal,
-  List, MessageSquare, Undo2, Minimize2, GitBranch, BarChart3
+  List, Plus, Undo2, Minimize2, GitBranch, BarChart3
 } from 'lucide-react';
 import { DeleteIcon, DotIcon } from './Icons';
 import OutlinePanel from './OutlinePanel';
@@ -49,6 +49,10 @@ interface SessionsPanelProps {
   onGatewayRetry?: () => void;
   onAbort?: () => void;
   sessionListVersion?: string;
+  /** 当前 Agent 名（合并侧栏区块头显示） */
+  agentName?: string;
+  /** 新建会话（合并侧栏区块头 + 按钮） */
+  onNewSession?: () => void;
 }
 
 interface ContextMenuProps {
@@ -220,6 +224,8 @@ export default function SessionsPanel({
   gatewayChecking,
   onGatewayRetry,
   onAbort,
+  agentName,
+  onNewSession,
 }: SessionsPanelProps) {
   const [activeTab, setActiveTab] = useState<'sessions' | 'outline'>('sessions');
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -508,42 +514,51 @@ export default function SessionsPanel({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* ── 顶部Tab切换 ── */}
-      <div className="flex items-center border-b border-border shrink-0">
-        <button
-          className={cn(
-            'flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2',
-            activeTab === 'sessions'
-              ? 'text-primary border-primary'
-              : 'text-muted-foreground border-transparent hover:text-foreground'
-          )}
-          onClick={() => setActiveTab('sessions')}
-        >
-          <MessageSquare size={14} />
-          会话
-        </button>
-        <button
-          className={cn(
-            'flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2',
-            activeTab === 'outline'
-              ? 'text-primary border-primary'
-              : 'text-muted-foreground border-transparent hover:text-foreground'
-          )}
-          onClick={() => setActiveTab('outline')}
-        >
-          <List size={14} />
-          大纲
-        </button>
-        {activeTab === 'sessions' && (
-          <button
-            className={cn('ml-auto p-1 mr-2 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors', batchMode && 'bg-accent text-accent-foreground')}
-            title="批量操作"
-            onClick={toggleBatchMode}
-          >
-            {batchMode ? <Square size={14} /> : <CheckSquare size={14} />}
-          </button>
+    <div className="flex flex-col h-full min-h-0">
+      {/* ── 区块头：CONVERSATIONS · agent + 大纲/批量/新建 ── */}
+      <div className="flex items-center gap-1.5 px-3 pt-2.5 pb-1.5 shrink-0">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/60 select-none">会话</span>
+        {agentName && (
+          <span className="text-[10px] text-muted-foreground/40 truncate max-w-[72px]" title={agentName}>· {agentName}</span>
         )}
+        <span className="text-[10px] tabular-nums text-muted-foreground/40">{allFiltered.length || ''}</span>
+        <div className="ml-auto flex items-center gap-0.5">
+          <button
+            className={cn(
+              'p-1 rounded-md transition-colors',
+              activeTab === 'outline'
+                ? 'bg-accent text-accent-foreground'
+                : 'text-muted-foreground/50 hover:text-foreground hover:bg-accent/40'
+            )}
+            title={activeTab === 'outline' ? '返回会话列表' : '消息大纲'}
+            onClick={() => setActiveTab(activeTab === 'outline' ? 'sessions' : 'outline')}
+          >
+            <List size={12} strokeWidth={1.5} />
+          </button>
+          {activeTab === 'sessions' && (
+            <button
+              className={cn(
+                'p-1 rounded-md transition-colors',
+                batchMode
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground/50 hover:text-foreground hover:bg-accent/40'
+              )}
+              title="批量操作"
+              onClick={toggleBatchMode}
+            >
+              {batchMode ? <Square size={12} strokeWidth={1.5} /> : <CheckSquare size={12} strokeWidth={1.5} />}
+            </button>
+          )}
+          {onNewSession && (
+            <button
+              className="p-1 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-accent/40 transition-colors"
+              title="新建会话 (Ctrl+N)"
+              onClick={onNewSession}
+            >
+              <Plus size={13} strokeWidth={2} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── 会话列表 ── */}
