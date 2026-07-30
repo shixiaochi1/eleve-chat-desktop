@@ -790,12 +790,51 @@ canvas {
   box-shadow: var(--shadow-composer-focus);
 }
 
-/* ── 宫格头像 presence 点呼吸（等待输入）— 比 animate-pulse 更柔和，带缩放 ── */
-@keyframes status-breathe {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.8); }
-}
-.status-breathe { animation: status-breathe 1.6s ease-in-out infinite; }
+/* ================================================================
+   机器人头像 — 三形态小机器人（SVG 部件动画，GPU 友好）
+   身份 = 头壳轮廓/填色（恒定）；状态 = 眼睧/天线灯/信号波/嘴巴
+   idle：慢呼吸 + 偶尔眨眼 + 天线灯慵懒
+   streaming：脑袋晃动 + 眼睧扫描 + 说话嘴 + 信号波交替 + 天线快闪
+   waiting：好奇歪头 + 睜大眼 + 天线灯急促 + 期待嘴
+   ================================================================ */
+.robot-avatar .r-body { animation: robot-breathe 3.6s ease-in-out infinite; }
+.robot-avatar .r-eye { transform-box: fill-box; transform-origin: center; }
+.robot-avatar .r-pupil { transform-box: fill-box; transform-origin: center; }
+.robot-avatar .r-head-group { transform-origin: 12px 14px; }
+.robot-avatar .r-wave { opacity: 0; transform-box: fill-box; transform-origin: center; }
+.robot-avatar .r-mouth-o { opacity: 0; transform-box: fill-box; transform-origin: center; }
+
+/* 空闲：偶尔眨眼（4.2s 一次）+ 天线灯慵懒明明灭灭 */
+.robot-idle .r-eye { animation: robot-blink 4.2s ease-in-out infinite; }
+.robot-idle .r-tip { animation: robot-tip-calm 3.2s ease-in-out infinite; }
+
+/* 运行中：脑袋跟节奏晃 + 眼睧滴溜溜扫描 + 说话嘴 + 两道信号波交替辐射 + 天线快闪 */
+.robot-streaming .r-head-group { animation: robot-bob 1.15s ease-in-out infinite; }
+.robot-streaming .r-pupil { animation: robot-scan 0.9s ease-in-out infinite; }
+.robot-streaming .r-tip { animation: robot-tip-fast 0.65s ease-in-out infinite; }
+.robot-streaming .r-wave-1 { animation: robot-wave 1.3s ease-out infinite; }
+.robot-streaming .r-wave-2 { animation: robot-wave 1.3s ease-out 0.4s infinite; }
+.robot-streaming .r-mouth-line { opacity: 0; }
+.robot-streaming .r-mouth-o { opacity: 0.8; animation: robot-talk 0.55s ease-in-out infinite; }
+
+/* 等待输入：好奇歪头 + 睜大眼望向你 + 天线灯急促闪烁 + 期待 o 嘴 */
+.robot-waiting .r-head-group { animation: robot-lean 2.2s ease-in-out infinite; }
+.robot-waiting .r-eye { animation: robot-look 2.2s ease-in-out infinite; }
+.robot-waiting .r-tip { animation: robot-tip-blink 1.1s steps(2, jump-none) infinite; }
+.robot-waiting .r-mouth-line { opacity: 0; }
+.robot-waiting .r-mouth-o { opacity: 0.8; }
+
+@keyframes robot-breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(0.45px); } }
+@keyframes robot-blink { 0%, 91%, 97%, 100% { transform: scaleY(1); } 94% { transform: scaleY(0.1); } }
+@keyframes robot-bob { 0%, 100% { transform: rotate(-2.4deg); } 50% { transform: rotate(2.4deg); } }
+@keyframes robot-scan { 0%, 100% { transform: translateX(-0.85px); } 50% { transform: translateX(0.85px); } }
+@keyframes robot-tip-calm { 0%, 100% { opacity: 0.8; } 50% { opacity: 0.35; } }
+@keyframes robot-tip-fast { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@keyframes robot-tip-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.2; } }
+@keyframes robot-wave { 0% { opacity: 0.85; transform: scale(0.55); } 100% { opacity: 0; transform: scale(1.3); } }
+@keyframes robot-talk { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.5); } }
+@keyframes robot-lean { 0%, 100% { transform: rotate(0deg); } 30% { transform: rotate(-4deg) translateY(-0.4px); } 65% { transform: rotate(2.5deg); } }
+@keyframes robot-look { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.22); } }
 
 /* ── 语音输入动画（阶段三）— 录音脉冲光环 + 电平条舞动 ── */
 @keyframes voice-recording-pulse {

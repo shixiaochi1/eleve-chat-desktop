@@ -71,42 +71,48 @@ interface ClarifyPayload { clarify_id?: string; question?: string; choices?: str
 interface SudoPayload { request_id?: string; prompt?: string }
 interface SecretPayload { request_id?: string; prompt?: string; env_var?: string }
 
-// ── 状态头像：presence 范式（Discord/Slack 同款）— 身份与状态分层 ──
-// 头像 = 身份锚点（恒定不动）；状态 = 右下角 presence 点：
-//   绿点静止=空闲 / 蓝点+雷达 ping 扩散=运行中 / 橙点+缓慢呼吸=等待输入
-// 动效只发生在 7px 小点上（不闪烁整个头像），切角描边精确贴住卡片底色
-function StatusAvatar({ status, agentColor }: { status: AgentChatState['status']; agentColor: string }) {
-  const cfg = status === 'streaming'
-    ? { color: 'var(--ui-blue)', motion: 'ping', title: '运行中' }
-    : status === 'waiting'
-      ? { color: 'var(--ui-orange)', motion: 'breathe', title: '等待输入' }
-      : { color: 'var(--ui-green)', motion: 'still', title: '空闲' };
+// ── 机器人头像 — 三形态小机器人（空闲打盹 / 运行忙碌 / 等待睜大眼）──
+// 身份 = 头壳轮廓与填色（Agent 身份色，恒定）；状态 = 眼睧/天线灯/信号波/嘴巴（状态色）
+// 全部 SVG 部件动画（CSS keyframes 驱动，GPU 友好，零 JS 定时器）
+function RobotAvatar({ status, agentColor }: { status: AgentChatState['status']; agentColor: string }) {
+  const mode = status === 'streaming' ? 'streaming' : status === 'waiting' ? 'waiting' : 'idle';
+  const accent = status === 'streaming' ? 'var(--ui-blue)' : status === 'waiting' ? 'var(--ui-orange)' : 'var(--ui-green)';
+  const title = mode === 'streaming' ? '运行中' : mode === 'waiting' ? '等待输入' : '空闲';
   return (
-    <div className="relative shrink-0" title={cfg.title}>
-      {/* 头像 — Agent 身份色，恒定 */}
-      <div
-        className="flex items-center justify-center w-[22px] h-[22px] rounded-md"
-        style={{ background: `color-mix(in srgb, ${agentColor} 15%, transparent)`, color: agentColor }}
-      >
-        <Bot size={12} strokeWidth={1.6} />
-      </div>
-      {/* presence 点 — 右下角：卡片底色切角描边 + 状态微光 */}
-      <span className="absolute -bottom-[2.5px] -right-[2.5px] w-[7px] h-[7px]">
-        {/* 雷达扩散环 — 仅运行中，向外扩散淡出 */}
-        {cfg.motion === 'ping' && (
-          <span
-            className="absolute inset-0 rounded-full animate-ping"
-            style={{ background: `color-mix(in srgb, ${cfg.color} 45%, transparent)` }}
-          />
-        )}
-        <span
-          className={cn('absolute inset-0 rounded-full', cfg.motion === 'breathe' && 'status-breathe')}
-          style={{
-            background: cfg.color,
-            boxShadow: `0 0 0 2px var(--ui-card-bg), 0 0 5px color-mix(in srgb, ${cfg.color} 60%, transparent)`,
-          }}
-        />
-      </span>
+    <div
+      className={cn('robot-avatar flex items-center justify-center w-6 h-6 rounded-lg shrink-0', `robot-${mode}`)}
+      style={{ background: `color-mix(in srgb, ${agentColor} 13%, transparent)` }}
+      title={title}
+    >
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none">
+        <g className="r-body">
+          <g className="r-head-group">
+            {/* 信号波 — 仅运行时向外辐射（两道弧线交替扩散淡出） */}
+            <path className="r-wave r-wave-1" d="M10.2 3.1 A2.6 2.6 0 0 1 13.8 3.1" stroke={accent} strokeWidth="1.1" strokeLinecap="round" />
+            <path className="r-wave r-wave-2" d="M9.2 2.1 A4 4 0 0 1 14.8 2.1" stroke={accent} strokeWidth="1.1" strokeLinecap="round" />
+            {/* 天线 — 杆是身份色，灯是状态色（运行快闪 / 等待急促 / 空闲慵懒） */}
+            <line x1="12" y1="6.2" x2="12" y2="8.3" stroke={agentColor} strokeWidth="1.2" strokeLinecap="round" />
+            <circle className="r-tip" cx="12" cy="4.9" r="1.25" fill={accent} />
+            {/* 头壳 — 身份色轮廓与填色 */}
+            <rect x="4.6" y="8.2" width="14.8" height="12" rx="3.2" fill={`color-mix(in srgb, ${agentColor} 24%, transparent)`} stroke={agentColor} strokeWidth="1.1" />
+            {/* 耳朵 */}
+            <rect x="2.3" y="11.8" width="2.3" height="4.6" rx="1.15" fill={agentColor} opacity="0.5" />
+            <rect x="19.4" y="11.8" width="2.3" height="4.6" rx="1.15" fill={agentColor} opacity="0.5" />
+            {/* 眼睛 — 巩膜 + 眼睧（眼睧色 = 状态色：空闲偶尔眨眼 / 运行滴溜溜扫描 / 等待睜大望向你） */}
+            <g className="r-eye">
+              <circle cx="9.2" cy="13.6" r="1.75" fill="var(--ui-card-bg)" />
+              <circle className="r-pupil" cx="9.2" cy="13.6" r="0.85" fill={accent} />
+            </g>
+            <g className="r-eye">
+              <circle cx="14.8" cy="13.6" r="1.75" fill="var(--ui-card-bg)" />
+              <circle className="r-pupil" cx="14.8" cy="13.6" r="0.85" fill={accent} />
+            </g>
+            {/* 嘴巴 — 一字型（空闲）/ o 型（运行=边说边输出 / 等待=期待） */}
+            <rect className="r-mouth-line" x="10.4" y="17" width="3.2" height="1.1" rx="0.55" fill={accent} opacity="0.65" />
+            <circle className="r-mouth-o" cx="12" cy="17.55" r="0.95" fill={accent} />
+          </g>
+        </g>
+      </svg>
     </div>
   );
 }
@@ -184,14 +190,14 @@ export const AgentChatCard = memo(function AgentChatCard({
       }}
     >
       {/* ── 工具状态栏（整条可拖拽换位 · data-drag-handle · 按钮经 closest('button') 排除）──
-          布局：[头像(带 presence 点)] [名称]  …  [模型选择] [展开] */}
+          布局：[机器人头像(三形态)] [名称]  …  [模型选择] [展开] */}
       <div
         data-drag-handle
         className="flex items-center gap-2 h-11 px-3 shrink-0 border-b border-border/40 select-none cursor-grab active:cursor-grabbing touch-none"
         style={{ background: color.bg }}
       >
-        {/* Agent 身份 — 头像 + 右下角 presence 点（绿=空闲 / 蓝 ping=运行中 / 橙呼吸=等待输入） */}
-        <StatusAvatar status={state.status} agentColor={color.dot} />
+        {/* Agent 身份 — 三形态小机器人（空闲打盹 / 运行忙碌 / 等待睜大眼） */}
+        <RobotAvatar status={state.status} agentColor={color.dot} />
         <span className="text-[13px] font-semibold tracking-tight text-foreground truncate min-w-0">
           {profile.display_name || profile.name}
         </span>
