@@ -790,6 +790,13 @@ canvas {
   box-shadow: var(--shadow-composer-focus);
 }
 
+/* ── 宫格头像 presence 点呼吸（等待输入）— 比 animate-pulse 更柔和，带缩放 ── */
+@keyframes status-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+.status-breathe { animation: status-breathe 1.6s ease-in-out infinite; }
+
 /* ── 语音输入动画（阶段三）— 录音脉冲光环 + 电平条舞动 ── */
 @keyframes voice-recording-pulse {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dt-destructive) 35%, transparent); }
