@@ -797,7 +797,9 @@ canvas {
    streaming：脑袋晃动 + 眼睧扫描 + 说话嘴 + 信号波交替 + 天线快闪
    waiting：好奇歪头 + 睜大眼 + 天线灯急促 + 期待嘴
    ================================================================ */
-.robot-avatar .r-body { animation: robot-breathe 3.6s ease-in-out infinite; }
+/* 呼吸仅限非思考状态（空闲/等待）— 思考时脑袋晃动已足够，叠加呼吸会让动态发飘 */
+.robot-idle .r-body,
+.robot-waiting .r-body { animation: robot-breathe 3.6s ease-in-out infinite; }
 .robot-avatar .r-eye { transform-box: fill-box; transform-origin: center; }
 .robot-avatar .r-pupil { transform-box: fill-box; transform-origin: center; }
 .robot-avatar .r-head-group { transform-origin: 12px 14px; }
