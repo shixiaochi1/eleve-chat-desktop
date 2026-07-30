@@ -879,6 +879,14 @@ export default function App() {
                   onExitGrid={handleExitGrid}
                   onExpandAgent={handleExpandAgent}
                   onFocusChange={handleProfileChange}
+                  portReady={portReady}
+                  currentModel={modelDiscovery.selectedModel || monitorState.modelName || undefined}
+                  modelGrouped={modelDiscovery.grouped}
+                  modelLoading={modelDiscovery.loading}
+                  modelError={modelDiscovery.error}
+                  onSelectModel={modelDiscovery.selectModel}
+                  onOpenSettings={() => handleOpenOverlay('settings')}
+                  onRefreshModels={() => modelDiscovery.refresh(true)}
                 />
               </div>
             ) : (

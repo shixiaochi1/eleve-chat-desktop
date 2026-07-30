@@ -55,6 +55,7 @@ import { Square } from 'lucide-react';
 import { useGridChat, type AgentChatState } from '../hooks/useGridChat';
 import AgentChatCard, { type AgentProfileInfo, type AgentCardColor } from './AgentChatCard';
 import { sessionIdMatchesProfile } from '../utils/session';
+import type { GroupedModels } from '@/hooks/useModels';
 
 // ── Agent 颜色调色板（对齐 --ui-* 设计 token）──
 const AGENT_COLORS: AgentCardColor[] = [
@@ -93,6 +94,16 @@ interface GridModeViewProps {
   onExpandAgent: (profile: string) => void;
   /** 宫格焦点切换 → 回传 App（侧栏高亮联动） */
   onFocusChange?: (name: string) => void;
+  /** 网关就绪（slash 补全拉取命令列表） */
+  portReady: boolean;
+  /** 模型系统（全局单一数据源，经 App useModels 下发） */
+  currentModel?: string;
+  modelGrouped?: GroupedModels;
+  modelLoading?: boolean;
+  modelError?: string | null;
+  onSelectModel?: (modelId: string) => void;
+  onOpenSettings?: () => void;
+  onRefreshModels?: () => void;
 }
 
 /** 拖拽运行时状态（存 ref，拖拽期间零 setState） */
@@ -129,7 +140,7 @@ function slotPos(index: number, cols: number, cellW: number, cellH: number) {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-export default function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange }: GridModeViewProps) {
+export default function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, portReady, currentModel, modelGrouped, modelLoading, modelError, onSelectModel, onOpenSettings, onRefreshModels }: GridModeViewProps) {
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [order, setOrder] = useState<string[]>([]);
   const [colorMap, setColorMap] = useState<Record<string, number>>({});
@@ -139,7 +150,7 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
   const [height, setHeight] = useState(0);
 
   // 宫格聊天引擎：挂载即激活（本组件仅 grid 模式挂载）
-  const { states, loadLatest, loadMore, sendTo, abortAgent, clearPending } = useGridChat(true);
+  const { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand } = useGridChat(true);
 
   // 状态镜像（退出/展开时读当前各 Agent session 指针）
   const statesRef = useRef(states);
@@ -410,11 +421,21 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
                   state={states[profile.name] ?? EMPTY_AGENT_STATE}
                   color={AGENT_COLORS[colorMap[profile.name] ?? 0]}
                   focused={currentProfile === profile.name}
+                  portReady={portReady}
                   onSend={sendTo}
                   onLoadMore={loadMore}
                   onAbort={abortAgent}
                   onClearPending={clearPending}
                   onExpand={handleExpand}
+                  onNewSession={resetAgent}
+                  onCommand={execCommand}
+                  currentModel={currentModel}
+                  modelGrouped={modelGrouped}
+                  modelLoading={modelLoading}
+                  modelError={modelError}
+                  onSelectModel={onSelectModel}
+                  onOpenSettings={onOpenSettings}
+                  onRefreshModels={onRefreshModels}
                 />
               </div>
             ))}

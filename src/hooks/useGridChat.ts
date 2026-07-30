@@ -89,6 +89,10 @@ export function useGridChat(active: boolean): {
   sendTo: (profile: string, text: string) => Promise<void>;
   abortAgent: (profile: string) => Promise<void>;
   clearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret') => void;
+  /** 新建会话：清空本 Agent 上下文，下条 sendTo 后端自动建新 session */
+  resetAgent: (profile: string) => void;
+  /** per-agent slash 命令执行（路由到本 Agent 的 session） */
+  execCommand: (profile: string, cmdName: string, args?: string) => Promise<void>;
 } {
   const [states, setStates] = useState<Record<string, AgentChatState>>({});
 
@@ -202,6 +206,42 @@ export function useGridChat(active: boolean): {
     });
   }, [patch]);
 
+  // ── 新建会话：清空本 Agent 的 session 指针 + 消息 + 流式/交互状态 ──
+  // 下一条 sendTo 的 session_id 为空 → 后端自动新建 session（与单视图 handleNewSession 同语义）。
+  const resetAgent = useCallback((profile: string) => {
+    if (accRef.current[profile]) accRef.current[profile] = { text: '', reasoning: '' };
+    patch(profile, (st) => ({
+      ...emptyState(),
+      lastActivity: st.lastActivity,
+    }));
+  }, [patch]);
+
+  // ── per-agent slash 命令执行（对齐单视图 handleCommand，路由到本 Agent 的 session）──
+  // prompt.submit 不解析 `/`，命令必须走 slash.exec。宫格从状态槽取本 Agent 的 sessionId。
+  const execCommand = useCallback(async (profile: string, cmdName: string, args = '') => {
+    const s = statesRef.current[profile];
+    const sessionId = sessionIdMatchesProfile(s?.sessionId, profile) ? (s?.sessionId ?? undefined) : undefined;
+    const display = args ? `/${cmdName} ${args}` : `/${cmdName}`;
+    // 乐观追加用户命令消息
+    patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(display)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX) }));
+    try {
+      const result = await getWsClient().slashExec(`${cmdName} ${args}`.trim(), sessionId) as { type?: string; output?: string; message?: string };
+      // CmdAction::Send — 显示确认文本 + 自动提交 kickoff（/goal set 等）
+      if (result?.type === 'send' && result.message) {
+        if (result.output) {
+          patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'system', parts: [textPart(result.output!)] } as ChatMessage].slice(-WINDOW_MAX) }));
+        }
+        await sendTo(profile, result.message);
+        return;
+      }
+      const output = result?.output || '';
+      patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'system', parts: [textPart(output)] } as ChatMessage].slice(-WINDOW_MAX) }));
+    } catch (err) {
+      const msg = (err as Error).message;
+      patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'assistant', parts: [textPart(msg)], error: msg, timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX) }));
+    }
+  }, [patch, sendTo]);
+
   // ── WS 事件解复用（active 时接管所有事件） ──
   useEffect(() => {
     if (!active) return;
@@ -302,5 +342,5 @@ export function useGridChat(active: boolean): {
     };
   }, [active, patch]);
 
-  return { states, loadLatest, loadMore, sendTo, abortAgent, clearPending };
+  return { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand };
 }

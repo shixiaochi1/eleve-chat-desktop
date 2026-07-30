@@ -1,5 +1,5 @@
 import { useRef, useCallback, useEffect, useState } from 'react';
-import { fetchCommands, completePath } from '../utils/api';
+import { completePath } from '../utils/api';
 import CommandMenu from './CommandMenu';
 import ModelPill from './ModelPill';
 import AttachMenu from './AttachMenu';
@@ -8,17 +8,13 @@ import ThinkingButton from './ThinkingButton';
 import FastModeButton from './FastModeButton';
 import ComingSoonButton from './ComingSoonButton';
 import WebWindowButton from './WebWindowButton';
+import SlashCommandPopup from './SlashCommandPopup';
 import { SendIcon, MicIcon, LoadingIcon, ContextFileIcon } from './Icons';
 import { cn } from '@/lib/utils';
 import type { AttachedImage } from '@/hooks/useImageAttachments';
 import type { GroupedModels } from '@/hooks/useModels';
 import { useVoice } from '@/hooks/useVoice';
-
-interface CommandDef {
-  name: string;
-  description: string;
-  aliases: string[];
-}
+import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
 
 interface InputAreaProps {
   onSend?: (text: string) => void;
@@ -109,10 +105,8 @@ export default function InputArea({
   onBtwExit,
 }: InputAreaProps) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const [commands, setCommands] = useState<CommandDef[]>([]);
-  const [showPopup, setShowPopup] = useState(false);
-  const [filter, setFilter] = useState('');
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  // `/` 命令补全 — 共享 hook（与宫格 AgentCardComposer 同一权威源）
+  const slash = useSlashAutocomplete({ enabled: !!portReady, refreshKey: portVersion });
   /** 输入框是否有内容 — 驱动发送键的置灰态（仅布尔翻转时触发渲染） */
   const [hasText, setHasText] = useState(false);
   const popupRef = useRef<HTMLDivElement | null>(null);
@@ -121,22 +115,6 @@ export default function InputArea({
   const [showPathPopup, setShowPathPopup] = useState(false);
   const [pathSelectedIndex, setPathSelectedIndex] = useState(0);
   const pathDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (portReady) {
-      fetchCommands().then(setCommands).catch(() => {});
-    }
-  }, [portReady, portVersion]);
-
-  const filtered = filter
-    ? commands.filter(c =>
-        c.name.startsWith(filter) || c.aliases.some(a => a.startsWith(filter))
-      )
-    : commands;
-
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [filter]);
 
   const handleSend = useCallback(() => {
     const text = inputRef.current?.value || '';
@@ -153,9 +131,8 @@ export default function InputArea({
       inputRef.current.style.height = 'auto';
     }
     setHasText(false);
-    setShowPopup(false);
-    setFilter('');
-  }, [onSend, btwMode, onBtwSend, onBtwExit]);
+    slash.close();
+  }, [onSend, btwMode, onBtwSend, onBtwExit, slash]);
 
   const handleCommandExec = useCallback((cmdName: string, args = '') => {
     if (inputRef.current) {
@@ -163,10 +140,9 @@ export default function InputArea({
       inputRef.current.style.height = 'auto';
     }
     setHasText(false);
-    setShowPopup(false);
-    setFilter('');
+    slash.close();
     onCommand?.(cmdName, args);
-  }, [onCommand]);
+  }, [onCommand, slash]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // F3 T3.1: @ 路径补全弹窗键盘导航
@@ -207,29 +183,29 @@ export default function InputArea({
       }
     }
 
-    if (showPopup && filtered.length > 0) {
+    if (slash.showPopup && slash.filtered.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setSelectedIndex(i => (i + 1) % filtered.length);
+        slash.moveSelection(1);
         return;
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setSelectedIndex(i => (i - 1 + filtered.length) % filtered.length);
+        slash.moveSelection(-1);
         return;
       }
       if (e.key === 'Tab' || e.key === 'Enter') {
         e.preventDefault();
-        const cmd = filtered[selectedIndex];
+        const cmd = slash.activeCommand;
         if (cmd) {
           const currentValue = inputRef.current?.value || '';
           const argsPart = currentValue.replace(/^\/\S*\s*/, ' ').trim();
           const newValue = `/${cmd.name}` + (argsPart ? ' ' + argsPart : '');
-          
+
           if (inputRef.current) {
             inputRef.current.value = newValue;
           }
-          
+
           if (e.key === 'Enter') {
             handleCommandExec(cmd.name, argsPart);
           }
@@ -238,7 +214,7 @@ export default function InputArea({
       }
       if (e.key === 'Escape') {
         e.preventDefault();
-        setShowPopup(false);
+        slash.close();
         return;
       }
     }
@@ -254,7 +230,7 @@ export default function InputArea({
       e.preventDefault();
       handleSend();
     }
-  }, [showPathPopup, pathItems, pathSelectedIndex, showPopup, filtered, selectedIndex, handleSend, handleCommandExec, btwMode, onBtwExit]);
+  }, [showPathPopup, pathItems, pathSelectedIndex, slash, handleSend, handleCommandExec, btwMode, onBtwExit]);
 
   const handleInput = useCallback(() => {
     const el = inputRef.current;
@@ -272,14 +248,11 @@ export default function InputArea({
     const textBeforeCursor = val.slice(0, cursorPos);
     const currentWord = textBeforeCursor.split(/\s/).pop() || '';
 
-    if (val.startsWith('/')) {
-      const cmdPart = val.replace(/^\//, '').split(/\s/)[0].toLowerCase();
-      setFilter(cmdPart);
-      setShowPopup(true);
+    if (slash.syncFromValue(val)) {
+      // slash 模式 — 关闭 @ 路径弹窗
       setShowPathPopup(false);
     } else if (currentWord.startsWith('@') && currentWord.length >= 2) {
       // F3 T3.1: @ 路径补全 — debounce 200ms 调后端
-      setShowPopup(false);
       if (pathDebounceRef.current) clearTimeout(pathDebounceRef.current);
       pathDebounceRef.current = setTimeout(async () => {
         try {
@@ -292,11 +265,9 @@ export default function InputArea({
         }
       }, 200);
     } else {
-      setShowPopup(false);
       setShowPathPopup(false);
-      setFilter('');
     }
-  }, []);
+  }, [slash]);
 
   // ── 语音输入 + 链接插入：向光标处写入文本 ──
 
@@ -383,12 +354,12 @@ export default function InputArea({
     const handleClick = (e: MouseEvent) => {
       if (popupRef.current && !popupRef.current.contains(e.target as Node) &&
           inputRef.current && !inputRef.current.contains(e.target as Node)) {
-        setShowPopup(false);
+        slash.close();
       }
     };
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
+  }, [slash]);
 
   useEffect(() => {
     if (!isStreaming) inputRef.current?.focus();
@@ -398,35 +369,20 @@ export default function InputArea({
     <div className="p-3">
       {/* Hermes 式容器表面 — 图片预览/输入区在上，控制行在下 */}
       <div className="composer-surface relative rounded-2xl border">
-        {/* `/` 命令补全弹窗 — 锚定在容器表面上方 */}
-        {showPopup && filtered.length > 0 && (
-          <div
-            className="absolute inset-x-0 bottom-full z-50 mb-1.5 max-h-60 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg"
-            ref={popupRef}
-          >
-            {filtered.map((cmd, i) => (
-              <div
-                key={cmd.name}
-                className={cn(
-                  'px-3 py-1.5 text-sm cursor-pointer rounded-md flex items-center gap-2',
-                  i === selectedIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
-                )}
-                onMouseEnter={() => setSelectedIndex(i)}
-                onMouseDown={(e: React.MouseEvent) => {
-                  e.preventDefault();
-                  const args = inputRef.current?.value.replace(/^\/\S+\s*/, '') || '';
-                  handleCommandExec(cmd.name, args);
-                }}
-              >
-                <span className="font-mono text-xs font-medium text-primary">/{cmd.name}</span>
-                {cmd.aliases.length > 0 && (
-                  <span className="text-xs text-muted-foreground">({cmd.aliases.join(', ')})</span>
-                )}
-                <span className="text-xs text-muted-foreground ml-auto truncate">{cmd.description}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* `/` 命令补全弹窗 — 共享 SlashCommandPopup，锚定在容器表面上方 */}
+        <div ref={popupRef}>
+          {slash.showPopup && (
+            <SlashCommandPopup
+              items={slash.filtered}
+              selectedIndex={slash.selectedIndex}
+              onHover={slash.setSelectedIndex}
+              onPick={(cmd) => {
+                const args = inputRef.current?.value.replace(/^\/\S+\s*/, '') || '';
+                handleCommandExec(cmd.name, args);
+              }}
+            />
+          )}
+        </div>
 
         {/* F3 T3.1: @ 路径补全弹窗 */}
         {showPathPopup && pathItems.length > 0 && (
@@ -551,7 +507,7 @@ export default function InputArea({
 
           {/* 控制行 — 对齐 Hermes：命令/附件/语音/模型/思考深度/快速模式/上下文文件/网页窗口 在左，发送在右 */}
           <div className="flex items-center gap-(--composer-control-gap)">
-            <CommandMenu commands={commands} onCommand={handleCommandExec} />
+            <CommandMenu commands={slash.commands} onCommand={handleCommandExec} />
             {/* 附件 "+" 菜单 — Hermes 式附件入口（图片接通后端、链接纯前端、文件/文件夹待原生对话框） */}
             {onAddImage && <AttachMenu onPickImage={handleFileSelect} onAddUrl={handleAddUrl} />}
             {/* 麦克风 — 🔴 T0.4: 后端 voice.record 是 TODO stub（返回假状态），禁用入口防假录音 */}

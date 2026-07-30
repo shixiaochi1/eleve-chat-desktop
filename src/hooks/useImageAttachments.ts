@@ -42,7 +42,12 @@ export class ImageAttachError extends Error {
   }
 }
 
-export function useImageAttachments() {
+export function useImageAttachments(options?: {
+  /** per-agent 场景：返回当前目标 session_id（空则走全局 this.sessionId） */
+  getSessionId?: () => string | null | undefined;
+}) {
+  const getSessionIdRef = useRef(options?.getSessionId);
+  getSessionIdRef.current = options?.getSessionId;
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   /** 上传中的图片数量（用于 UI 显示 loading 状态） */
   const [uploading, setUploading] = useState(0);
@@ -92,6 +97,7 @@ export function useImageAttachments() {
       const result: ImageAttachResponse = await wsClient.imageAttachBytes(
         contentBase64,
         file.name,
+        getSessionIdRef.current?.() ?? undefined,
       );
 
       if (!result.attached || !result.path) {
@@ -131,7 +137,7 @@ export function useImageAttachments() {
     // 调用后端 image.detach 移除
     try {
       const wsClient = getWsClient();
-      await wsClient.imageDetach(image.path);
+      await wsClient.imageDetach(image.path, getSessionIdRef.current?.() ?? undefined);
     } catch (err) {
       // 后端 detach 失败不阻塞 UI，记录错误即可
       console.warn('[useImageAttachments] detach failed:', err);

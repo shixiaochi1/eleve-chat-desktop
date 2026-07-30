@@ -14,13 +14,17 @@
  * - memo 化：父级按 profile patch 状态，未变 profile 的卡片 props 引用不变 → 跳过重渲染
  */
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, memo } from 'react';
-import { Bot, Cpu, GripVertical, Maximize2, Square, Send, Loader2 } from 'lucide-react';
+import { Bot, GripVertical, Maximize2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
 import MessageRow from './MessageRow';
 import ApprovalCard from './ApprovalCard';
 import ClarifyCard from './ClarifyCard';
 import CredentialCard from './CredentialCard';
+import AgentCardComposer from './AgentCardComposer';
+import ModelPill from './ModelPill';
+import { useImageAttachments } from '@/hooks/useImageAttachments';
+import type { GroupedModels } from '@/hooks/useModels';
 import type { AgentChatState } from '../hooks/useGridChat';
 
 export interface AgentProfileInfo {
@@ -41,11 +45,24 @@ interface AgentChatCardProps {
   state: AgentChatState;
   color: AgentCardColor;
   focused: boolean;
+  portReady: boolean;
   onSend: (profile: string, text: string) => void;
   onLoadMore: (profile: string) => void;
   onAbort: (profile: string) => void;
   onClearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret') => void;
   onExpand: (profile: string) => void;
+  /** 新建会话（清空本 Agent 上下文） */
+  onNewSession: (profile: string) => void;
+  /** per-agent slash 命令执行 */
+  onCommand: (profile: string, cmdName: string, args: string) => void;
+  /** 模型系统（全局单一数据源，经 App useModels 下发） */
+  currentModel?: string;
+  modelGrouped?: GroupedModels;
+  modelLoading?: boolean;
+  modelError?: string | null;
+  onSelectModel?: (modelId: string) => void;
+  onOpenSettings?: () => void;
+  onRefreshModels?: () => void;
 }
 
 // ── pending 交互 payload 形状（与单视图 activeApproval/activeClarify/activeSudo 一致）──
@@ -71,16 +88,23 @@ function StatusDot({ status }: { status: AgentChatState['status'] }) {
 }
 
 export const AgentChatCard = memo(function AgentChatCard({
-  profile, state, color, focused,
-  onSend, onLoadMore, onAbort, onClearPending, onExpand,
+  profile, state, color, focused, portReady,
+  onSend, onLoadMore, onAbort, onClearPending, onExpand, onNewSession, onCommand,
+  currentModel, modelGrouped, modelLoading, modelError, onSelectModel, onOpenSettings, onRefreshModels,
 }: AgentChatCardProps) {
-  const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
   const prevScrollHeightRef = useRef<number | null>(null);
   const prevTopIdRef = useRef<string | null>(null);
 
   const name = profile.name;
+
+  // per-agent 图片附件 — 绑到本 Agent 的 session（getSessionId 随状态槽实时取值）
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const {
+    attachedImages, uploading: imageUploading, addImage, removeImage,
+  } = useImageAttachments({ getSessionId: () => stateRef.current.sessionId });
 
   // ── 滚动：到顶触发上翻 + 跟踪是否贴底 ──
   const handleScroll = useCallback(() => {
@@ -110,14 +134,11 @@ export const AgentChatCard = memo(function AgentChatCard({
     if (el && stickBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [state.messages.length, state.streamText, state.streamReasoning]);
 
-  // ── 发送 ──
-  const handleSend = useCallback(() => {
-    const t = draft.trim();
-    if (!t) return;
-    onSend(name, t);
-    setDraft('');
+  // ── 发送（贴底跟随 + 路由到本 Agent）──
+  const handleSend = useCallback((text: string) => {
     stickBottomRef.current = true;
-  }, [draft, onSend, name]);
+    onSend(name, text);
+  }, [onSend, name]);
 
   const approval = state.pendingApproval as ApprovalPayload | null;
   const clarify = state.pendingClarify as ClarifyPayload | null;
@@ -153,15 +174,21 @@ export const AgentChatCard = memo(function AgentChatCard({
         >
           <Bot size={13} strokeWidth={1.5} />
         </div>
-        <span className="text-xs font-medium text-foreground truncate flex-1">
+        <span className="text-xs font-medium text-foreground truncate min-w-0">
           {profile.display_name || profile.name}
         </span>
-        {profile.model && (
-          <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground/70 shrink-0 max-w-[100px]">
-            <Cpu size={9} strokeWidth={1.5} />
-            <span className="truncate">{profile.model}</span>
-          </span>
-        )}
+        {/* 模型选择 — 顶部工具状态栏（全局模型系统，与单视图同一数据源） */}
+        <div className="shrink-0 -my-1">
+          <ModelPill
+            model={currentModel}
+            grouped={modelGrouped}
+            loading={modelLoading}
+            error={modelError}
+            onSelect={onSelectModel}
+            onOpenSettings={onOpenSettings}
+            onRefresh={onRefreshModels}
+          />
+        </div>
         <StatusDot status={state.status} />
         <button
           className="flex items-center justify-center w-5 h-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 cursor-pointer"
@@ -275,40 +302,20 @@ export const AgentChatCard = memo(function AgentChatCard({
         </div>
       )}
 
-      {/* ── 输入区 ── */}
-      <div className="shrink-0 px-2.5 pb-2.5">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/50 bg-muted/20 focus-within:border-border">
-          <input
-            type="text"
-            className="min-w-0 flex-1 bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground/30"
-            placeholder={`发消息给 ${profile.display_name || profile.name}…`}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-          />
-          {streaming ? (
-            <button
-              className="flex size-5 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
-              title="中止"
-              onClick={() => onAbort(name)}
-            >
-              <Square size={9} strokeWidth={2.5} />
-            </button>
-          ) : (
-            <button
-              className={cn(
-                'flex size-5 shrink-0 items-center justify-center rounded-full transition-colors',
-                draft.trim() ? 'bg-primary text-primary-foreground hover:brightness-110' : 'bg-muted-foreground/10 text-muted-foreground/30'
-              )}
-              title="发送 (Enter)"
-              onClick={handleSend}
-              disabled={!draft.trim()}
-            >
-              <Send size={9} strokeWidth={2.5} />
-            </button>
-          )}
-        </div>
-      </div>
+      {/* ── 输入区 — 全功能紧凑 Composer（自动撑大 + slash 补全 + 新建/附件/语音/发送）── */}
+      <AgentCardComposer
+        profileName={profile.display_name || profile.name}
+        isStreaming={streaming}
+        portReady={portReady}
+        onSend={handleSend}
+        onCommand={(cmdName, args) => onCommand(name, cmdName, args)}
+        onAbort={() => onAbort(name)}
+        onNewSession={() => onNewSession(name)}
+        attachedImages={attachedImages}
+        imageUploading={imageUploading}
+        onAddImage={addImage}
+        onRemoveImage={removeImage}
+      />
     </div>
   );
 });
