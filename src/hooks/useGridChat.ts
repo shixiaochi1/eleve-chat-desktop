@@ -237,6 +237,10 @@ export function useGridChat(active: boolean): {
     const s = statesRef.current[profile];
     if (!s?.sessionId) return;
     try { await getWsClient().abortStream(s.sessionId); } catch { /* ignore */ }
+    // 🔴 释放发送锁 + 清排队（对齐单视图 abort → onDone → drainQueue 语义）
+    // abort 后 message.complete 可能不到达（WS 断连/后端崩溃），不释放 = Agent 锁死
+    sendingRef.current[profile] = false;
+    queueRef.current[profile] = [];
     patch(profile, (st) => ({ ...st, status: 'idle', streamText: '', streamReasoning: '' }));
     accRef.current[profile] = createAccumulator();
   }, [patch]);
@@ -415,6 +419,9 @@ export function useGridChat(active: boolean): {
           } else if (suKind === 'lifecycle') {
             // 🔴 后端 reset 响应（/new /reset 后端路径）— 对齐单视图 onSessionReset
             const newSid = payload.new_session_id as string | undefined;
+            // 🔴 释放发送锁 + 清排队（后端 reset 会中断当前流，message.complete 可能不到达）
+            sendingRef.current[profile] = false;
+            queueRef.current[profile] = [];
             if (newSid) {
               patch(profile, (s) => ({
                 ...emptyState(),
