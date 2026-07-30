@@ -6,11 +6,11 @@
  * - 输入框单行起、随内容向上自动撑大（max 120px，超出滚动）
  * - `/` 命令补全 — 与单视图 InputArea 共用 useSlashAutocomplete + SlashCommandPopup（零重复）
  * - 模型选择不在这里 — 放卡片顶部工具状态栏（ModelPill）
- * - 不要临时提问(btw)/DeepSeek（宫格场景用不上）
+ * - 不要 DeepSeek（宫格场景用不上）
  * - 语音按钮保留但禁用（后端 voice.record 是 TODO stub，与单视图一致防假录音）
  * - 图片附件 per-agent：useImageAttachments 经 getSessionId 绑到本 Agent 的 session
  *
- * 与 InputArea 的关系：共享 slash 补全权威源；布局/场景不同（宫格紧凑、无 btw/@路径），
+ * 与 InputArea 的关系：共享 slash 补全权威源；布局/场景不同（宫格紧凑、无 @路径），
  * 各自持有键盘编排，不强行合并成单一组件（避免 prop 爆炸）。
  */
 import { useState, useRef, useCallback, useLayoutEffect } from 'react';

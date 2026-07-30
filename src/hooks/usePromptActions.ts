@@ -15,7 +15,7 @@ const _submitInFlight = new Set<string>()
  * usePromptActions — send/abort/queue logic
  *
  * Extracted from App.jsx. Manages message sending (direct and queued during
- * streaming), command execution (/commands), abort, and /btw.
+ * streaming), command execution (/commands), and abort.
  *
  * Returns { handleSend, handleAbort, handleCommand,
  *           pendingQueue, isSendingRef, drainQueue, drainQueueRef }

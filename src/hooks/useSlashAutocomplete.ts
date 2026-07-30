@@ -3,7 +3,7 @@
  *
  * 单一权威源：单视图 InputArea 与宫格 AgentCardComposer 共用，零重复。
  * 只负责命令列表 + 过滤 + 选中索引 + 弹窗开关；输入框 DOM 值与键盘编排
- * 归各组件（两者键盘场景不同：InputArea 还有 @路径/btw，宫格没有）。
+ * 归各组件（两者键盘场景不同：InputArea 还有 @路径，宫格没有）。
  */
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { fetchCommands } from '../utils/api';

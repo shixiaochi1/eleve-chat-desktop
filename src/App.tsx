@@ -491,16 +491,6 @@ export default function App() {
     onSlashConfirm: (data) => setActiveSlashConfirm(data),
   });
 
-  // ── 临时提问模式 (/btw) — 内联模式条，替代 window.prompt ──
-  // 进入模式后输入区顶部显示紫色状态条，发送走 handleCommand('btw', text)，
-  // 不写入会话上下文、不使用工具；Esc 或发送后自动退出
-  const [btwMode, setBtwMode] = useState(false);
-  const enterBtwMode = useCallback(() => setBtwMode(true), []);
-  const exitBtwMode = useCallback(() => setBtwMode(false), []);
-  const handleBtwSend = useCallback((text: string) => {
-    void handleCommand('btw', text);
-  }, [handleCommand]);
-
   // ── useImageAttachments: 图片附件状态管理 ──
   // 对齐 Hermes Desktop: prompt.submit 后后端自动 drain session.attached_images
   // 前端在发送成功后清空本地预览状态
@@ -966,7 +956,7 @@ export default function App() {
                       onDismiss={() => setActiveSecret(null)}
                     />
                   )}
-                  <ContextBar sessionId={sess.sessionId} sessionStartedAt={debugInfo.sessionStartedAt} onNewSession={handleNewSession} onBtw={enterBtwMode} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount} deepseekVisible={deepseekVisible} onToggleDeepSeek={handleToggleDeepSeek} />
+                  <ContextBar sessionId={sess.sessionId} sessionStartedAt={debugInfo.sessionStartedAt} onNewSession={handleNewSession} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount} deepseekVisible={deepseekVisible} onToggleDeepSeek={handleToggleDeepSeek} />
                 </>
               )}
               <InputArea
@@ -988,9 +978,6 @@ export default function App() {
                 onSelectModel={modelDiscovery.selectModel}
                 onOpenSettings={() => handleOpenOverlay('settings')}
                 onRefreshModels={() => modelDiscovery.refresh(true)}
-                btwMode={btwMode}
-                onBtwSend={handleBtwSend}
-                onBtwExit={exitBtwMode}
               />
             </main>
             </div>

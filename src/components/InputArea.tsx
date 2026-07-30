@@ -49,12 +49,6 @@ interface InputAreaProps {
   onOpenSettings?: () => void;
   /** 模型胶囊下拉展开时强制刷新（FIX-C 兜底） */
   onRefreshModels?: () => void;
-  /** 临时提问模式（/btw — 不写入会话上下文） */
-  btwMode?: boolean;
-  /** 临时提问发送 */
-  onBtwSend?: (text: string) => void;
-  /** 退出临时提问模式 */
-  onBtwExit?: () => void;
 }
 
 /**
@@ -100,9 +94,6 @@ export default function InputArea({
   onSelectModel,
   onOpenSettings,
   onRefreshModels,
-  btwMode = false,
-  onBtwSend,
-  onBtwExit,
 }: InputAreaProps) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   // `/` 命令补全 — 共享 hook（与宫格 AgentCardComposer 同一权威源）
@@ -119,20 +110,14 @@ export default function InputArea({
   const handleSend = useCallback(() => {
     const text = inputRef.current?.value || '';
     if (!text.trim()) return;
-    // 🔴 临时提问模式：走 btw 通道（不写入会话上下文），发送后自动退出模式
-    if (btwMode) {
-      onBtwSend?.(text.trim());
-      onBtwExit?.();
-    } else {
-      onSend?.(text);
-    }
+    onSend?.(text);
     if (inputRef.current) {
       inputRef.current.value = '';
       inputRef.current.style.height = 'auto';
     }
     setHasText(false);
     slash.close();
-  }, [onSend, btwMode, onBtwSend, onBtwExit, slash]);
+  }, [onSend, slash]);
 
   const handleCommandExec = useCallback((cmdName: string, args = '') => {
     if (inputRef.current) {
@@ -219,18 +204,11 @@ export default function InputArea({
       }
     }
 
-    // 🔴 临时提问模式：Esc 退出（优先于其他弹窗逻辑）
-    if (btwMode && e.key === 'Escape') {
-      e.preventDefault();
-      onBtwExit?.();
-      return;
-    }
-
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
-  }, [showPathPopup, pathItems, pathSelectedIndex, slash, handleSend, handleCommandExec, btwMode, onBtwExit]);
+  }, [showPathPopup, pathItems, pathSelectedIndex, slash, handleSend, handleCommandExec]);
 
   const handleInput = useCallback(() => {
     const el = inputRef.current;
@@ -421,16 +399,6 @@ export default function InputArea({
         )}
 
         <div className="flex flex-col gap-(--composer-row-gap) px-(--composer-surface-pad-x) py-(--composer-surface-pad-y)">
-          {/* 🔴 临时提问模式条 — /btw 激活时显示，Esc 或发送后退出 */}
-          {btwMode && (
-            <div className="btw-bar">
-              <span className="btw-dot" />
-              <span className="btw-label">临时提问模式</span>
-              <span className="btw-hint">本次对话不写入会话上下文、不使用工具 · Esc 退出</span>
-              <button className="btw-exit" onClick={onBtwExit}>退出</button>
-            </div>
-          )}
-
           {/* 图片预览区 — 已附加的图片缩略图 + 删除按钮 */}
           {attachedImages && attachedImages.length > 0 && (
             <div className="flex gap-2 pt-1 flex-wrap items-start">
@@ -494,7 +462,7 @@ export default function InputArea({
             ref={inputRef}
             id="input"
             className="max-h-(--composer-input-max-height) min-h-(--composer-input-min-height) w-full resize-none border-0 bg-transparent px-1 pb-0.5 pt-1 text-sm leading-normal outline-none placeholder:text-muted-foreground/60"
-            placeholder={btwMode ? '临时提问 — 不写入上下文，Enter 发送，Esc 退出' : isStreaming ? '输入消息排队等待… (Enter 发送)' : '向 Eleve 发送消息… (Enter 发送, / 命令)'}
+            placeholder={isStreaming ? '输入消息排队等待… (Enter 发送)' : '向 Eleve 发送消息… (Enter 发送, / 命令)'}
             rows={1}
             autoComplete="off"
             spellCheck="false"

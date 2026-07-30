@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, MessageSquareText, Bot } from 'lucide-react';
+import { Plus, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fetchSessionContext } from '../utils/api';
 import ModeSwitchButton from './ModeSwitchButton';
@@ -23,7 +23,6 @@ interface ContextBarProps {
   sessionId?: string | null;
   sessionStartedAt?: number | null;
   onNewSession?: () => void;
-  onBtw?: () => void;
   /** 多 Agent 视图模式（single=单视图, grid=宫格） */
   viewMode?: 'single' | 'grid';
   /** 切换视图模式 */
@@ -38,13 +37,13 @@ interface ContextBarProps {
 /**
  * 会话上下文指示条 — 每 3s 轮询 /api/sessions/:id/context
  *
- * 布局：[+ 新建会话] [💬 临时提问]  ···  [模型名 | 已用 token / 上限 | 百分比 | 进度条]
+ * 布局：[+ 新建会话]  ···  [模型名 | 已用 token / 上限 | 百分比 | 进度条]
  *
  * IMPORTANT: This component uses direct DOM writes for the elapsed timer
  * to avoid triggering React re-renders every second. This prevents layout
  * thrashing that destabilizes the virtualizer's scroll position.
  */
-const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNewSession, onBtw, viewMode = 'single', onToggleViewMode, agentCount = 1, deepseekVisible, onToggleDeepSeek }: ContextBarProps) {
+const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNewSession, viewMode = 'single', onToggleViewMode, agentCount = 1, deepseekVisible, onToggleDeepSeek }: ContextBarProps) {
   const [ctx, setCtx] = useState<ContextData | null>(null);
   const elapsedRef = useRef<HTMLSpanElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -106,16 +105,6 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
           >
             <Plus size={14} strokeWidth={1.5} />
             <span>新建会话</span>
-          </button>
-          <button
-            className={cn(
-              'flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground bg-secondary/60 hover:bg-accent/50 rounded transition-colors'
-            )}
-            title="临时提问 (/btw — 不污染上下文)"
-            onClick={onBtw}
-          >
-            <MessageSquareText size={14} strokeWidth={1.5} />
-            <span>临时提问</span>
           </button>
           {onToggleViewMode && (
             <ModeSwitchButton mode={viewMode} onToggle={onToggleViewMode} agentCount={agentCount} />
