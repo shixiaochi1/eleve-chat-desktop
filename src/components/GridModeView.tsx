@@ -91,6 +91,8 @@ interface GridModeViewProps {
   currentSessionId: string | null;
   onExitGrid: () => void;
   onExpandAgent: (profile: string) => void;
+  /** 宫格焦点切换 → 回传 App（侧栏高亮联动） */
+  onFocusChange?: (name: string) => void;
 }
 
 /** 拖拽运行时状态（存 ref，拖拽期间零 setState） */
@@ -127,11 +129,12 @@ function slotPos(index: number, cols: number, cellW: number, cellH: number) {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-export default function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent }: GridModeViewProps) {
+export default function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange }: GridModeViewProps) {
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [order, setOrder] = useState<string[]>([]);
   const [colorMap, setColorMap] = useState<Record<string, number>>({});
-  const [focusedName, setFocusedName] = useState<string | null>(currentProfile);
+  // 🔴 焦点 = App.currentProfile（单一权威源，与侧栏 ProfilePanel 同模式）。
+  // 删本地 focusedName 状态：宫格点选 → onFocusChange → App.currentProfile → prop 回流驱动高亮。
   const [width, setWidth] = useState(0);
   const [height, setHeight] = useState(0);
 
@@ -185,7 +188,7 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
         const map: Record<string, number> = {};
         list.forEach((p, i) => { map[p.name] = i % AGENT_COLORS.length; });
         setColorMap(map);
-        setFocusedName((prev) => prev ?? (list.find((p) => p.name === currentProfile)?.name ?? list[0]?.name ?? null));
+        // 焦点由 App.currentProfile prop 驱动，无需本地同步
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -398,7 +401,7 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
                 key={profile.name}
                 ref={(el) => registerRef(profile.name, el)}
                 data-agent-name={profile.name}
-                onClick={() => { if (!justDraggedRef.current) setFocusedName(profile.name); }}
+                onClick={() => { if (!justDraggedRef.current) onFocusChange?.(profile.name); }}
                 className="absolute top-0 left-0"
                 style={{ width: layout.cellW, height: layout.cellH }}
               >
@@ -406,7 +409,7 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
                   profile={profile}
                   state={states[profile.name] ?? EMPTY_AGENT_STATE}
                   color={AGENT_COLORS[colorMap[profile.name] ?? 0]}
-                  focused={focusedName === profile.name}
+                  focused={currentProfile === profile.name}
                   onSend={sendTo}
                   onLoadMore={loadMore}
                   onAbort={abortAgent}

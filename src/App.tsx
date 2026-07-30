@@ -314,6 +314,14 @@ export default function App() {
   // 串台防御完整架构详见 utils/session.ts 文件头。
   //
   const handleProfileChange = useCallback((name: string) => {
+    // 🔴 宫格模式：只切 UI 焦点 + WS 盖章，不做会话保存/恢复（useGridChat 自管 per-agent session）。
+    // 侧栏点选 / 宫格点选 都走此路径，currentProfile 是焦点唯一权威源。
+    if (viewMode === 'grid') {
+      setWsActiveProfile(name);
+      setCurrentProfile(name);
+      return;
+    }
+
     // ── Step 1: 记住指针（每个 Agent 上次用哪个 session） ──
     const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
     // 🔴 串台防御：只写入归属正确的 session 指针，防止污染扩散
@@ -368,7 +376,7 @@ export default function App() {
       getWsClient().switchSession('');
       storeSetMessages([]);
     }
-  }, [sess, currentProfile, resetStream]);
+  }, [sess, currentProfile, resetStream, viewMode]);
 
   // 🔴 宫格→单视图：恢复目标 profile 的会话。
   // 宫格退出/展开前已由 GridModeView.persistPointers 把各 Agent 最新 session 指针写回
@@ -858,6 +866,7 @@ export default function App() {
                   currentSessionId={sess.sessionId}
                   onExitGrid={handleExitGrid}
                   onExpandAgent={handleExpandAgent}
+                  onFocusChange={handleProfileChange}
                 />
               </div>
             ) : (
