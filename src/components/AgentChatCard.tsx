@@ -71,22 +71,36 @@ interface ClarifyPayload { clarify_id?: string; question?: string; choices?: str
 interface SudoPayload { request_id?: string; prompt?: string }
 interface SecretPayload { request_id?: string; prompt?: string; env_var?: string }
 
-// ── 状态灯：绿=idle / 蓝闪=streaming / 橙闪=waiting（带柔光晕，活跃时呼吸）──
-function StatusDot({ status }: { status: AgentChatState['status'] }) {
+// ── 状态头像：头像本身即状态指示 — 状态色圆环 + 柔光晕，活跃时呼吸 ──
+// 绿=idle / 蓝呼吸=运行中 / 橙呼吸=等待输入（替代独立状态灯；身份色=头像底色，状态=圆环/光晕）
+function StatusAvatar({ status, agentColor }: { status: AgentChatState['status']; agentColor: string }) {
   const cfg = status === 'streaming'
     ? { color: 'var(--ui-blue)', pulse: true, title: '运行中' }
     : status === 'waiting'
       ? { color: 'var(--ui-orange)', pulse: true, title: '等待输入' }
       : { color: 'var(--ui-green)', pulse: false, title: '空闲' };
   return (
-    <span
-      className={cn('w-2 h-2 rounded-full shrink-0 transition-colors duration-300', cfg.pulse && 'animate-pulse')}
-      style={{
-        background: cfg.color,
-        boxShadow: `0 0 0 3px color-mix(in srgb, ${cfg.color} 16%, transparent), 0 0 10px color-mix(in srgb, ${cfg.color} 50%, transparent)`,
-      }}
-      title={cfg.title}
-    />
+    <div className="relative shrink-0" title={cfg.title}>
+      {/* 状态光晕 — 头像后方模糊辉光，活跃时呼吸 */}
+      <span
+        className={cn(
+          'absolute -inset-1 rounded-lg blur-[3px] transition-opacity duration-300',
+          cfg.pulse ? 'opacity-100 animate-pulse' : 'opacity-50',
+        )}
+        style={{ background: `color-mix(in srgb, ${cfg.color} 32%, transparent)` }}
+      />
+      {/* 头像 — Agent 身份色底 + 状态圆环 */}
+      <div
+        className="relative flex items-center justify-center w-[22px] h-[22px] rounded-md transition-shadow duration-300"
+        style={{
+          background: `color-mix(in srgb, ${agentColor} 15%, transparent)`,
+          color: agentColor,
+          boxShadow: `0 0 0 1.5px color-mix(in srgb, ${cfg.color} 55%, transparent)`,
+        }}
+      >
+        <Bot size={12} strokeWidth={1.6} />
+      </div>
+    </div>
   );
 }
 
@@ -163,22 +177,14 @@ export const AgentChatCard = memo(function AgentChatCard({
       }}
     >
       {/* ── 工具状态栏（整条可拖拽换位 · data-drag-handle · 按钮经 closest('button') 排除）──
-          布局：[状态灯] [拖拽] [头像] [名称]  …  [模型选择] [展开] */}
+          布局：[头像(带状态环)] [名称]  …  [模型选择] [展开] */}
       <div
         data-drag-handle
         className="flex items-center gap-2 h-11 px-3 shrink-0 border-b border-border/40 select-none cursor-grab active:cursor-grabbing touch-none"
         style={{ background: color.bg }}
       >
-        {/* 状态指示 — 最左侧（柔光晕 + 活跃时呼吸） */}
-        <StatusDot status={state.status} />
-
-        {/* Agent 身份 — 着色头像 + 名称 */}
-        <div
-          className="flex items-center justify-center w-[22px] h-[22px] rounded-md shrink-0"
-          style={{ background: `color-mix(in srgb, ${color.dot} 15%, transparent)`, color: color.dot }}
-        >
-          <Bot size={12} strokeWidth={1.6} />
-        </div>
+        {/* Agent 身份 — 带状态环的头像（绿=空闲 / 蓝呼吸=运行中 / 橙呼吸=等待输入） */}
+        <StatusAvatar status={state.status} agentColor={color.dot} />
         <span className="text-[13px] font-semibold tracking-tight text-foreground truncate min-w-0">
           {profile.display_name || profile.name}
         </span>
