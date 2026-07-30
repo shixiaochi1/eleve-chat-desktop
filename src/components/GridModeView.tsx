@@ -55,7 +55,7 @@ import { Square } from 'lucide-react';
 import { useGridChat, type AgentChatState } from '../hooks/useGridChat';
 import AgentChatCard, { type AgentProfileInfo, type AgentCardColor } from './AgentChatCard';
 import { sessionIdMatchesProfile } from '../utils/session';
-import type { GroupedModels } from '@/hooks/useModels';
+import { useModelContext } from '@/contexts/ModelContext';
 
 // ── Agent 颜色调色板（对齐 --ui-* 设计 token）──
 const AGENT_COLORS: AgentCardColor[] = [
@@ -97,14 +97,6 @@ interface GridModeViewProps {
   onFocusChange?: (name: string) => void;
   /** 网关就绪（slash 补全拉取命令列表） */
   portReady: boolean;
-  /** 模型系统（全局单一数据源，经 App useModels 下发） */
-  currentModel?: string;
-  modelGrouped?: GroupedModels;
-  modelLoading?: boolean;
-  modelError?: string | null;
-  onSelectModel?: (modelId: string) => void;
-  onOpenSettings?: () => void;
-  onRefreshModels?: () => void;
   /** 新建会话的全局副作用（清 localStorage 指针 + 刷新会话列表），由 App 注入，
    *  复用 handleNewSession 同一套工具链，不重复造轮子 */
   onNewSessionEffects?: (profile: string) => void;
@@ -144,7 +136,9 @@ function slotPos(index: number, cols: number, cellW: number, cellH: number) {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-export default function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, portReady, currentModel, modelGrouped, modelLoading, modelError, onSelectModel, onOpenSettings, onRefreshModels, onNewSessionEffects }: GridModeViewProps) {
+export default function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, portReady, onNewSessionEffects }: GridModeViewProps) {
+  // 🔴 模型系统经 Context 消费（消除 App→GridModeView→AgentChatCard 三层 prop drilling）
+  const { currentModel } = useModelContext();
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [order, setOrder] = useState<string[]>([]);
   const [colorMap, setColorMap] = useState<Record<string, number>>({});
@@ -444,13 +438,6 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
                   onExpand={handleExpand}
                   onNewSession={handleGridNewSession}
                   onCommand={execCommand}
-                  currentModel={currentModel}
-                  modelGrouped={modelGrouped}
-                  modelLoading={modelLoading}
-                  modelError={modelError}
-                  onSelectModel={onSelectModel}
-                  onOpenSettings={onOpenSettings}
-                  onRefreshModels={onRefreshModels}
                 />
               </div>
             ))}

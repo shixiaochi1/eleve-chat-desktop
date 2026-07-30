@@ -43,6 +43,7 @@ import RightSidebarTabs from './components/RightSidebarTabs';
 import CommandCenter from './components/CommandCenter';
 import Toast from './components/Toast';
 import GridModeView from './components/GridModeView';
+import { ModelProvider } from './contexts/ModelContext';
 import { toggleDeepSeek, hideDeepSeek } from './utils/deepseek-webview';
 import type { Window } from '@tauri-apps/api/window';
 
@@ -808,6 +809,15 @@ export default function App() {
 
   return (
     <ThemeProvider>
+      <ModelProvider value={{
+        currentModel: modelDiscovery.selectedModel || monitorState.modelName || undefined,
+        grouped: modelDiscovery.grouped,
+        loading: modelDiscovery.loading,
+        error: modelDiscovery.error,
+        onSelect: modelDiscovery.selectModel,
+        onOpenSettings: () => handleOpenOverlay('settings'),
+        onRefresh: modelDiscovery.refresh,
+      }}>
       <AppShell
         titlebar={titlebarEl}
         connectionStatus={connectionStatus}
@@ -884,13 +894,6 @@ export default function App() {
                   onExpandAgent={handleExpandAgent}
                   onFocusChange={handleProfileChange}
                   portReady={portReady}
-                  currentModel={modelDiscovery.selectedModel || monitorState.modelName || undefined}
-                  modelGrouped={modelDiscovery.grouped}
-                  modelLoading={modelDiscovery.loading}
-                  modelError={modelDiscovery.error}
-                  onSelectModel={modelDiscovery.selectModel}
-                  onOpenSettings={() => handleOpenOverlay('settings')}
-                  onRefreshModels={() => modelDiscovery.refresh(true)}
                   onNewSessionEffects={handleGridNewSessionEffects}
                 />
               </div>
@@ -986,13 +989,6 @@ export default function App() {
                 onAddImage={handleAddImage}
                 onRemoveImage={handleRemoveImage}
                 onClearImageError={clearImageError}
-                currentModel={modelDiscovery.selectedModel || monitorState.modelName || undefined}
-                modelGrouped={modelDiscovery.grouped}
-                modelLoading={modelDiscovery.loading}
-                modelError={modelDiscovery.error}
-                onSelectModel={modelDiscovery.selectModel}
-                onOpenSettings={() => handleOpenOverlay('settings')}
-                onRefreshModels={() => modelDiscovery.refresh(true)}
               />
             </main>
             </div>
@@ -1062,6 +1058,7 @@ export default function App() {
       <Toast />
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </ModelProvider>
     </ThemeProvider>
   );
 }

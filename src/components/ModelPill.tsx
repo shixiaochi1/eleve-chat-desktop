@@ -9,6 +9,7 @@ import {
 } from './ui/dropdown-menu';
 import { ModelIcon, LoadingIcon, CollapseIcon, CheckIcon } from './Icons';
 import type { GroupedModels } from '@/hooks/useModels';
+import { useModelContext } from '@/contexts/ModelContext';
 
 interface ModelPillProps {
   /** 当前模型名（本地选中值，或后端运行值兜底） */
@@ -36,7 +37,16 @@ interface ModelPillProps {
  *
  * 微交互：展开时箭头旋转 180°、菜单缩放入场（下拉组件内置）、选中项打勾高亮。
  */
-export default function ModelPill({ model, grouped = {}, loading, error, onSelect, onOpenSettings, onRefresh }: ModelPillProps) {
+export default function ModelPill(props: ModelPillProps) {
+  // 🔴 Context 优先，props 覆盖（向后兼容：既有调用方传 props 仍然生效）
+  const ctx = useModelContext();
+  const model = props.model ?? ctx.currentModel;
+  const grouped = props.grouped ?? ctx.grouped ?? {};
+  const loading = props.loading ?? ctx.loading;
+  const error = props.error ?? ctx.error;
+  const onSelect = props.onSelect ?? ctx.onSelect;
+  const onOpenSettings = props.onOpenSettings ?? ctx.onOpenSettings;
+  const onRefresh = props.onRefresh ?? ctx.onRefresh;
   const groups = Object.values(grouped);
   const hasModels = groups.length > 0;
   // P3：友好显示名 — "provider/model" ref 只显示模型名（完整 ref 在 title/下拉项里）

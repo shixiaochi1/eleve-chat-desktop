@@ -12,7 +12,6 @@ import SlashCommandPopup from './SlashCommandPopup';
 import { SendIcon, MicIcon, LoadingIcon, ContextFileIcon } from './Icons';
 import { cn } from '@/lib/utils';
 import type { AttachedImage } from '@/hooks/useImageAttachments';
-import type { GroupedModels } from '@/hooks/useModels';
 import { useVoice } from '@/hooks/useVoice';
 import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
 
@@ -35,20 +34,6 @@ interface InputAreaProps {
   onRemoveImage?: (id: string) => Promise<void>;
   /** 清除错误信息 */
   onClearImageError?: () => void;
-  /** 当前模型名（模型胶囊显示用，来自 App 的 useModels 单例） */
-  currentModel?: string;
-  /** 分组模型列表（模型胶囊下拉用） */
-  modelGrouped?: GroupedModels;
-  /** 模型列表加载中 */
-  modelLoading?: boolean;
-  /** 模型列表加载错误 */
-  modelError?: string | null;
-  /** 切换模型（调用后端 setModel） */
-  onSelectModel?: (modelId: string) => void;
-  /** 打开设置面板（模型胶囊池空时引导配置） */
-  onOpenSettings?: () => void;
-  /** 模型胶囊下拉展开时强制刷新（FIX-C 兜底） */
-  onRefreshModels?: () => void;
 }
 
 /**
@@ -87,13 +72,6 @@ export default function InputArea({
   onAddImage,
   onRemoveImage,
   onClearImageError,
-  currentModel,
-  modelGrouped,
-  modelLoading,
-  modelError,
-  onSelectModel,
-  onOpenSettings,
-  onRefreshModels,
 }: InputAreaProps) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   // `/` 命令补全 — 共享 hook（与宫格 AgentCardComposer 同一权威源）
@@ -488,15 +466,7 @@ export default function InputArea({
               <MicIcon size={15} />
             </button>
             {/* 模型胶囊 — 模型显示 + 分组下拉切换（Hermes 式 Model Pill） */}
-            <ModelPill
-              model={currentModel}
-              grouped={modelGrouped}
-              loading={modelLoading}
-              error={modelError}
-              onSelect={onSelectModel}
-              onOpenSettings={onOpenSettings}
-              onRefresh={onRefreshModels}
-            />
+            <ModelPill />
             {/* 思考深度 — 低/中/高，config.set 持久化（对齐 Hermes reasoning_effort） */}
             <ThinkingButton />
             {/* 快速模式 — 开关（对齐 Hermes fastMode，后端配置键待确认） */}

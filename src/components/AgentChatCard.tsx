@@ -25,7 +25,6 @@ import AgentCardComposer from './AgentCardComposer';
 import ModelPill from './ModelPill';
 import SlashConfirmCard from './SlashConfirmCard';
 import { useImageAttachments } from '@/hooks/useImageAttachments';
-import type { GroupedModels } from '@/hooks/useModels';
 import type { AgentChatState } from '../hooks/useGridChat';
 
 export interface AgentProfileInfo {
@@ -56,14 +55,6 @@ interface AgentChatCardProps {
   onNewSession: (profile: string) => void;
   /** per-agent slash 命令执行 */
   onCommand: (profile: string, cmdName: string, args: string) => void;
-  /** 模型系统（全局单一数据源，经 App useModels 下发） */
-  currentModel?: string;
-  modelGrouped?: GroupedModels;
-  modelLoading?: boolean;
-  modelError?: string | null;
-  onSelectModel?: (modelId: string) => void;
-  onOpenSettings?: () => void;
-  onRefreshModels?: () => void;
 }
 
 // ── pending 交互 payload 形状（与单视图 activeApproval/activeClarify/activeSudo 一致）──
@@ -104,7 +95,6 @@ function RobotAvatar({ agentColor }: { agentColor: string }) {
 export const AgentChatCard = memo(function AgentChatCard({
   profile, state, color, focused, portReady,
   onSend, onLoadMore, onAbort, onClearPending, onExpand, onNewSession, onCommand,
-  currentModel, modelGrouped, modelLoading, modelError, onSelectModel, onOpenSettings, onRefreshModels,
 }: AgentChatCardProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
@@ -190,15 +180,7 @@ export const AgentChatCard = memo(function AgentChatCard({
         {/* 右侧工具簇 — 模型选择 + 展开 */}
         <div className="ml-auto flex items-center gap-0.5 shrink-0">
           <div className="-my-1">
-            <ModelPill
-              model={currentModel}
-              grouped={modelGrouped}
-              loading={modelLoading}
-              error={modelError}
-              onSelect={onSelectModel}
-              onOpenSettings={onOpenSettings}
-              onRefresh={onRefreshModels}
-            />
+            <ModelPill />
           </div>
           <button
             className="flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 cursor-pointer"
