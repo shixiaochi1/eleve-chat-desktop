@@ -102,7 +102,7 @@ export function usePromptActions({
     try {
       // 走 WS slash.exec（对齐 Phase 6: 命令走 WS 而非 HTTP）
       const ws = getWsClient();
-      const result = await ws.slashExec(`${cmdName} ${args || ''}`.trim(), sess.sessionId || undefined) as { type?: string; output?: string; session_id?: string; confirm_id?: string; command?: string; description?: string };
+      const result = await ws.slashExec(`${cmdName} ${args || ''}`.trim(), sess.sessionId || undefined) as { type?: string; output?: string; message?: string; session_id?: string; confirm_id?: string; command?: string; description?: string };
 
       // D1: 破坏性命令二次确认 — 后端返回 pending_confirm，前端渲染 SlashConfirmCard
       if (result?.type === 'pending_confirm' && result.confirm_id) {
@@ -111,6 +111,22 @@ export function usePromptActions({
           command: result.command || cmdName,
           description: result.description || '',
         });
+        return;
+      }
+
+      // CmdAction::Send — 显示确认文本 + 自动提交 kickoff prompt（/goal set 等）
+      if (result?.type === 'send' && result.message) {
+        if (result.output) {
+          storeSetMessages((prev) => [...prev, { id: genId(), role: 'system', parts: [textPart(result.output!)] } as ChatMessage]);
+        }
+        const kickoff = result.message;
+        storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(kickoff)] } as ChatMessage]);
+        isSendingRef.current = true;
+        try {
+          await send(kickoff, sess.sessionId || undefined);
+        } finally {
+          isSendingRef.current = false;
+        }
         return;
       }
 
@@ -135,7 +151,7 @@ export function usePromptActions({
     } catch (err) {
       storeSetMessages((prev) => [...prev, { id: genId(), role: 'assistant', parts: [textPart(`${(err as Error).message}`)], error: `${(err as Error).message}`, timestamp: Date.now() } as ChatMessage]);
     }
-  }, [sess, genId, setDebugInfo, setSessionListVersion, onSlashConfirm]);
+  }, [sess, genId, setDebugInfo, setSessionListVersion, onSlashConfirm, send, isSendingRef]);
 
   // ── send message ──
   const handleSend = useCallback(async (text: string) => {
