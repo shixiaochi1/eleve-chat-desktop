@@ -71,7 +71,7 @@ interface ClarifyPayload { clarify_id?: string; question?: string; choices?: str
 interface SudoPayload { request_id?: string; prompt?: string }
 interface SecretPayload { request_id?: string; prompt?: string; env_var?: string }
 
-// ── 状态灯：绿=idle / 蓝闪=streaming / 橙闪=waiting ──
+// ── 状态灯：绿=idle / 蓝闪=streaming / 橙闪=waiting（带柔光晕，活跃时呼吸）──
 function StatusDot({ status }: { status: AgentChatState['status'] }) {
   const cfg = status === 'streaming'
     ? { color: 'var(--ui-blue)', pulse: true, title: '运行中' }
@@ -80,8 +80,11 @@ function StatusDot({ status }: { status: AgentChatState['status'] }) {
       : { color: 'var(--ui-green)', pulse: false, title: '空闲' };
   return (
     <span
-      className={cn('w-2 h-2 rounded-full shrink-0', cfg.pulse && 'animate-pulse')}
-      style={{ background: cfg.color }}
+      className={cn('w-2 h-2 rounded-full shrink-0 transition-colors duration-300', cfg.pulse && 'animate-pulse')}
+      style={{
+        background: cfg.color,
+        boxShadow: `0 0 0 3px color-mix(in srgb, ${cfg.color} 16%, transparent), 0 0 10px color-mix(in srgb, ${cfg.color} 50%, transparent)`,
+      }}
       title={cfg.title}
     />
   );
@@ -159,44 +162,55 @@ export const AgentChatCard = memo(function AgentChatCard({
         boxShadow: focused ? `0 0 0 2px ${color.ring}, 0 8px 24px rgba(0,0,0,0.3)` : undefined,
       }}
     >
-      {/* ── 标题栏（整条可拖拽换位 · data-drag-handle · 展开按钮经 closest('button') 排除） ── */}
+      {/* ── 工具状态栏（整条可拖拽换位 · data-drag-handle · 按钮经 closest('button') 排除）──
+          布局：[状态灯] [拖拽] [头像] [名称]  …  [模型选择] [展开] */}
       <div
         data-drag-handle
-        className="flex items-center gap-2 px-3 py-2 shrink-0 border-b border-border/40 select-none cursor-grab active:cursor-grabbing touch-none"
+        className="group/bar flex items-center gap-2 h-11 px-3 shrink-0 border-b border-border/40 select-none cursor-grab active:cursor-grabbing touch-none"
         style={{ background: color.bg }}
       >
-        <div className="flex items-center justify-center -ml-1.5 px-0.5 py-1 rounded hover:bg-accent/40 transition-colors shrink-0">
-          <GripVertical size={13} strokeWidth={1.5} className="text-muted-foreground/40" />
-        </div>
+        {/* 状态指示 — 最左侧（柔光晕 + 活跃时呼吸） */}
+        <StatusDot status={state.status} />
+
+        {/* 拖拽手柄 — 平时含蓄，悬停标题栏时亮起 */}
+        <GripVertical
+          size={13}
+          strokeWidth={1.5}
+          className="-ml-0.5 shrink-0 text-muted-foreground/25 group-hover/bar:text-muted-foreground/60 transition-colors"
+        />
+
+        {/* Agent 身份 — 着色头像 + 名称 */}
         <div
-          className="flex items-center justify-center w-6 h-6 rounded-md shrink-0"
-          style={{ background: `${color.dot}22`, color: color.dot }}
+          className="flex items-center justify-center w-[22px] h-[22px] rounded-md shrink-0"
+          style={{ background: `color-mix(in srgb, ${color.dot} 15%, transparent)`, color: color.dot }}
         >
-          <Bot size={13} strokeWidth={1.5} />
+          <Bot size={12} strokeWidth={1.6} />
         </div>
-        <span className="text-xs font-medium text-foreground truncate min-w-0">
+        <span className="text-[13px] font-semibold tracking-tight text-foreground truncate min-w-0">
           {profile.display_name || profile.name}
         </span>
-        {/* 模型选择 — 顶部工具状态栏（全局模型系统，与单视图同一数据源） */}
-        <div className="shrink-0 -my-1">
-          <ModelPill
-            model={currentModel}
-            grouped={modelGrouped}
-            loading={modelLoading}
-            error={modelError}
-            onSelect={onSelectModel}
-            onOpenSettings={onOpenSettings}
-            onRefresh={onRefreshModels}
-          />
+
+        {/* 右侧工具簇 — 模型选择 + 展开 */}
+        <div className="ml-auto flex items-center gap-0.5 shrink-0">
+          <div className="-my-1">
+            <ModelPill
+              model={currentModel}
+              grouped={modelGrouped}
+              loading={modelLoading}
+              error={modelError}
+              onSelect={onSelectModel}
+              onOpenSettings={onOpenSettings}
+              onRefresh={onRefreshModels}
+            />
+          </div>
+          <button
+            className="flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 cursor-pointer"
+            title="展开为单视图"
+            onClick={() => onExpand(name)}
+          >
+            <Maximize2 size={12} strokeWidth={1.5} />
+          </button>
         </div>
-        <StatusDot status={state.status} />
-        <button
-          className="flex items-center justify-center w-5 h-5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 cursor-pointer"
-          title="展开为单视图"
-          onClick={() => onExpand(name)}
-        >
-          <Maximize2 size={12} strokeWidth={1.5} />
-        </button>
       </div>
 
       {/* ── 消息区 ── */}
