@@ -900,16 +900,12 @@ export function useMessageStream({
       flushQueuedDeltas();
     },
 
-    // 步骤完成（对齐 Hermes step_callback）
+    // 步骤完成（对齐 Hermes step_callback — 内部记账，仅进 DebugPanel，不渲染为可见消息）
     onStepComplete: (data: { stepNumber: number; toolResults: Array<{ toolName: string; success: boolean }> }) => {
       const text = data.toolResults.length
         ? `步骤 ${data.stepNumber}: ${data.toolResults.map(r => `${r.toolName} ${r.success ? '✓' : '✗'}`).join(', ')}`
         : `步骤 ${data.stepNumber} 完成`;
       addDebugEvent('step_complete', text);
-      mutateStream(
-        (parts) => [...parts, textPart(text)],
-        () => [textPart(text)],
-      );
     },
 
     // 中间助手消息（对齐 Hermes _emit_interim_assistant_message）

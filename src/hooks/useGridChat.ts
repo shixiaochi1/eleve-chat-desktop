@@ -486,16 +486,10 @@ export function useGridChat(active: boolean): {
           patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(`⚠ 模型回退: ${fbProvider}/${fbModel}`)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), modelName: fbModel || s.modelName, lastActivity: Date.now() }));
           break;
         }
-        // ── 步骤完成 / 中间消息 / 后台审查（对齐单视图 onStepComplete / onInterimMessage / onBackgroundReview）──
-        case 'step.complete': {
-          const scNum = (payload.step_number as number) || 0;
-          const scResults = (payload.tool_results as Array<{ tool_name: string; success: boolean }>) || [];
-          const scText = scResults.length
-            ? `步骤 ${scNum}: ${scResults.map(r => `${r.tool_name} ${r.success ? '✓' : '✗'}`).join(', ')}`
-            : `步骤 ${scNum} 完成`;
-          patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(scText)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
+        // ── 步骤完成（对齐 Hermes step_callback — 内部记账，不渲染为可见消息）/ 中间消息 / 后台审查 ──
+        case 'step.complete':
+          // 内部记账信息，仅单视图 DebugPanel 可见；宫格无 DebugPanel，静默丢弃
           break;
-        }
         case 'interim.message': {
           const imContent = (payload.content as string) || '';
           if (imContent) {
