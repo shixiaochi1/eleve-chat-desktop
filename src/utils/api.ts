@@ -188,25 +188,6 @@ export async function restoreRollback(hash: string, cwd: string): Promise<{ stat
   return call('rollback_restore', { hash, cwd });
 }
 
-// ====== 聊天 ======
-
-/**
- * 发送消息并启动 SSE 流式
- * 统一走 HTTP SSE（由 useSSE.js 处理）
- */
-export function sendChatStream(message: string, sessionId: string | null): Promise<Response> {
-  // 统一走 HTTP SSE，对齐 /v1/chat/completions OpenAI 兼容格式
-  return fetch(`${getApiBase()}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messages: [{ role: 'user', content: message }],
-      stream: true,
-      session_id: sessionId || null,
-    }),
-  });
-}
-
 // ====== 模型 ======
 
 export async function fetchModels(): Promise<any> {

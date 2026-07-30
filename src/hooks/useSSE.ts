@@ -4,14 +4,11 @@ import { useIsStreaming, setIsStreaming as storeSetIsStreaming } from '@/store/m
 import { getWsClient } from '@/services/ws-client';
 import * as storage from '../utils/storage';
 import { persistSessionPointer } from '../utils/session';
+import { createAccumulator, processAccumulatorEvent, type StreamAccumulator } from '@/lib/ws-event-processor';
 
 // ── SSE callback types ──
-
-export interface SSEAccumulators {
-  fullText: string
-  fullReasoning: string
-  pendingTools: Record<string, { name: string; argsStr: string }>
-}
+// 🔴 累加器已迁移到 ws-event-processor StreamAccumulator（单一权威源）
+// SSEAccumulators 已删除（pendingTools 是死状态，fullText/fullReasoning 对应 acc.text/acc.reasoning）
 
 export interface SSECallbacks {
   onText?: (delta: string, fullText: string) => void
@@ -157,21 +154,26 @@ interface RunCompleteChunk {
 function processEvent(
   eventName: string,
   chunk: Record<string, unknown>,
-  acc: SSEAccumulators,
+  acc: StreamAccumulator,
   cbs: SSECallbacks,
 ): string | undefined {
   switch (eventName) {
     // ── 文本 delta（对齐 Eleve: message.delta）──
-    case 'message.delta':
-      acc.fullText += (chunk.delta as string) || '';
-      cbs.onText?.((chunk.delta as string) || '', acc.fullText);
+    // 🔴 累加器走共享处理器（与宫格 useGridChat 同一权威路径）
+    case 'message.delta': {
+      const delta = (chunk.delta as string) || '';
+      processAccumulatorEvent(acc, eventName, chunk);
+      cbs.onText?.(delta, acc.text);
       break;
+    }
 
     // ── 推理 ──
-    case 'reasoning.delta':
-      acc.fullReasoning += (chunk.text as string) || '';
-      cbs.onReasoning?.((chunk.text as string) || '', acc.fullReasoning);
+    case 'reasoning.delta': {
+      const delta = (chunk.text as string) || '';
+      processAccumulatorEvent(acc, eventName, chunk);
+      cbs.onReasoning?.(delta, acc.reasoning);
       break;
+    }
 
     case 'reasoning.available':
       // 拆变体后: ReasoningStart 不带文本，只是"推理开始"通知
@@ -180,7 +182,7 @@ function processEvent(
 
     // ── 推理结束（对齐 Hermes: reasoning块结束 → 清reasoning状态）──
     case 'reasoning.end':
-      cbs.onReasoningComplete?.(acc.fullReasoning);
+      cbs.onReasoningComplete?.(acc.reasoning);
       break;
 
     // ── Agent 思考状态（对齐 Eleve thinking_callback → thinking.delta）──
@@ -189,20 +191,25 @@ function processEvent(
       break;
 
     // ── 工具（对齐 Eleve 通道 A: tool.start / tool.complete）──
+    // 🔴 累加器走共享处理器（upsertToolPart），回调保留（useMessageStream 消费）
     case 'tool.start':
+      processAccumulatorEvent(acc, eventName, chunk);
       cbs.onToolStart?.({ id: (chunk.toolCallId as string) || null, name: chunk.tool as string, preview: chunk.preview as string | undefined });
       break;
 
     // 对齐 Eleve: 流式响应中工具名确定、参数还在生成时触发（drafting spinner）
     case 'tool.generating':
+      processAccumulatorEvent(acc, eventName, chunk);
       cbs.onToolGenerating?.((chunk.name as string) || '');
       break;
 
     case 'tool.complete':
+      processAccumulatorEvent(acc, eventName, chunk);
       cbs.onToolEnd?.({ id: (chunk.toolCallId as string) || null, name: chunk.tool as string, duration: chunk.duration as number | undefined, error: chunk.error as boolean | undefined });
       break;
 
     case 'tool.failed': {
+      processAccumulatorEvent(acc, eventName, chunk);
       // 工具执行失败（对齐 Eleve 后端独立 tool.failed 事件）
       cbs.onError?.((chunk.error as string) || `Tool ${chunk.tool || ''} failed`);
       break;
@@ -531,12 +538,8 @@ export function useSSE(
   const cbsRef = useRef<SSECallbacks>(callbacks);
   cbsRef.current = callbacks;
 
-  // ── WS accumulator ref — WS 事件与 SSE 共享累加器 ──
-  const wsAccumulatorsRef = useRef<SSEAccumulators>({
-    fullText: '',
-    fullReasoning: '',
-    pendingTools: {},
-  });
+  // ── WS accumulator ref — 🔴 已迁移到 StreamAccumulator（与宫格 useGridChat 同一权威源）──
+  const wsAccumulatorsRef = useRef<StreamAccumulator>(createAccumulator());
 
   // ── WS 事件 → 统一路由（含 session 过滤） ──
   const routeWsEvent = useCallback((eventName: string, data: unknown) => {
@@ -630,7 +633,7 @@ export function useSSE(
     }
 
     // 重置 WS 累加器
-    wsAccumulatorsRef.current = { fullText: '', fullReasoning: '', pendingTools: {} };
+    wsAccumulatorsRef.current = createAccumulator();
 
     try {
       const result = await wsClient.promptSubmit(text, sessionId || undefined, modelOpts) as { session_id?: string };
@@ -681,7 +684,7 @@ export function useSSE(
     storeSetIsStreaming(false);
     isStreamingRef.current = false;
     currentSessionRef.current = null;
-    wsAccumulatorsRef.current = { fullText: '', fullReasoning: '', pendingTools: {} };
+    wsAccumulatorsRef.current = createAccumulator();
   }, []);
 
   return { isStreaming, send, abort, resetStream };
