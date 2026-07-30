@@ -263,6 +263,10 @@ export function useGridChat(active: boolean): {
     const oldSid = statesRef.current[profile]?.sessionId;
     if (oldSid) getWsClient().abortStream(oldSid).catch(() => {});
     if (accRef.current[profile]) accRef.current[profile] = createAccumulator();
+    // 🔴 释放发送锁 + 清排队消息（对齐单视图 resetSendingLock）
+    // 不释放 → 旧流被 abort 后 message.complete 永不到达 → sendingRef 恒 true → Agent 锁死
+    sendingRef.current[profile] = false;
+    queueRef.current[profile] = [];
     patch(profile, (st) => ({
       ...emptyState(),
       lastActivity: st.lastActivity,
