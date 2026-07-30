@@ -233,8 +233,8 @@ export default function AgentCardComposer({
           <Plus size={15} strokeWidth={1.8} />
         </button>
 
-        {/* 自动撑大输入框 */}
-        <div className="flex-1 min-w-0 rounded-lg border border-border/50 bg-muted/20 focus-within:border-border transition-colors">
+        {/* 自动撑大输入框 — 表面复用单视图 composer-surface（边框色静止18%/悬停30%/聚灒45% 完全一致） */}
+        <div className="composer-surface flex-1 min-w-0 rounded-lg border">
           <textarea
             ref={inputRef}
             className="w-full resize-none bg-transparent px-2.5 py-1.5 text-[12px] leading-normal text-foreground outline-none placeholder:text-muted-foreground/30"
