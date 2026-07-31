@@ -198,10 +198,12 @@ export const AgentChatCard = memo(function AgentChatCard({
     const dataURLs = images.map((img) => img.preview);
     onSend(name, text, queuedAttachments.length > 0 ? queuedAttachments : undefined, dataURLs.length > 0 ? dataURLs : undefined);
     // 🔴 busy 时排队：从 session 分离图片（防下次发送误消费）
+    // 🔴 P2: 显式传本 Agent sessionId（禁止 fallback 到 ws-client 全局 sessionId，宫格多 Agent 并发会 detach 错 session）
     if (wasBusy && images.length > 0) {
       const ws = getWsClient();
+      const sid = stateRef.current.sessionId ?? undefined;
       for (const img of images) {
-        ws.imageDetach(img.path).catch(() => {});
+        ws.imageDetach(img.path, sid).catch(() => {});
       }
     }
     if (images.length > 0) clearImages();

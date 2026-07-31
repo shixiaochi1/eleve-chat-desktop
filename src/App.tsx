@@ -613,16 +613,18 @@ export default function App() {
 
     if (wasBusy && images.length > 0) {
       // 排队场景：从 session 分离图片（防下次发送误消费）+ 清本地状态
+      // 🔴 显式传 sessionId（禁止 fallback 到 ws-client 全局，profile 切换瞬间全局可能是目标 Agent）
       const ws = getWsClient();
+      const sid = sess.sessionId ?? undefined;
       for (const img of images) {
-        ws.imageDetach(img.path).catch(() => {});
+        ws.imageDetach(img.path, sid).catch(() => {});
       }
     }
     // 发送/排队后都清本地预览（后端 prompt.submit 自动 drain / 排队已暂存）
     if (images.length > 0) {
       clearImages();
     }
-  }, [rawHandleSend, attachedImages, clearImages, isSendingRef]);
+  }, [rawHandleSend, attachedImages, clearImages, isSendingRef, sess.sessionId]);
 
   // 适配 addImage 签名：useImageAttachments 返回 Promise<AttachedImage | null>，
   // InputArea 的 onAddImage 期望 Promise<void>，丢弃返回值即可
