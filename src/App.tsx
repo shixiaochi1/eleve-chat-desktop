@@ -196,6 +196,12 @@ export default function App() {
     sess.refresh();
   }, [currentProfile]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 🔴 P2 修复：sessionListVersion 消费端接线（之前 10+ 生产端 increment 但零消费 → 侧栏不刷新）
+  // session 创建/reset/标题更新等事件 increment version → 触发刷新
+  useEffect(() => {
+    if (sessionListVersion > 0) sess.refresh();
+  }, [sessionListVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ═══════════════════════════════════════════════════════════════════
   //  多 Profile 会话恢复 — 启动时从 localStorage 恢复上次会话
   // ═══════════════════════════════════════════════════════════════════
@@ -863,13 +869,7 @@ export default function App() {
                   onDeleteSession={handleDeleteSession}
                   sessionTitles={sess.titles}
                   onNewSession={handleNewSession}
-                  connectionStatus={connectionStatus}
                   isStreaming={isStreaming}
-                  gatewayOnline={gatewayHealth.online}
-                  gatewayChecking={gatewayHealth.checking}
-                  onGatewayRetry={gatewayHealth.checkNow}
-                  onAbort={handleAbort}
-                  sessionListVersion={sessionListVersion}
                   debugEvents={debugEvents}
                   debugToolCalls={debugToolCalls}
                   messageCount={messages.length}

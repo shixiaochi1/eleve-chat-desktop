@@ -8,9 +8,8 @@
  *   - 分页加载
  *
  * Props:
- *   sessionId, onSwitchSession, onDeleteSession, sessionTitles,
- *   connectionStatus, isStreaming, gatewayOnline,
- *   gatewayChecking, onGatewayRetry, onAbort
+ *   sessionId, sessions, onSwitchSession, onDeleteSession, sessionTitles,
+ *   isStreaming, agentName
  */
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -37,13 +36,7 @@ interface SessionsPanelProps {
   onSwitchSession?: (id: string) => void;
   onDeleteSession?: (id: string) => void;
   sessionTitles?: Record<string, string>;
-  connectionStatus?: string;
   isStreaming?: boolean;
-  gatewayOnline?: boolean;
-  gatewayChecking?: boolean;
-  onGatewayRetry?: () => void;
-  onAbort?: () => void;
-  sessionListVersion?: string;
   /** 当前 Agent 名（合并侧栏区块头显示） */
   agentName?: string;
 }
@@ -211,12 +204,7 @@ export default function SessionsPanel({
   onSwitchSession,
   onDeleteSession,
   sessionTitles,
-  connectionStatus,
   isStreaming,
-  gatewayOnline,
-  gatewayChecking,
-  onGatewayRetry,
-  onAbort,
   agentName,
 }: SessionsPanelProps) {
   const [activeTab, setActiveTab] = useState<'sessions' | 'outline'>('sessions');

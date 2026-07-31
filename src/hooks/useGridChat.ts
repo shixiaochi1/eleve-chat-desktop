@@ -49,6 +49,7 @@ import { profileFromSessionId, sessionIdMatchesProfile, persistSessionPointer } 
 import { toChatMessages, textPart, type SessionMessage, type ChatMessagePart } from '@/lib/chat-messages';
 import { createAccumulator, resetAccumulator, processAccumulatorEvent, finalizeAccumulator, extractPendingInteractions, type StreamAccumulator } from '@/lib/ws-event-processor';
 import { handleGlobalEvent } from '@/lib/global-events';
+import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
 import type { ChatMessage } from '@/types';
 
 const WINDOW_MAX = 100;   // 每 Agent 内存最多保留消息数（超出 evict 头部）
@@ -322,38 +323,34 @@ export function useGridChat(active: boolean): {
     patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(display)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX) }));
     try {
       // 🔴 P1-7: 显式传 sessionId（含空串），禁止 fallback 到 ws-client 陈旧全局 sessionId
-      const result = await getWsClient().slashExec(`${cmdName} ${args}`.trim(), sessionId ?? '') as { type?: string; output?: string; message?: string; session_id?: string; confirm_id?: string; command?: string; description?: string };
+      const result = await getWsClient().slashExec(`${cmdName} ${args}`.trim(), sessionId ?? '') as SlashExecResult;
+      const action = interpretSlashResult(result, sessionId);
 
-      // 🔴 对齐单视图 handleCommand：破坏性命令二次确认
-      if (result?.type === 'pending_confirm' && result.confirm_id) {
-        patch(profile, (st) => ({
-          ...st,
-          pendingSlashConfirm: { confirmId: result.confirm_id!, command: result.command || cmdName, description: result.description || '' },
-          status: 'waiting',
-        }));
-        return;
-      }
-
-      // CmdAction::Send — 显示确认文本 + 自动提交 kickoff（/goal set 等）
-      if (result?.type === 'send' && result.message) {
-        if (result.output) {
-          patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'system', parts: [textPart(result.output!)] } as ChatMessage].slice(-WINDOW_MAX) }));
-        }
-        await sendTo(profile, result.message);
-        return;
-      }
-      const output = result?.output || '';
-
-      // 🔴 对齐单视图 handleCommand：命令可能导致 session 切换（如 /new 后端路径）
-      const newSid = result?.session_id;
-      if (newSid && newSid !== sessionId) {
-        patch(profile, (st) => ({
-          ...st,
-          sessionId: newSid,
-          messages: [{ id: gridMsgId(), role: 'system', parts: [textPart(output)] } as ChatMessage],
-        }));
-      } else {
-        patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'system', parts: [textPart(output)] } as ChatMessage].slice(-WINDOW_MAX) }));
+      switch (action.kind) {
+        case 'confirm':
+          patch(profile, (st) => ({
+            ...st,
+            pendingSlashConfirm: { confirmId: action.confirmId, command: action.command || cmdName, description: action.description },
+            status: 'waiting',
+          }));
+          return;
+        case 'send':
+          if (action.output) {
+            patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'system', parts: [textPart(action.output!)] } as ChatMessage].slice(-WINDOW_MAX) }));
+          }
+          await sendTo(profile, action.kickoff);
+          return;
+        case 'rotate':
+          patch(profile, (st) => ({
+            ...st,
+            sessionId: action.newSessionId,
+            messages: [{ id: gridMsgId(), role: 'system', parts: [textPart(action.output)] } as ChatMessage],
+          }));
+          persistSessionPointer(action.newSessionId);
+          return;
+        case 'output':
+          patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'system', parts: [textPart(action.output)] } as ChatMessage].slice(-WINDOW_MAX) }));
+          return;
       }
     } catch (err) {
       const msg = (err as Error).message;

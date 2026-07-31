@@ -4,6 +4,7 @@ import { persistSessionPointer } from '../utils/session';
 import { setMessages as storeSetMessages, getMessages } from '../store/messages';
 import { textPart } from '@/lib/chat-messages'
 import { getWsClient } from '../services/ws-client';
+import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
 import type { ChatMessage } from '@/types'
 import type { SessionManagerHandle } from './useMessageStream';
 
@@ -101,53 +102,38 @@ export function usePromptActions({
     storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(display)], timestamp: Date.now() } as ChatMessage]);
 
     try {
-      // 走 WS slash.exec（对齐 Phase 6: 命令走 WS 而非 HTTP）
       const ws = getWsClient();
-      const result = await ws.slashExec(`${cmdName} ${args || ''}`.trim(), sess.sessionId || undefined) as { type?: string; output?: string; message?: string; session_id?: string; confirm_id?: string; command?: string; description?: string };
+      const result = await ws.slashExec(`${cmdName} ${args || ''}`.trim(), sess.sessionId || undefined) as SlashExecResult;
+      const action = interpretSlashResult(result, sess.sessionId);
 
-      // D1: 破坏性命令二次确认 — 后端返回 pending_confirm，前端渲染 SlashConfirmCard
-      if (result?.type === 'pending_confirm' && result.confirm_id) {
-        onSlashConfirm?.({
-          confirmId: result.confirm_id,
-          command: result.command || cmdName,
-          description: result.description || '',
-        });
-        return;
-      }
-
-      // CmdAction::Send — 显示确认文本 + 自动提交 kickoff prompt（/goal set 等）
-      if (result?.type === 'send' && result.message) {
-        if (result.output) {
-          storeSetMessages((prev) => [...prev, { id: genId(), role: 'system', parts: [textPart(result.output!)] } as ChatMessage]);
+      switch (action.kind) {
+        case 'confirm':
+          onSlashConfirm?.({ confirmId: action.confirmId, command: action.command || cmdName, description: action.description });
+          return;
+        case 'send': {
+          if (action.output) {
+            storeSetMessages((prev) => [...prev, { id: genId(), role: 'system', parts: [textPart(action.output!)] } as ChatMessage]);
+          }
+          storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(action.kickoff)] } as ChatMessage]);
+          isSendingRef.current = true;
+          try { await send(action.kickoff, sess.sessionId || undefined); }
+          finally { isSendingRef.current = false; }
+          return;
         }
-        const kickoff = result.message;
-        storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(kickoff)] } as ChatMessage]);
-        isSendingRef.current = true;
-        try {
-          await send(kickoff, sess.sessionId || undefined);
-        } finally {
-          isSendingRef.current = false;
-        }
-        return;
-      }
-
-      const output = result?.output || '';
-      const session_id = result?.session_id;
-      if (session_id && session_id !== sess.sessionId) {
-        if (sess.sessionId) {
-          storeSetMessages((prev) => {
-            sess.saveCache((cache) => ({ ...cache, [sess.sessionId!]: prev }));
-            return prev;
-          });
-        }
-        sess.setSessionId(session_id);
-        persistSessionPointer(session_id);
-        sess.refresh();
-        setDebugInfo((prev) => ({ ...prev, sessionId: session_id, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
-        storeSetMessages([{ id: genId(), role: 'system', parts: [textPart(output)] } as ChatMessage]);
-        if (setSessionListVersion) setSessionListVersion(v => v + 1);
-      } else {
-        storeSetMessages((prev) => [...prev, { id: genId(), role: 'system', parts: [textPart(output)] } as ChatMessage]);
+        case 'rotate':
+          if (sess.sessionId) {
+            storeSetMessages((prev) => { sess.saveCache((cache) => ({ ...cache, [sess.sessionId!]: prev })); return prev; });
+          }
+          sess.setSessionId(action.newSessionId);
+          persistSessionPointer(action.newSessionId);
+          sess.refresh();
+          setDebugInfo((prev) => ({ ...prev, sessionId: action.newSessionId, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
+          storeSetMessages([{ id: genId(), role: 'system', parts: [textPart(action.output)] } as ChatMessage]);
+          if (setSessionListVersion) setSessionListVersion(v => v + 1);
+          return;
+        case 'output':
+          storeSetMessages((prev) => [...prev, { id: genId(), role: 'system', parts: [textPart(action.output)] } as ChatMessage]);
+          return;
       }
     } catch (err) {
       storeSetMessages((prev) => [...prev, { id: genId(), role: 'assistant', parts: [textPart(`${(err as Error).message}`)], error: `${(err as Error).message}`, timestamp: Date.now() } as ChatMessage]);
