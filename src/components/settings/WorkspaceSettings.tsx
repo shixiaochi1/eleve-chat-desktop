@@ -8,15 +8,23 @@ import { Switch } from '../ui/switch';
 /**
  * WorkspaceSettings — 工作区设置
  *
- * 工作目录、代码执行模式、持久化 Shell、环境变量透传、文件读取限制
+ * 工作目录、代码执行模式、持久化 Shell、文件读取字符上限。
+ *
+ * 🔴 字段路径对齐后端 Config（信代码实证，消灭顶层死键）：
+ * - cwd            → terminal.cwd
+ * - code_exec_mode → code_execution.mode（取值 project/strict，与后端一致）
+ * - persistent_shell → terminal.persistent_shell（对齐 Hermes，主要作用 SSH 后端）
+ * - file_read_max_chars → 顶层 file_read_max_chars（字符数，对齐 Hermes，默认 100000）
+ *
+ * 🔴 已移除 env_whitelist：Hermes 无此功能（仅 docker_forward_env，ELEVE 已有），
+ *    该字段为前端幻象，写入即磁盘死键，对齐 Hermes = 移除。
  */
 export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void }) {
   const [config, setConfig] = useState({
     cwd: '',
     code_exec_mode: 'project',
-    persistent_shell: false,
-    env_whitelist: '',
-    file_read_limit: 10485760,
+    persistent_shell: true,
+    file_read_max_chars: 100000,
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -30,12 +38,13 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
     setLoading(true);
     try {
       const bc = await call('get_config', {});
+      const terminal = bc.terminal || {};
+      const code_execution = bc.code_execution || {};
       setConfig({
-        cwd: bc.cwd || '',
-        code_exec_mode: bc.code_exec_mode || 'project',
-        persistent_shell: bc.persistent_shell ?? false,
-        env_whitelist: Array.isArray(bc.env_whitelist) ? bc.env_whitelist.join(', ') : (bc.env_whitelist || ''),
-        file_read_limit: bc.file_read_limit ?? 10485760,
+        cwd: terminal.cwd || '',
+        code_exec_mode: code_execution.mode || 'project',
+        persistent_shell: terminal.persistent_shell ?? true,
+        file_read_max_chars: bc.file_read_max_chars ?? 100000,
       });
       setLoaded(true);
     } catch {
@@ -51,18 +60,17 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
   const handleSave = async () => {
     setSaving(true);
     try {
-      // 环境变量透传：逗号分隔 → 数组
-      const envArray = config.env_whitelist
-        ? config.env_whitelist.split(',').map((s: string) => s.trim()).filter(Boolean)
-        : [];
-
+      // 🔴 按后端真实路径分组写入（加性通道 config.set.raw，合并保留各 section 其它键）
       await call('update_config', {
         config: {
-          cwd: config.cwd || undefined,
-          code_exec_mode: config.code_exec_mode,
-          persistent_shell: config.persistent_shell,
-          env_whitelist: envArray,
-          file_read_limit: config.file_read_limit,
+          terminal: {
+            cwd: config.cwd || undefined,
+            persistent_shell: config.persistent_shell,
+          },
+          code_execution: {
+            mode: config.code_exec_mode,
+          },
+          file_read_max_chars: config.file_read_max_chars,
         },
       });
       notifySuccess('工作区配置已保存');
@@ -113,7 +121,7 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
         <div>
           <label className="block text-xs text-muted-foreground mb-0.5">持久化 Shell</label>
           <p className="text-xs text-muted-foreground/70 leading-relaxed m-0">
-            保持子进程 Shell 会话不中断，提升连续命令执行效率。
+            保持 Shell 会话跨轮次不中断（对齐 Hermes，主要作用于 SSH 后端；local 默认每轮新建以保证隔离）。
           </p>
         </div>
         <Switch
@@ -122,34 +130,20 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
         />
       </div>
 
-      {/* 环境变量透传 */}
+      {/* 文件读取字符上限 */}
       <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">环境变量透传</label>
-        <Input
-          type="text"
-          placeholder="PATH, HOME, NODE_ENV"
-          value={config.env_whitelist}
-          onChange={e => update('env_whitelist', e.target.value)}
-        />
-        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          逗号分隔的环境变量名称列表，子进程可继承这些变量。
-        </p>
-      </div>
-
-      {/* 文件读取限制 */}
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">文件读取限制（字节）</label>
+        <label className="block text-xs text-muted-foreground mb-1">文件读取字符上限</label>
         <Input
           type="number"
           className="w-40"
-          min={1024}
-          max={1073741824}
-          step={1024}
-          value={config.file_read_limit}
-          onChange={e => update('file_read_limit', parseInt(e.target.value) || 10485760)}
+          min={1000}
+          max={10000000}
+          step={1000}
+          value={config.file_read_max_chars}
+          onChange={e => update('file_read_max_chars', parseInt(e.target.value) || 100000)}
         />
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          单次读取文件的字节上限（默认 10 MB）。
+          单次 read_file 返回的最大字符数（默认 100000，对齐 Hermes file_read_max_chars）。
         </p>
       </div>
 
