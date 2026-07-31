@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, type MutableRefObject } from 'react';
 import { activateSession } from '../utils/api';
 import { setMessages as storeSetMessages } from '../store/messages';
 import * as storage from '../utils/storage';
@@ -30,6 +30,7 @@ export function useSessionActions({
   setSessionListVersion,
   resetSendingLock,
   resetStream,
+  currentSessionIdRef,
 }: {
   sess: SessionManagerHandle
   genId: () => string
@@ -37,6 +38,8 @@ export function useSessionActions({
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
   resetSendingLock?: () => void
   resetStream?: (nextSessionId?: string | null) => void
+  /** 🔴 当前显示 session 的同步权威 ref（resetStream 锁定）——loadHistory 过期响应守卫必须比它 */
+  currentSessionIdRef: MutableRefObject<string | null>
 }): {
   handleSwitchSession: (id: string) => Promise<void>
   handleDeleteSession: (id: string) => Promise<void>
@@ -69,7 +72,7 @@ export function useSessionActions({
     storeSetMessages(cached?.length ? (cached as ChatMessage[]) : []);
     // 🔴 始终从后端加载完整历史
     sess.loadHistory(id).then((msgs) => {
-      if (sess.sessionId !== id) return; // 🔴 过期响应守卫：快速切换时旧响应不覆盖新视图
+      if (currentSessionIdRef.current !== id) return; // 🔴 过期响应守卫：同步权威 ref（resetStream 已锁定）
       if (msgs?.length) {
         storeSetMessages(msgs as ChatMessage[]);
         sess.saveCache((cache) => ({ ...cache, [id]: msgs }));
@@ -77,7 +80,7 @@ export function useSessionActions({
         storeSetMessages([{ id: genId(), role: 'system', parts: [textPart(`会话已切换 (${shortId(id)})`)] }]);
       }
     });
-  }, [sess, genId, setDebugInfo, resetSendingLock, resetStream]);
+  }, [sess, genId, setDebugInfo, resetSendingLock, resetStream, currentSessionIdRef]);
 
   // ── session delete handler ──
   const handleDeleteSession = useCallback(async (id: string) => {

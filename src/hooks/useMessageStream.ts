@@ -129,6 +129,8 @@ export function useMessageStream({
   send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string }) => Promise<void>
   abort: () => Promise<void>
   resetStream: (nextSessionId?: string | null) => void
+  /** 🔴 当前显示 session 的同步权威 ref（resetStream 同步锁定）——loadHistory 过期响应守卫必须比它，不能比异步 sess.sessionId */
+  currentSessionIdRef: MutableRefObject<string | null>
 } {
   // ── Stream ID — same as Eleve: one unique ID per streaming turn ──
   // [FIX #1] Lazy creation: mutateStream auto-allocates if null
@@ -943,5 +945,6 @@ export function useMessageStream({
     send,
     abort,
     resetStream,
+    currentSessionIdRef,
   };
 }

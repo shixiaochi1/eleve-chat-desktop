@@ -48,14 +48,27 @@
  *   宫格 → useGridChat 按 session_id 解复用到 N 个状态槽
  *   单视图 → useSSE 按当前 sessionId 过滤
  */
-import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
 import { fetchProfiles } from '../utils/api';
 import * as storage from '../utils/storage';
 import { Square } from 'lucide-react';
 import { useGridChat, type AgentChatState } from '../hooks/useGridChat';
 import AgentChatCard, { type AgentProfileInfo, type AgentCardColor } from './AgentChatCard';
-import { sessionIdMatchesProfile } from '../utils/session';
+import { sessionIdMatchesProfile, persistSessionPointer } from '../utils/session';
 import { useModelContext } from '@/contexts/ModelContext';
+
+/**
+ * 🔴 GridModeView 命令式句柄 — App 经 gridRef 调度宫格（修复 BUG2 + 退出持久化权威收敛）
+ *
+ * useGridChat 封装在 GridModeView 内部（仅 grid 挂载），App 无法直接调。
+ * 暴露两个命令：
+ *   - switchToSession(profile, sessionId)：宫格内切换某 Agent 卡片的会话（不换视图模式）
+ *   - persistPointers()：退出宫格前把各 Agent 最新 session 指针写回 localStorage
+ */
+export interface GridModeViewHandle {
+  switchToSession: (profile: string, sessionId: string) => void;
+  persistPointers: () => void;
+}
 
 // ── Agent 颜色调色板（对齐 --ui-* 设计 token）──
 const AGENT_COLORS: AgentCardColor[] = [
@@ -138,7 +151,7 @@ function slotPos(index: number, cols: number, cellW: number, cellH: number) {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-export default function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, onFocusedSessionChange, portReady, onNewSessionEffects }: GridModeViewProps) {
+const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, onFocusedSessionChange, portReady, onNewSessionEffects }, ref) {
   // 🔴 模型系统经 Context 消费（消除 App→GridModeView→AgentChatCard 三层 prop drilling）
   const { currentModel } = useModelContext();
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
@@ -254,15 +267,27 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
     if (changed) storage.save('profile_session_map', map);
   }, []);
 
+  // 🔴 宫格内切换某 Agent 卡片的会话（修复 BUG2：留宫格，不强行切单视图）
+  // 串台防御：校验 sessionId 归属后才加载；聚焦归属 Agent（侧栏高亮跟随）
+  const switchToSession = useCallback((profile: string, sessionId: string) => {
+    if (!sessionIdMatchesProfile(sessionId, profile)) return;
+    loadLatest(profile, sessionId);
+    persistSessionPointer(sessionId);
+    onFocusChange?.(profile);
+  }, [loadLatest, onFocusChange]);
+
+  // 🔴 命令式句柄：App 经 gridRef 调度宫格（switchToSession 留宫格切会话 / persistPointers 退出前写回指针）
+  useImperativeHandle(ref, () => ({ switchToSession, persistPointers }), [switchToSession, persistPointers]);
+
+  // 🔴 退出/展开：持久化权威收敛到 App（handleExitGrid/handleExpandAgent 经 gridRef.persistPointers）。
+  // 此处只回调 App，不再本地 persist，消灭“按钮退出持久化 / Ctrl+G 退出不持久化”的双路径不一致。
   const handleExit = useCallback(() => {
-    persistPointers();
     onExitGrid();
-  }, [persistPointers, onExitGrid]);
+  }, [onExitGrid]);
 
   const handleExpand = useCallback((profile: string) => {
-    persistPointers();
     onExpandAgent(profile);
-  }, [persistPointers, onExpandAgent]);
+  }, [onExpandAgent]);
 
   // ── 把一张卡定位到它的槽位（命令式，带过渡） ──
   const setCardSlot = useCallback((name: string, index: number, animate: boolean) => {
@@ -463,4 +488,6 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
       </div>
     </div>
   );
-}
+});
+
+export default GridModeView;

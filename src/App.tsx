@@ -42,7 +42,7 @@ import PreviewPanel from './components/PreviewPanel';
 import RightSidebarTabs from './components/RightSidebarTabs';
 import CommandCenter from './components/CommandCenter';
 import Toast from './components/Toast';
-import GridModeView from './components/GridModeView';
+import GridModeView, { type GridModeViewHandle } from './components/GridModeView';
 import { ModelProvider } from './contexts/ModelContext';
 import { toggleDeepSeek, hideDeepSeek } from './utils/deepseek-webview';
 import type { Window } from '@tauri-apps/api/window';
@@ -202,38 +202,6 @@ export default function App() {
     if (sessionListVersion > 0) sess.refresh();
   }, [sessionListVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ═══════════════════════════════════════════════════════════════════
-  //  多 Profile 会话恢复 — 启动时从 localStorage 恢复上次会话
-  // ═══════════════════════════════════════════════════════════════════
-  //
-  // 数据源优先级:
-  //   1. profile_session_map[currentProfile] — per-profile 指针（权威）
-  //   2. 全局 session_id（旧版 fallback，可能是其他 profile 的）
-  //
-  // 🔴 串台防御: 无论哪个来源，都必须经 sessionIdMatchesProfile() 校验。
-  // 不匹配 → targetId=null → 不恢复，用户从空会话开始（后端按 profile 新建）。
-  // 详见 utils/session.ts 文件头的完整架构文档。
-  //
-  const startupRestored = useRef(false);
-  useEffect(() => {
-    // 🔴 P0-2: 必须等 profileResolved（getActiveProfile 完成）后才恢复，
-    // 否则 currentProfile 还是 'default' 初始值，闩锁后真实 profile 永远不被恢复。
-    if (!portReady || !profileResolved || startupRestored.current) return;
-    startupRestored.current = true;
-    const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
-    // 🔴 串台防御：map 指针或全局 fallback 可能指向其他 profile 的 session，校验后才恢复
-    const rawTarget = map[currentProfile] || (storage.load('session_id', null) as string | null);
-    const targetId = rawTarget && sessionIdMatchesProfile(rawTarget, currentProfile) ? rawTarget : null;
-    if (targetId) {
-      sess.setSessionId(targetId);
-      getWsClient().switchSession(targetId);
-      sess.loadHistory(targetId).then((msgs) => {
-        if (sess.sessionId !== targetId) return; // 🔴 过期响应守卫：快速切换时旧响应不覆盖新视图
-        if (msgs?.length) storeSetMessages(msgs as ChatMessage[]);
-      });
-    }
-  }, [portReady, profileResolved, currentProfile, sess]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── model picker state ──
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
   const handleOpenModelPicker = useCallback(() => setShowModelPicker(true), []);
@@ -300,6 +268,7 @@ export default function App() {
     send,
     abort,
     resetStream,
+    currentSessionIdRef,
   } = useMessageStream({
     genId,
     addDebugEvent,
@@ -317,6 +286,67 @@ export default function App() {
     setSessionListVersion,
     enabled: viewMode === 'single',  // 🔴 宫格模式暂停 useSSE，useGridChat 接管 WS 事件
   });
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  单视图会话装载 — 单一权威入口（消灭 startupRestored/handleProfileChange/restoreProfileSession 三重重复）
+  // ═══════════════════════════════════════════════════════════════════
+  //  🔴 BUG1 根因修复：过期响应守卫比 currentSessionIdRef（resetStream 同步锁定），
+  //  不比异步 sess.sessionId（setState 异步 → .then() 时闭包值陈旧 → 误丢有效历史 → 首次切换丢消息）。
+  //  调用前提：调用方必须先 resetStream(targetId) 同步锁定权威 ref。
+  const loadSessionIntoView = useCallback((targetId: string) => {
+    sess.setSessionId(targetId);
+    persistSessionPointer(targetId);
+    sess.setFreshDraftReady(false);
+    getWsClient().switchSession(targetId);
+    // 缓存秒显（纯 UX 防白屏，始终被后端覆盖）
+    const cached = sess.msgCache[targetId];
+    storeSetMessages(cached?.length ? (cached as ChatMessage[]) : []);
+    // 🔴 始终从后端加载完整历史（含离开期间的消息）
+    sess.loadHistory(targetId).then((msgs) => {
+      if (currentSessionIdRef.current !== targetId) return; // 🔴 过期响应守卫：同步权威 ref
+      if (msgs?.length) {
+        storeSetMessages(msgs as ChatMessage[]);
+        sess.saveCache((c) => ({ ...c, [targetId]: msgs }));
+      }
+    });
+  }, [sess, currentSessionIdRef]);
+
+  // 无历史会话 → 空白草稿（单一权威入口；profile = 要清指针的目标 profile）
+  const clearSessionView = useCallback((profile: string) => {
+    sess.setSessionId(null);
+    clearSessionPointer(profile);
+    sess.setFreshDraftReady(true);
+    getWsClient().switchSession('');
+    storeSetMessages([]);
+  }, [sess]);
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  多 Profile 会话恢复 — 启动时从 localStorage 恢复上次会话
+  // ═══════════════════════════════════════════════════════════════════
+  //
+  // 数据源优先级:
+  //   1. profile_session_map[currentProfile] — per-profile 指针（权威）
+  //   2. 全局 session_id（旧版 fallback，可能是其他 profile 的）
+  //
+  // 🔴 串台防御: 无论哪个来源，都必须经 sessionIdMatchesProfile() 校验。
+  // 不匹配 → targetId=null → 不恢复，用户从空会话开始（后端按 profile 新建）。
+  // 详见 utils/session.ts 文件头的完整架构文档。
+  //
+  const startupRestored = useRef(false);
+  useEffect(() => {
+    // 🔴 P0-2: 必须等 profileResolved（getActiveProfile 完成）后才恢复，
+    // 否则 currentProfile 还是 'default' 初始值，闩锁后真实 profile 永远不被恢复。
+    if (!portReady || !profileResolved || startupRestored.current) return;
+    startupRestored.current = true;
+    const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
+    // 🔴 串台防御：map 指针或全局 fallback 可能指向其他 profile 的 session，校验后才恢复
+    const rawTarget = map[currentProfile] || (storage.load('session_id', null) as string | null);
+    const targetId = rawTarget && sessionIdMatchesProfile(rawTarget, currentProfile) ? rawTarget : null;
+    if (targetId) {
+      resetStream(targetId); // 🔴 同步锁定权威 ref（loadSessionIntoView 守卫前提）
+      loadSessionIntoView(targetId);
+    }
+  }, [portReady, profileResolved, currentProfile, sess, resetStream, loadSessionIntoView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ═══════════════════════════════════════════════════════════════════
   //  多 Profile 切换 — 单视图 Agent 切换的完整生命周期
@@ -374,36 +404,15 @@ export default function App() {
 
     // ── Step 4: 恢复目标会话（后端是权威源，始终 loadHistory） ──
     if (targetId) {
-      sess.setSessionId(targetId);
-      persistSessionPointer(targetId);
-      sess.setFreshDraftReady(false);
-      getWsClient().switchSession(targetId);
-      // 缓存秒显（纯 UX 防白屏，始终被后端数据覆盖）
-      const cached = sess.msgCache[targetId];
-      storeSetMessages(cached?.length ? (cached as ChatMessage[]) : []);
-      // 🔴 始终从后端加载完整历史（含离开期间的消息）
-      sess.loadHistory(targetId).then((msgs) => {
-        if (sess.sessionId !== targetId) return; // 🔴 过期响应守卫
-        if (msgs?.length) {
-          storeSetMessages(msgs as ChatMessage[]);
-          sess.saveCache((c) => ({ ...c, [targetId]: msgs }));
-        }
-      });
+      loadSessionIntoView(targetId);
       // 🔴 P0-1.2: pending 交互恢复依赖后端推送的 session.info 事件（WS 流建立时自动推送）
-      // 旧 call('session.info') RPC 已删除：bridge 无此映射 + 后端无此 RPC arm，从未生效
       // 实时审批/澄清/sudo/secret 由 useSSE/useMessageStream 事件处理器消费
     } else {
-      // 无历史会话 → 空白草稿
-      sess.setSessionId(null);
+      // 无历史会话 → 空白草稿。
       // 🔴 串台/丢失修复：清的是目标 profile（name）的指针，不是源（currentProfile 是闭包旧值=切走的 Agent）。
-      // 旧版 clearSessionPointer(currentProfile) 会把来源 Agent 的会话指针抹掉 → 切回时会话丢失。
-      // 与 restoreProfileSession else 分支（用目标参数 profile）保持一致。
-      clearSessionPointer(name);
-      sess.setFreshDraftReady(true);
-      getWsClient().switchSession('');
-      storeSetMessages([]);
+      clearSessionView(name);
     }
-  }, [sess, currentProfile, resetStream, viewMode]);
+  }, [sess, currentProfile, resetStream, viewMode, loadSessionIntoView, clearSessionView]);
 
   // 🔴 宫格→单视图：恢复目标 profile 的会话。
   // 宫格退出/展开前已由 GridModeView.persistPointers 把各 Agent 最新 session 指针写回
@@ -421,31 +430,19 @@ export default function App() {
     // 🔴 S2: 宫格→单视图同样刷新会话列表（与 handleProfileChange 一致）
     sess.refresh();
     if (targetId) {
-      sess.setSessionId(targetId);
-      persistSessionPointer(targetId);
-      sess.setFreshDraftReady(false);
-      getWsClient().switchSession(targetId);
-      const cached = sess.msgCache[targetId];
-      storeSetMessages(cached?.length ? (cached as ChatMessage[]) : []);
-      sess.loadHistory(targetId).then((msgs) => {
-        if (sess.sessionId !== targetId) return; // 🔴 过期响应守卫
-        if (msgs?.length) {
-          storeSetMessages(msgs as ChatMessage[]);
-          sess.saveCache((c) => ({ ...c, [targetId]: msgs }));
-        }
-      });
+      loadSessionIntoView(targetId);
       // 🔴 P0-1.2: 同上，pending 交互恢复依赖后端推送 session.info 事件
     } else {
-      sess.setSessionId(null);
-      clearSessionPointer(profile); // 🔴 P1-6: 收敛到权威入口，同步清 map
-      sess.setFreshDraftReady(true);
-      getWsClient().switchSession('');
-      storeSetMessages([]);
+      clearSessionView(profile); // 🔴 P1-6: 收敛到权威入口，同步清 map
     }
-  }, [sess, resetStream]);
+  }, [sess, resetStream, loadSessionIntoView, clearSessionView]);
+
+  // 🔴 宫格命令式句柄：App 经此调度宫格（switchToSession 留宫格切会话 / persistPointers 退出前写回指针）
+  const gridRef = useRef<GridModeViewHandle>(null);
 
   // 退出宫格（回到当前 profile 单视图）
   const handleExitGrid = useCallback(() => {
+    gridRef.current?.persistPointers(); // 🔴 退出持久化权威收敛：Ctrl+G / 按钮退出都先写回各 Agent 指针
     setViewMode('single');
     restoreProfileSession(currentProfile);
   }, [restoreProfileSession, currentProfile]);
@@ -453,6 +450,7 @@ export default function App() {
 
   // 展开某个 Agent 为单视图
   const handleExpandAgent = useCallback((profile: string) => {
+    gridRef.current?.persistPointers(); // 🔴 同上：展开前写回指针
     setViewMode('single');
     restoreProfileSession(profile);
   }, [restoreProfileSession]);
@@ -470,6 +468,7 @@ export default function App() {
     setSessionListVersion,
     resetSendingLock: () => resetSendingLockRef.current?.(), // 🔴 P0-1.1: ref 接线（同 drainQueueRef 模式）
     resetStream,
+    currentSessionIdRef, // 🔴 BUG1: loadHistory 过期响应守卫用同步权威 ref
   });
 
   // 🔴 宫格"新建会话"全局副作用 — 复用 handleNewSession 同一套工具链，不重复造轮子
@@ -486,14 +485,13 @@ export default function App() {
     setSessionListVersion(v => v + 1);
   }, [sess, setSessionListVersion]);
 
-  // 🔴 宫格模式：点击会话列表 → 解析 session 归属 Agent → 展开为单视图 + 加载该会话。
+  // 🔴 宫格模式：点击会话列表 → 解析归属 Agent → 宫格内切换该 Agent 卡片的会话（修复 BUG2：留宫格，不强行切单视图）。
   // 单视图模式：透传原始 handleSwitchSession。
   const gridAwareSwitchSession = useCallback((id: string) => {
     if (viewMode === 'grid') {
       const profile = profileFromSessionId(id) || currentProfile;
-      setWsActiveProfile(profile);
-      setCurrentProfile(profile);
-      setViewMode('single');
+      gridRef.current?.switchToSession(profile, id);
+      return;
     }
     handleSwitchSession(id);
   }, [viewMode, currentProfile, handleSwitchSession]);
@@ -887,6 +885,7 @@ export default function App() {
             {viewMode === 'grid' ? (
               <div className="chat-card">
                 <GridModeView
+                  ref={gridRef}
                   currentProfile={currentProfile}
                   currentSessionId={sess.sessionId}
                   onExitGrid={handleExitGrid}
