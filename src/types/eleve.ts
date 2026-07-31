@@ -211,22 +211,6 @@ export interface SessionInfo {
   is_default_profile?: boolean
 }
 
-export interface SessionMessage {
-  codex_reasoning_items?: unknown
-  content: unknown
-  context?: unknown
-  name?: string
-  reasoning?: null | string
-  reasoning_content?: null | string
-  reasoning_details?: unknown
-  role: 'assistant' | 'system' | 'tool' | 'user'
-  text?: unknown
-  timestamp?: number
-  tool_call_id?: null | string
-  tool_calls?: unknown
-  tool_name?: string
-}
-
 export interface PaginatedSessions {
   limit: number
   offset: number
@@ -234,14 +218,6 @@ export interface PaginatedSessions {
   total: number
   profile_totals?: Record<string, number>
   errors?: Array<{ profile: string; error: string }>
-}
-
-export interface SessionCreateResponse {
-  info?: SessionRuntimeInfo
-  message_count?: number
-  messages?: SessionMessage[]
-  session_id: string
-  stored_session_id?: string
 }
 
 export interface SessionRuntimeInfo {

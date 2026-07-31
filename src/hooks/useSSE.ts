@@ -1,8 +1,10 @@
 import { useRef, useCallback, useEffect } from 'react';
 import { useIsStreaming, setIsStreaming as storeSetIsStreaming } from '@/store/messages';
 import { getWsClient } from '@/services/ws-client';
+import { handleGlobalEvent } from '@/lib/global-events';
 import { persistSessionPointer } from '../utils/session';
-import { createAccumulator, processAccumulatorEvent, type StreamAccumulator } from '@/lib/ws-event-processor';
+import { createAccumulator, resetAccumulator, finalizeAccumulator, processAccumulatorEvent, type StreamAccumulator } from '@/lib/ws-event-processor';
+import type { ChatMessagePart } from '@/lib/chat-messages';
 
 // ── SSE callback types ──
 // 🔴 累加器已迁移到 ws-event-processor StreamAccumulator（单一权威源）
@@ -240,7 +242,9 @@ function processEvent(
       break;
 
     // P1: 步骤完成（对齐 Hermes step_callback）
+    // 🔴 3.3: 步骤边界重置累加器（对齐宫格 useGridChat step.complete）
     case 'step.complete':
+      resetAccumulator(acc);
       cbs.onStepComplete?.({
         stepNumber: (chunk.step_number as number) || 0,
         toolResults: (chunk.tool_results as Array<{ tool_name: string; success: boolean }>)?.map(r => ({
@@ -347,27 +351,10 @@ function processEvent(
       cbs.onTerminalClose?.({ process_id: chunk.process_id as string });
       break;
 
-    // Phase 6G: 终端读取请求（对齐 Hermes terminal.read.request）
-    // Agent 调 read_terminal → Gateway 推 terminal.read.request → 前端读 xterm buffer → 回复 terminal.read.respond
-    case 'terminal.read.request': {
-      const requestId = typeof chunk.request_id === 'string' ? chunk.request_id : '';
-      if (requestId) {
-        const startLine = typeof chunk.start_line === 'number' ? chunk.start_line : undefined;
-        const count = typeof chunk.count === 'number' ? chunk.count : undefined;
-        // IIFE async — processEvent 本身非 async
-        (async () => {
-          const { readActiveTerminal } = await import('@/store/terminal-buffer');
-          const result = readActiveTerminal({ start: startLine, count });
-          const { getWsClient } = await import('@/services/ws-client');
-          const wsClient = getWsClient();
-          wsClient.sendRpc('terminal.read.respond', {
-            request_id: requestId,
-            text: result ? JSON.stringify(result) : '',
-          }).catch(() => { /* ignore send failure */ });
-        })();
-      }
+    // 🔴 3.4: 统一走 global-events（消灭内联 IIFE 重复）
+    case 'terminal.read.request':
+      handleGlobalEvent('terminal.read.request', chunk as Record<string, unknown>);
       break;
-    }
 
     case 'status.update': {
       // 合并两个重复case — 通用 status.update + lifecycle reset 分发
@@ -529,6 +516,7 @@ export function useSSE(
   send: (text: string, sessionId?: string | null) => Promise<void>
   abort: () => Promise<void>
   resetStream: () => void
+  drainFinalParts: () => ChatMessagePart[]
 } {
   const isStreaming = useIsStreaming();
   const currentSessionRef = useRef<string | null>(null);
@@ -606,28 +594,17 @@ export function useSSE(
     //   1. WS 断了 → 先重连 (ensureGatewayOpen)
     //   2. 重连成功 → 重试请求
     //   3. 重连失败 → 才报错
+    // 🔴 3.1: 统一连接保障入口（消灭 3 份重复）
     const wsClient = getWsClient();
-    if (wsClient.state !== 'connected') {
-      // 对齐 Hermes Desktop: WS 重连不传 session_id
-      if (wsClient.state === 'disconnected') {
-        console.log('[useSSE] WS disconnected, triggering reconnect');
-        wsClient.connect(undefined, {
-          onOpen: () => console.log('[useSSE] WS reconnected'),
-          onClose: (code, reason) => console.log('[useSSE] WS closed:', code, reason),
-          onError: (err) => console.error('[useSSE] WS error:', err),
-        });
+    const connected = await wsClient.ensureConnected(10000);
+    if (!connected) {
+      console.error('[useSSE] WS not connected after waiting 10s');
+      storeSetIsStreaming(false);
+      isStreamingRef.current = false;
+      if (cbs?.onError) {
+        cbs.onError('连接断开，正在重连，请稍后重试');
       }
-      // 等待重连完成（最多 10 秒）
-      const connected = await wsClient.waitForConnected(10000);
-      if (!connected) {
-        console.error('[useSSE] WS not connected after waiting 10s');
-        storeSetIsStreaming(false);
-        isStreamingRef.current = false;
-        if (cbs?.onError) {
-          cbs.onError('连接断开，正在重连，请稍后重试');
-        }
-        return;
-      }
+      return;
     }
 
     // 重置 WS 累加器
@@ -685,5 +662,13 @@ export function useSSE(
     wsAccumulatorsRef.current = createAccumulator();
   }, []);
 
-  return { isStreaming, send, abort, resetStream };
+  // 🔴 3.3: drain 语义（取出+重置）— 消灭 useMessageStream 影子累加器 fullTextRef
+  // interrupted 时 onRunComplete + onDone 双触发，第二次 drain 返回空 parts → 不创建重复消息
+  const drainFinalParts = useCallback(() => {
+    const parts = finalizeAccumulator(wsAccumulatorsRef.current);
+    resetAccumulator(wsAccumulatorsRef.current);
+    return parts;
+  }, []);
+
+  return { isStreaming, send, abort, resetStream, drainFinalParts };
 }

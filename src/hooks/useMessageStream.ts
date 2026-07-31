@@ -99,13 +99,11 @@ const STREAM_DELTA_FLUSH_MS = 33
  * 3. queueDelta + flushQueuedDeltas — accumulates incremental deltas
  *    (not fullText), then flushes via mutateStream at ~30fps.
  *    [FIX #2] onText receives (delta, fullText) — queueDelta uses delta
- *    for incremental streaming; completeText uses fullText for final
- *    replacement (Eleve message.complete pattern).
+ *    for incremental streaming.
  * 4. Tool events flush text deltas BEFORE upserting tool parts.
- * 5. completeAssistantMessage — on 'done', replaces text with the final
- *    full content and deduplicates reasoning, then clears streamId.
- *    [FIX #3] finalText comes from the accumulated fullText in SSE
- *    (not from message parts which may be stale).
+ * 5. completeAssistantMessage — on 'done', replaces streaming message parts
+ *    with drainFinalParts() from the shared StreamAccumulator.
+ *    (3.3: 消灭影子累加器 fullTextRef，单一权威源 ws-event-processor)
  * 6. [FIX #4] reasoning.available triggers start (creates empty reasoning part),
  *    same as Eleve appendReasoningDelta with replace=true.
  */
@@ -142,10 +140,6 @@ export function useMessageStream({
   // 🔴 多 Agent 隔离：跟踪当前显示的 session_id，传给 useSSE 做 WS 事件过滤
   const currentSessionIdRef = useRef<string | null>(sess.sessionId)
   useEffect(() => { currentSessionIdRef.current = sess.sessionId }, [sess.sessionId])
-
-  // [FIX #3] Track the fullText accumulator from SSE — used by onDone
-  // to get the final complete text (same as Eleve message.complete payload)
-  const fullTextRef = useRef<string>('')
 
   const sseCallbacks = useRef<SSECallbacks>({});
 
@@ -279,39 +273,22 @@ export function useMessageStream({
     [mutateStream],
   )
 
-  // ── completeAssistantMessage — 1:1 from Eleve completeAssistantMessage ──
-  // On stream end, replace text with final content and deduplicate reasoning.
-  // [FIX #3] finalText comes from SSE fullText accumulator (not message parts)
+  // ── completeAssistantMessage — 3.3: 改用 drainFinalParts 共享累加器权威 parts ──
+  // On stream end, replace streaming message parts with accumulator-finalized parts.
+  // 消灭旧版 fullTextRef 影子累加器 + reasoning 去重 hack（累加器已正确分离 reasoning/text）。
   const completeAssistantMessage = useCallback(
-    (finalText: string) => {
+    (finalParts: ChatMessagePart[]) => {
       const streamId = streamIdRef.current
       streamIdRef.current = null // Clear streamId — turn is over
-      fullTextRef.current = '' // Reset fullText accumulator
-
-      const normalizedFinal = finalText.replace(/\s+/g, ' ').trim()
 
       storeSetMessages((prev) => {
         if (streamId && prev.some(m => m.id === streamId)) {
-          // Found our streaming message — finalize it
+          // Found our streaming message — finalize with accumulator parts
           return prev.map(m => {
             if (m.id !== streamId) return m
-
-            // Deduplicate reasoning if finalText contains it
-            const kept = m.parts.filter(part => {
-              if (part.type === 'text') return false // Remove streamed text — will be replaced
-              if (part.type === 'reasoning' && normalizedFinal) {
-                const r = part.text.replace(/\s+/g, ' ').trim()
-                // If reasoning is a prefix of the final text (or vice versa), drop it
-                if (r && (normalizedFinal.startsWith(r) || r.startsWith(normalizedFinal))) {
-                  return false
-                }
-              }
-              return true
-            })
-
             return {
               ...m,
-              parts: finalText ? [...kept, textPart(finalText)] : kept,
+              parts: finalParts.length ? finalParts : m.parts,
               pending: false,
             }
           })
@@ -326,27 +303,17 @@ export function useMessageStream({
           const index = prev.length - 1 - fallbackIndex
           return prev.map((m, i) => {
             if (i !== index) return m
-            const kept = m.parts.filter(part => {
-              if (part.type === 'text') return false
-              if (part.type === 'reasoning' && normalizedFinal) {
-                const r = part.text.replace(/\s+/g, ' ').trim()
-                if (r && (normalizedFinal.startsWith(r) || r.startsWith(normalizedFinal))) {
-                  return false
-                }
-              }
-              return true
-            })
             return {
               ...m,
-              parts: finalText ? [...kept, textPart(finalText)] : kept,
+              parts: finalParts.length ? finalParts : m.parts,
               pending: false,
             }
           })
         }
 
         // No pending message — create a completed one
-        if (finalText) {
-          return [...prev, { id: genId(), role: 'assistant' as const, parts: [textPart(finalText)], pending: false, timestamp: Date.now() }]
+        if (finalParts.length) {
+          return [...prev, { id: genId(), role: 'assistant' as const, parts: finalParts, pending: false, timestamp: Date.now() }]
         }
         return prev
       })
@@ -376,16 +343,14 @@ export function useMessageStream({
 
     // 重置：下一步 delta 会创建新消息
     streamIdRef.current = null
-    fullTextRef.current = ''
   }, [flushQueuedDeltas])
 
   // ── SSE streaming callbacks — aligned with Eleve handleGatewayEvent ──
   sseCallbacks.current = {
     // ── Text delta — 1:1 with Eleve message.delta ──
-    // queueDelta uses the INCREMENTAL delta (not fullText).
-    // fullText is tracked in fullTextRef for onDone final replacement.
-    onText: (delta: string, fullText: string) => {
-      fullTextRef.current = fullText // [FIX #3] Track for onDone
+    // queueDelta uses the INCREMENTAL delta.
+    // 3.3: fullText 不再追踪 — onDone 走 drainFinalParts() 从共享累加器取权威 parts
+    onText: (delta: string, _fullText: string) => {
       queueDelta('assistant', delta)
     },
 
@@ -609,7 +574,7 @@ export function useMessageStream({
         flushQueuedDeltas();
         // 如果还有活跃的 streamId，说明 agent 异常退出没发 done → finalize
         if (streamIdRef.current) {
-          completeAssistantMessage(fullTextRef.current);
+          completeAssistantMessage(drainFinalParts());
         }
         storeSetIsStreaming(false);
         setConnectionStatus('idle');
@@ -620,9 +585,7 @@ export function useMessageStream({
     },
 
     // ── Done — 1:1 with Hermes message.complete ──
-    // Flush remaining deltas, then finalize with the FULL accumulated text.
-    // [FIX #3] Use fullTextRef (from SSE accumulator) instead of reading
-    // from message parts — parts may be stale if flush hadn't run.
+    // 3.3: drainFinalParts() 从共享累加器取权威 parts（消灭影子累加器 fullTextRef）
     onDone: (newSessionId: string | null) => {
       addDebugEvent('done', newSessionId ? `new session: ${newSessionId?.slice(0, 8)}` : 'complete');
 
@@ -635,13 +598,9 @@ export function useMessageStream({
       // Flush any remaining queued deltas
       flushQueuedDeltas()
 
-      // [FIX #3] Use the fullText from SSE accumulator — this is the
-      // complete text the backend sent, not a partial from message parts.
-      // Same as Hermes: completeAssistantMessage(sessionId, coerceGatewayText(payload?.text))
-      const finalText = fullTextRef.current
-
-      // Complete: replace streamed text with final, dedup reasoning, clear pending
-      completeAssistantMessage(finalText)
+      // 3.3: drain 共享累加器 → 权威 parts（reasoning → tools → text）
+      // drain 语义：取出+重置。interrupted 双触发时第二次 drain 返回空 → 不创建重复消息
+      completeAssistantMessage(drainFinalParts())
 
       // 🔴 修复：显式重置 isStreaming 状态（对齐 Hermes session.info(running=false)）
       // 后端在对话完成后发送 message.complete，前端 onDone 被调用，
@@ -683,7 +642,6 @@ export function useMessageStream({
 
       streamIdRef.current = null
 
-      fullTextRef.current = ''
       if (getMessages().some(m => m.id === errorStreamId)) {
         updateMessage(errorStreamId, { error: msg, pending: false })
       } else {
@@ -749,7 +707,7 @@ export function useMessageStream({
       // 如果被中断，清理流式状态
       if (data.interrupted && streamIdRef.current) {
         flushQueuedDeltas();
-        completeAssistantMessage(fullTextRef.current);
+        completeAssistantMessage(drainFinalParts());
         storeSetIsStreaming(false);
       }
     },
@@ -958,14 +916,13 @@ export function useMessageStream({
     },
   } satisfies SSECallbacks;
 
-  const { isStreaming, send, abort, resetStream: resetSSEStream } = useSSE(sseCallbacks.current, currentSessionIdRef, enabled);
+  const { isStreaming, send, abort, resetStream: resetSSEStream, drainFinalParts } = useSSE(sseCallbacks.current, currentSessionIdRef, enabled);
 
   // 🔴 多 Agent 隔离：切换会话时重置全部流式状态（SSE 累加器 + streamId）
   const resetStream = useCallback(() => {
     resetSSEStream();
     streamIdRef.current = null;
     queuedDeltasRef.current = { assistant: '', reasoning: '' };
-    fullTextRef.current = '';
     if (flushHandleRef.current !== null) {
       clearTimeout(flushHandleRef.current);
       flushHandleRef.current = null;

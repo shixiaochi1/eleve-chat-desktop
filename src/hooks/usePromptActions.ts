@@ -191,14 +191,9 @@ export function usePromptActions({
     isSendingRef.current = true;
     storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage]);
 
-    // ── 确保 WS 已连接 ──
+    // ── 确保 WS 已连接（3.1: 统一入口，消灭 3 份重复）──
     const wsClient = getWsClient();
-    if (wsClient.state === 'disconnected') {
-      wsClient.connect(undefined);
-      await wsClient.waitForConnected(10000);
-    } else if (wsClient.state === 'connecting' || wsClient.state === 'reconnecting') {
-      await wsClient.waitForConnected(10000);
-    }
+    await wsClient.ensureConnected(10000);
 
     // 对齐架构原则：后端是 session 生命周期的唯一权威源
     // 前端不预创建 session，直接发 prompt.submit

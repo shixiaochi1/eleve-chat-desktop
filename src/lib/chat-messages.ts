@@ -41,16 +41,48 @@ export interface UserTextPart {
   readonly text: string
 }
 
-// ── ChatMessage — the top-level message type ──
+// ── ChatMessage — the top-level message type (3.5: 单一权威源) ──
+
+export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
 export interface ChatMessage {
-  readonly id: string
-  readonly role: 'user' | 'assistant'
-  readonly parts: ChatMessagePart[]
-  readonly timestamp?: number
-  readonly pending?: boolean
-  readonly error?: string
-  readonly hidden?: boolean
+  id: string
+  role: MessageRole
+  /** Parts-based content — 1:1 aligned with Eleve. Each assistant message
+   *  contains reasoning/text/tool-call parts. User messages contain text parts. */
+  parts: ChatMessagePart[]
+  timestamp?: number
+  pending?: boolean
+  error?: string
+  hidden?: boolean
+
+  // ── Legacy flat fields (kept for backward compatibility during migration) ──
+  /** @deprecated Use parts instead */
+  type?: string
+  /** @deprecated Use parts instead */
+  content?: string
+  /** @deprecated Use parts instead */
+  reasoning_content?: string
+  /** @deprecated Internal streaming flag — use pending instead */
+  _streaming?: boolean
+  /** @deprecated Use tool-call part.toolCallId */
+  tool_call_id?: string
+  /** @deprecated Use tool-call part.toolName */
+  tool_name?: string
+  /** @deprecated Use tool-call part.args */
+  tool_input?: string
+  /** @deprecated Use tool-call part.result */
+  tool_output?: string
+  callId?: string
+  toolName?: string
+  argsStr?: string
+  status?: string
+  inputTokens?: number
+  outputTokens?: number
+  time?: string
+  show?: boolean
+  agentAttribution?: string
+  resultStr?: string
 }
 
 // ── GatewayEventPayload — SSE event data shape ──

@@ -11,54 +11,12 @@ import type {
   TextMessagePart,
   ReasoningMessagePart,
   ToolCallMessagePart,
+  ChatMessage,
+  MessageRole,
 } from '@/lib/chat-messages'
 
-// Re-export for convenience
-export type { ChatMessagePart, TextMessagePart, ReasoningMessagePart, ToolCallMessagePart }
-
-// ── Message types ──
-
-export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
-
-export interface ChatMessage {
-  id: string
-  role: MessageRole
-  /** Parts-based content — 1:1 aligned with Eleve. Each assistant message
-   *  contains reasoning/text/tool-call parts. User messages contain text parts. */
-  parts: ChatMessagePart[]
-  timestamp?: number
-  pending?: boolean
-  error?: string
-  hidden?: boolean
-
-  // ── Legacy flat fields (kept for backward compatibility during migration) ──
-  /** @deprecated Use parts instead */
-  type?: string
-  /** @deprecated Use parts instead */
-  content?: string
-  /** @deprecated Use parts instead */
-  reasoning_content?: string
-  /** @deprecated Internal streaming flag — use pending instead */
-  _streaming?: boolean
-  /** @deprecated Use tool-call part.toolCallId */
-  tool_call_id?: string
-  /** @deprecated Use tool-call part.toolName */
-  tool_name?: string
-  /** @deprecated Use tool-call part.args */
-  tool_input?: string
-  /** @deprecated Use tool-call part.result */
-  tool_output?: string
-  callId?: string
-  toolName?: string
-  argsStr?: string
-  status?: string
-  inputTokens?: number
-  outputTokens?: number
-  time?: string
-  show?: boolean
-  agentAttribution?: string
-  resultStr?: string
-}
+// 3.5: ChatMessage / MessageRole 单一权威源在 lib/chat-messages.ts
+export type { ChatMessagePart, TextMessagePart, ReasoningMessagePart, ToolCallMessagePart, ChatMessage, MessageRole }
 
 // ── Message grouping (1:1 from Eleve buildGroups) ──
 

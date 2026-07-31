@@ -210,14 +210,9 @@ export function useGridChat(active: boolean): {
     // 🔴 P1-2.1: 先加锁再 await 连接（防双击竞态：两条快速消息都见 sendingRef=false → 双提交）
     sendingRef.current[profile] = true;
 
-    // 🔴 WS 连接保障（对齐单视图 handleSend）
+    // 🔴 3.1: 统一连接保障入口（消灭 3 份重复）
     const ws = getWsClient();
-    if (ws.state === 'disconnected') {
-      ws.connect(undefined);
-      await ws.waitForConnected(10000);
-    } else if (ws.state === 'connecting' || ws.state === 'reconnecting') {
-      await ws.waitForConnected(10000);
-    }
+    await ws.ensureConnected(10000);
 
     try {
       const result = await ws.sendRpc('prompt.submit', {

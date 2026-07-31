@@ -245,6 +245,18 @@ export class GatewayWsClient {
     })
   }
 
+  /** 确保 WS 已连接：disconnected 时触发重连，connecting/reconnecting 时等待。
+   *  与 connect() 不同：不重置 sessionId / connCallbacks（仅补连，非初始化）。
+   *  返回 timeout 内是否连上。 */
+  async ensureConnected(timeout = 10000): Promise<boolean> {
+    if (this._state === 'connected') return true
+    if (this._state === 'disconnected') {
+      this.intentionallyClosed = false
+      this.doConnect()
+    }
+    return this.waitForConnected(timeout)
+  }
+
   disconnect(): void {
     this.intentionallyClosed = true
     this.clearReconnect()
