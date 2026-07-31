@@ -89,6 +89,8 @@ export function useSessionActions({
     if (owner) {
       removeProfilePointer(owner, id);
     }
+    // 🔴 订阅注册表：删除的会话从重连 re-attach 集合中移除
+    getWsClient().detachSession(id);
     if (sess.sessionId === id) {
       storeSetMessages([]);
       // 🔴 P1-2.4: 删当前会话时释放锁 + 清 WS client session（对齐 handleNewSession）

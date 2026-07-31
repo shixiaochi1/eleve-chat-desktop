@@ -82,6 +82,8 @@ export class GatewayWsClient {
   private ws: WebSocket | null = null
   private url: string = ''
   public sessionId: string | null = null  // 对齐 Hermes: session 通过 RPC 管理，不需要 WS 重连
+  /** 🔴 订阅注册表：已 attach 的 session 集合（重连后自动 re-attach，pub/sub 标准模式） */
+  private attachedSessions = new Set<string>()
   private rpcId = 0
   private pendingRpc = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
   // Phase 1: WS 未连接时排队等待的 RPC 请求
@@ -192,6 +194,13 @@ export class GatewayWsClient {
       this.setState('connected')
       this.startPing()
       this.flushPendingQueue()  // Phase 1: flush 排队的 RPC 请求
+      // 🔴 重连恢复订阅：pub/sub 标准模式——订阅者重连后重新声明订阅
+      // 遍历注册表批量 re-attach，后端重新注册 ws_clients + 推 session.info（状态全量对齐）
+      if (wasReconnect && this.attachedSessions.size > 0) {
+        for (const sid of this.attachedSessions) {
+          this.sendRpc('session.attach', { session_id: sid }).catch(() => {})
+        }
+      }
       this.connCallbacks?.onOpen?.(wasReconnect)
     }
 
@@ -480,11 +489,18 @@ export class GatewayWsClient {
    */
   switchSession(newSessionId: string): void {
     this.sessionId = newSessionId
+    // 🔴 订阅注册表：记录已 attach 的 session（重连后自动 re-attach）
+    if (newSessionId) this.attachedSessions.add(newSessionId)
     // 🔴 恢复链修复：切换 session 时通知后端注册 ws_clients 事件路由 + 推送 session.info
     // 保证切换后流式事件有投递目标 + pending 交互可恢复（不依赖 prompt.submit 才注册）
     if (newSessionId && this._state === 'connected') {
       this.sendRpc('session.attach', { session_id: newSessionId }).catch((e) => { console.warn('[ws] session.attach failed:', e) })
     }
+  }
+
+  /** 取消订阅（会话删除时调用，从注册表移除，重连后不再 re-attach） */
+  detachSession(sessionId: string): void {
+    this.attachedSessions.delete(sessionId)
   }
 
   // ── 便捷方法 ──
