@@ -209,6 +209,12 @@ export function useGridChat(active: boolean): {
     // 🔴 串台防御：sessionId 的 profile 前缀必须匹配目标 profile，否则丢弃（让后端新建）
     const rawSid = s?.sessionId ?? undefined;
     const sessionId = sessionIdMatchesProfile(rawSid, profile) ? rawSid : undefined;
+    // 🔴 自含防御（审查 P2）：前缀不匹配即同步清除 slot 脏指针 — 不归属本 profile 的 sessionId 不应占据 slot
+    // （后续 abortAgent/execCommand 语义亦正确）。与 handler stale 守卫的前缀校验双保险：
+    // 即使清除尚未镜像到 statesRef，守卫也不会拿脏值作丢弃依据；脏值清除后 slotSid=null 走“新鲜发送兼容”放行。
+    if (rawSid && !sessionId) {
+      patch(profile, (st) => ({ ...st, sessionId: null }));
+    }
     // 🔴 P1-2.6: drain 路径跳过用户消息追加（排队时已上屏，再追加 = 重复显示）
     if (!fromDrain) {
       const userMsg: ChatMessage = {
@@ -402,8 +408,12 @@ export function useGridChat(active: boolean): {
       // 🔴 #10: 过期流统一守卫 — 事件 session 与 slot 当前 session 不匹配（切会话后迟到）。
       // 累加事件直接丢弃（防旧流 delta 注入新会话）；终止事件释放 per-profile 锁（旧轮持锁）后丢弃。
       // 新鲜发送兼容：slot sessionId 为 null（新会话未拿到 id）时放行 — 事件已按 profile 前缀正确路由。
+      // 🔴 自含防御（审查 P2）：slotSid 必须前缀归属本 profile 才可作丢弃依据；前缀不匹配的 slotSid = 脏指针，
+      // 视同 null 放行。所有 sessionId 写入点均经校验（GridModeView 初始化/switchToSession + 后端响应天然正确），
+      // 脏数据理论上不可能；此行使守卫不依赖“slot 恒干净”的隐式不变量，
+      // 并覆盖 sendTo 同步清理尚未镜像到 statesRef（render-phase 镜像）的理论窗口。
       const slotSid = statesRef.current[profile]?.sessionId;
-      if (sessionId && slotSid && sessionId !== slotSid) {
+      if (sessionId && slotSid && sessionIdMatchesProfile(slotSid, profile) && sessionId !== slotSid) {
         if (eventName === 'message.complete' || eventName === 'error') {
           sendingRef.current[profile] = false;
           resetAccumulator(acc);
