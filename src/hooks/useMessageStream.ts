@@ -325,6 +325,21 @@ export function useMessageStream({
     [genId],
   )
 
+  // ── 🔴 Phase 2: 独立消息追加（系统提示/中间消息/委托 — 审查 #2/#13 修复）──
+  // 旧实现经 mutateStream 混进流式助手气泡（绕过累加器 → 完成时被 finalize 整体替换抹掉）。
+  // 新实现：独立消息入 store。流式进行中插到 in-flight 气泡之前，
+  // 对齐宫格“messages 在前、流式气泡殿后”的视觉顺序（两视图同事件同产物）。
+  const appendIndependentMessage = useCallback((msg: ChatMessage) => {
+    storeSetMessages((prev) => {
+      const streamId = streamIdRef.current;
+      if (streamId) {
+        const idx = prev.findIndex(m => m.id === streamId);
+        if (idx >= 0) return [...prev.slice(0, idx), msg, ...prev.slice(idx)];
+      }
+      return [...prev, msg];
+    });
+  }, []);
+
   // ── finalizeStepBoundary — 对齐 Hermes _emit_interim_assistant_message 消息分界 ──
   // step.complete 到达时：当前步骤的 text + tool parts 已全量流入，
   // 将当前流式消息标记完成（pending:false）并重置 streamId，
@@ -454,6 +469,8 @@ export function useMessageStream({
         ...prev,
         delegateTasks: { ...((prev.delegateTasks as Record<string, unknown>) || {}), [taskId]: { id: taskId, goal, model, status: 'running', startTs: Date.now() } },
       }));
+      // 🔴 Phase 2: 独立 system 消息（对齐宫格 useGridChat delegate.start）
+      appendIndependentMessage({ id: genId(), role: 'system' as const, parts: [textPart(`▶ 委托子 Agent: ${goal || taskId}`)], timestamp: Date.now() });
     },
 
     onDelegateEnd: ({ taskId, status, summary, model, tokensInput, tokensOutput, duration }: { taskId: string; status?: string; summary?: string; model?: string; tokensInput?: number; tokensOutput?: number; duration?: number }) => {
@@ -464,6 +481,8 @@ export function useMessageStream({
         }
         return { ...prev, delegateTasks: next };
       });
+      // 🔴 Phase 2: 独立 system 消息（对齐宫格 useGridChat delegate.end）
+      appendIndependentMessage({ id: genId(), role: 'system' as const, parts: [textPart(`✔ 子 Agent 完成: ${summary || status || 'done'}`)], timestamp: Date.now() });
     },
 
     onClarify: ({ clarify_id, question, choices }: { clarify_id: string; question: string; choices?: string[] }) => {
@@ -805,19 +824,14 @@ export function useMessageStream({
       switch (kind) {
         case 'goal':
         case 'compressing':
-          // 压缩/目标变更 → 追加系统提示到聊天流 + 更新状态栏
-          mutateStream(
-            (parts) => [...parts, textPart(text)],
-            () => [textPart(text)],
-          );
+          // 🔴 Phase 2: 压缩/目标变更 → 独立 system 消息（对齐宫格）+ 状态栏
+          // （旧实现混进流式气泡，完成时被 finalize 抹掉 — 审查 #2）
+          if (text) appendIndependentMessage({ id: genId(), role: 'system' as const, parts: [textPart(text)], timestamp: Date.now() });
           setMonitorState((prev) => ({ ...prev, modelName: prev.modelName, statusText: text }));
           break;
         case 'background':
-          // 后台任务结果回推（对齐 Hermes _run_background_task deliver）→ 追加到聊天流 + toast
-          mutateStream(
-            (parts) => [...parts, textPart(text)],
-            () => [textPart(text)],
-          );
+          // 🔴 Phase 2: 后台任务结果回推（对齐 Hermes _run_background_task deliver）→ 独立 system 消息（对齐宫格）+ toast
+          if (text) appendIndependentMessage({ id: genId(), role: 'system' as const, parts: [textPart(text)], timestamp: Date.now() });
           import('../utils/notifications').then(({ notifySuccess, notifyError }) => {
             if (text.startsWith('❌')) notifyError(text, '后台任务失败');
             else notifySuccess('后台任务已完成');
@@ -903,24 +917,20 @@ export function useMessageStream({
     },
 
     // 中间助手消息（对齐 Hermes _emit_interim_assistant_message）
+    // 🔴 Phase 2: 独立 assistant 消息（对齐宫格 useGridChat interim.message）
     onInterimMessage: (data: { content: string; alreadyStreamed: boolean }) => {
       if (data.content && !data.alreadyStreamed) {
         addDebugEvent('interim_message', data.content.slice(0, 60));
-        mutateStream(
-          (parts) => [...parts, textPart(data.content)],
-          () => [textPart(data.content)],
-        );
+        appendIndependentMessage({ id: genId(), role: 'assistant' as const, parts: [textPart(data.content)], timestamp: Date.now() });
       }
     },
 
     // 后台 Review 结果（对齐 Hermes background_review_callback）
+    // 🔴 Phase 2: 独立 system 消息（对齐宫格 useGridChat background.review）
     onBackgroundReview: (data: { summary: string }) => {
       if (data.summary) {
         addDebugEvent('background_review', data.summary.slice(0, 60));
-        mutateStream(
-          (parts) => [...parts, textPart(`🔍 后台审查: ${data.summary}`)],
-          () => [textPart(`🔍 后台审查: ${data.summary}`)],
-        );
+        appendIndependentMessage({ id: genId(), role: 'system' as const, parts: [textPart(`🔍 后台审查: ${data.summary}`)], timestamp: Date.now() });
       }
     },
   } satisfies SSECallbacks;
