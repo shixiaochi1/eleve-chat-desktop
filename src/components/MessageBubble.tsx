@@ -145,7 +145,9 @@ export default function MessageBubble({ type, content, streaming, timestamp, mes
             {displayContent || ''}
           </span>
         ) : (
-          <span ref={textRef} className="prose max-w-none [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_img]:max-w-full" dangerouslySetInnerHTML={{ __html: renderedHtml || '<em>(无内容)</em>' }} />
+          /* 🔴 Phase 3: 排版对齐流式态（审查 #5）— prose 默认 line-height 1.75 与流式 leading-[1.75] 一致，
+             块级 margin 全部清零（p/pre/ul/ol/标题等），消灭 message.complete 切换瞬间的高度突变 */
+          <span ref={textRef} className="prose max-w-none [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_img]:max-w-full [&_p]:my-0 [&_pre]:my-0 [&_ul]:my-0 [&_ol]:my-0 [&_blockquote]:my-0 [&_h1]:my-0 [&_h2]:my-0 [&_h3]:my-0 [&_h4]:my-0 [&_h5]:my-0 [&_h6]:my-0 [&_hr]:my-0 [&_table]:my-0" dangerouslySetInnerHTML={{ __html: renderedHtml || '<em>(无内容)</em>' }} />
         )}
       </div>
       {/* 操作栏 + 时间 — 流式/非流式同结构，消除切换抖动 */}

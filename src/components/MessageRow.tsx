@@ -13,7 +13,7 @@
 import { memo } from 'react'
 import MessageBubble from './MessageBubble'
 import ReasoningBlock from './ReasoningBlock'
-import ToolCallGroup, { isSpecialTool, type ToolCallItem } from './ToolCallGroup'
+import ToolEntry, { type ToolCallItem } from './ToolEntry'
 import HoistedTodoPanel, { todosFromMessageParts } from './HoistedTodoPanel'
 import type { ChatMessage, ChatMessagePart } from '@/types'
 
@@ -34,67 +34,43 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete }: Mes
     }
 
     if (m.role === 'assistant') {
-      // ── 分组渲染：连续 tool-call 合并为一组（对齐 Eleve groupToolParts）──
+      // ── 🔴 Phase 3: 到达序渲染 + 工具永不分组（对齐 Hermes ToolGroupSlot）──
+      // 每个 tool-call 独立成行（稳定 callId key）：流式碎片 vs 落定整段像素级一致，无落定重排。
+      // 稳定 key（审查 #4）：text/reasoning 用同类型序号（parts 只追加不重排，序号稳定），
+      // tool 用 toolCallId — 消灭 index key 导致的 finalize 重建/折叠态丢失。
       type RenderItem =
-        | { kind: 'reasoning'; key: string; text: string }
+        | { kind: 'reasoning'; key: string; text: string; done?: boolean; idx: number }
         | { kind: 'text'; key: string; text: string; isLast: boolean }
-        | { kind: 'tool-group'; key: string; tools: ToolCallItem[] }
-        | { kind: 'special-tool'; key: string; tool: ToolCallItem }
+        | { kind: 'tool'; key: string; tool: ToolCallItem }
 
       const renderItems: RenderItem[] = []
-      let toolBuffer: ToolCallItem[] = []
-      let bufferKey = ''
-
-      const flushToolBuffer = () => {
-        if (toolBuffer.length === 0) return
-        renderItems.push({ kind: 'tool-group', key: bufferKey, tools: [...toolBuffer] })
-        toolBuffer = []
-        bufferKey = ''
-      }
+      let textOrdinal = 0
+      let reasoningOrdinal = 0
 
       for (let pi = 0; pi < m.parts.length; pi++) {
         const part = m.parts[pi]
 
         if (part.type === 'tool-call') {
-          // 特殊工具（todo/image_generate/clarify）不参与分组
-          if (isSpecialTool(part.toolName)) {
-            flushToolBuffer()
-            renderItems.push({
-              kind: 'special-tool',
-              key: `st-${part.toolCallId || pi}`,
-              tool: {
-                name: part.toolName,
-                callId: part.toolCallId,
-                argsStr: part.argsText,
-                resultStr: part.result != null ? (typeof part.result === 'string' ? part.result : JSON.stringify(part.result)) : undefined,
-                status: part.result != null ? 'done' : 'pending',
-              },
-            })
-            continue
-          }
-
-          // 加入工具缓冲区
-          if (toolBuffer.length === 0) bufferKey = `tg-${pi}`
-          toolBuffer.push({
-            name: part.toolName,
-            callId: part.toolCallId,
-            argsStr: part.argsText,
-            resultStr: part.result != null ? (typeof part.result === 'string' ? part.result : JSON.stringify(part.result)) : undefined,
-            status: part.result != null ? 'done' : 'pending',
+          renderItems.push({
+            kind: 'tool',
+            key: `tc-${part.toolCallId || `${m.id}-${pi}`}`,
+            tool: {
+              name: part.toolName,
+              callId: part.toolCallId,
+              argsStr: part.argsText,
+              resultStr: part.result != null ? (typeof part.result === 'string' ? part.result : JSON.stringify(part.result)) : undefined,
+              // 🔴 Phase 3: 消费 isError（审查 #6：失败工具不再显示绿勾）
+              status: part.isError ? 'error' : part.result != null ? 'done' : 'pending',
+            },
           })
-          continue
-        }
-
-        // 非 tool-call → 先刷出缓冲区
-        flushToolBuffer()
-
-        if (part.type === 'reasoning') {
-          renderItems.push({ kind: 'reasoning', key: `r-${pi}`, text: part.text })
+        } else if (part.type === 'reasoning') {
+          renderItems.push({ kind: 'reasoning', key: `r-${m.id}-${reasoningOrdinal}`, text: part.text, done: part.done, idx: reasoningOrdinal })
+          reasoningOrdinal++
         } else if (part.type === 'text') {
-          renderItems.push({ kind: 'text', key: `t-${pi}`, text: part.text, isLast: pi === m.parts.length - 1 })
+          renderItems.push({ kind: 'text', key: `t-${m.id}-${textOrdinal}`, text: part.text, isLast: pi === m.parts.length - 1 })
+          textOrdinal++
         }
       }
-      flushToolBuffer()
 
       // 从 parts 中提取 todo 列表（对齐 Eleve HoistedTodoPanel）
       const hoistedTodos = todosFromMessageParts(m.parts)
@@ -105,7 +81,9 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete }: Mes
           {renderItems.map(item => {
             switch (item.kind) {
               case 'reasoning':
-                return <ReasoningBlock key={item.key} text={item.text} visible={!!item.text} messageId={m.id} pending={!!m.pending} />
+                // 🔴 Phase 3: pending 自门控（审查 #7）— 仅未冻结（!done）块随消息 pending，
+                // 已 reasoning.end 的块不再显示“思考中”计时器；块级 timerKey 消灭多块同读数。
+                return <ReasoningBlock key={item.key} text={item.text} visible={!!item.text} messageId={m.id} blockIndex={item.idx} pending={!!m.pending && !item.done} />
               case 'text':
                 return (
                   <MessageBubble
@@ -118,11 +96,8 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete }: Mes
                     onDelete={onDelete}
                   />
                 )
-              case 'tool-group':
-                return <ToolCallGroup key={item.key} tools={item.tools} />
-              case 'special-tool':
-                // 特殊工具暂用 ToolCallGroup 单工具渲染
-                return <ToolCallGroup key={item.key} tools={[item.tool]} />
+              case 'tool':
+                return <ToolEntry key={item.key} tool={item.tool} />
             }
           })}
           {m.error && <MessageBubble type="error" content={m.error} />}

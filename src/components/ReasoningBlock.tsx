@@ -7,9 +7,11 @@ import { cn } from '@/lib/utils';
 interface ReasoningBlockProps {
   text?: string;
   visible?: boolean;
-  /** 消息ID，用于 timer key（对齐 Eleve timerKey: `reasoning:${messageId}`） */
+  /** 消息ID，用于 timer key */
   messageId?: string;
-  /** 是否正在思考（pending 状态） */
+  /** 🔴 Phase 3: 推理块序号（块级 timerKey—消灭多块同读数；审查 #7） */
+  blockIndex?: number;
+  /** 是否正在思考（pending 状态—由 MessageRow 自门控：仅未冻结块随消息 pending） */
   pending?: boolean;
 }
 
@@ -23,17 +25,20 @@ interface ReasoningBlockProps {
  *   - 🔴 禁止 scrollIntoView — 虚拟化列表中会造成反馈循环
  *   - 思考气泡内 ResizeObserver 自动滚底（仅 preview 模式）
  */
-export default function ReasoningBlock({ text, visible, messageId, pending }: ReasoningBlockProps) {
-  const [expanded, setExpanded] = useState(false);
+export default function ReasoningBlock({ text, visible, messageId, blockIndex, pending }: ReasoningBlockProps) {
+  // 🔴 Phase 3: 三态默认策略（对齐 Hermes message-parts: open = userOpen ?? pending）：
+  // userOpen=null 时流式自动展开、完成自动折叠；用户首次手动 toggle 后永久生效。
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const [copied, setCopied] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const open = userOpen ?? !!pending;
 
-  // 计时器（对齐 Eleve useElapsedSeconds）
-  const timerKey = messageId ? `reasoning:${messageId}` : 'reasoning:unknown';
+  // 计时器（🔴 Phase 3: 块级 key—多推理块各自计时，不再全块同读数）
+  const timerKey = messageId ? `reasoning:${messageId}:${blockIndex ?? 0}` : 'reasoning:unknown';
   const elapsed = useElapsedSeconds(!!pending, timerKey);
 
-  // 预览模式：pending 且用户未手动展开时，自动滚到底
-  const isPreview = !!pending && !expanded;
+  // 预览模式：pending 且展开时，自动滚到底
+  const isPreview = !!pending && open;
 
   useEffect(() => {
     if (!isPreview || !contentRef.current) return;
@@ -67,11 +72,11 @@ export default function ReasoningBlock({ text, visible, messageId, pending }: Re
             'flex items-center gap-1.5 text-xs transition-colors',
             pending ? 'text-foreground/55' : 'text-muted-foreground hover:text-foreground'
           )}
-          onClick={() => setExpanded(prev => !prev)}
+          onClick={() => setUserOpen(!open)}
         >
           <ThinkingIcon size={12} className="inline-block shrink-0" />
           思考
-          {isLong && <span className="text-[10px] text-muted-foreground/50">{expanded ? '收起' : '展开'}</span>}
+          {isLong && <span className="text-[10px] text-muted-foreground/50">{open ? '收起' : '展开'}</span>}
         </button>
         {/* 计时器 — 仅 pending 时显示 */}
         {pending && <ActivityTimerText seconds={elapsed} />}
@@ -94,14 +99,14 @@ export default function ReasoningBlock({ text, visible, messageId, pending }: Re
         className={cn(
           'text-sm whitespace-pre-wrap break-words select-text',
           pending ? 'text-muted-foreground/55' : 'text-muted-foreground',
-          !expanded && isLong && 'max-h-[5.5em] overflow-hidden cursor-pointer [-webkit-mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)] [mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)]',
-          expanded && 'select-text',
+          !open && isLong && 'max-h-[5.5em] overflow-hidden cursor-pointer [-webkit-mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)] [mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)]',
+          open && 'select-text',
           isPreview && 'max-h-[5.5em] overflow-y-auto',
         )}
         onClick={(e) => {
           const sel = window.getSelection();
           if (sel && sel.toString().length > 0) return;
-          isLong && !expanded && setExpanded(true);
+          isLong && !open && setUserOpen(true);
         }}
       >
         {text}

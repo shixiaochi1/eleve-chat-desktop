@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Plus,
   X,
+  AlertCircle,
   Search,
   ArrowLeft,
   RotateCw,
@@ -124,6 +125,8 @@ export const FallbackIcon: IconComponent = (props) => <RefreshCw size={ICON_SIZE
 export const StatusDot: IconComponent = (props) => <Circle size={10} {...strokeProps} {...props} />;
 export const DotIcon: IconComponent = (props) => <Circle size={8} fill="currentColor" strokeWidth={0} {...props} />;
 export const CheckIcon: IconComponent = (props) => <Check size={ICON_SIZE_SM} {...strokeProps} {...props} />;
+/** 错误图标（对齐 Hermes tool error 红色 AlertCircle） */
+export const ErrorIcon: IconComponent = (props) => <AlertCircle size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const LoadingIcon: IconComponent = (props) => <Loader size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 
 // ── 操作扩展图标 ──
