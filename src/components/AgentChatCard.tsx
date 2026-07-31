@@ -17,6 +17,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback, memo } from 
 import { Bot, Maximize2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
+import { getWsClient } from '../services/ws-client';
 import MessageRow from './MessageRow';
 import ApprovalCard from './ApprovalCard';
 import ClarifyCard from './ClarifyCard';
@@ -48,7 +49,7 @@ interface AgentChatCardProps {
   color: AgentCardColor;
   focused: boolean;
   portReady: boolean;
-  onSend: (profile: string, text: string) => void;
+  onSend: (profile: string, text: string, attachments?: Array<{ id: string; name: string; size: number; preview: string }>, attachmentDataURLs?: string[]) => void;
   onLoadMore: (profile: string) => void;
   onAbort: (profile: string) => void;
   onClearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm') => void;
@@ -187,12 +188,24 @@ export const AgentChatCard = memo(function AgentChatCard({
     if (el && stickBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [state.messages.length, state.streamParts]);
 
-  // ── 发送（贴底跟随 + 路由到本 Agent + 清图片预览）──
+  // ── 发送（贴底跟随 + 路由到本 Agent + 🔴 附件归属处理）──
   const handleSend = useCallback((text: string) => {
     stickBottomRef.current = true;
-    onSend(name, text);
-    clearImages(); // 🔴 P1-8: 发送后清图片附件预览，对齐单视图
-  }, [onSend, name, clearImages]);
+    const wasBusy = state.status === 'streaming';
+    const images = [...attachedImages];
+    // 准备附件元数据 + base64（排队用）
+    const queuedAttachments = images.map((img) => ({ id: img.id, name: img.name, size: img.size, preview: img.preview }));
+    const dataURLs = images.map((img) => img.preview);
+    onSend(name, text, queuedAttachments.length > 0 ? queuedAttachments : undefined, dataURLs.length > 0 ? dataURLs : undefined);
+    // 🔴 busy 时排队：从 session 分离图片（防下次发送误消费）
+    if (wasBusy && images.length > 0) {
+      const ws = getWsClient();
+      for (const img of images) {
+        ws.imageDetach(img.path).catch(() => {});
+      }
+    }
+    if (images.length > 0) clearImages();
+  }, [onSend, name, clearImages, attachedImages, state.status]);
 
   const approval = state.pendingApproval as ApprovalPayload | null;
   const clarify = state.pendingClarify as ClarifyPayload | null;

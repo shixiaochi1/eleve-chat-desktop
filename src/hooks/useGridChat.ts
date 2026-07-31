@@ -50,7 +50,7 @@ import { toChatMessages, textPart, type SessionMessage, type ChatMessagePart } f
 import { createAccumulator, resetAccumulator, resetAccumulatorForStep, processAccumulatorEvent, finalizeAccumulator, extractPendingInteractions, type StreamAccumulator } from '@/lib/ws-event-processor';
 import { handleGlobalEvent } from '@/lib/global-events';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
-import { enqueue as queueEnqueue, dequeue as queueDequeue, peek as queuePeek, clearQueue, getQueueLength, getQueue, removeEntry, promoteEntry, MAX_DRAIN_ATTEMPTS, getDrainFailures, incrementDrainFailures, clearDrainFailures, resetAllDrainFailures } from '@/lib/message-queue';
+import { enqueue as queueEnqueue, dequeue as queueDequeue, peek as queuePeek, clearQueue, getQueueLength, getQueue, removeEntry, promoteEntry, MAX_DRAIN_ATTEMPTS, getDrainFailures, incrementDrainFailures, clearDrainFailures, resetAllDrainFailures, stashAttachmentData, takeAttachmentData, type QueuedAttachment } from '@/lib/message-queue';
 import type { ChatMessage } from '@/types';
 
 const WINDOW_MAX = 100;   // 每 Agent 内存最多保留消息数（超出 evict 头部）
@@ -103,7 +103,7 @@ export function useGridChat(active: boolean): {
   states: Record<string, AgentChatState>;
   loadLatest: (profile: string, sessionId: string) => Promise<void>;
   loadMore: (profile: string) => Promise<void>;
-  sendTo: (profile: string, text: string, modelOpts?: { model?: string; provider?: string }) => Promise<void>;
+  sendTo: (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachments?: QueuedAttachment[]; attachmentDataURLs?: string[] }) => Promise<void>;
   abortAgent: (profile: string) => Promise<void>;
   clearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm') => void;
   /** 新建会话：清空本 Agent 上下文，下条 sendTo 后端自动建新 session */
@@ -130,7 +130,7 @@ export function useGridChat(active: boolean): {
   // 🔴 per-entry 失败计数（对齐 Hermes drainFailuresRef Map）：记录当前正在 drain 的条目 ID
   const lastDrainEntryRef = useRef<Record<string, string | null>>({});
   // sendTo 镜像 ref（供 WS handler message.complete 内 drain 调用，避免循环依赖）
-  const sendToRef = useRef<(profile: string, text: string, modelOpts?: { model?: string; provider?: string }, fromDrain?: boolean) => Promise<void>>(async () => {});
+  const sendToRef = useRef<(profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachments?: QueuedAttachment[]; attachmentDataURLs?: string[] }, fromDrain?: boolean) => Promise<void>>(async () => {});
 
   // 单 Agent 状态更新（不可变 patch）
   const patch = useCallback((profile: string, updater: (s: AgentChatState) => AgentChatState) => {
@@ -196,12 +196,14 @@ export function useGridChat(active: boolean): {
   }, [patch]);
 
   // ── 发送消息到指定 Agent（显式 profile + session_id，不切全局盖章） ──
-  const sendTo = useCallback(async (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, fromDrain?: boolean) => {
+  const sendTo = useCallback(async (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachments?: QueuedAttachment[]; attachmentDataURLs?: string[] }, fromDrain?: boolean) => {
     if (!text.trim()) return;
 
     // 🔴 per-agent 发送锁：流式期间排队（持久化，对齐 Hermes composer-queue），结束后自动发送
     if (sendingRef.current[profile]) {
-      queueEnqueue(profile, { text, modelOpts });
+      const entry = queueEnqueue(profile, { text, modelOpts, attachments: opts?.attachments });
+      // 🔴 附件 base64 暂存内存（drain 时取出附着后端，对齐单视图 stashAttachmentData）
+      if (opts?.attachmentDataURLs?.length) stashAttachmentData(entry.id, opts.attachmentDataURLs);
       patch(profile, (st) => ({
         ...st,
         messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
@@ -270,6 +272,28 @@ export function useGridChat(active: boolean): {
 
   // 同步 sendTo 镜像（供 WS handler drain 调用）
   sendToRef.current = sendTo;
+
+  // ── drain 附件 re-attach + 发送（对齐单视图 drainQueue 附件流）──
+  const drainSendEntry = useCallback(async (profile: string, entry: { id: string; text: string; modelOpts?: { model?: string; provider?: string }; attachments: QueuedAttachment[] }) => {
+    // 🔴 附件 re-attach：drain 时取出内存 base64 → imageAttachBytes → 后端 session.attached_images
+    const dataURLs = takeAttachmentData(entry.id);
+    if (entry.attachments.length > 0 && dataURLs && dataURLs.length > 0) {
+      try {
+        const ws = getWsClient();
+        const sid = statesRef.current[profile]?.sessionId;
+        for (const dataURL of dataURLs) {
+          const base64 = dataURL.includes(',') ? dataURL.split(',')[1]! : dataURL;
+          await ws.imageAttachBytes(base64, undefined, sid ?? undefined);
+        }
+      } catch (e) {
+        console.warn('[useGridChat] drain attachment re-attach failed:', e);
+        import('../utils/notifications').then(({ notifyWarning }) => notifyWarning('附件重新附着失败，已降级为纯文本发送', '附件失效')).catch(() => {});
+      }
+    } else if (entry.attachments.length > 0 && !dataURLs) {
+      import('../utils/notifications').then(({ notifyWarning }) => notifyWarning('页面刷新后附件数据已失效，已降级为纯文本发送', '附件失效')).catch(() => {});
+    }
+    await sendToRef.current(profile, entry.text, entry.modelOpts, undefined, true);
+  }, []);
 
   // ── 中止某 Agent 的流 ──
   // 🔴 Phase B 重构：abort 不自释放锁 / 不自 drain。
@@ -463,7 +487,7 @@ export function useGridChat(active: boolean): {
           { const eid = lastDrainEntryRef.current[profile]; if (eid) clearDrainFailures(eid); lastDrainEntryRef.current[profile] = null; }
           if (getQueueLength(profile) > 0) {
             const next = queueDequeue(profile);
-            if (next) { lastDrainEntryRef.current[profile] = next.id; sendToRef.current(profile, next.text, next.modelOpts, true); }
+            if (next) { lastDrainEntryRef.current[profile] = next.id; void drainSendEntry(profile, next); }
           }
           break;
         }
@@ -548,7 +572,7 @@ export function useGridChat(active: boolean): {
           { const eid = lastDrainEntryRef.current[profile]; if (eid) incrementDrainFailures(eid); lastDrainEntryRef.current[profile] = null; }
           { const next = queuePeek(profile);
             if (next && getDrainFailures(next.id) < MAX_DRAIN_ATTEMPTS) {
-              queueDequeue(profile); lastDrainEntryRef.current[profile] = next.id; sendToRef.current(profile, next.text, next.modelOpts, true);
+              queueDequeue(profile); lastDrainEntryRef.current[profile] = next.id; void drainSendEntry(profile, next);
             } else if (next) {
               import('../utils/notifications').then(({ notifyError }) => notifyError(`排队消息连续失败 ${MAX_DRAIN_ATTEMPTS} 次，已暂停自动发送`, '队列暂停')).catch(() => {});
             }
@@ -644,7 +668,7 @@ export function useGridChat(active: boolean): {
             { const eid = lastDrainEntryRef.current[profile]; if (eid) clearDrainFailures(eid); lastDrainEntryRef.current[profile] = null; }
             if (getQueueLength(profile) > 0) {
               const next = queueDequeue(profile);
-              if (next) { lastDrainEntryRef.current[profile] = next.id; sendToRef.current(profile, next.text, next.modelOpts, true); }
+              if (next) { lastDrainEntryRef.current[profile] = next.id; void drainSendEntry(profile, next); }
             }
             break;
           }
@@ -734,8 +758,8 @@ export function useGridChat(active: boolean): {
     if (!entry) return;
     removeEntry(profile, id);
     lastDrainEntryRef.current[profile] = entry.id;
-    void sendToRef.current(profile, entry.text, entry.modelOpts, true);
-  }, [patch]);
+    void drainSendEntry(profile, entry);
+  }, [patch, drainSendEntry]);
 
   // ── 删除排队条目 ──
   const deleteQueueEntry = useCallback((profile: string, id: string) => {

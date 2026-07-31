@@ -180,8 +180,8 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   }, [resetAgent, onNewSessionEffects]);
 
   // 🔴 发送包装：注入当前模型（对齐单视图 handleSend 传 modelOpts，ModelPill 选择生效）
-  const handleSendTo = useCallback((profile: string, text: string) => {
-    sendTo(profile, text, currentModel ? { model: currentModel } : undefined);
+  const handleSendTo = useCallback((profile: string, text: string, attachments?: Array<{ id: string; name: string; size: number; preview: string }>, attachmentDataURLs?: string[]) => {
+    sendTo(profile, text, currentModel ? { model: currentModel } : undefined, { attachments, attachmentDataURLs });
   }, [sendTo, currentModel]);
 
   // 状态镜像（退出/展开时读当前各 Agent session 指针）
