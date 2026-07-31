@@ -15,7 +15,7 @@ import { loadSettingsFromRust } from './utils/settings-store';
 import { discoverPort, call } from './utils/bridge';
 import { getActiveProfile, fetchProfiles } from './utils/api';
 import { getWsClient, setWsActiveProfile } from './services/ws-client';
-import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer } from './utils/session';
+import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer } from './utils/session';
 import type { ChatMessage } from './types';
 import ErrorBoundary from './components/ErrorBoundary';
 import CredentialCard from './components/CredentialCard';
@@ -86,6 +86,7 @@ export default function App() {
   const [commandCenterOpen, setCommandCenterOpen] = useState<boolean>(false);
   const [depsReady, setDepsReady] = useState<boolean>(false);
   const [portReady, setPortReady] = useState<boolean>(false); // 需要 discoverPort 后才就绪
+  const [profileResolved, setProfileResolved] = useState<boolean>(false); // 🔴 P0-2: getActiveProfile 完成后才允许恢复会话
   const [sessionListVersion, setSessionListVersion] = useState<number>(0);  // 刷新会话列表
   const [currentProfile, setCurrentProfile] = useState<string>('default');  // F9+ 当前活动 Profile（多 Profile 全局状态）
   const [viewMode, setViewMode] = useState<'single' | 'grid'>('single');  // 多 Agent 视图模式
@@ -116,12 +117,15 @@ export default function App() {
     let attempts = 0;
     const tryGetActive = () => {
       getActiveProfile()
-        .then((name) => { if (!cancelled) { setWsActiveProfile(name); setCurrentProfile(name); } })
+        .then((name) => { if (!cancelled) { setWsActiveProfile(name); setCurrentProfile(name); setProfileResolved(true); } })
         .catch(() => {
           // 🔴 决策④：恢复链不再静默失败，重试 5 次（指数退避）
           if (!cancelled && attempts < 5) {
             attempts++;
             setTimeout(tryGetActive, 800 * attempts);
+          } else if (!cancelled) {
+            // 🔴 P0-2: 重试耗尽也要解锁，否则启动恢复永远阻塞
+            setProfileResolved(true);
           }
         });
     };
@@ -140,13 +144,16 @@ export default function App() {
   }, [portReady]);
 
   // ── 多 Agent UI：Ctrl+G 切换单视图/宫格 ──
+  // 🔴 P1-3: grid→single 必须走 handleExitGrid（persistPointers + restoreProfileSession）
+  const exitGridRef = useRef<() => void>(() => {});
   const toggleViewMode = useCallback(() => {
-    setViewMode((prev) => {
-      const next = prev === 'single' ? 'grid' : 'single';
-      if (next === 'grid') hideDeepSeek().then(() => setDeepseekVisible(false));
-      return next;
-    });
-  }, []);
+    if (viewMode === 'single') {
+      hideDeepSeek().then(() => setDeepseekVisible(false));
+      setViewMode('grid');
+    } else {
+      exitGridRef.current();
+    }
+  }, [viewMode]);
 
   // ── DeepSeek 嵌入 WebView toggle ──
   const handleToggleDeepSeek = useCallback(async () => {
@@ -198,7 +205,9 @@ export default function App() {
   //
   const startupRestored = useRef(false);
   useEffect(() => {
-    if (!portReady || startupRestored.current) return;
+    // 🔴 P0-2: 必须等 profileResolved（getActiveProfile 完成）后才恢复，
+    // 否则 currentProfile 还是 'default' 初始值，闩锁后真实 profile 永远不被恢复。
+    if (!portReady || !profileResolved || startupRestored.current) return;
     startupRestored.current = true;
     const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
     // 🔴 串台防御：map 指针或全局 fallback 可能指向其他 profile 的 session，校验后才恢复
@@ -211,7 +220,7 @@ export default function App() {
         if (msgs?.length) storeSetMessages(msgs as ChatMessage[]);
       });
     }
-  }, [portReady, currentProfile, sess]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [portReady, profileResolved, currentProfile, sess]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── model picker state ──
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
@@ -369,7 +378,7 @@ export default function App() {
     } else {
       // 无历史会话 → 空白草稿
       sess.setSessionId(null);
-      storage.save('session_id', null);
+      clearSessionPointer(currentProfile); // 🔴 P1-6: 收敛到权威入口，同步清 map
       sess.setFreshDraftReady(true);
       getWsClient().switchSession('');
       storeSetMessages([]);
@@ -404,7 +413,7 @@ export default function App() {
       // 🔴 P0-1.2: 同上，pending 交互恢复依赖后端推送 session.info 事件
     } else {
       sess.setSessionId(null);
-      storage.save('session_id', null);
+      clearSessionPointer(profile); // 🔴 P1-6: 收敛到权威入口，同步清 map
       sess.setFreshDraftReady(true);
       getWsClient().switchSession('');
       storeSetMessages([]);
@@ -416,6 +425,7 @@ export default function App() {
     setViewMode('single');
     restoreProfileSession(currentProfile);
   }, [restoreProfileSession, currentProfile]);
+  exitGridRef.current = handleExitGrid; // 🔴 P1-3: 绑定到 toggleViewMode 的 ref
 
   // 展开某个 Agent 为单视图
   const handleExpandAgent = useCallback((profile: string) => {
@@ -552,8 +562,9 @@ export default function App() {
     };
   }, []);
 
-  // ── load markdown deps + init port + init theme + restore session on mount ──
-  const messagesInitDone = useRef<boolean>(false);
+  // ── load markdown deps + init port + init theme on mount ──
+  // 🔴 P0-1: 会话恢复统一由 startupRestored effect 处理（含 sessionIdMatchesProfile 校验）。
+  // mount 只预加载 cache/titles（无害），不设 sessionId、不加载消息。
   useEffect(() => {
     // 初始化主题（纯同步，立即执行）
     const savedTheme = (() => {
@@ -580,11 +591,8 @@ export default function App() {
     if (typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) {
       const portPromise = discoverPort();
 
+      // 🔴 P0-1: 只预加载 cache/titles，不设 sessionId、不加载消息
       storage.init().then(async () => {
-        const restoredId = storage.load('session_id', null) as string | null;
-        if (restoredId && restoredId !== sess.sessionId) {
-          sess.setSessionId(restoredId);
-        }
         const restoredCache = storage.load('msg_cache', {} as Record<string, ChatMessage[]>) as Record<string, ChatMessage[]>;
         const restoredTitles = storage.load('titles', {} as Record<string, string>) as Record<string, string>;
         if (Object.keys(restoredCache).length > 0 && Object.keys(sess.msgCache).length === 0) {
@@ -593,43 +601,21 @@ export default function App() {
         if (Object.keys(restoredTitles).length > 0 && Object.keys(sess.titles).length === 0) {
           sess.saveTitles(() => restoredTitles);
         }
-        if (restoredId && !messagesInitDone.current) {
-          messagesInitDone.current = true;
-          const cached = restoredCache[restoredId];
-          if (cached?.length) {
-            storeSetMessages(cached);
-            setDebugInfo((prev: DebugInfo) => ({ ...prev, sessionId: restoredId as string, sessionStartedAt: Date.now() }));
-          }
-        }
       });
 
-      // 🔴 修复竞态
-      Promise.all([portPromise, storage.init()]).then(([ok]) => {
+      // 端口发现 → portReady（会话恢复由 startupRestored effect 统一处理）
+      portPromise.then((ok) => {
         if (ok) {
           setPortReady(true);
         } else {
           setConnectionStatus('error');
           console.error('[App] Gateway port discovery failed');
-          return; // port 失败则不尝试加载
-        }
-        const restoredId = sess.sessionId;
-        if (restoredId && getMessages().length === 0) {
-          sess.loadHistory(restoredId).then((msgs: ChatMessage[] | null) => {
-            if (msgs?.length) {
-              storeSetMessages(msgs);
-              sess.saveCache((cache: Record<string, ChatMessage[]>) => ({ ...cache, [restoredId]: msgs }));
-              setDebugInfo((prev: DebugInfo) => ({ ...prev, sessionId: restoredId, sessionStartedAt: Date.now() }));
-            }
-          });
         }
       });
     } else {
       setPortReady(true);
+      // 🔴 P0-1: 同 Tauri 分支，只预加载 cache/titles
       storage.init().then(async () => {
-        const restoredId = storage.load('session_id', null) as string | null;
-        if (restoredId && restoredId !== sess.sessionId) {
-          sess.setSessionId(restoredId);
-        }
         const restoredCache = storage.load('msg_cache', {} as Record<string, ChatMessage[]>) as Record<string, ChatMessage[]>;
         const restoredTitles = storage.load('titles', {} as Record<string, string>) as Record<string, string>;
         if (Object.keys(restoredCache).length > 0 && Object.keys(sess.msgCache).length === 0) {
@@ -638,16 +624,7 @@ export default function App() {
         if (Object.keys(restoredTitles).length > 0 && Object.keys(sess.titles).length === 0) {
           sess.saveTitles(() => restoredTitles);
         }
-        if (restoredId && !messagesInitDone.current) {
-          messagesInitDone.current = true;
-          const cached = restoredCache[restoredId];
-          if (cached?.length) {
-            storeSetMessages(cached);
-            setDebugInfo((prev: DebugInfo) => ({ ...prev, sessionId: restoredId as string, sessionStartedAt: Date.now() }));
-          }
-        }
       });
-
     }
   }, []);  // ← 只执行一次，不依赖 messages 或 sessionId
 
@@ -662,7 +639,11 @@ export default function App() {
     if (wsClient.state === 'disconnected') {
       console.log('[App] Initiating WS connection (align Hermes: no session_id in URL)');
       wsClient.connect(undefined, {
-        onOpen: () => console.log('[App] WS connected'),
+        onOpen: () => {
+          console.log('[App] WS connected');
+          // 🔴 P1-1: 冷启动时 useSessions.refresh 在 WS 未连时静默失败，连接建立后补刷
+          sess.refresh();
+        },
         onClose: (code, reason) => console.log('[App] WS closed:', code, reason),
         onError: (err) => console.error('[App] WS error:', err),
       });

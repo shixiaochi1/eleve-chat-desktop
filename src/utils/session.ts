@@ -122,3 +122,21 @@ export function persistSessionPointer(sessionId: string): void {
     storage.save('profile_session_map', map);
   }
 }
+
+/**
+ * 🔴 P1-6: 清除会话指针（单一权威入口）
+ *
+ * 置空全局 session_id 的同时删除 profile_session_map 中对应条目。
+ * 禁止裸调 storage.save('session_id', null)，否则 map 残留僵尸指针。
+ * @param profile 要清除的 profile；不传则只清全局指针（兼容未知 profile 场景）
+ */
+export function clearSessionPointer(profile?: string): void {
+  storage.save('session_id', null);
+  if (profile) {
+    const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
+    if (map[profile] !== undefined) {
+      delete map[profile];
+      storage.save('profile_session_map', map);
+    }
+  }
+}

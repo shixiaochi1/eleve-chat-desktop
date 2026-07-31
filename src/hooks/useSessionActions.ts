@@ -3,6 +3,7 @@ import { activateSession } from '../utils/api';
 import { setMessages as storeSetMessages } from '../store/messages';
 import * as storage from '../utils/storage';
 import { getWsClient } from '../services/ws-client';
+import { clearSessionPointer, profileFromSessionId } from '../utils/session';
 import type { SessionManagerHandle } from './useMessageStream';
 import { textPart } from '@/lib/chat-messages'
 import type { ChatMessage } from '@/types';
@@ -79,10 +80,18 @@ export function useSessionActions({
   // ── session delete handler ──
   const handleDeleteSession = useCallback(async (id: string) => {
     sess.remove(id);
+    // 🔴 P1-5: 删除会话同步清 profile_session_map，防僵尸指针复活
+    const owner = profileFromSessionId(id);
+    if (owner) {
+      const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
+      if (map[owner] === id) {
+        delete map[owner];
+        storage.save('profile_session_map', map);
+      }
+    }
     if (sess.sessionId === id) {
       storeSetMessages([]);
       // 🔴 P1-2.4: 删当前会话时释放锁 + 清 WS client session（对齐 handleNewSession）
-      // 不清 switchSession → ws-client 内部 sessionId 仍是已删除 id → 下条消息发到死会话
       resetSendingLock?.();
       resetStream?.();
       getWsClient().switchSession('');
@@ -98,9 +107,10 @@ export function useSessionActions({
     resetStream?.();
     // 清空前端状态（不触发后端请求）
     storeSetMessages([]);
-    // 清除 session ID，标记为 fresh draft
+    // 🔴 P1-6: 先捕获 profile 再清 sessionId（否则 profileFromSessionId 拿到 null）
+    const prevProfile = profileFromSessionId(sess.sessionId) || undefined;
     sess.setSessionId(null);
-    storage.save('session_id', null);
+    clearSessionPointer(prevProfile);
     // 🔴 Fix BUG#1: 同步清除 WS client 内部 session ID，防止 promptSubmit fallback 到旧 ID
     // 不清除 → 首条消息发到旧 session → agent 带旧上下文回复 → "新建会话"名存实亡
     getWsClient().switchSession('');
