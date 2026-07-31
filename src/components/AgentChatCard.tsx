@@ -9,7 +9,7 @@
  * - 纯受控：所有数据/动作经 props（state + 回调），本卡片不持有 WS/store 耦合
  * - 交互弹窗复用单视图同款组件（ApprovalCard/ClarifyCard/CredentialCard）——它们自行
  *   发送回传 RPC（按 session_id/request_id 天然路由到正确 profile），是单一权威路径
- * - 流式气泡独立于消息列表渲染（streamText 高频更新不重渲染历史消息）
+ * - 流式气泡独立于消息列表渲染（streamParts 30fps flush 不重渲染历史消息）
  * - 上翻加载 prepend 时保持视口位置（记录 scrollHeight 差值补偿）
  * - memo 化：父级按 profile patch 状态，未变 profile 的卡片 props 引用不变 → 跳过重渲染
  */
@@ -138,7 +138,7 @@ export const AgentChatCard = memo(function AgentChatCard({
   useEffect(() => {
     const el = scrollRef.current;
     if (el && stickBottomRef.current) el.scrollTop = el.scrollHeight;
-  }, [state.messages.length, state.streamText, state.streamReasoning]);
+  }, [state.messages.length, state.streamParts]);
 
   // ── 发送（贴底跟随 + 路由到本 Agent + 清图片预览）──
   const handleSend = useCallback((text: string) => {
@@ -217,7 +217,7 @@ export const AgentChatCard = memo(function AgentChatCard({
           </div>
         )}
 
-        {state.messages.length === 0 && !state.streamText && !state.streamReasoning && !state.streamParts?.length ? (
+        {state.messages.length === 0 && !state.streamParts?.length ? (
           <div className="flex flex-col items-center justify-center gap-1.5 h-full py-8">
             <Bot size={22} strokeWidth={1} className="text-muted-foreground/20" />
             <span className="text-[10px] text-muted-foreground/30">暂无对话 · 下方输入开始</span>
@@ -230,18 +230,16 @@ export const AgentChatCard = memo(function AgentChatCard({
             单视图流式 = store 里 pending 消息经 MessageRow（MessageBubble streaming 模式 +
             ReasoningBlock shimmer/计时器/折叠）。宫格用合成 pending 消息走同一条渲染路径，
             气泡样式/推理块/间距全自动对齐，MessageRow 任何改动宫格流式同步生效。
-            独立于 state.messages 渲染 → 30fps streamText 更新不重渲染历史列表（性能优化保留）。 */}
-        {(state.streamReasoning || state.streamText || state.streamParts?.length > 0) && (
+            🔴 Phase 1: streamParts = 累加器到达序 segment 的 flush 镜像（与单视图 live parts 同构），
+            直接作为合成消息的 parts — 不再三字段拼装（消灭 reasoning→tools→text 类型序跳变）。
+            独立于 state.messages 渲染 → 30fps flush 不重渲染历史列表（性能优化保留）。 */}
+        {state.streamParts?.length > 0 && (
           <MessageRow
             message={{
               id: `${name}-streaming`,
               role: 'assistant',
               pending: true,
-              parts: [
-                ...(state.streamReasoning ? [{ type: 'reasoning' as const, text: state.streamReasoning }] : []),
-                ...(state.streamParts || []),
-                ...(state.streamText ? [{ type: 'text' as const, text: state.streamText }] : []),
-              ],
+              parts: state.streamParts,
             }}
           />
         )}

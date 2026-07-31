@@ -20,6 +20,8 @@ export interface TextMessagePart {
 export interface ReasoningMessagePart {
   readonly type: 'reasoning'
   readonly text: string
+  /** 推理块已冻结（reasoning.end 发出）。冻结后下一个 reasoning.delta 新开块 — 多推理块支持 */
+  readonly done?: boolean
 }
 
 export interface ToolCallMessagePart {
@@ -157,32 +159,29 @@ export function appendTextPart(parts: ChatMessagePart[], delta: string): ChatMes
 }
 
 export function appendReasoningPart(parts: ChatMessagePart[], delta: string): ChatMessagePart[] {
-  // 对齐 Eleve: reasoning 永远只有一个 part
-  // 找到现有的 reasoning part 并追加，而非只在 last 是 reasoning 时追加
-  const reasoningIdx = parts.findIndex(p => p.type === 'reasoning')
-  if (reasoningIdx >= 0) {
+  // 🔴 块感知追加（对齐 Hermes appendStreamPart 多块语义）：
+  // 尾部是未冻结 reasoning 块（done !== true）→ 并入；否则（无/已冻结/尾部是其他类型）→ 新开块。
+  // reasoning.end 经 freezeReasoningPart 冻结尾块，下一个 delta 自然新开 — 流式与累加器同构。
+  const last = parts.at(-1)
+  if (last && last.type === 'reasoning' && !last.done) {
     const next = [...parts]
-    const existing = next[reasoningIdx] as { type: 'reasoning'; text: string }
-    next[reasoningIdx] = { ...existing, text: `${existing.text}${delta}` }
+    next[next.length - 1] = { ...last, text: `${last.text}${delta}` }
     return next
   }
-
-  // 没有 reasoning part — 创建新的
-  const next = [...parts]
-  next.push(reasoningPart(delta))
-  return next
+  return [...parts, reasoningPart(delta)]
 }
 
 /**
- * Replace the content of the last reasoning part with fullText (not append).
- * Used by flushThrottled which stores fullText, not incremental deltas.
+ * 冻结尾部 reasoning 块（reasoning.end 发出）。
+ * 冻结后 appendReasoningPart 会新开块 — 单轮多推理块的数据基础。
+ * 尾部不是 reasoning 或已冻结时原样返回（纯函数无副作用）。
  */
-export function replaceReasoningPart(parts: ChatMessagePart[], fullText: string): ChatMessagePart[] {
-  // 对齐 Eleve: 先过滤掉所有 reasoning parts，再 push 新的
-  // 确保数组中永远只有 1 个 reasoning part，避免气泡分裂
-  const filtered: ChatMessagePart[] = parts.filter(part => part.type !== 'reasoning')
-  filtered.push(reasoningPart(fullText))
-  return filtered
+export function freezeReasoningPart(parts: ChatMessagePart[]): ChatMessagePart[] {
+  const last = parts.at(-1)
+  if (!last || last.type !== 'reasoning' || last.done) return parts
+  const next = [...parts]
+  next[next.length - 1] = { ...last, done: true }
+  return next
 }
 
 // ── Tool part ID extraction ──

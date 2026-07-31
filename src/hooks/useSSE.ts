@@ -3,7 +3,7 @@ import { useIsStreaming, setIsStreaming as storeSetIsStreaming } from '@/store/m
 import { getWsClient } from '@/services/ws-client';
 import { handleGlobalEvent } from '@/lib/global-events';
 import { persistSessionPointer } from '../utils/session';
-import { createAccumulator, resetAccumulator, finalizeAccumulator, processAccumulatorEvent, type StreamAccumulator } from '@/lib/ws-event-processor';
+import { createAccumulator, resetAccumulator, resetAccumulatorForStep, finalizeAccumulator, processAccumulatorEvent, type StreamAccumulator } from '@/lib/ws-event-processor';
 import type { ChatMessagePart } from '@/lib/chat-messages';
 
 // ── SSE callback types ──
@@ -11,8 +11,8 @@ import type { ChatMessagePart } from '@/lib/chat-messages';
 // SSEAccumulators 已删除（pendingTools 是死状态，fullText/fullReasoning 对应 acc.text/acc.reasoning）
 
 export interface SSECallbacks {
-  onText?: (delta: string, fullText: string) => void
-  onReasoning?: (delta: string, fullText: string) => void
+  onText?: (delta: string) => void
+  onReasoning?: (delta: string) => void
   onReasoningStart?: () => void
   onToolStart?: (data: { id: string | null; name: string; preview?: string }) => void
   onToolGenerating?: (name: string) => void
@@ -107,7 +107,7 @@ export interface SSECallbacks {
   onError?: (msg: string) => void
   /** 后端自动创建 session 后通知前端更新 sessionId（架构原则：后端是权威源） */
   onSessionCreated?: (newSessionId: string) => void
-  onReasoningComplete?: (reasoning: string) => void
+  onReasoningComplete?: () => void
   onSessionReset?: (data: { old_session_id: string; new_session_id: string }) => void
   // 对齐 Eleve thinking_callback → thinking.delta 事件（Agent 思考状态，如"正在思考..."）
   onThinking?: (text: string) => void
@@ -163,7 +163,7 @@ function processEvent(
     case 'message.delta': {
       const delta = (chunk.delta as string) || '';
       processAccumulatorEvent(acc, eventName, chunk);
-      cbs.onText?.(delta, acc.text);
+      cbs.onText?.(delta);
       break;
     }
 
@@ -171,19 +171,21 @@ function processEvent(
     case 'reasoning.delta': {
       const delta = (chunk.text as string) || '';
       processAccumulatorEvent(acc, eventName, chunk);
-      cbs.onReasoning?.(delta, acc.reasoning);
+      cbs.onReasoning?.(delta);
       break;
     }
 
     case 'reasoning.available':
       // 拆变体后: ReasoningStart 不带文本，只是"推理开始"通知
+      // 🔴 Phase 1: 累加器种空占位块（与单视图 live onReasoningStart 同构，宫格经 flush 得 shimmer 占位）
+      processAccumulatorEvent(acc, eventName, chunk);
       cbs.onReasoningStart?.();
       break;
 
-    // ── 推理结束（对齐 Hermes: reasoning块结束 → 移累加器 reasoning → parts）──
+    // ── 推理结束（对齐 Hermes: reasoning.end 冻结当前块，多块支持）──
     case 'reasoning.end':
       processAccumulatorEvent(acc, eventName, chunk);
-      cbs.onReasoningComplete?.(acc.reasoning);
+      cbs.onReasoningComplete?.();
       break;
 
     // ── Agent 思考状态（对齐 Eleve thinking_callback → thinking.delta）──
@@ -245,9 +247,9 @@ function processEvent(
       break;
 
     // P1: 步骤完成（对齐 Hermes step_callback）
-    // 🔴 3.3: 步骤边界重置累加器（对齐宫格 useGridChat step.complete）
+    // 🔴 Phase 1: 步骤级重置（保留 sawStepComplete 标记 — 禁用整轮终稿兜底，防 P1-8 文本重复）
     case 'step.complete':
-      resetAccumulator(acc);
+      resetAccumulatorForStep(acc);
       cbs.onStepComplete?.({
         stepNumber: (chunk.step_number as number) || 0,
         toolResults: (chunk.tool_results as Array<{ tool_name: string; success: boolean }>)?.map(r => ({

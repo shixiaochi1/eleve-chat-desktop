@@ -15,7 +15,7 @@ import {
   upsertToolPart,
   appendTextPart,
   appendReasoningPart,
-  replaceReasoningPart,
+  freezeReasoningPart,
   type ChatMessagePart,
   type GatewayEventPayload,
 } from '@/lib/chat-messages';
@@ -354,31 +354,24 @@ export function useMessageStream({
     // ── Text delta — 1:1 with Eleve message.delta ──
     // queueDelta uses the INCREMENTAL delta.
     // 3.3: fullText 不再追踪 — onDone 走 drainFinalParts() 从共享累加器取权威 parts
-    onText: (delta: string, _fullText: string) => {
+    onText: (delta: string) => {
       queueDelta('assistant', delta)
     },
 
     // ── Reasoning delta — 1:1 with Eleve reasoning.delta ──
-    onReasoning: (delta: string, _fullText: string) => {
+    onReasoning: (delta: string) => {
       queueDelta('reasoning', delta)
     },
 
-    // [FIX #4] Reasoning replace — 1:1 with Eleve appendReasoningDelta(replace=true).
     // reasoning.available = 推理开始通知（拆变体后不带文本）
-    // Must flush first, then replace the reasoning part content.
-    // 对齐 Eleve: replace 模式下，filter 掉所有旧 reasoning parts 再添加新的
+    // 🔴 Phase 1: 种空未冻结推理块占位（与累加器 reasoning.available 处理同构）。
+    // 多块支持：尾部已是未冻结推理块则跳过（不重复种）；flush 先走保证前序 delta 落定。
     onReasoningStart: () => {
-      // ReasoningStart → 创建空推理 part 占位，后续 delta 会追加内容
       flushQueuedDeltas()
       mutateStream(
-        (parts, message) => {
-          // 如果已有推理 part，不重复创建
-          if (parts.some(p => p.type === 'reasoning')) return parts
-          // 如果已有文本内容，跳过（reasoning 已展示过了）
-          const hasText = message.parts
-            .filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text')
-            .some(p => p.text.trim())
-          if (hasText) return parts
+        (parts) => {
+          const last = parts.at(-1)
+          if (last && last.type === 'reasoning' && !last.done) return parts
           return [...parts, reasoningPart('')]
         },
         () => [reasoningPart('')],
@@ -851,12 +844,19 @@ export function useMessageStream({
       }
     },
 
-    // ── Reasoning completed — 推理块结束通知，无额外处理 ──
-    // 推理生命周期：reasoning.available(开始) + reasoning.delta(追加) + reasoning.end(结束)
-    // reasoning.end 已在 useSSE processEvent 中处理（移累加器 reasoning → parts）
-    // 本回调保留为 no-op 以满足 SSECallbacks 接口完整性
-    onReasoningComplete: (_reasoning: string) => {
-      // no-op — 推理事件已由 onReasoning + onReasoningStart + processEvent reasoning.end 覆盖
+    // ── Reasoning completed — 推理块结束 → 冻结 live 尾部推理块 ──
+    // 🔴 Phase 1: 与累加器 reasoning.end 处理同构（freezeReasoningPart）。
+    // 冻结后下一个 reasoning.delta 经 appendReasoningPart 自然新开块 — 多推理块流式不合并。
+    // 守卫：streamId 存在但消息未生成（run.started 预分配）时不种空气泡。
+    onReasoningComplete: () => {
+      const streamId = streamIdRef.current
+      if (!streamId) return
+      if (!getMessages().some(m => m.id === streamId)) return
+      mutateStream(
+        (parts) => freezeReasoningPart(parts),
+        () => [],
+        { pending: m => m.pending ?? true },
+      )
     },
 
     // ── 🔴 Phase 2b: 补齐单视图缺失的 8 个事件（对齐宫格 useGridChat 已处理）──

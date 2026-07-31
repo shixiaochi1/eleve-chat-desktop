@@ -15,26 +15,52 @@
  *    ❌ 副作用（session 列表刷新 / debug 事件）— 调用方负责
  * ═══════════════════════════════════════════════════════════════════
  */
-import { upsertToolPart, textPart, type ChatMessagePart, type GatewayEventPayload } from './chat-messages';
+import {
+  upsertToolPart,
+  textPart,
+  reasoningPart,
+  appendTextPart,
+  appendReasoningPart,
+  freezeReasoningPart,
+  type ChatMessagePart,
+  type GatewayEventPayload,
+} from './chat-messages';
 
-/** 流式累加器 — 收集一轮对话的 text / reasoning / tool parts */
+/**
+ * 流式累加器 — 一轮对话 in-flight parts 的唯一持有者（对齐 Hermes segment 模型）。
+ *
+ * parts = 到达序 segment 数组：text / reasoning / tool-call 按事件到达序交错。
+ *   - message.delta   → 并入尾部 text segment（尾部非 text 则新开，tool-call 为界）
+ *   - reasoning.delta → 并入尾部未冻结 reasoning 块（冻结则新开）
+ *   - reasoning.end   → 冻结尾部 reasoning 块
+ *   - tool.*          → upsert tool-call segment
+ * 两视图 live 渲染走同一套 segment 规则（chat-messages 的 appendText/appendReasoning/freeze/upsertToolPart），
+ * finalize 输出与流式骨架结构同构 → 完成替换点无结构性跳变（审查 P1-1/P1-3 根因）。
+ */
 export interface StreamAccumulator {
-  text: string;
-  reasoning: string;
   parts: ChatMessagePart[];
-  /** 后端 message.complete 权威终稿全文（累加结果发散时兜底） */
+  /** 后端 message.complete 权威终稿全文（仅“本轮无 step 边界且累加文本为空”时兜底） */
   serverContent?: string;
+  /** 本轮已出现 step.complete（跨步骤级重置存活）→ 禁用 serverContent 整轮终稿兜底，防末步纯工具时重复整轮文本（审查 P1-8） */
+  sawStepComplete: boolean;
 }
 
 export function createAccumulator(): StreamAccumulator {
-  return { text: '', reasoning: '', parts: [], serverContent: undefined };
+  return { parts: [], serverContent: undefined, sawStepComplete: false };
 }
 
+/** 轮级重置（message.complete / error / send / 会话切换）：全清 */
 export function resetAccumulator(acc: StreamAccumulator): void {
-  acc.text = '';
-  acc.reasoning = '';
   acc.parts = [];
   acc.serverContent = undefined;
+  acc.sawStepComplete = false;
+}
+
+/** 步骤级重置（step.complete）：清 parts 但保留本轮步骤边界标记 */
+export function resetAccumulatorForStep(acc: StreamAccumulator): void {
+  acc.parts = [];
+  acc.serverContent = undefined;
+  acc.sawStepComplete = true;
 }
 
 /**
@@ -72,17 +98,23 @@ export function processAccumulatorEvent(
 ): boolean {
   switch (eventName) {
     case 'message.delta':
-      acc.text += (payload.delta as string) || '';
+      acc.parts = appendTextPart(acc.parts, (payload.delta as string) || '');
       return true;
     case 'reasoning.delta':
-      acc.reasoning += (payload.text as string) || '';
+      acc.parts = appendReasoningPart(acc.parts, (payload.text as string) || '');
       return true;
-    case 'reasoning.end':
-      // 推理块结束 → 移入 parts（完成态），清 acc.reasoning（支持多推理块）
-      if (acc.reasoning) {
-        acc.parts = [...acc.parts, { type: 'reasoning' as const, text: acc.reasoning }];
-        acc.reasoning = '';
+    case 'reasoning.available': {
+      // 推理开始通知（无文本）：种空占位块（与单视图 live onReasoningStart 同构），
+      // 宫格流式经 flush 立即得到 shimmer 占位；尾部已是未冻结块则不重复种。
+      const last = acc.parts.at(-1);
+      if (!(last && last.type === 'reasoning' && !last.done)) {
+        acc.parts = [...acc.parts, reasoningPart('')];
       }
+      return true;
+    }
+    case 'reasoning.end':
+      // 推理块结束 → 冻结尾部块（下一个 reasoning.delta 自然新开块 — 多推理块支持）
+      acc.parts = freezeReasoningPart(acc.parts);
       return true;
     case 'tool.start':
     case 'tool.generating':
@@ -99,16 +131,18 @@ export function processAccumulatorEvent(
 
 /**
  * 将累加器转为最终消息 parts。
- * 顺序：reasoning → tool-call parts → text（与单视图 useMessageStream 一致）。
+ * 🔴 按到达序输出（与流式骨架同构 — 完成替换点无结构跳变）。
+ * serverContent 兜底仅限“本轮无 step.complete 边界且累加文本为空”（丢 delta/重连场景）；
+ * 有 step 边界的轮次禁止兜底（serverContent 是整轮终稿，步骤重置后兜底会重复前文，审查 P1-8）。
+ * 累加文本非空时保留累加结果（含 runtime footer，后端 content 不含 footer，覆盖会丢）。
  */
 export function finalizeAccumulator(acc: StreamAccumulator): ChatMessagePart[] {
-  const parts: ChatMessagePart[] = [];
-  if (acc.reasoning) parts.push({ type: 'reasoning' as const, text: acc.reasoning });
-  parts.push(...acc.parts);
-  // 🔴 Phase 4b #5: 累加文本为空时用后端权威终稿兜底（修复丢 delta/重连导致的空白消息）；
-  // 非空保留 acc.text（含 runtime footer，后端 content 不含 footer，直接覆盖会丢）。
-  const finalText = acc.text || acc.serverContent || '';
-  if (finalText) parts.push(textPart(finalText));
+  // 丢弃空 reasoning 占位（reasoning.available 种占但无后续 delta）
+  const parts = acc.parts.filter((p) => !(p.type === 'reasoning' && !p.text));
+  const hasText = parts.some((p) => p.type === 'text' && p.text.trim());
+  if (!hasText && acc.serverContent && !acc.sawStepComplete) {
+    return [...parts, textPart(acc.serverContent)];
+  }
   return parts;
 }
 

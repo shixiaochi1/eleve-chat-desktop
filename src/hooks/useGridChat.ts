@@ -7,7 +7,7 @@
  *
  * 【职责】
  *   管理 N 个 Agent 的独立聊天状态槽，通过单条 WS 连接解复用事件。
- *   每个 Agent 拥有独立的: sessionId / messages / streamText / pending 交互。
+ *   每个 Agent 拥有独立的: sessionId / messages / streamParts / pending 交互。
  *
  * 【事件路由机制（核心隔离逻辑）】
  *
@@ -47,7 +47,7 @@ import { getWsClient } from '@/services/ws-client';
 import { call } from '../utils/bridge';
 import { profileFromSessionId, sessionIdMatchesProfile, persistSessionPointer } from '../utils/session';
 import { toChatMessages, textPart, type SessionMessage, type ChatMessagePart } from '@/lib/chat-messages';
-import { createAccumulator, resetAccumulator, processAccumulatorEvent, finalizeAccumulator, extractPendingInteractions, type StreamAccumulator } from '@/lib/ws-event-processor';
+import { createAccumulator, resetAccumulator, resetAccumulatorForStep, processAccumulatorEvent, finalizeAccumulator, extractPendingInteractions, type StreamAccumulator } from '@/lib/ws-event-processor';
 import { handleGlobalEvent } from '@/lib/global-events';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
 import { enqueue as queueEnqueue, dequeue as queueDequeue, clearQueue, getQueueLength, MAX_DRAIN_ATTEMPTS } from '@/lib/message-queue';
@@ -66,9 +66,9 @@ export interface AgentChatState {
   oldestId: number | null;   // 上翻游标
   isLoadingMore: boolean;
   status: AgentStatus;
-  streamText: string;        // 当前流式累积（完成后并入 messages，清空）
-  streamReasoning: string;
-  streamParts: ChatMessagePart[];  // 流式中的工具调用 parts（复用 upsertToolPart 权威路径）
+  /** 🔴 Phase 1: 流式 in-flight parts（到达序 segment，累加器 acc.parts 的 30fps flush 镜像）。
+   *  完成后经 finalizeAccumulator 并入 messages、清空。与单视图 live parts 同构（同一套 segment 规则）。 */
+  streamParts: ChatMessagePart[];
   pendingApproval: unknown | null;
   pendingClarify: unknown | null;
   pendingSudo: unknown | null;
@@ -89,7 +89,7 @@ export interface AgentChatState {
 function emptyState(): AgentChatState {
   return {
     sessionId: null, messages: [], hasMore: false, oldestId: null,
-    isLoadingMore: false, status: 'idle', streamText: '', streamReasoning: '', streamParts: [],
+    isLoadingMore: false, status: 'idle', streamParts: [],
     pendingApproval: null, pendingClarify: null, pendingSudo: null, pendingSecret: null,
     pendingSlashConfirm: null, activityHint: '', sessionTitle: null, modelName: null, lastUsage: null,
     lastActivity: 0,
@@ -139,7 +139,7 @@ export function useGridChat(active: boolean): {
     if (accRef.current[profile]) resetAccumulator(accRef.current[profile]);
     sendingRef.current[profile] = false;
     clearQueue(profile);
-    patch(profile, (s) => ({ ...s, sessionId, status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '' }));
+    patch(profile, (s) => ({ ...s, sessionId, status: 'idle', streamParts: [], activityHint: '' }));
     try {
       const res = await call('get_session_messages', { session_id: sessionId, limit: PAGE_SIZE }) as {
         messages?: SessionMessage[]; has_more?: boolean; oldest_id?: number | null;
@@ -233,7 +233,7 @@ export function useGridChat(active: boolean): {
     const connected = await ws.ensureConnected(10000);
     if (!connected) {
       sendingRef.current[profile] = false;
-      patch(profile, (s) => ({ ...s, status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '' }));
+      patch(profile, (s) => ({ ...s, status: 'idle', streamParts: [], activityHint: '' }));
       return;
     }
 
@@ -268,7 +268,7 @@ export function useGridChat(active: boolean): {
     if (!s?.sessionId) return;
     try { await getWsClient().abortStream(s.sessionId); } catch { /* ignore */ }
     // 只更新 UI 状态（清流式显示），不动锁 / 不 drain — 等 message.complete 权威终止
-    patch(profile, (st) => ({ ...st, status: 'idle', streamText: '', streamReasoning: '', activityHint: '' }));
+    patch(profile, (st) => ({ ...st, status: 'idle', streamParts: [], activityHint: '' }));
   }, [patch]);
 
   // ── 清除 per-agent pending 交互状态 ──
@@ -430,7 +430,7 @@ export function useGridChat(active: boolean): {
             const msgs = finalParts.length
               ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: finalParts, timestamp: Date.now() }]
               : s.messages;
-            return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '', lastUsage: usageData ?? s.lastUsage, lastActivity: Date.now() };
+            return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamParts: [], activityHint: '', lastUsage: usageData ?? s.lastUsage, lastActivity: Date.now() };
           });
           // 🔴 Phase B: 释放发送锁 + 排队消息自动发送（单一权威终止入口）
           // abort 不自 drain，message.complete 是唯一释放点 → 消灭双 drain 并发 turn
@@ -513,7 +513,7 @@ export function useGridChat(active: boolean): {
             const msgs = errParts.length
               ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: errParts, error: errMsg, timestamp: Date.now() }]
               : s.messages;
-            return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '' };
+            return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamParts: [], activityHint: '' };
           });
           // 🔴 Phase B: error 也是权威终止事件，释放锁 + drain（对齐单视图 onError → drainQueue）
           sendingRef.current[profile] = false;
@@ -524,10 +524,7 @@ export function useGridChat(active: boolean): {
           }
           break;
         }
-        // ── 推理生命周期（reasoning.end 已由 processAccumulatorEvent 统一处理）──
-        case 'reasoning.available':
-          // 推理块开始通知（无文本，delta 事件随后到）—— 不额外处理
-          break;
+        // ── 推理生命周期（reasoning.available / reasoning.delta / reasoning.end 均由 processAccumulatorEvent 统一处理）──
         // ── Agent 思考状态（对齐单视图 onThinking）──
         case 'thinking.delta':
           patch(profile, (s) => ({ ...s, activityHint: (payload.text as string) || '', lastActivity: Date.now() }));
@@ -570,14 +567,14 @@ export function useGridChat(active: boolean): {
         }
         // ── 步骤完成（对齐 Hermes _emit_interim_assistant_message 消息分界）/ 中间消息 / 后台审查 ──
         case 'step.complete': {
-          // finalize 当前累加器 → 写入 messages 为独立气泡，重置累加器供下一步使用
+          // finalize 当前累加器 → 写入 messages 为独立气泡，步骤级重置（保留 sawStepComplete 标记）
           const stepParts = finalizeAccumulator(acc);
-          resetAccumulator(acc);
+          resetAccumulatorForStep(acc);
           if (stepParts.length) {
             patch(profile, (s) => ({
               ...s,
               messages: [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: stepParts, timestamp: Date.now() }].slice(-WINDOW_MAX),
-              streamText: '', streamReasoning: '', streamParts: [],
+              streamParts: [],
               lastActivity: Date.now(),
             }));
           }
@@ -609,7 +606,7 @@ export function useGridChat(active: boolean): {
               const msgs = finalParts.length
                 ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: finalParts, timestamp: Date.now() }]
                 : s.messages;
-              return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '', lastActivity: Date.now() };
+              return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamParts: [], activityHint: '', lastActivity: Date.now() };
             });
             // drain 排队消息（自愈 = 成功终止，重置计数）
             drainAttemptsRef.current[profile] = 0;
@@ -663,7 +660,7 @@ export function useGridChat(active: boolean): {
 
     ws.addEventListener(handler);
 
-    // 30fps flush：把累加器同步到状态的 streamText（只更新流式气泡，不动 messages）
+    // 30fps flush：把累加器 parts 镜像到状态的 streamParts（只更新流式气泡，不动 messages）
     flushTimerRef.current = setInterval(() => {
       const accs = accRef.current;
       const profiles = Object.keys(accs);
@@ -674,8 +671,8 @@ export function useGridChat(active: boolean): {
         for (const p of profiles) {
           const a = accs[p];
           const cur = next[p] ?? emptyState();
-          if (cur.streamText !== a.text || cur.streamReasoning !== a.reasoning || cur.streamParts !== a.parts) {
-            next[p] = { ...cur, streamText: a.text, streamReasoning: a.reasoning, streamParts: a.parts };
+          if (cur.streamParts !== a.parts) {
+            next[p] = { ...cur, streamParts: a.parts };
             changed = true;
           }
         }

@@ -82,7 +82,7 @@ const AGENT_COLORS: AgentCardColor[] = [
 // 尚未加载的 profile 的空状态（模块级常量 = 稳定引用，保证 AgentChatCard memo 生效）
 const EMPTY_AGENT_STATE: AgentChatState = {
   sessionId: null, messages: [], hasMore: false, oldestId: null,
-  isLoadingMore: false, status: 'idle', streamText: '', streamReasoning: '',
+  isLoadingMore: false, status: 'idle',
   pendingApproval: null, pendingClarify: null, pendingSudo: null, pendingSecret: null,
   pendingSlashConfirm: null, streamParts: [], activityHint: '', sessionTitle: null, modelName: null, lastUsage: null, lastActivity: 0,
 };
