@@ -58,9 +58,15 @@ export async function init(): Promise<void> {
       return;
     }
 
-    // 3. 检查是否需要从 localStorage 迁移
+    // 3. 检查是否需要从 localStorage 迁移（C2: 包 try/catch 防毒化 _initPromise）
     if (!localStorage.getItem('eleve_' + MIGRATION_DONE_KEY)) {
-      await _migrateFromLocalStorage();
+      try {
+        await _migrateFromLocalStorage();
+      } catch (e) {
+        console.warn('[storage] Migration failed, will retry next init:', e);
+        _initPromise = null; // 允许重试
+        return;
+      }
     }
 
     _initialized = true;
@@ -106,13 +112,27 @@ async function _migrateFromLocalStorage(): Promise<void> {
 /**
  * 后台持久化（不阻塞 UI，fire-and-forget）
  */
+let _writeFailCount = 0;
+const WRITE_FAIL_THRESHOLD = 5;
+
+function _reportWriteFailure(context: string, e: unknown): void {
+  _writeFailCount++;
+  console.warn(`[storage] ${context} failed:`, e);
+  // C3: 阈值触发一次用户提示（去重防刷屏）
+  if (_writeFailCount === WRITE_FAIL_THRESHOLD) {
+    import('./notifications').then(({ notifyWarning }) => {
+      notifyWarning('数据可能未保存（存储写入失败）');
+    }).catch(() => { /* 通知模块加载失败静默 */ });
+  }
+}
+
 function _persist(key: string, value: string | null): void {
   if (value === undefined || value === null) {
     call('delete_app_data', { key })
-      .catch(e => console.warn('[storage] remove failed:', e));
+      .catch(e => _reportWriteFailure('remove', e));
   } else {
     call('set_app_data', { key, value })
-      .catch(e => console.warn('[storage] save failed:', e));
+      .catch(e => _reportWriteFailure('save', e));
   }
   _updateIndex();
 }
@@ -123,7 +143,7 @@ function _persist(key: string, value: string | null): void {
 function _updateIndex(): void {
   const keys = Array.from(_cache.keys()).filter(k => !k.startsWith('__'));
   call('set_app_data', { key: '__index__', value: JSON.stringify(keys) })
-    .catch(e => console.warn('[storage] index update failed:', e));
+    .catch(e => _reportWriteFailure('index update', e));
 }
 
 // ====== 对外接口 — 与旧 storage.js 100% 兼容（同步） ======

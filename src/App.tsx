@@ -1125,49 +1125,59 @@ export default function App() {
         </ErrorBoundary>
 
         {overlayPanel === 'settings' && (
-          <OverlayView onClose={handleCloseOverlay} title="设置">
-            <SettingsPanel onBack={handleCloseOverlay} />
-          </OverlayView>
+          <ErrorBoundary>
+            <OverlayView onClose={handleCloseOverlay} title="设置">
+              <SettingsPanel onBack={handleCloseOverlay} />
+            </OverlayView>
+          </ErrorBoundary>
         )}
         {overlayPanel === 'theme' && (
-          <OverlayView onClose={handleCloseOverlay} title="主题">
-            <ThemePanel onClose={handleCloseOverlay} />
-          </OverlayView>
+          <ErrorBoundary>
+            <OverlayView onClose={handleCloseOverlay} title="主题">
+              <ThemePanel onClose={handleCloseOverlay} />
+            </OverlayView>
+          </ErrorBoundary>
         )}
         {overlayPanel === 'about' && (
-          <OverlayView onClose={handleCloseOverlay} title="关于">
-            <AboutPanel />
-          </OverlayView>
+          <ErrorBoundary>
+            <OverlayView onClose={handleCloseOverlay} title="关于">
+              <AboutPanel />
+            </OverlayView>
+          </ErrorBoundary>
         )}
 
         {/* Model Picker Overlay */}
         {showModelPicker && (
-          <OverlayView onClose={handleCloseModelPicker} title="选择模型">
-            <ModelPickerPanel
-              models={modelDiscovery.models}
-              grouped={modelDiscovery.grouped}
-              loading={modelDiscovery.loading}
-              error={modelDiscovery.error}
-              selectedModel={(modelDiscovery.selectedModel || monitorState.modelName) ?? undefined}
-              onSelect={modelDiscovery.selectModel}
-              onRefresh={modelDiscovery.refresh}
-              onClose={handleCloseModelPicker}
-            />
-          </OverlayView>
+          <ErrorBoundary>
+            <OverlayView onClose={handleCloseModelPicker} title="选择模型">
+              <ModelPickerPanel
+                models={modelDiscovery.models}
+                grouped={modelDiscovery.grouped}
+                loading={modelDiscovery.loading}
+                error={modelDiscovery.error}
+                selectedModel={(modelDiscovery.selectedModel || monitorState.modelName) ?? undefined}
+                onSelect={modelDiscovery.selectModel}
+                onRefresh={modelDiscovery.refresh}
+                onClose={handleCloseModelPicker}
+              />
+            </OverlayView>
+          </ErrorBoundary>
         )}
       </AppShell>
 
-      <CommandCenter
-        open={commandCenterOpen}
-        onClose={() => setCommandCenterOpen(false)}
-        sessions={sess.sessions}
-        sessionTitles={sess.titles}
-        sessionId={sess.sessionId ?? undefined}
-        onSwitchSession={gridAwareSwitchSession}
-        onNewSession={gridAwareNewSession}
-        onCommand={gridAwareCommand}
-        onNavigate={handleNavigate}
-      />
+      <ErrorBoundary>
+        <CommandCenter
+          open={commandCenterOpen}
+          onClose={() => setCommandCenterOpen(false)}
+          sessions={sess.sessions}
+          sessionTitles={sess.titles}
+          sessionId={sess.sessionId ?? undefined}
+          onSwitchSession={gridAwareSwitchSession}
+          onNewSession={gridAwareNewSession}
+          onCommand={gridAwareCommand}
+          onNavigate={handleNavigate}
+        />
+      </ErrorBoundary>
 
       {/* Toast 通知栈 — 顶部居中浮动 */}
       <Toast />
