@@ -70,6 +70,24 @@ interface SettingsPanelProps {
 
 const KEY_VISIBLE_DURATION = 60_000; // 60 秒
 
+/** 导出脱敏：匹配敏感字段名（api_key/token/secret/password/credential 等） */
+const SENSITIVE_KEY_PATTERN = /(api[_-]?key|token|secret|password|passwd|credential)/i;
+
+/** 递归替换敏感字段值为占位符，防止导出 JSON 泄露明文密钥（对齐 RPC 层脱敏语义） */
+function redactSensitive(obj: unknown): unknown {
+  if (Array.isArray(obj)) return obj.map(redactSensitive);
+  if (obj && typeof obj === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      out[k] = (SENSITIVE_KEY_PATTERN.test(k) && typeof v === 'string' && v !== '')
+        ? '***REDACTED***'
+        : redactSensitive(v);
+    }
+    return out;
+  }
+  return obj;
+}
+
 export default function SettingsPanel({ onBack }: SettingsPanelProps) {
   // ── 核心数据 ──
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -105,7 +123,7 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
   const handleExportConfig = async () => {
     try {
       const cfg = await call('get_config', {});
-      const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify(redactSensitive(cfg), null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

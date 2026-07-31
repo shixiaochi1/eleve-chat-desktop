@@ -36,6 +36,22 @@ interface ProgressEntry {
 
 type RestartStatus = 'idle' | 'restarting' | 'success' | 'error';
 
+/**
+ * 预览 URL 安全校验：仅允许 http:/https: 协议。
+ * 拒绝 javascript:/file:/data:/blob: 等——防止提示注入诱导加载本地文件或脚本 URL。
+ * 预览必须是绝对 URL（占位提示即 http://localhost:3000），相对/非法 URL 一律拒绝。
+ */
+function isSafePreviewUrl(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed) return false;
+  try {
+    const u = new URL(trimmed);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
   const [url, setUrl] = useState('');
   const [iframeKey, setIframeKey] = useState(0);
@@ -212,7 +228,24 @@ export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
 
       {/* ── iframe 预览区 ── */}
       <div className="flex-1 min-h-0 relative bg-background">
-        {url.trim() ? (
+        {!url.trim() ? (
+          <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
+            <Globe size={32} strokeWidth={1} />
+            <span className="text-xs">输入 URL 开始预览</span>
+          </div>
+        ) : !isSafePreviewUrl(url) ? (
+          <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
+            <AlertCircle size={32} strokeWidth={1} className="text-[var(--ui-status-warning)]" />
+            <span className="text-xs">仅支持 http:// 或 https:// 地址</span>
+          </div>
+        ) : (
+          /*
+           * sandbox 保留 allow-same-origin：iframe 加载用户自己的 dev server（http://localhost），
+           * 与 Tauri 父窗口（tauri:// 协议）天然跨域，故 allow-scripts+allow-same-origin 的
+           * “iframe 移除自身 sandbox”逃逸不成立（父子不同源）；而 dev 预览（Vite HMR / 同源
+           * fetch）需要 allow-same-origin 才能正常工作。无 allow-top-navigation，sandbox 仍限制
+           * 顶层导航。安全边界由上方 isSafePreviewUrl 协议白名单把控。
+           */
           <iframe
             key={iframeKey}
             id="preview-iframe"
@@ -220,13 +253,9 @@ export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
             onLoad={handleIframeError}
             className="w-full h-full border-none"
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            referrerPolicy="no-referrer"
             title="Preview"
           />
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
-            <Globe size={32} strokeWidth={1} />
-            <span className="text-xs">输入 URL 开始预览</span>
-          </div>
         )}
 
         {/* iframe 加载错误覆盖层 */}

@@ -7,13 +7,12 @@ import { Input } from '../ui/input';
 /**
  * AdvancedSettings — 高级设置
  *
- * Agent 最大轮次、API 重试、服务层级、工具执行强制、子 Agent 参数
+ * Agent 最大轮次、API 重试、工具执行强制、工具集、终端环境、子 Agent 参数
  */
 export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) {
   const [config, setConfig] = useState({
     max_turns: 90,
     api_max_retries: 3,
-    service_tier: 'auto',
     tool_use_enforcement: 'strict',
     max_iterations: 30,
     max_concurrent_children: 1,
@@ -48,19 +47,18 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       setConfig({
         max_turns: agent.max_turns ?? 90,
         api_max_retries: agent.api_max_retries ?? 3,
-        service_tier: agent.service_tier || 'auto',
         tool_use_enforcement: agent.tool_use_enforcement || 'strict',
         max_iterations: delegation.max_iterations ?? 30,
         max_concurrent_children: delegation.max_concurrent_children ?? 1,
         child_timeout_seconds: delegation.child_timeout_seconds ?? 600,
         reasoning_effort: delegation.reasoning_effort || 'medium',
-        terminal_backend: terminal.backend || 'local',
+        terminal_backend: terminal.env_type || 'local',
         terminal_timeout: terminal.timeout ?? 120,
         tool_output_max_bytes: tool_output.max_bytes ?? 50000,
         tool_output_max_lines: tool_output.max_lines ?? 2000,
         tool_output_max_line_length: tool_output.max_line_length ?? 1000,
         checkpoints_max_snapshots: checkpoints.max_snapshots ?? 5,
-        toolsets: (Array.isArray(agent.toolsets) ? agent.toolsets.join(', ') : agent.toolsets || ''),
+        toolsets: (Array.isArray(agent.enabled_toolsets) ? agent.enabled_toolsets.join(', ') : ''),
       });
       setLoaded(true);
     } catch {
@@ -81,9 +79,8 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
           agent: {
             max_turns: config.max_turns,
             api_max_retries: config.api_max_retries,
-            service_tier: config.service_tier,
             tool_use_enforcement: config.tool_use_enforcement,
-            toolsets: config.toolsets
+            enabled_toolsets: config.toolsets
               ? config.toolsets.split(',').map((s: string) => s.trim()).filter(Boolean)
               : undefined,
           },
@@ -94,7 +91,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
             reasoning_effort: config.reasoning_effort,
           },
           terminal: {
-            backend: config.terminal_backend,
+            env_type: config.terminal_backend,
             timeout: config.terminal_timeout,
           },
           tool_output: {
@@ -154,23 +151,6 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
         />
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
           API 调用失败时的最大重试次数（默认 3）。
-        </p>
-      </div>
-
-      {/* 服务层级 */}
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">服务层级</label>
-        <select
-          className="flex h-8 w-full items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-          value={config.service_tier}
-          onChange={e => update('service_tier', e.target.value)}
-        >
-          <option value="auto">auto — 自动选择</option>
-          <option value="low">low — 低成本</option>
-          <option value="default">default — 标准</option>
-        </select>
-        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          API 服务优先级层级（部分提供商支持）。
         </p>
       </div>
 
