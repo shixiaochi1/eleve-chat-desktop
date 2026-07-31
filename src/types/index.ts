@@ -42,21 +42,6 @@ export interface SignatureRow {
   role: MessageRole
 }
 
-// ── SSE event types (from gateway /stream endpoint) ──
-
-export type SSEEventType = 'message' | 'reasoning' | 'tool_start' | 'tool_complete' | 'done' | 'error'
-
-export interface SSEEvent {
-  type: SSEEventType
-  content?: string
-  reasoning_content?: string
-  tool_call_id?: string
-  tool_name?: string
-  tool_input?: string
-  tool_output?: string
-  message_id?: string
-}
-
 // ── Session types ──
 
 export interface Session {

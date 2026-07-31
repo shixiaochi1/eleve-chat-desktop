@@ -113,7 +113,6 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   list_tools:             'tools.list',
   // 多 Profile 管理（F9+ Profile 选择器）
   list_profiles:          'profiles.list',
-  set_active_profile:     'profiles.set_active',
   get_active_profile:     'profiles.get_active',
   create_profile:         'profiles.create',
   delete_profile:         'profiles.delete',
@@ -123,7 +122,6 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   provider_remove:        'provider.remove',
   provider_save_key:      'provider.save_key',
   provider_disconnect:    'provider.disconnect',
-  provider_models:        'provider.models',
   provider_switch:        'provider.switch',
   list_memories:          'memory.list',
   delete_memory:          'memory.delete',
@@ -155,14 +153,10 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   subagent_interrupt:     'subagent.interrupt',
   // F3: 输入增强（后端已就绪）
   complete_path:          'complete.path',
-  complete_slash:         'complete.slash',
-  resolve_command:        'command.resolve',
   // F4: 信息面板（后端已就绪）
-  insights_get:           'insights.get',
   learning_frames:        'learning.frames',
   learning_detail:        'learning.detail',
   learning_delete:        'learning.delete',
-  learning_edit:          'learning.edit',
   rollback_list:          'rollback.list',
   rollback_diff:          'rollback.diff',
   rollback_restore:       'rollback.restore',
@@ -176,7 +170,6 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   verify_password:        'auth.verify_password',
   slugify:                'utils.slugify',
   models_dev_query:       'models_dev.query',
-  models_dev_list:        'models_dev.list',
   resolve_media:          'media.resolve',
   migrate_app_data:       'app_data.migrate',
   files_list:             'files.list',
