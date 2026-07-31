@@ -42,7 +42,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       const delegation = bc.delegation || {};
       const terminal = bc.terminal || {};
       const tool_output = bc.tool_output || {};
-      const checkpoints = bc.checkpoints || {};
+      const checkpoints = agent.checkpoints || {};
 
       setConfig({
         max_turns: agent.max_turns ?? 90,
@@ -83,6 +83,9 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
             enabled_toolsets: config.toolsets
               ? config.toolsets.split(',').map((s: string) => s.trim()).filter(Boolean)
               : undefined,
+            checkpoints: {
+              max_snapshots: config.checkpoints_max_snapshots,
+            },
           },
           delegation: {
             max_iterations: config.max_iterations,
@@ -98,9 +101,6 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
             max_bytes: config.tool_output_max_bytes,
             max_lines: config.tool_output_max_lines,
             max_line_length: config.tool_output_max_line_length,
-          },
-          checkpoints: {
-            max_snapshots: config.checkpoints_max_snapshots,
           },
         },
       });

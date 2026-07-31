@@ -37,7 +37,7 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
       const approvals = bc.approvals || {};
       const security = bc.security || {};
       const browser = bc.browser || {};
-      const checkpoints = bc.checkpoints || {};
+      const checkpoints = bc.agent?.checkpoints || {};
 
       setConfig({
         approvals_mode: approvals.mode || 'manual',
@@ -82,8 +82,10 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
             allow_private_urls: config.allow_private_urls_browser,
             auto_local_for_private_urls: config.auto_local_for_private_urls,
           },
-          checkpoints: {
-            enabled: config.checkpoints_enabled,
+          agent: {
+            checkpoints: {
+              enabled: config.checkpoints_enabled,
+            },
           },
         },
       });
