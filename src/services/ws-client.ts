@@ -198,7 +198,8 @@ export class GatewayWsClient {
       // 遍历注册表批量 re-attach，后端重新注册 ws_clients + 推 session.info（状态全量对齐）
       if (wasReconnect && this.attachedSessions.size > 0) {
         for (const sid of this.attachedSessions) {
-          this.sendRpc('session.attach', { session_id: sid }).catch(() => {})
+          // 🔴 审查 P3: 与 switchSession 的 session.attach 错误处理一致（P2-2），失败显式 warn 便于排查重连恢复断线
+          this.sendRpc('session.attach', { session_id: sid }).catch((e) => { console.warn('[ws] re-attach failed:', sid, e) })
         }
       }
       this.connCallbacks?.onOpen?.(wasReconnect)
