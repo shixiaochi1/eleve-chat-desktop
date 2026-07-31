@@ -109,7 +109,7 @@ export const AgentChatCard = memo(function AgentChatCard({
   const stateRef = useRef(state);
   stateRef.current = state;
   const {
-    attachedImages, uploading: imageUploading, addImage, removeImage,
+    attachedImages, uploading: imageUploading, addImage, removeImage, clearImages,
   } = useImageAttachments({ getSessionId: () => stateRef.current.sessionId });
 
   // ── 滚动：到顶触发上翻 + 跟踪是否贴底 ──
@@ -140,11 +140,12 @@ export const AgentChatCard = memo(function AgentChatCard({
     if (el && stickBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [state.messages.length, state.streamText, state.streamReasoning]);
 
-  // ── 发送（贴底跟随 + 路由到本 Agent）──
+  // ── 发送（贴底跟随 + 路由到本 Agent + 清图片预览）──
   const handleSend = useCallback((text: string) => {
     stickBottomRef.current = true;
     onSend(name, text);
-  }, [onSend, name]);
+    clearImages(); // 🔴 P1-8: 发送后清图片附件预览，对齐单视图
+  }, [onSend, name, clearImages]);
 
   const approval = state.pendingApproval as ApprovalPayload | null;
   const clarify = state.pendingClarify as ClarifyPayload | null;

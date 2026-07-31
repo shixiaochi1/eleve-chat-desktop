@@ -323,7 +323,8 @@ export function useGridChat(active: boolean): {
     // 乐观追加用户命令消息
     patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(display)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX) }));
     try {
-      const result = await getWsClient().slashExec(`${cmdName} ${args}`.trim(), sessionId) as { type?: string; output?: string; message?: string; session_id?: string; confirm_id?: string; command?: string; description?: string };
+      // 🔴 P1-7: 显式传 sessionId（含空串），禁止 fallback 到 ws-client 陈旧全局 sessionId
+      const result = await getWsClient().slashExec(`${cmdName} ${args}`.trim(), sessionId ?? '') as { type?: string; output?: string; message?: string; session_id?: string; confirm_id?: string; command?: string; description?: string };
 
       // 🔴 对齐单视图 handleCommand：破坏性命令二次确认
       if (result?.type === 'pending_confirm' && result.confirm_id) {

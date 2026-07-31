@@ -604,14 +604,21 @@ export default function App() {
       });
 
       // 端口发现 → portReady（会话恢复由 startupRestored effect 统一处理）
-      portPromise.then((ok) => {
-        if (ok) {
-          setPortReady(true);
-        } else {
-          setConnectionStatus('error');
-          console.error('[App] Gateway port discovery failed');
-        }
-      });
+      // 🔴 P1-2: 失败后定时重试，不再永久死局
+      const tryDiscover = (attempt: number) => {
+        discoverPort().then((ok) => {
+          if (ok) {
+            setPortReady(true);
+          } else if (attempt < 10) {
+            console.warn(`[App] Gateway port discovery failed, retry ${attempt + 1}/10`);
+            setTimeout(() => tryDiscover(attempt + 1), 2000 * (attempt + 1));
+          } else {
+            setConnectionStatus('error');
+            console.error('[App] Gateway port discovery failed after 10 attempts');
+          }
+        });
+      };
+      tryDiscover(0);
     } else {
       setPortReady(true);
       // 🔴 P0-1: 同 Tauri 分支，只预加载 cache/titles
@@ -795,7 +802,7 @@ export default function App() {
         connectionStatus={connectionStatus}
         gatewayOnline={gatewayHealth.online}
         gatewayChecking={gatewayHealth.checking}
-        sessionId={debugInfo.sessionId}
+        sessionId={sess.sessionId}
         modelName={modelDiscovery.selectedModel || monitorState.modelName || undefined}
         profileName={currentProfile}
         tokensIn={debugInfo.tokensIn}
@@ -974,9 +981,9 @@ export default function App() {
             {rightOpen && (rightTab === 'files' ? (
               <FileBrowserPanel onFileAttach={(path: string) => handleSend(`/file ${path}`)} />
             ) : rightTab === 'preview' ? (
-              <PreviewPanel sessionId={debugInfo.sessionId} />
+              <PreviewPanel sessionId={sess.sessionId} />
             ) : (
-              <TerminalPanel onSend={handleSend} isStreaming={isStreaming} sessionId={debugInfo.sessionId} />
+              <TerminalPanel onSend={handleSend} isStreaming={isStreaming} sessionId={sess.sessionId ?? undefined} />
             ))}
           </Pane>
         </PaneShell>
