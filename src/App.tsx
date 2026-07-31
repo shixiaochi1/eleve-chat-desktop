@@ -382,7 +382,10 @@ export default function App() {
     } else {
       // 无历史会话 → 空白草稿
       sess.setSessionId(null);
-      clearSessionPointer(currentProfile); // 🔴 P1-6: 收敛到权威入口，同步清 map
+      // 🔴 串台/丢失修复：清的是目标 profile（name）的指针，不是源（currentProfile 是闭包旧值=切走的 Agent）。
+      // 旧版 clearSessionPointer(currentProfile) 会把来源 Agent 的会话指针抹掉 → 切回时会话丢失。
+      // 与 restoreProfileSession else 分支（用目标参数 profile）保持一致。
+      clearSessionPointer(name);
       sess.setFreshDraftReady(true);
       getWsClient().switchSession('');
       storeSetMessages([]);
