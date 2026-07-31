@@ -5,7 +5,6 @@
  */
 import { cn } from '@/lib/utils';
 import type { Session } from '@/types';
-import type { ChatMessage } from '@/lib/chat-messages';
 import AgentsPanel from './AgentsPanel';
 import CronPanel from './CronPanel';
 import DebugPanel from './DebugPanel';
@@ -51,7 +50,6 @@ interface SidePanelProps {
   messageCount?: number;
   tokensIn?: number;
   tokensOut?: number;
-  messages?: ChatMessage[];
 }
 
 export default function SidePanel({ activePanel, onPanelChange, ...props }: SidePanelProps) {

@@ -74,11 +74,12 @@ export interface GridModeViewHandle {
 }
 
 // ── Agent 颜色调色板（对齐 --ui-* 设计 token）──
+// ring/bg 用 color-mix 从主题 dot 变量派生，深色/浅色主题自动适配（B5 光晕主题化）
 const AGENT_COLORS: AgentCardColor[] = [
-  { dot: 'var(--ui-blue)',   ring: 'rgba(0,83,253,0.35)',   bg: 'rgba(0,83,253,0.06)' },
-  { dot: 'var(--ui-green)',  ring: 'rgba(31,138,101,0.35)',  bg: 'rgba(31,138,101,0.06)' },
-  { dot: 'var(--ui-purple)', ring: 'rgba(158,148,213,0.35)', bg: 'rgba(158,148,213,0.06)' },
-  { dot: 'var(--ui-orange)', ring: 'rgba(219,112,75,0.35)',  bg: 'rgba(219,112,75,0.06)' },
+  { dot: 'var(--ui-blue)',   ring: 'color-mix(in srgb, var(--ui-blue) 35%, transparent)',   bg: 'color-mix(in srgb, var(--ui-blue) 6%, transparent)' },
+  { dot: 'var(--ui-green)',  ring: 'color-mix(in srgb, var(--ui-green) 35%, transparent)',  bg: 'color-mix(in srgb, var(--ui-green) 6%, transparent)' },
+  { dot: 'var(--ui-purple)', ring: 'color-mix(in srgb, var(--ui-purple) 35%, transparent)', bg: 'color-mix(in srgb, var(--ui-purple) 6%, transparent)' },
+  { dot: 'var(--ui-orange)', ring: 'color-mix(in srgb, var(--ui-orange) 35%, transparent)', bg: 'color-mix(in srgb, var(--ui-orange) 6%, transparent)' },
 ];
 
 // 尚未加载的 profile 的空状态（模块级常量 = 稳定引用，保证 AgentChatCard memo 生效）

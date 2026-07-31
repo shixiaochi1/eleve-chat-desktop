@@ -177,6 +177,18 @@ export function useMessages(): ChatMessage[] {
 }
 
 /**
+ * Count-only subscription — App 根组件用此替代 useMessages()。
+ * 只在消息数量变化时重渲染（新增/删除），流式内容增长（parts 增长）不触发。
+ * 消灭 App 根 30fps 重渲染（性能根因 B1）。
+ */
+function getCountSnapshot(): number {
+  return messages.length
+}
+export function useMessageCount(): number {
+  return useSyncExternalStore(subscribe, getCountSnapshot, getCountSnapshot)
+}
+
+/**
  * Scoped message subscription — 1:1 architectural alignment with Eleve.
  * Only re-renders when THIS specific message changes.
  */

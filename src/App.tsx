@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useMessages, setMessages as storeSetMessages, getMessages } from './store/messages';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useMessageCount, setMessages as storeSetMessages, getMessages } from './store/messages';
 import { textPart } from '@/lib/chat-messages';
 import { useSessions } from './hooks/useSessions';
 import { useGatewayHealth } from './hooks/useGatewayHealth';
@@ -81,7 +81,7 @@ export default function App() {
   const [rightTab, setRightTab] = useState<string>('files'); // 'files' | 'terminal'
   const handleToggleFiles = useCallback(() => setRightOpen(prev => !prev), []);
 
-  const messages = useMessages();
+  const messageCount = useMessageCount();
   const [connectionStatus, setConnectionStatus] = useState<string>('idle');
   const [commandCenterOpen, setCommandCenterOpen] = useState<boolean>(false);
   const [depsReady, setDepsReady] = useState<boolean>(false);
@@ -110,6 +110,7 @@ export default function App() {
     setOverlayPanel(panelName);
   }, []);
   const handleCloseOverlay = useCallback(() => setOverlayPanel(null), []);
+  const handleOpenSettings = useCallback(() => handleOpenOverlay('settings'), [handleOpenOverlay]);
 
   // ── F9+ 多 Profile：启动后拉取当前 active profile（带重试，网关慢启动不静默失败） ──
   useEffect(() => {
@@ -919,17 +920,19 @@ export default function App() {
     </div>
   );
 
+  const modelContextValue = useMemo(() => ({
+    currentModel: modelDiscovery.selectedModel || monitorState.modelName || undefined,
+    grouped: modelDiscovery.grouped,
+    loading: modelDiscovery.loading,
+    error: modelDiscovery.error,
+    onSelect: modelDiscovery.selectModel,
+    onOpenSettings: handleOpenSettings,
+    onRefresh: modelDiscovery.refresh,
+  }), [modelDiscovery.selectedModel, monitorState.modelName, modelDiscovery.grouped, modelDiscovery.loading, modelDiscovery.error, modelDiscovery.selectModel, handleOpenSettings, modelDiscovery.refresh]);
+
   return (
     <ThemeProvider>
-      <ModelProvider value={{
-        currentModel: modelDiscovery.selectedModel || monitorState.modelName || undefined,
-        grouped: modelDiscovery.grouped,
-        loading: modelDiscovery.loading,
-        error: modelDiscovery.error,
-        onSelect: modelDiscovery.selectModel,
-        onOpenSettings: () => handleOpenOverlay('settings'),
-        onRefresh: modelDiscovery.refresh,
-      }}>
+      <ModelProvider value={modelContextValue}>
       <AppShell
         titlebar={titlebarEl}
         connectionStatus={connectionStatus}
@@ -940,7 +943,7 @@ export default function App() {
         profileName={currentProfile}
         tokensIn={debugInfo.tokensIn}
         tokensOut={debugInfo.tokensOut}
-        onOpenSettings={() => handleOpenOverlay('settings')}
+        onOpenSettings={handleOpenSettings}
       >
         {/* ===== PaneShell 三栏布局：图标栏 + 侧边面板 + 聊天区 ===== */}
         <ErrorBoundary>
@@ -970,7 +973,7 @@ export default function App() {
                   currentProfile={currentProfile}
                   onProfileChange={handleProfileChange}
                   onProfilesChange={handleProfilesChange}
-                  onOpenSettings={() => handleOpenOverlay('settings')}
+                  onOpenSettings={handleOpenSettings}
                   onRestart={handleRestartService}
                   sessionId={viewMode === 'grid' ? (focusedGridSessionId ?? sess.sessionId) : sess.sessionId}
                   sessions={sess.sessions}
@@ -982,10 +985,9 @@ export default function App() {
                   isStreaming={isStreaming}
                   debugEvents={debugEvents}
                   debugToolCalls={debugToolCalls}
-                  messageCount={messages.length}
+                  messageCount={messageCount}
                   tokensIn={debugInfo.tokensIn}
                   tokensOut={debugInfo.tokensOut}
-                  messages={messages}
                 />
             </div>
             )}
@@ -1023,7 +1025,7 @@ export default function App() {
             )}
             <main className="chat-area" id="page-chat">
               <ToolStatusBar sessionId={sess.sessionId} isStreaming={isStreaming} />
-              {!portReady && messages.length === 0 ? (
+              {!portReady && messageCount === 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', opacity: 0.6 }}>
                   <div className="spinner" style={{ width: 32, height: 32, border: '3px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
                   <p style={{ marginTop: 16, color: 'var(--text-secondary)', fontSize: 14 }}>正在连接 Agent...</p>
@@ -1033,7 +1035,7 @@ export default function App() {
                   <MessageContainer
                     gatewayOnline={gatewayHealth.online}
                     onGatewayRetry={gatewayHealth.checkNow}
-                    onOpenSettings={() => handleOpenOverlay('settings')}
+                    onOpenSettings={handleOpenSettings}
                     hasModels={modelDiscovery.models.length > 0}
                   />
                   {activeClarify && (

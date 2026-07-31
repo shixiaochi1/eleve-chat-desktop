@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useState } from 'react';
+import { useRef, useCallback, useEffect, useState, memo } from 'react';
 import { completePath } from '../utils/api';
 import CommandMenu from './CommandMenu';
 import ModelPill from './ModelPill';
@@ -67,7 +67,7 @@ interface InputAreaProps {
  *                → 后端存储 → 返回 path → 本地状态更新 → InputArea 预览渲染
  * 发送时后端自动 drain：prompt.submit → run_stream_with_trace → 消费 attached_images
  */
-export default function InputArea({
+function InputArea({
   onSend,
   onCommand,
   onAbort,
@@ -592,3 +592,5 @@ export default function InputArea({
     </div>
   );
 }
+
+export default memo(InputArea);
