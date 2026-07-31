@@ -169,8 +169,11 @@ export class GatewayWsClient {
     // 重连时重新获取 URL（端口可能因 eleved 重启而变化）
     const httpBase = getApiBase()
     const wsBase = httpBase.replace(/^http/, 'ws')
-    // 对齐 Hermes: WS URL 不带 session_id
-    this.url = `${wsBase}/api/ws`
+    // 🔴 恢复链修复：重连时带 session_id → 后端自动注册 ws_clients + 推送 session.info
+    // 首次连接 sessionId=null 不带（对齐 Hermes）；重连/切换后 sessionId 已设置则带上
+    this.url = this.sessionId
+      ? `${wsBase}/api/ws?session_id=${encodeURIComponent(this.sessionId)}`
+      : `${wsBase}/api/ws`
 
     this.setState(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting')
 
@@ -477,7 +480,11 @@ export class GatewayWsClient {
    */
   switchSession(newSessionId: string): void {
     this.sessionId = newSessionId
-    // 不断开 WS — 后端 prompt.submit 会带 session_id 做 get_or_create
+    // 🔴 恢复链修复：切换 session 时通知后端注册 ws_clients 事件路由 + 推送 session.info
+    // 保证切换后流式事件有投递目标 + pending 交互可恢复（不依赖 prompt.submit 才注册）
+    if (newSessionId && this._state === 'connected') {
+      this.sendRpc('session.attach', { session_id: newSessionId }).catch(() => {})
+    }
   }
 
   // ── 便捷方法 ──

@@ -54,8 +54,8 @@ export function useSessionActions({
     setDebugInfo((prev) => ({ ...prev, sessionId: id, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
 
     try {
-      const status = await activateSession(id) as { is_reset?: boolean };
-      if (status.is_reset) {
+      const status = await activateSession(id) as { status?: string; info?: { is_reset?: boolean; reset_reason?: string } };
+      if (status.info?.is_reset) {
         sess.saveCache((cache) => { const c = { ...cache }; delete c[id]; return c; });
         storeSetMessages([{ id: genId(), role: 'system', parts: [textPart(`会话已重置 (${shortId(id)})，新消息将从空白上下文开始`)] }]);
         return;
@@ -69,6 +69,7 @@ export function useSessionActions({
     storeSetMessages(cached?.length ? (cached as ChatMessage[]) : []);
     // 🔴 始终从后端加载完整历史
     sess.loadHistory(id).then((msgs) => {
+      if (sess.sessionId !== id) return; // 🔴 过期响应守卫：快速切换时旧响应不覆盖新视图
       if (msgs?.length) {
         storeSetMessages(msgs as ChatMessage[]);
         sess.saveCache((cache) => ({ ...cache, [id]: msgs }));

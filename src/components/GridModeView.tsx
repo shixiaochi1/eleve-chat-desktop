@@ -205,7 +205,8 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
     return () => ro.disconnect();
   }, []);
 
-  // ── 拉取 Agent 列表（全量，N 无上限） ──
+  // ── 拉取 Agent 列表（挂载时一次，运行期由 onProfilesChange 事件驱动） ──
+  // 🔴 P1 修复：依赖从 [currentProfile] 改 []，消灭“点卡片切焦点 → 重拉列表 → setOrder 重置拖拽排序”
   useEffect(() => {
     let cancelled = false;
     fetchProfiles()
@@ -213,15 +214,21 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
         if (cancelled) return;
         const list = data.profiles as ProfileInfo[];
         setProfiles(list);
-        setOrder(list.map((p) => p.name));
+        // 🔴 保留已有拖拽排序：仅初始化时赋值，后续只增删不重排
+        setOrder((prev) => {
+          if (prev.length === 0) return list.map((p) => p.name);
+          const names = new Set(list.map((p) => p.name));
+          const kept = prev.filter((n) => names.has(n));
+          const added = list.map((p) => p.name).filter((n) => !prev.includes(n));
+          return [...kept, ...added];
+        });
         const map: Record<string, number> = {};
         list.forEach((p, i) => { map[p.name] = i % AGENT_COLORS.length; });
         setColorMap(map);
-        // 焦点由 App.currentProfile prop 驱动，无需本地同步
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [currentProfile]);
+  }, []);
 
   // ── 进入宫格：为每个有历史 session 的 profile 加载最新 N 条（后端权威源） ──
   const loadedRef = useRef(false);

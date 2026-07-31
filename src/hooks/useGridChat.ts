@@ -121,7 +121,8 @@ export function useGridChat(active: boolean): {
 
   // 🔴 per-agent 发送锁 + 排队（对齐单视图 isSendingRef + pendingQueue）
   const sendingRef = useRef<Record<string, boolean>>({});
-  const queueRef = useRef<Record<string, string[]>>({});
+  // 🔴 Phase B: 排队结构含 modelOpts（drain 时传递用户选择的模型，不再写死 undefined）
+  const queueRef = useRef<Record<string, { text: string; modelOpts?: { model?: string; provider?: string } }[]>>({});
   // sendTo 镜像 ref（供 WS handler message.complete 内 drain 调用，避免循环依赖）
   const sendToRef = useRef<(profile: string, text: string, modelOpts?: { model?: string; provider?: string }, fromDrain?: boolean) => Promise<void>>(async () => {});
 
@@ -182,7 +183,7 @@ export function useGridChat(active: boolean): {
 
     // 🔴 per-agent 发送锁：流式期间排队，结束后自动发送（对齐单视图 isSendingRef + pendingQueue）
     if (sendingRef.current[profile]) {
-      (queueRef.current[profile] ??= []).push(text);
+      (queueRef.current[profile] ??= []).push({ text, modelOpts });
       patch(profile, (st) => ({
         ...st,
         messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
@@ -238,19 +239,16 @@ export function useGridChat(active: boolean): {
   sendToRef.current = sendTo;
 
   // ── 中止某 Agent 的流 ──
+  // 🔴 Phase B 重构：abort 不自释放锁 / 不自 drain。
+  // 后端 session.interrupt 后必发 message.complete(interrupted=true)，
+  // 该事件是锁释放 + drain 的唯一权威入口（消灭 abort 双 drain 并发 turn）。
+  // 若 WS 断连导致 complete 丢失，session.info(running=false) 自愈分支兜底。
   const abortAgent = useCallback(async (profile: string) => {
     const s = statesRef.current[profile];
     if (!s?.sessionId) return;
     try { await getWsClient().abortStream(s.sessionId); } catch { /* ignore */ }
-    // 🔴 P1-2.3: abort 停当前 turn，续发队列（对齐单视图 abort → onDone → drainQueue 语义）
-    sendingRef.current[profile] = false;
-    const abortQ = queueRef.current[profile];
-    if (abortQ?.length) {
-      const next = abortQ.shift()!;
-      sendToRef.current(profile, next, undefined, true);
-    }
-    patch(profile, (st) => ({ ...st, status: 'idle', streamText: '', streamReasoning: '' }));
-    accRef.current[profile] = createAccumulator();
+    // 只更新 UI 状态（清流式显示），不动锁 / 不 drain — 等 message.complete 权威终止
+    patch(profile, (st) => ({ ...st, status: 'idle', streamText: '', streamReasoning: '', activityHint: '' }));
   }, [patch]);
 
   // ── 清除 per-agent pending 交互状态 ──
@@ -410,12 +408,13 @@ export function useGridChat(active: boolean): {
               : s.messages;
             return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '', lastUsage: usageData ?? s.lastUsage, lastActivity: Date.now() };
           });
-          // 🔴 释放发送锁 + 排队消息自动发送（对齐单视图 drainQueue）
+          // 🔴 Phase B: 释放发送锁 + 排队消息自动发送（单一权威终止入口）
+          // abort 不自 drain，message.complete 是唯一释放点 → 消灭双 drain 并发 turn
           sendingRef.current[profile] = false;
           const q = queueRef.current[profile];
           if (q?.length) {
             const next = q.shift()!;
-            sendToRef.current(profile, next, undefined, true);
+            sendToRef.current(profile, next.text, next.modelOpts, true);
           }
           break;
         }
@@ -484,12 +483,12 @@ export function useGridChat(active: boolean): {
         case 'error':
           patch(profile, (s) => ({ ...s, status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '' }));
           resetAccumulator(acc);
-          // 🔴 P1-2.2: 释放发送锁 + drain 队列（对齐单视图 onError → drainQueue）
+          // 🔴 Phase B: error 也是权威终止事件，释放锁 + drain（对齐单视图 onError → drainQueue）
           sendingRef.current[profile] = false;
           const errQ = queueRef.current[profile];
           if (errQ?.length) {
             const next = errQ.shift()!;
-            sendToRef.current(profile, next, undefined, true);
+            sendToRef.current(profile, next.text, next.modelOpts, true);
           }
           break;
         // ── 推理生命周期（对齐单视图 onReasoningStart / onReasoningComplete）──
@@ -574,21 +573,48 @@ export function useGridChat(active: boolean): {
           }
           break;
         }
-        // ── 会话详情恢复（对齐单视图 onSessionInfo — pending 交互重建）──
+        // ── 会话详情恢复（对齐单视图 onSessionInfo — pending 交互重建 + 🔴 Phase B running=false 自愈）──
         case 'session.info': {
+          // 🔴 Phase B: running=false 自愈 — WS 重连 / 后端重启后，锁可能泄漏（message.complete 丢失）
+          // 单视图 useMessageStream:565 有等价分支；宫格之前缺失 → 流式卡死锁无逃生
+          if (payload.running === false && sendingRef.current[profile]) {
+            sendingRef.current[profile] = false;
+            const finalParts = finalizeAccumulator(acc);
+            resetAccumulator(acc);
+            patch(profile, (s) => {
+              const msgs = finalParts.length
+                ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: finalParts, timestamp: Date.now() }]
+                : s.messages;
+              return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '', lastActivity: Date.now() };
+            });
+            // drain 排队消息
+            const siQ = queueRef.current[profile];
+            if (siQ?.length) {
+              const next = siQ.shift()!;
+              sendToRef.current(profile, next.text, next.modelOpts, true);
+            }
+            break;
+          }
+          // 同步 model/usage（重连后状态对齐）
+          const siModel = payload.model as string | undefined;
+          const siUsage = payload.usage as Record<string, unknown> | undefined;
           const pending = extractPendingInteractions(
             payload.pending_prompts as Record<string, Record<string, unknown>> | undefined,
             (payload.run_id as string) ?? statesRef.current[profile]?.sessionId ?? undefined,
           );
-          if (pending) {
+          if (pending || siModel || siUsage) {
             patch(profile, (s) => ({
               ...s,
-              pendingApproval: pending.approval ?? s.pendingApproval,
-              pendingClarify: pending.clarify ?? s.pendingClarify,
-              pendingSudo: pending.sudo ?? s.pendingSudo,
-              pendingSecret: pending.secret ?? s.pendingSecret,
-              pendingSlashConfirm: pending.slashConfirm ?? s.pendingSlashConfirm,
-              status: 'waiting',
+              ...(pending ? {
+                pendingApproval: pending.approval ?? s.pendingApproval,
+                pendingClarify: pending.clarify ?? s.pendingClarify,
+                pendingSudo: pending.sudo ?? s.pendingSudo,
+                pendingSecret: pending.secret ?? s.pendingSecret,
+                pendingSlashConfirm: pending.slashConfirm ?? s.pendingSlashConfirm,
+                status: 'waiting' as AgentStatus,
+              } : {}),
+              ...(siModel ? { modelName: siModel } : {}),
+              ...(siUsage ? { lastUsage: { input: (siUsage.input_tokens as number) || 0, output: (siUsage.output_tokens as number) || 0 } } : {}),
               lastActivity: Date.now(),
             }));
           }

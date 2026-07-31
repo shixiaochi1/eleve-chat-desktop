@@ -152,6 +152,8 @@ export default function App() {
   const toggleViewMode = useCallback(() => {
     if (viewMode === 'single') {
       hideDeepSeek().then(() => setDeepseekVisible(false));
+      // 🔴 P0 修复：进宫格前重置单视图发送锁（宫格期间 useSSE 禁用 → 单视图 onDone 永不触发 → 锁泄漏）
+      resetSendingLockRef.current?.();
       setViewMode('grid');
     } else {
       exitGridRef.current();
@@ -220,6 +222,7 @@ export default function App() {
       sess.setSessionId(targetId);
       getWsClient().switchSession(targetId);
       sess.loadHistory(targetId).then((msgs) => {
+        if (sess.sessionId !== targetId) return; // 🔴 过期响应守卫：快速切换时旧响应不覆盖新视图
         if (msgs?.length) storeSetMessages(msgs as ChatMessage[]);
       });
     }
@@ -352,6 +355,8 @@ export default function App() {
 
     // ── Step 2: 重置流式状态 + 同步锁定过滤 ref 到目标 session（消灭 effect 异步串台窗口） ──
     resetStream(targetId);
+    // 🔴 P0 修复：重置发送锁 + 清排队（否则源 Agent 的 message.complete 被过滤丢弃 → onDone 永不触发 → 锁泄漏 → 目标 Agent 发送瘫痪）
+    resetSendingLockRef.current?.();
 
     // ── Step 3: 切换盖章（同步，保证后续 sendRpc 盖章正确） ──
     setWsActiveProfile(name);
@@ -371,6 +376,7 @@ export default function App() {
       storeSetMessages(cached?.length ? (cached as ChatMessage[]) : []);
       // 🔴 始终从后端加载完整历史（含离开期间的消息）
       sess.loadHistory(targetId).then((msgs) => {
+        if (sess.sessionId !== targetId) return; // 🔴 过期响应守卫
         if (msgs?.length) {
           storeSetMessages(msgs as ChatMessage[]);
           sess.saveCache((c) => ({ ...c, [targetId]: msgs }));
@@ -401,6 +407,8 @@ export default function App() {
     const targetId = map[profile] || null;
     // 🔴 串台根因修复：同步锁定过滤 ref 到目标 session（宫格→单视图同样消灭异步窗口）
     resetStream(targetId);
+    // 🔴 P0 修复：宫格→单视图同样重置发送锁（宫格期间单视图锁可能被孤立流式事件锁死）
+    resetSendingLockRef.current?.();
     setWsActiveProfile(profile);
     setCurrentProfile(profile);
     // 🔴 S2: 宫格→单视图同样刷新会话列表（与 handleProfileChange 一致）
@@ -413,6 +421,7 @@ export default function App() {
       const cached = sess.msgCache[targetId];
       storeSetMessages(cached?.length ? (cached as ChatMessage[]) : []);
       sess.loadHistory(targetId).then((msgs) => {
+        if (sess.sessionId !== targetId) return; // 🔴 过期响应守卫
         if (msgs?.length) {
           storeSetMessages(msgs as ChatMessage[]);
           sess.saveCache((c) => ({ ...c, [targetId]: msgs }));
