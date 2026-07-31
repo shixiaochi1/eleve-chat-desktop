@@ -342,15 +342,3 @@ async function kanbanHttpFallback(command: string, args: Record<string, any>): P
 
 // ====== 就绪状态 ======
 
-/**
- * 检查 AppService 是否已初始化就绪
- * HTTP health check
- */
-export async function isReady(): Promise<boolean> {
-  try {
-    const resp = await fetch(`${_httpBase}/v1/health`, { signal: AbortSignal.timeout(3000) });
-    return resp.ok;
-  } catch {
-    return false;
-  }
-}

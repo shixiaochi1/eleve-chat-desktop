@@ -15,7 +15,7 @@ import { loadSettingsFromRust } from './utils/settings-store';
 import { discoverPort, call } from './utils/bridge';
 import { getActiveProfile, fetchProfiles } from './utils/api';
 import { getWsClient, setWsActiveProfile } from './services/ws-client';
-import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer } from './utils/session';
+import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer, loadProfilePointers, saveProfilePointer, removeProfilePointer } from './utils/session';
 import type { ChatMessage } from './types';
 import ErrorBoundary from './components/ErrorBoundary';
 import CredentialCard from './components/CredentialCard';
@@ -355,8 +355,7 @@ export default function App() {
     // 🔴 P0-1: 必须等 storageReady（storage.init 成功）后才恢复，否则读空缓存永不恢复会话。
     if (!portReady || !profileResolved || !storageReady || startupRestored.current) return;
     startupRestored.current = true;
-    const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
-    // 🔴 串台防御：map 指针或全局 fallback 可能指向其他 profile 的 session，校验后才恢复
+    const map = loadProfilePointers();
     const rawTarget = map[currentProfile] || (storage.load('session_id', null) as string | null);
     const targetId = rawTarget && sessionIdMatchesProfile(rawTarget, currentProfile) ? rawTarget : null;
     if (targetId) {
@@ -396,12 +395,12 @@ export default function App() {
     }
 
     // ── Step 1: 记住指针（每个 Agent 上次用哪个 session） ──
-    const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
+    const map = loadProfilePointers();
     // 🔴 串台防御：只写入归属正确的 session 指针，防止污染扩散
     if (sess.sessionId && sessionIdMatchesProfile(sess.sessionId, currentProfile)) {
-      map[currentProfile] = sess.sessionId;
+      map[currentProfile] = sess.sessionId; // 同步本地副本（Step 1b 读目标 key 不受影响，但保持语义一致）
+      saveProfilePointer(currentProfile, sess.sessionId);
     }
-    storage.save('profile_session_map', map);
 
     // ── Step 1b: 🔴 串台根因修复 — 先算目标 session（map 指针可能被历史污染，校验归属后才恢复） ──
     const rawTargetId = map[name] || null;
@@ -436,8 +435,7 @@ export default function App() {
   // profile_session_map，故此处只从 map 读取 + 后端重加载。与 handleProfileChange 的区别：
   // 不回写“切走”会话（避免用陈旧的全局 sess.sessionId 覆盖宫格刚写回的权威指针）。
   const restoreProfileSession = useCallback((profile: string) => {
-    const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
-    // 🔴 P1-2: 串台防御 — map 指针可能指向其他 profile 的 session（污染指针），校验后才恢复
+    const map = loadProfilePointers();
     const rawTarget = map[profile] || null;
     const targetId = rawTarget && sessionIdMatchesProfile(rawTarget, profile) ? rawTarget : null;
     // 🔴 串台根因修复：同步锁定过滤 ref 到目标 session（宫格→单视图同样消灭异步窗口）
@@ -497,8 +495,7 @@ export default function App() {
     // 🔴 P0-C: 先切盖章再 refresh，保证 sess.refresh() 拉的是目标 profile 的会话列表
     // （事件冒泡顺序：按钮 onClick 先于卡片 onClick，此时 setWsActiveProfile 尚未被 onFocusChange 调用）
     setWsActiveProfile(profile);
-    const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
-    if (map[profile]) { delete map[profile]; storage.save('profile_session_map', map); }
+    removeProfilePointer(profile);
     getWsClient().switchSession('');
     sess.refresh();
     setSessionListVersion(v => v + 1);
@@ -514,6 +511,34 @@ export default function App() {
     }
     handleSwitchSession(id);
   }, [viewMode, currentProfile, handleSwitchSession]);
+
+  // 🔴 P2-6: 宫格模式侧栏“新建会话”路由进宫格（重置焦点 Agent 卡片，不切单视图）
+  const gridAwareNewSession = useCallback(() => {
+    if (viewMode === 'grid') {
+      gridRef.current?.newSession(currentProfile);
+      return;
+    }
+    handleNewSession();
+  }, [viewMode, currentProfile, handleNewSession]);
+
+  // 🔴 P2-6: 宫格模式侧栏“删除会话”路由进宫格（删后自动加载同 Agent 最新剩余会话，无则显示空态）
+  const gridAwareDeleteSession = useCallback((id: string) => {
+    handleDeleteSession(id);
+    if (viewMode === 'grid') {
+      const owner = profileFromSessionId(id);
+      if (owner) {
+        // 找同 Agent 剩余会话（排除已删的，按 last_active 降序取最新）
+        const remaining = sess.sessions
+          .filter(s => s.id !== id && sessionIdMatchesProfile(s.id, owner))
+          .sort((a, b) => b.last_active - a.last_active);
+        if (remaining.length > 0) {
+          gridRef.current?.switchToSession(owner, remaining[0].id);
+        } else {
+          gridRef.current?.newSession(owner);
+        }
+      }
+    }
+  }, [viewMode, handleDeleteSession, sess.sessions]);
 
   // ── usePromptActions: send/regenerate/abort/queue ──
   const {
@@ -803,7 +828,7 @@ export default function App() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key === 'n') { e.preventDefault(); handleNewSession(); }
+      if (mod && e.key === 'n') { e.preventDefault(); gridAwareNewSession(); }
       if (mod && e.key === 'w') { e.preventDefault(); tauriWindow?.close(); }
       if (mod && e.key === 'l') { e.preventDefault(); (document.getElementById('input') as HTMLElement)?.focus(); }
       if (mod && e.key === 'k') { e.preventDefault(); setCommandCenterOpen((v) => !v); }
@@ -813,7 +838,7 @@ export default function App() {
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [handleNewSession]);
+  }, [gridAwareNewSession]);
 
   // ── titlebar controls ──
   const winMin = () => tauriWindow?.minimize();
@@ -892,10 +917,10 @@ export default function App() {
                   sessionId={viewMode === 'grid' ? (focusedGridSessionId ?? sess.sessionId) : sess.sessionId}
                   sessions={sess.sessions}
                   onSwitchSession={gridAwareSwitchSession}
-                  onDeleteSession={handleDeleteSession}
+                  onDeleteSession={gridAwareDeleteSession}
                   sessionTitles={sess.titles}
                   onRenameTitle={sess.setTitle}
-                  onNewSession={handleNewSession}
+                  onNewSession={gridAwareNewSession}
                   isStreaming={isStreaming}
                   debugEvents={debugEvents}
                   debugToolCalls={debugToolCalls}
@@ -1076,7 +1101,7 @@ export default function App() {
         sessionTitles={sess.titles}
         sessionId={sess.sessionId ?? undefined}
         onSwitchSession={gridAwareSwitchSession}
-        onNewSession={handleNewSession}
+        onNewSession={gridAwareNewSession}
         onCommand={handleCommand}
         onNavigate={handleNavigate}
       />

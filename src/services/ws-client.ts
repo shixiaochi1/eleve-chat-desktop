@@ -483,7 +483,7 @@ export class GatewayWsClient {
     // 🔴 恢复链修复：切换 session 时通知后端注册 ws_clients 事件路由 + 推送 session.info
     // 保证切换后流式事件有投递目标 + pending 交互可恢复（不依赖 prompt.submit 才注册）
     if (newSessionId && this._state === 'connected') {
-      this.sendRpc('session.attach', { session_id: newSessionId }).catch(() => {})
+      this.sendRpc('session.attach', { session_id: newSessionId }).catch((e) => { console.warn('[ws] session.attach failed:', e) })
     }
   }
 

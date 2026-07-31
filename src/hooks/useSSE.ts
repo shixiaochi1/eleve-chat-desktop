@@ -180,8 +180,9 @@ function processEvent(
       cbs.onReasoningStart?.();
       break;
 
-    // ── 推理结束（对齐 Hermes: reasoning块结束 → 清reasoning状态）──
+    // ── 推理结束（对齐 Hermes: reasoning块结束 → 移累加器 reasoning → parts）──
     case 'reasoning.end':
+      processAccumulatorEvent(acc, eventName, chunk);
       cbs.onReasoningComplete?.(acc.reasoning);
       break;
 
@@ -704,6 +705,9 @@ export function useSSE(
     currentSessionRef.current = null;
     storeSetIsStreaming(false);
     isStreamingRef.current = false;
+    // 🔴 P2-1: abort 必须关闭发送窗口 + 丢弃缓冲（否则残留 pendingSendRef 干扰下次发送过滤）
+    pendingSendRef.current = false;
+    pendingBufferRef.current = null;
 
     const cbs = cbsRef.current;
     if (cbs?.onDone) {

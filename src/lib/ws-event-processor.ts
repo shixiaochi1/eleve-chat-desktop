@@ -77,6 +77,13 @@ export function processAccumulatorEvent(
     case 'reasoning.delta':
       acc.reasoning += (payload.text as string) || '';
       return true;
+    case 'reasoning.end':
+      // 推理块结束 → 移入 parts（完成态），清 acc.reasoning（支持多推理块）
+      if (acc.reasoning) {
+        acc.parts = [...acc.parts, { type: 'reasoning' as const, text: acc.reasoning }];
+        acc.reasoning = '';
+      }
+      return true;
     case 'tool.start':
     case 'tool.generating':
       acc.parts = upsertToolPart(acc.parts, toolPayloadFromEvent(eventName, payload), 'running');

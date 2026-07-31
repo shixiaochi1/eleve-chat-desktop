@@ -50,11 +50,10 @@
  */
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
 import { fetchProfiles } from '../utils/api';
-import * as storage from '../utils/storage';
 import { Square } from 'lucide-react';
 import { useGridChat, type AgentChatState } from '../hooks/useGridChat';
 import AgentChatCard, { type AgentProfileInfo, type AgentCardColor } from './AgentChatCard';
-import { sessionIdMatchesProfile, persistSessionPointer } from '../utils/session';
+import { sessionIdMatchesProfile, persistSessionPointer, loadProfilePointers, batchSaveProfilePointers } from '../utils/session';
 import { useModelContext } from '@/contexts/ModelContext';
 
 /**
@@ -68,6 +67,8 @@ import { useModelContext } from '@/contexts/ModelContext';
 export interface GridModeViewHandle {
   switchToSession: (profile: string, sessionId: string) => void;
   persistPointers: () => void;
+  /** 侧栏“新建会话”路由进宫格：重置焦点 Agent 卡片 + 全局副作用 */
+  newSession: (profile: string) => void;
 }
 
 // ── Agent 颜色调色板（对齐 --ui-* 设计 token）──
@@ -248,7 +249,7 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   useEffect(() => {
     if (loadedRef.current || profiles.length === 0) return;
     loadedRef.current = true;
-    const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
+    const map = loadProfilePointers();
     for (const p of profiles) {
       // 当前 profile 优先用 App 实时 sessionId（map 可能未及更新），其余用 per-profile 指针
       const sid = map[p.name] || (p.name === currentProfile ? currentSessionId : null);
@@ -259,12 +260,11 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
 
   // ── 把各 Agent 当前 session 指针写回 localStorage（退出/展开前调用） ──
   const persistPointers = useCallback(() => {
-    const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
-    let changed = false;
+    const entries: Record<string, string> = {};
     for (const [p, s] of Object.entries(statesRef.current)) {
-      if (s?.sessionId) { map[p] = s.sessionId; changed = true; }
+      if (s?.sessionId) entries[p] = s.sessionId;
     }
-    if (changed) storage.save('profile_session_map', map);
+    batchSaveProfilePointers(entries);
   }, []);
 
   // 🔴 宫格内切换某 Agent 卡片的会话（修复 BUG2：留宫格，不强行切单视图）
@@ -276,8 +276,8 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
     onFocusChange?.(profile);
   }, [loadLatest, onFocusChange]);
 
-  // 🔴 命令式句柄：App 经 gridRef 调度宫格（switchToSession 留宫格切会话 / persistPointers 退出前写回指针）
-  useImperativeHandle(ref, () => ({ switchToSession, persistPointers }), [switchToSession, persistPointers]);
+  // 🔴 命令式句柄：App 经 gridRef 调度宫格（switchToSession / persistPointers / newSession）
+  useImperativeHandle(ref, () => ({ switchToSession, persistPointers, newSession: handleGridNewSession }), [switchToSession, persistPointers, handleGridNewSession]);
 
   // 🔴 退出/展开：持久化权威收敛到 App（handleExitGrid/handleExpandAgent 经 gridRef.persistPointers）。
   // 此处只回调 App，不再本地 persist，消灭“按钮退出持久化 / Ctrl+G 退出不持久化”的双路径不一致。

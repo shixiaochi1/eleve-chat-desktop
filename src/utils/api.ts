@@ -172,12 +172,6 @@ export async function restoreRollback(hash: string, cwd: string): Promise<{ stat
   return call('rollback_restore', { hash, cwd });
 }
 
-// ====== 模型 ======
-
-export async function setModel(modelName: string): Promise<any> {
-  return call('update_config_raw', { yaml_text: `model: ${modelName}` });
-}
-
 // ====== 命令 ======
 
 export async function fetchCommands(): Promise<any[]> {

@@ -1,9 +1,8 @@
 import { useCallback, type MutableRefObject } from 'react';
 import { activateSession } from '../utils/api';
 import { setMessages as storeSetMessages } from '../store/messages';
-import * as storage from '../utils/storage';
 import { getWsClient } from '../services/ws-client';
-import { clearSessionPointer, profileFromSessionId } from '../utils/session';
+import { clearSessionPointer, profileFromSessionId, removeProfilePointer } from '../utils/session';
 import type { SessionManagerHandle } from './useMessageStream';
 import { textPart } from '@/lib/chat-messages'
 import type { ChatMessage } from '@/types';
@@ -88,11 +87,7 @@ export function useSessionActions({
     // 🔴 P1-5: 删除会话同步清 profile_session_map，防僵尸指针复活
     const owner = profileFromSessionId(id);
     if (owner) {
-      const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
-      if (map[owner] === id) {
-        delete map[owner];
-        storage.save('profile_session_map', map);
-      }
+      removeProfilePointer(owner, id);
     }
     if (sess.sessionId === id) {
       storeSetMessages([]);

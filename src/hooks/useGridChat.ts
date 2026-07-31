@@ -523,19 +523,10 @@ export function useGridChat(active: boolean): {
           }
           break;
         }
-        // ── 推理生命周期（对齐单视图 onReasoningStart / onReasoningComplete）──
+        // ── 推理生命周期（reasoning.end 已由 processAccumulatorEvent 统一处理）──
         case 'reasoning.available':
           // 推理块开始通知（无文本，delta 事件随后到）—— 不额外处理
           break;
-        case 'reasoning.end': {
-          // 推理结束 → 将累加器中的 reasoning 移入 parts（完成态，停止 shimmer）
-          // P2-10: append（不是 prepend），保持事件到达顺序
-          if (acc.reasoning) {
-            acc.parts = [...acc.parts, { type: 'reasoning' as const, text: acc.reasoning }];
-            acc.reasoning = '';
-          }
-          break;
-        }
         // ── Agent 思考状态（对齐单视图 onThinking）──
         case 'thinking.delta':
           patch(profile, (s) => ({ ...s, activityHint: (payload.text as string) || '', lastActivity: Date.now() }));

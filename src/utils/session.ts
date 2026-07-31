@@ -140,3 +140,36 @@ export function clearSessionPointer(profile?: string): void {
     }
   }
 }
+
+// ── profile_session_map 纯 map 操作（不触碰全局 session_id）──
+// 🔴 P2-5: 所有对 profile_session_map 的读写必须走 session.ts，禁止裸调 storage
+
+/** 读取全量 per-profile 指针 map */
+export function loadProfilePointers(): Record<string, string | null> {
+  return (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
+}
+
+/** 写入单个 profile 指针（仅 map，不动全局 session_id） */
+export function saveProfilePointer(profile: string, sessionId: string): void {
+  const map = loadProfilePointers();
+  map[profile] = sessionId;
+  storage.save('profile_session_map', map);
+}
+
+/** 删除单个 profile 指针；传 expectedSessionId 则仅匹配时删除（防误删新指针） */
+export function removeProfilePointer(profile: string, expectedSessionId?: string): void {
+  const map = loadProfilePointers();
+  if (expectedSessionId !== undefined && map[profile] !== expectedSessionId) return;
+  if (map[profile] !== undefined) {
+    delete map[profile];
+    storage.save('profile_session_map', map);
+  }
+}
+
+/** 批量写入多个 profile 指针（宫格退出时一次性持久化） */
+export function batchSaveProfilePointers(entries: Record<string, string>): void {
+  if (Object.keys(entries).length === 0) return;
+  const map = loadProfilePointers();
+  Object.assign(map, entries);
+  storage.save('profile_session_map', map);
+}
