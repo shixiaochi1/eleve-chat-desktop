@@ -9,11 +9,13 @@ import FastModeButton from './FastModeButton';
 import ComingSoonButton from './ComingSoonButton';
 import WebWindowButton from './WebWindowButton';
 import SlashCommandPopup from './SlashCommandPopup';
+import QueuePanel from './QueuePanel';
 import { SendIcon, MicIcon, LoadingIcon, ContextFileIcon } from './Icons';
 import { cn } from '@/lib/utils';
 import type { AttachedImage } from '@/hooks/useImageAttachments';
 import { useVoice } from '@/hooks/useVoice';
 import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
+import { useQueue, updateEntry, type QueuedMessage } from '@/lib/message-queue';
 
 interface InputAreaProps {
   onSend?: (text: string) => void;
@@ -34,6 +36,12 @@ interface InputAreaProps {
   onRemoveImage?: (id: string) => Promise<void>;
   /** 清除错误信息 */
   onClearImageError?: () => void;
+  /** 队列键控 profile（对齐 Hermes activeQueueSessionKey） */
+  queueProfile?: string;
+  /** 立即发送排队条目（对齐 Hermes sendQueuedNow） */
+  onQueueSendNow?: (id: string) => void;
+  /** 删除排队条目 */
+  onQueueDelete?: (id: string) => void;
 }
 
 /**
@@ -72,12 +80,74 @@ export default function InputArea({
   onAddImage,
   onRemoveImage,
   onClearImageError,
+  queueProfile,
+  onQueueSendNow,
+  onQueueDelete,
 }: InputAreaProps) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   // `/` 命令补全 — 共享 hook（与宫格 AgentCardComposer 同一权威源）
   const slash = useSlashAutocomplete({ enabled: !!portReady, refreshKey: portVersion });
   /** 输入框是否有内容 — 驱动发送键的置灰态（仅布尔翻转时触发渲染） */
   const [hasText, setHasText] = useState(false);
+
+  // ── 排队编辑（对齐 Hermes use-composer-queue: beginQueuedEdit / stepQueuedEdit / exitQueuedEdit）──
+  const queueEntries = useQueue(queueProfile ?? '');
+  const [queueEdit, setQueueEdit] = useState<{ entryId: string; draft: string } | null>(null);
+
+  const syncHeight = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 150) + 'px';
+  }, []);
+
+  const beginQueueEdit = useCallback((entry: QueuedMessage) => {
+    const el = inputRef.current;
+    if (!el || queueEdit) return;
+    setQueueEdit({ entryId: entry.id, draft: el.value });
+    el.value = entry.text;
+    syncHeight();
+    el.focus();
+  }, [queueEdit, syncHeight]);
+
+  const stepQueueEdit = useCallback((direction: -1 | 1): boolean => {
+    if (!queueEdit) return false;
+    const el = inputRef.current;
+    if (!el) return false;
+    const index = queueEntries.findIndex((e) => e.id === queueEdit.entryId);
+    const target = index + direction;
+    if (index < 0 || target < 0) return index >= 0; // 最顶部：吞掉
+    // 保存当前编辑
+    if (queueProfile) updateEntry(queueProfile, queueEdit.entryId, { text: el.value });
+    const next = queueEntries[target];
+    if (next) {
+      setQueueEdit({ ...queueEdit, entryId: next.id });
+      el.value = next.text;
+    } else {
+      // 越过末条：退出编辑，恢复原草稿（对齐 Hermes stepQueuedEdit）
+      setQueueEdit(null);
+      el.value = queueEdit.draft;
+    }
+    syncHeight();
+    el.focus();
+    return true;
+  }, [queueEdit, queueEntries, queueProfile, syncHeight]);
+
+  const exitQueueEdit = useCallback((action: 'save' | 'cancel'): boolean => {
+    if (!queueEdit) return false;
+    const el = inputRef.current;
+    if (!el) return false;
+    if (action === 'save') {
+      const text = el.value;
+      if (!text.trim()) return false; // 空内容不保存
+      if (queueProfile) updateEntry(queueProfile, queueEdit.entryId, { text });
+    }
+    setQueueEdit(null);
+    el.value = queueEdit.draft;
+    syncHeight();
+    el.focus();
+    return true;
+  }, [queueEdit, queueProfile, syncHeight]);
   const popupRef = useRef<HTMLDivElement | null>(null);
   // F3 T3.1: @ 路径补全
   const [pathItems, setPathItems] = useState<Array<{ text: string; display: string; meta: string }>>([]);
@@ -108,6 +178,14 @@ export default function InputArea({
   }, [onCommand, slash]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // 🔴 排队编辑键盘（对齐 Hermes stepQueuedEdit：↑↓遍历 / Escape 取消 / Enter 保存）
+    if (queueEdit) {
+      if (e.key === 'ArrowUp') { e.preventDefault(); stepQueueEdit(-1); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); stepQueueEdit(1); return; }
+      if (e.key === 'Escape') { e.preventDefault(); exitQueueEdit('cancel'); return; }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); exitQueueEdit('save'); return; }
+    }
+
     // F3 T3.1: @ 路径补全弹窗键盘导航
     if (showPathPopup && pathItems.length > 0) {
       if (e.key === 'ArrowDown') {
@@ -186,7 +264,7 @@ export default function InputArea({
       e.preventDefault();
       handleSend();
     }
-  }, [showPathPopup, pathItems, pathSelectedIndex, slash, handleSend, handleCommandExec]);
+  }, [showPathPopup, pathItems, pathSelectedIndex, slash, handleSend, handleCommandExec, queueEdit, stepQueueEdit, exitQueueEdit]);
 
   const handleInput = useCallback(() => {
     const el = inputRef.current;
@@ -323,6 +401,18 @@ export default function InputArea({
 
   return (
     <div className="p-3">
+      {/* 排队面板（对齐 Hermes QueuePanel：InputArea 上方，空队列不渲染） */}
+      {queueProfile && (
+        <QueuePanel
+          entries={queueEntries}
+          busy={!!isStreaming}
+          editingId={queueEdit?.entryId ?? null}
+          onDelete={(id) => onQueueDelete?.(id)}
+          onEdit={beginQueueEdit}
+          onSendNow={(id) => onQueueSendNow?.(id)}
+        />
+      )}
+
       {/* Hermes 式容器表面 — 图片预览/输入区在上，控制行在下 */}
       <div className="composer-surface relative rounded-2xl border">
         {/* `/` 命令补全弹窗 — 共享 SlashCommandPopup，锚定在容器表面上方 */}

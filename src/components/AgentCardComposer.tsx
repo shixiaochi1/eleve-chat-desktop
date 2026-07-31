@@ -15,7 +15,7 @@
  * 与 InputArea 的关系：共享 slash 补全权威源；布局/场景不同（宫格紧凑、无 @路径），
  * 各自持有键盘编排，不强行合并成单一组件（避免 prop 爆炸）。
  */
-import { useState, useRef, useCallback, useLayoutEffect } from 'react';
+import { useState, useRef, useCallback, useLayoutEffect, forwardRef, useImperativeHandle } from 'react';
 import { SquarePen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import AttachMenu from './AttachMenu';
@@ -40,9 +40,20 @@ interface AgentCardComposerProps {
   imageUploading: number;
   onAddImage: (file: File) => Promise<unknown>;
   onRemoveImage: (id: string) => Promise<void>;
+  /** 队列编辑状态（对齐 Hermes stepQueuedEdit / exitQueuedEdit） */
+  queueEditingId?: string | null;
+  onQueueStep?: (direction: -1 | 1) => { text: string; done: boolean } | null;
+  onQueueExit?: (action: 'save' | 'cancel') => string | null;
+  onQueueLoadText?: (text: string) => void;
 }
 
-export default function AgentCardComposer({
+/** 命令式句柄（队列编辑时父级读/写草稿） */
+export interface AgentCardComposerHandle {
+  getValue: () => string;
+  setValue: (text: string) => void;
+}
+
+const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerProps>(function AgentCardComposer({
   profileName,
   isStreaming,
   portReady,
@@ -54,10 +65,20 @@ export default function AgentCardComposer({
   imageUploading,
   onAddImage,
   onRemoveImage,
-}: AgentCardComposerProps) {
+  queueEditingId,
+  onQueueStep,
+  onQueueExit,
+  onQueueLoadText,
+}, ref) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [value, setValue] = useState('');
   const slash = useSlashAutocomplete({ enabled: portReady });
+
+  // 命令式句柄（队列编辑时父级读/写草稿）
+  useImperativeHandle(ref, () => ({
+    getValue: () => value,
+    setValue: (text: string) => setValue(text),
+  }), [value]);
 
   // ── 自动撑大：内容变化 → 重置高度再按 scrollHeight 撑（单行起，max 120 滚动） ──
   useLayoutEffect(() => {
@@ -111,6 +132,31 @@ export default function AgentCardComposer({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // 🔴 队列编辑键盘（对齐 Hermes stepQueuedEdit：↑↓遍历 / Escape 取消 / Enter 保存）
+      if (queueEditingId) {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          const result = onQueueStep?.(e.key === 'ArrowUp' ? -1 : 1);
+          if (result) {
+            setValue(result.text);
+            if (result.done) onQueueLoadText?.(result.text);
+          }
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          const restored = onQueueExit?.('cancel');
+          if (restored != null) setValue(restored);
+          return;
+        }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          const restored = onQueueExit?.('save');
+          if (restored != null) setValue(restored);
+          return;
+        }
+      }
+
       // `/` 命令补全键盘导航（优先于发送）
       if (slash.showPopup && slash.filtered.length > 0) {
         if (e.key === 'ArrowDown') {
@@ -146,7 +192,7 @@ export default function AgentCardComposer({
         handleSend();
       }
     },
-    [slash, value, handleCommandExec, handleSend],
+    [slash, value, handleCommandExec, handleSend, queueEditingId, onQueueStep, onQueueExit, onQueueLoadText],
   );
 
   // ── 文件选择（复用 InputArea 的临时 input 模式） ──
@@ -321,4 +367,6 @@ export default function AgentCardComposer({
       </div>
     </div>
   );
-}
+});
+
+export default AgentCardComposer;

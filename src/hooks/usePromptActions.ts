@@ -5,22 +5,25 @@ import { setMessages as storeSetMessages, getMessages } from '../store/messages'
 import { textPart } from '@/lib/chat-messages'
 import { getWsClient } from '../services/ws-client';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
-import { enqueue, dequeue, clearQueue, getQueueLength, MAX_DRAIN_ATTEMPTS } from '@/lib/message-queue';
+import {
+  enqueue, dequeue, clearQueue, getQueueLength, getQueue, removeEntry, promoteEntry,
+  MAX_DRAIN_ATTEMPTS, getDrainFailures, incrementDrainFailures, clearDrainFailures,
+  resetAllDrainFailures, stashAttachmentData, takeAttachmentData,
+  type QueuedAttachment,
+} from '@/lib/message-queue';
 import type { ChatMessage } from '@/types'
 import type { SessionManagerHandle } from './useMessageStream';
 
 // 对齐 Hermes: Hard guard — at most one prompt.submit in flight per session
-// 防止快速双击或 stall turn 导致同一个 session 多个 turn 同时运行
 const _submitInFlight = new Set<string>()
 
 /**
  * usePromptActions — send/abort/queue logic
  *
- * Extracted from App.jsx. Manages message sending (direct and queued during
- * streaming), command execution (/commands), and abort.
- *
- * Returns { handleSend, handleAbort, handleCommand,
- *           pendingQueue, isSendingRef, drainQueue, drainQueueRef }
+ * 对齐 Hermes use-composer-queue.ts：
+ * - per-entry 失败计数（替代旧全局计数，一条卡住不拖死全队列）
+ * - sendQueueNow（busy→promote+abort / idle→立即发）
+ * - 附件排队（entry 级元数据 + 内存 base64 + drain 时附着）
  */
 export function usePromptActions({
   sess,
@@ -46,51 +49,77 @@ export function usePromptActions({
   send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string }) => Promise<void>
   abort?: () => Promise<void>
   handleNewSession: (title?: string) => Promise<void>
-  /** 对齐 Hermes: UI 选择的模型，传入 session.create 作为 per-session override */
   currentModel?: string
   currentProvider?: string
-  /** 当前活跃 profile（队列键控） */
   currentProfile: string
-  /** 破坏性斜杠命令确认回调（D1 slash_confirm GUI） */
   onSlashConfirm?: (data: { confirmId: string; command: string; description: string }) => void
 }): {
-  handleSend: (text: string) => void
+  handleSend: (text: string, attachments?: QueuedAttachment[], attachmentDataURLs?: string[]) => void
   handleAbort: () => void
   handleCommand: (cmdName: string, args?: string) => Promise<void>
   isSendingRef: MutableRefObject<boolean>
   drainQueue: () => void
   drainQueueRef: MutableRefObject<(() => void) | null>
   resetSendingLock: () => void
+  /** 对齐 Hermes sendQueuedNow：busy→promote+abort / idle→立即发 */
+  sendQueueNow: (id: string) => void
+  /** 删除排队条目 */
+  deleteQueueEntry: (id: string) => void
 } {
-  // ── 消息队列 — 流式期间允许输入并排队（对齐 Hermes composer-queue: localStorage 持久化） ──
   const isSendingRef = useRef(false);
   const drainQueueRef = useRef<(() => void) | null>(null);
-  // 🔴 对齐 Hermes MAX_AUTO_DRAIN_ATTEMPTS: 连续失败计数，超限停止自动出队
-  const drainAttemptsRef = useRef(0);
 
+  // ── drain：per-entry 失败计数 + 附件附着（对齐 Hermes runDrain + autoDrainNext）──
   const drainQueue = useCallback(async () => {
     isSendingRef.current = false;
-    // 🔴 对齐 Hermes MAX_AUTO_DRAIN_ATTEMPTS: 连续失败超限停止自动出队，条目留队等手动
-    if (drainAttemptsRef.current >= MAX_DRAIN_ATTEMPTS) {
-      if (getQueueLength(currentProfile) > 0) {
-        console.warn(`[drainQueue] ${MAX_DRAIN_ATTEMPTS} consecutive failures, pausing auto-drain for ${currentProfile}`);
-        import('../utils/notifications').then(({ notifyError }) => {
-          notifyError(`排队消息发送连续失败 ${MAX_DRAIN_ATTEMPTS} 次，已暂停自动发送`, '队列暂停');
-        });
-      }
+
+    const queue = getQueueLength(currentProfile);
+    if (queue === 0) return;
+
+    // 取队首
+    const entry = dequeue(currentProfile);
+    if (!entry) return;
+
+    // 🔴 per-entry 失败计数（对齐 Hermes drainFailuresRef Map）：一条卡住不拖死全队列
+    if (getDrainFailures(entry.id) >= MAX_DRAIN_ATTEMPTS) {
+      console.warn(`[drainQueue] entry ${entry.id} exceeded ${MAX_DRAIN_ATTEMPTS} failures, skipping`);
+      import('../utils/notifications').then(({ notifyError }) => {
+        notifyError(`排队消息连续失败 ${MAX_DRAIN_ATTEMPTS} 次，已跳过（可手动重试）`, '队列暂停');
+      });
       return;
     }
-    const entry = dequeue(currentProfile);
-    if (!entry) { drainAttemptsRef.current = 0; return; }
+
     isSendingRef.current = true;
 
-    // 🔴 守卫：storage 未初始化完成时，不发消息
     if (!storage.isReady()) {
       console.warn('[drainQueue] Storage not ready, waiting...');
       await storage.init();
     }
 
-    // 🔴 P1-2.6: drain 不再追加用户消息（排队时已上屏，再追加 = 重复显示）
+    // 🔴 附件附着（对齐 Hermes entry 级归属：drain 时 attachImage → 立即 submit）
+    const dataURLs = takeAttachmentData(entry.id);
+    if (entry.attachments.length > 0 && dataURLs && dataURLs.length > 0) {
+      try {
+        const ws = getWsClient();
+        for (const dataURL of dataURLs) {
+          // 从 data URL 提取 base64（对齐 utils/file.ts base64FromDataURL）
+          const base64 = dataURL.includes(',') ? dataURL.split(',')[1]! : dataURL;
+          await ws.imageAttachBytes(base64, undefined, sess.sessionId ?? undefined);
+        }
+      } catch (e) {
+        console.warn('[drainQueue] attachment re-attach failed, sending text-only:', e);
+        import('../utils/notifications').then(({ notifyWarning }) => {
+          notifyWarning('附件重新附着失败，已降级为纯文本发送', '附件失效');
+        });
+      }
+    } else if (entry.attachments.length > 0 && !dataURLs) {
+      // 刷新后内存丢失 → 诚实降级（对齐方案：降纯文本 + toast）
+      console.warn('[drainQueue] attachment data lost (page refresh?), sending text-only');
+      import('../utils/notifications').then(({ notifyWarning }) => {
+        notifyWarning('页面刷新后附件数据已失效，已降级为纯文本发送', '附件失效');
+      });
+    }
+
     const modelOpts = entry.modelOpts ?? (currentModel ? { model: currentModel, provider: currentProvider } : undefined);
 
     if (sess.sessionId && !sess.titles[sess.sessionId]) {
@@ -102,15 +131,65 @@ export function usePromptActions({
     addDebugEvent('text', `user: ${entry.text.slice(0, 60)}`);
     try {
       await send(entry.text, sess.sessionId as null | undefined, modelOpts);
-      drainAttemptsRef.current = 0; // 成功重置计数
+      clearDrainFailures(entry.id); // 成功重置
     } catch {
-      drainAttemptsRef.current++;
+      incrementDrainFailures(entry.id);
       isSendingRef.current = false;
     }
   }, [sess, send, addDebugEvent, setConnectionStatus, setDebugInfo, currentModel, currentProvider, currentProfile]);
 
-  // keep ref fresh for onDone callback
   drainQueueRef.current = drainQueue;
+
+  // ── sendQueueNow（对齐 Hermes sendQueuedNow）──
+  const sendQueueNow = useCallback((id: string) => {
+    if (isSendingRef.current) {
+      // busy：置首 + abort → 轮末 auto-drain 发出（对齐 Hermes promote + onCancel）
+      promoteEntry(currentProfile, id);
+      clearDrainFailures(id); // 手动发送清除失败计数
+      abort?.();
+      return;
+    }
+    // idle：立即发送（对齐 Hermes runDrain byId）
+    clearDrainFailures(id);
+    const queue = getQueueLength(currentProfile);
+    if (queue === 0) return;
+    // 找到目标条目并移除，然后发送
+    const entries = getQueue(currentProfile);
+    const entry = entries.find((e) => e.id === id);
+    if (!entry) return;
+    removeEntry(currentProfile, id);
+    // 走 drain 路径发送（复用附件附着 + 锁管理）
+    isSendingRef.current = true;
+    const modelOpts = entry.modelOpts ?? (currentModel ? { model: currentModel, provider: currentProvider } : undefined);
+
+    // 附件附着
+    const dataURLs = takeAttachmentData(entry.id);
+    const attachAndSend = async () => {
+      if (entry.attachments.length > 0 && dataURLs?.length) {
+        try {
+          const ws = getWsClient();
+          for (const dataURL of dataURLs) {
+            const base64 = dataURL.includes(',') ? dataURL.split(',')[1]! : dataURL;
+            await ws.imageAttachBytes(base64, undefined, sess.sessionId ?? undefined);
+          }
+        } catch { /* 降级纯文本 */ }
+      }
+      setConnectionStatus('connected');
+      addDebugEvent('text', `user (queue-now): ${entry.text.slice(0, 60)}`);
+      try {
+        await send(entry.text, sess.sessionId as null | undefined, modelOpts);
+      } catch {
+        isSendingRef.current = false;
+      }
+    };
+    void attachAndSend();
+  }, [currentProfile, currentModel, currentProvider, abort, send, sess, setConnectionStatus, addDebugEvent]);
+
+  // ── deleteQueueEntry ──
+  const deleteQueueEntry = useCallback((id: string) => {
+    removeEntry(currentProfile, id);
+    clearDrainFailures(id);
+  }, [currentProfile]);
 
   // ── slash command handler ──
   const handleCommand = useCallback(async (cmdName: string, args?: string) => {
@@ -132,8 +211,6 @@ export function usePromptActions({
           }
           storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(action.kickoff)] } as ChatMessage]);
           isSendingRef.current = true;
-          // 🔴 P1-9: 不用 finally 释锁（send 在 prompt.submit 响应即 resolve，流还在跑 → 锁提前释放 → 并发 turn 交错）
-          // 锁生命周期交给 onDone/drainQueue（对齐常规 handleSend 路径）；仅 send 本身 reject 时释锁
           try { await send(action.kickoff, sess.sessionId || undefined); }
           catch (e) { isSendingRef.current = false; throw e; }
           return;
@@ -159,22 +236,18 @@ export function usePromptActions({
   }, [sess, genId, setDebugInfo, setSessionListVersion, onSlashConfirm, send, isSendingRef]);
 
   // ── send message ──
-  const handleSend = useCallback(async (text: string) => {
+  const handleSend = useCallback(async (text: string, attachments?: QueuedAttachment[], attachmentDataURLs?: string[]) => {
     if (!text.trim()) return;
 
-    // 🔴 守卫：storage 未初始化完成时，不发消息（避免 sessionId=null 导致创建新 session）
     if (!storage.isReady()) {
       console.warn('[handleSend] Storage not ready, waiting...');
       await storage.init();
     }
 
-    // 拦截以 / 开头的消息 → 走命令路径
+    // 拦截 / 命令
     if (text.trimStart().startsWith('/')) {
       const cmdPart = text.trimStart().replace(/^\//, '').split(/\s/)[0].toLowerCase();
       const args = text.trimStart().replace(/^\/\S+\s*/, '').trim();
-      // 对齐 Eleve：/new [title] 走前端纯重置（startFreshSessionDraft），不走后端 executeCommand
-      // 🔴 Fix BUG#2: /reset 是 /new 的别名，必须一起拦截走前端重置
-      // 不拦截 → 走 WS slash.exec → 后端返回前端不识别的格式
       if (cmdPart === 'new' || cmdPart === 'reset') {
         handleNewSession(args || undefined);
         return;
@@ -183,10 +256,15 @@ export function usePromptActions({
       return;
     }
 
-    // 流式期间 → 排队（持久化，对齐 Hermes composer-queue），结束后自动发送
+    // 🔴 流式期间 → 排队（对齐 Hermes enqueueQueuedPrompt + 附件暂存）
     if (isSendingRef.current) {
       const modelOpts = currentModel ? { model: currentModel, provider: currentProvider } : undefined;
-      enqueue(currentProfile, { text, modelOpts });
+      const entry = enqueue(currentProfile, { text, modelOpts, attachments });
+      // 附件 base64 暂存内存（drain 时取出附着后端）
+      if (attachmentDataURLs?.length) {
+        stashAttachmentData(entry.id, attachmentDataURLs);
+      }
+      // 乐观上屏（对齐 Hermes：排队时已显示用户消息）
       storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage]);
       return;
     }
@@ -195,17 +273,10 @@ export function usePromptActions({
     isSendingRef.current = true;
     storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage]);
 
-    // ── 确保 WS 已连接（3.1: 统一入口，消灭 3 份重复）──
     const wsClient = getWsClient();
     await wsClient.ensureConnected(10000);
 
-    // 对齐架构原则：后端是 session 生命周期的唯一权威源
-    // 前端不预创建 session，直接发 prompt.submit
-    // 后端自动创建 session + 应用 model/provider override
-    // 如果有 pendingTitle（/new <title>），在 session 创建后设置
     const sessionId = sess.sessionId;
-    console.log('[handleSend] sessionId:', sessionId, 'freshDraftReady:', sess.freshDraftReady);
-
     const submitLockKey = sessionId || '__pending_new__';
     if (_submitInFlight.has(submitLockKey)) {
       console.warn('[handleSend] submitInFlight guard: already submitting for', submitLockKey);
@@ -218,14 +289,11 @@ export function usePromptActions({
       sess.setTitle(sessionId, text.slice(0, 30));
     }
 
-    // 对齐架构原则：model/provider 直接传 prompt.submit，后端应用
-    // 对齐 Hermes pending_title: title 传给后端，后端在 message.complete 后应用到 DB
     const modelOpts: { model?: string; provider?: string; title?: string } = {};
     if (currentModel) {
       modelOpts.model = currentModel;
       modelOpts.provider = currentProvider;
     }
-    // 首次消息且有 pendingTitle 时，传给后端
     if (sess.pendingTitle) {
       modelOpts.title = sess.pendingTitle;
     }
@@ -240,18 +308,15 @@ export function usePromptActions({
       _submitInFlight.delete(submitLockKey);
     }
 
-    // 对齐 Hermes pending_title: 后端在 message.complete 后应用 title 并推 session.title 事件
-    // 前端只需清除 pendingTitle 状态（后端负责持久化 + 事件推送）
-    // 前端监听 session.title 事件更新 titles map（useMessageStream 已有处理）
     if (sess.pendingTitle) {
       sess.setPendingTitle(null);
     }
     if (sess.freshDraftReady) {
       sess.setFreshDraftReady(false);
     }
-  }, [sess, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, setDebugInfo]);
+  }, [sess, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, setDebugInfo, currentModel, currentProvider, currentProfile]);
 
-  // ── abort streaming ──
+  // ── abort ──
   const handleAbort = useCallback(() => {
     abort?.();
   }, [abort]);
@@ -259,7 +324,7 @@ export function usePromptActions({
   // ── 重置发送锁 ──
   const resetSendingLock = useCallback(() => {
     isSendingRef.current = false;
-    drainAttemptsRef.current = 0;
+    resetAllDrainFailures();
     clearQueue(currentProfile);
   }, [currentProfile]);
 
@@ -271,5 +336,7 @@ export function usePromptActions({
     drainQueue,
     drainQueueRef,
     resetSendingLock,
+    sendQueueNow,
+    deleteQueueEntry,
   };
 }

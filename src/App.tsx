@@ -547,6 +547,9 @@ export default function App() {
     handleCommand,
     drainQueue,
     resetSendingLock,
+    isSendingRef,
+    sendQueueNow,
+    deleteQueueEntry,
   } = usePromptActions({
     sess,
     genId,
@@ -585,16 +588,32 @@ export default function App() {
     clearError: clearImageError,
   } = useImageAttachments();
 
-  // 包装 handleSend — 发送成功后清空图片预览
-  // 注意：drainQueue 内部调用的是 rawHandleSend 的底层 send()，不经过此包装
-  // drainQueue 是排队消息发送，不涉及图片附件，所以不需要 clearImages
+  // 包装 handleSend — 附件排队归属 + 发送后清空预览
+  // 🔴 对齐 Hermes entry 级附件归属：busy 时排队附件 base64 暂存内存 + 从 session 分离
   const handleSend = useCallback((text: string) => {
-    rawHandleSend(text);
-    // 发送后清空图片（后端 prompt.submit 会自动 drain 消费）
-    if (attachedImages.length > 0) {
+    const wasBusy = isSendingRef.current;
+    const images = [...attachedImages];
+
+    // 准备附件元数据 + base64（排队用）
+    const queuedAttachments = images.map((img) => ({
+      id: img.id, name: img.name, size: img.size, preview: img.preview,
+    }));
+    const dataURLs = images.map((img) => img.preview);
+
+    rawHandleSend(text, queuedAttachments.length > 0 ? queuedAttachments : undefined, dataURLs.length > 0 ? dataURLs : undefined);
+
+    if (wasBusy && images.length > 0) {
+      // 排队场景：从 session 分离图片（防下次发送误消费）+ 清本地状态
+      const ws = getWsClient();
+      for (const img of images) {
+        ws.imageDetach(img.path).catch(() => {});
+      }
+    }
+    // 发送/排队后都清本地预览（后端 prompt.submit 自动 drain / 排队已暂存）
+    if (images.length > 0) {
       clearImages();
     }
-  }, [rawHandleSend, attachedImages.length, clearImages]);
+  }, [rawHandleSend, attachedImages, clearImages, isSendingRef]);
 
   // 适配 addImage 签名：useImageAttachments 返回 Promise<AttachedImage | null>，
   // InputArea 的 onAddImage 期望 Promise<void>，丢弃返回值即可
@@ -1042,6 +1061,9 @@ export default function App() {
                 onAddImage={handleAddImage}
                 onRemoveImage={handleRemoveImage}
                 onClearImageError={clearImageError}
+                queueProfile={currentProfile}
+                onQueueSendNow={sendQueueNow}
+                onQueueDelete={deleteQueueEntry}
               />
             </main>
             </div>

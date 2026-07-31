@@ -164,7 +164,7 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   const [height, setHeight] = useState(0);
 
   // 宫格聊天引擎：挂载即激活（本组件仅 grid 模式挂载）
-  const { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand, handleSlashConfirmDone } = useGridChat(true);
+  const { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand, handleSlashConfirmDone, sendQueueNow, deleteQueueEntry } = useGridChat(true);
 
   // 🔴 Phase 4b #4: 焦点 Agent 的真实 session 上抛 App → 侧栏会话列表高亮跟随 focusedAgent
   // （宫格模式下 sess.sessionId 是进宫格前的单视图全局 session，与焦点 Agent 不一致）
@@ -480,6 +480,8 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
                   onNewSession={handleGridNewSession}
                   onCommand={execCommand}
                   onSlashConfirmDone={handleSlashConfirmDone}
+                  onQueueSendNow={sendQueueNow}
+                  onQueueDelete={deleteQueueEntry}
                 />
               </div>
             ))}

@@ -24,7 +24,9 @@ import CredentialCard from './CredentialCard';
 import AgentCardComposer from './AgentCardComposer';
 import ModelPill from './ModelPill';
 import SlashConfirmCard from './SlashConfirmCard';
+import QueuePanel from './QueuePanel';
 import { useImageAttachments } from '@/hooks/useImageAttachments';
+import { useQueue, updateEntry, type QueuedMessage } from '@/lib/message-queue';
 import type { AgentChatState } from '../hooks/useGridChat';
 
 export interface AgentProfileInfo {
@@ -57,6 +59,10 @@ interface AgentChatCardProps {
   onCommand: (profile: string, cmdName: string, args: string) => void;
   /** slash 破坏性命令确认完成（输出上屏 + session 轮换，对齐单视图） */
   onSlashConfirmDone: (profile: string, choice: string, result?: { output?: string; session_id?: string }) => void;
+  /** 立即发送排队条目（对齐 Hermes sendQueuedNow） */
+  onQueueSendNow: (profile: string, id: string) => void;
+  /** 删除排队条目 */
+  onQueueDelete: (profile: string, id: string) => void;
 }
 
 // ── pending 交互 payload 形状（与单视图 activeApproval/activeClarify/activeSudo 一致）──
@@ -97,13 +103,54 @@ function RobotAvatar({ agentColor }: { agentColor: string }) {
 export const AgentChatCard = memo(function AgentChatCard({
   profile, state, color, focused, portReady,
   onSend, onLoadMore, onAbort, onClearPending, onExpand, onNewSession, onCommand, onSlashConfirmDone,
+  onQueueSendNow, onQueueDelete,
 }: AgentChatCardProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
   const prevScrollHeightRef = useRef<number | null>(null);
   const prevTopIdRef = useRef<string | null>(null);
+  /** 官格 composer 命令式句柄（队列编辑时读/写草稿） */
+  const composerRef = useRef<{ getValue: () => string; setValue: (text: string) => void } | null>(null);
 
   const name = profile.name;
+
+  // ── 排队编辑（对齐 Hermes use-composer-queue：per-agent queueEdit 状态）──
+  const queueEntries = useQueue(name);
+  const [queueEdit, setQueueEdit] = useState<{ entryId: string; draft: string } | null>(null);
+
+  const beginQueueEdit = useCallback((entry: QueuedMessage, currentDraft: string) => {
+    if (queueEdit) return;
+    setQueueEdit({ entryId: entry.id, draft: currentDraft });
+    // 加载条目文本到 composer（对齐 Hermes loadIntoComposer）
+    composerRef.current?.setValue(entry.text);
+  }, [queueEdit]);
+
+  const stepQueueEdit = useCallback((direction: -1 | 1, currentDraft: string): { text: string; done: boolean } | null => {
+    if (!queueEdit) return null;
+    const index = queueEntries.findIndex((e) => e.id === queueEdit.entryId);
+    const target = index + direction;
+    if (index < 0 || target < 0) return index >= 0 ? { text: currentDraft, done: false } : null;
+    // 保存当前编辑
+    updateEntry(name, queueEdit.entryId, { text: currentDraft });
+    const next = queueEntries[target];
+    if (next) {
+      setQueueEdit({ ...queueEdit, entryId: next.id });
+      return { text: next.text, done: false };
+    }
+    // 越过末条：退出编辑，恢复原草稿
+    setQueueEdit(null);
+    return { text: queueEdit.draft, done: true };
+  }, [queueEdit, queueEntries, name]);
+
+  const exitQueueEdit = useCallback((action: 'save' | 'cancel', currentDraft: string): string | null => {
+    if (!queueEdit) return null;
+    if (action === 'save' && currentDraft.trim()) {
+      updateEntry(name, queueEdit.entryId, { text: currentDraft });
+    }
+    const restored = queueEdit.draft;
+    setQueueEdit(null);
+    return restored;
+  }, [queueEdit, name]);
 
   // per-agent 图片附件 — 绑到本 Agent 的 session（getSessionId 随状态槽实时取值）
   const stateRef = useRef(state);
@@ -319,8 +366,19 @@ export const AgentChatCard = memo(function AgentChatCard({
         </div>
       )}
 
+      {/* ── 排队面板（对齐 Hermes QueuePanel：官格每卡 composer 上方）── */}
+      <QueuePanel
+        entries={queueEntries}
+        busy={streaming}
+        editingId={queueEdit?.entryId ?? null}
+        onDelete={(id) => onQueueDelete(name, id)}
+        onEdit={(entry) => beginQueueEdit(entry, composerRef.current?.getValue() ?? '')}
+        onSendNow={(id) => onQueueSendNow(name, id)}
+      />
+
       {/* ── 输入区 — 全功能紧凑 Composer（自动撑大 + slash 补全 + 新建/附件/语音/发送）── */}
       <AgentCardComposer
+        ref={composerRef}
         profileName={profile.display_name || profile.name}
         isStreaming={streaming}
         portReady={portReady}
@@ -332,6 +390,10 @@ export const AgentChatCard = memo(function AgentChatCard({
         imageUploading={imageUploading}
         onAddImage={addImage}
         onRemoveImage={removeImage}
+        queueEditingId={queueEdit?.entryId ?? null}
+        onQueueStep={(dir) => stepQueueEdit(dir, composerRef.current?.getValue() ?? '')}
+        onQueueExit={(action) => exitQueueEdit(action, composerRef.current?.getValue() ?? '')}
+        onQueueLoadText={(text) => composerRef.current?.setValue(text)}
       />
     </div>
   );
