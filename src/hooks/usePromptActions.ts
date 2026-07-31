@@ -1,5 +1,4 @@
 import { useRef, useCallback, type MutableRefObject } from 'react';
-import { executeCommand } from '../utils/api';
 import * as storage from '../utils/storage';
 import { persistSessionPointer } from '../utils/session';
 import { setMessages as storeSetMessages, getMessages } from '../store/messages';

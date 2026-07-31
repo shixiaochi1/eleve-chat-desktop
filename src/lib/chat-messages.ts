@@ -157,23 +157,6 @@ export function appendTextPart(parts: ChatMessagePart[], delta: string): ChatMes
   return next
 }
 
-/**
- * Replace the content of the last text part with fullText (not append).
- * Used by flushThrottled which stores fullText, not incremental deltas.
- */
-export function replaceTextPart(parts: ChatMessagePart[], fullText: string): ChatMessagePart[] {
-  const next = [...parts]
-  const last = next.at(-1)
-
-  if (last?.type === 'text') {
-    next[next.length - 1] = { ...last, text: fullText }
-    return next
-  }
-
-  next.push(textPart(fullText))
-  return next
-}
-
 export function appendReasoningPart(parts: ChatMessagePart[], delta: string): ChatMessagePart[] {
   // 对齐 Eleve: reasoning 永远只有一个 part
   // 找到现有的 reasoning part 并追加，而非只在 last 是 reasoning 时追加
@@ -747,11 +730,3 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
   )
 }
 
-// ── Utility: extract text content from a ChatMessage ──
-
-export function chatMessageText(message: ChatMessage): string {
-  return message.parts
-    .filter((part): part is TextMessagePart => part.type === 'text')
-    .map((part) => part.text)
-    .join('')
-}

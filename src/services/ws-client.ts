@@ -88,7 +88,6 @@ export class GatewayWsClient {
   private pendingQueue: Array<{ method: string; params: Record<string, unknown>; resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }> = []
   private connCallbacks: WsConnectionCallbacks | null = null
   private eventListeners = new Set<WsEventHandler>()
-  private reconnectCallback: ((wasReconnect: boolean) => void) | null = null
   private reconnectAttempts = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private pingTimer: ReturnType<typeof setInterval> | null = null
@@ -191,10 +190,6 @@ export class GatewayWsClient {
       this.startPing()
       this.flushPendingQueue()  // Phase 1: flush 排队的 RPC 请求
       this.connCallbacks?.onOpen?.(wasReconnect)
-      // 触发重连恢复回调（对齐 Eleve session.resume）
-      if (wasReconnect && this.reconnectCallback) {
-        this.reconnectCallback(true)
-      }
     }
 
     this.ws.onclose = (ev) => {
@@ -434,19 +429,6 @@ export class GatewayWsClient {
     }
   }
 
-  /** 发送 JSON-RPC 通知（无 id，不等响应）
-   *  🔴 T4+S1: 与 sendRpc 统一始终盖章逻辑 — 活动 profile 盖章到 params（default 也传）。
-   *  架构不变量：every backend-targeted action must carry the active gateway profile（R-B 铁则）。 */
-  sendNotify(method: string, params: Record<string, unknown> = {}): void {
-    if (this.ws?.readyState !== WebSocket.OPEN) return
-    // 🔴 S1: 始终盖章（与 sendRpc 同一逻辑）
-    if (params.profile === undefined) {
-      params = { ...params, profile: activeProfile ?? 'default' }
-    }
-    const msg = { jsonrpc: '2.0', method, params }
-    this.ws.send(JSON.stringify(msg))
-  }
-
   private handleMessage(raw: string): void {
     try {
       const msg = JSON.parse(raw)
@@ -546,16 +528,6 @@ export class GatewayWsClient {
     return this.sendRpc('slash.exec', { command, session_id: sessionId || this.sessionId || '' })
   }
 
-  /** 命令路由分发 — 对齐 Eleve command.dispatch */
-  async commandDispatch(name: string, arg?: string, sessionId?: string): Promise<unknown> {
-    return this.sendRpc('command.dispatch', { name, arg: arg || '', session_id: sessionId || this.sessionId || '' })
-  }
-
-  /** 获取命令目录 — 对齐 Eleve commands.catalog */
-  async commandsCatalog(): Promise<unknown> {
-    return this.sendRpc('commands.catalog', {})
-  }
-
   /** 附加图片（base64）— 对齐 Eleve image.attach_bytes
    * 后端接收 content_base64，写入 ELEVE_HOME/images/，返回 {attached, path, count, bytes, text}
    */
@@ -579,7 +551,7 @@ export class GatewayWsClient {
     return result as ImageDetachResponse
   }
 
-  // ── 语音 RPC（对齐后端 ws/mod.rs voice.record / voice.toggle / voice.tts）──
+  // ── 语音 RPC（对齐后端 ws/mod.rs voice.record）──
 
   /**
    * 语音录制 — 对齐 Hermes voice.record
@@ -589,21 +561,6 @@ export class GatewayWsClient {
   async voiceRecord(action: 'start' | 'stop' | 'status' = 'status'): Promise<VoiceRecordResponse> {
     const result = await this.sendRpc('voice.record', { action })
     return result as VoiceRecordResponse
-  }
-
-  /**
-   * 语音开关 — 对齐 Hermes voice.toggle
-   * action: on / off / status — 读写 config.voice.enabled（跨重启持久化）
-   */
-  async voiceToggle(action: 'on' | 'off' | 'status' = 'status'): Promise<VoiceToggleResponse> {
-    const result = await this.sendRpc('voice.toggle', { action })
-    return result as VoiceToggleResponse
-  }
-
-  /** 文本转语音 — 对齐 Hermes voice.tts */
-  async voiceTts(text: string): Promise<VoiceTtsResponse> {
-    const result = await this.sendRpc('voice.tts', { text })
-    return result as VoiceTtsResponse
   }
 
   // ── 配置读写 RPC（对齐后端 ws/mod.rs config.get / config.set）──
@@ -630,10 +587,6 @@ export class GatewayWsClient {
     return result as BrowserManageResponse
   }
 
-  /** 设置重连恢复回调（对齐 Eleve gateway.ready → session.resume） */
-  setReconnectCallback(cb: ((wasReconnect: boolean) => void) | null): void {
-    this.reconnectCallback = cb
-  }
 }
 
 // ── 图片附件 RPC 响应类型（对齐后端 ws/mod.rs image.attach_bytes / image.detach）──
@@ -656,21 +609,6 @@ export interface ImageDetachResponse {
 export interface VoiceRecordResponse {
   ok?: boolean
   status?: 'recording' | 'transcribing' | 'idle' | string
-}
-
-export interface VoiceToggleResponse {
-  ok?: boolean
-  enabled?: boolean
-  record_key?: string
-  tts?: boolean
-  available?: boolean
-  audio_available?: boolean
-  stt_available?: boolean
-}
-
-export interface VoiceTtsResponse {
-  ok?: boolean
-  status?: string
 }
 
 // ── 配置 RPC 响应类型（对齐后端 ws/mod.rs config.get / config.set）──

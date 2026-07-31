@@ -196,9 +196,4 @@ export async function hideDeepSeek(): Promise<void> {
   }
 }
 
-/**
- * 查询当前可见状态
- */
-export function isDeepSeekVisible(): boolean {
-  return visible;
-}
+

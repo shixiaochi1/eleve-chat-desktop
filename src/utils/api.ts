@@ -1,8 +1,13 @@
 /**
  * API 客户端 v3 — HTTP 统一版
- * 
+ *
  * 桌面模式 & 浏览器模式统一走 HTTP API
  * 通过 bridge.js 的 discoverPort 动态获取网关端口
+ *
+ * ⚠️ DEPRECATED（2026-07-31 系统审查 Phase 4 确立）：
+ * 本文件是 bridge.call 的遗留薄包装层，已冻结——禁止新增函数。
+ * 新代码直接用 bridge.call（lib/bridge.ts，COMMAND_TO_WS_METHOD 路由）
+ * 或经 hooks 层封装。存量函数随消费方迁移逐步删除。
  */
 import { call, discoverPort, setHttpBase, getHttpBase } from './bridge';
 import { getWsClient } from '@/services/ws-client';
@@ -136,22 +141,7 @@ export async function completePath(word: string): Promise<{ items: CompletionIte
   return call('complete_path', { word });
 }
 
-/** 斜杠命令补全 */
-export async function completeSlash(text: string): Promise<{ items: CompletionItem[]; replace_from: number }> {
-  return call('complete_slash', { text });
-}
-
-/** 解析命令别名 → 标准名 */
-export async function resolveCommand(name: string): Promise<{ canonical: string; description: string; category: string }> {
-  return call('resolve_command', { name });
-}
-
 // F4: 信息面板
-
-/** 获取会话洞察 */
-export async function getInsights(sessionId: string, args?: string): Promise<{ insights: string }> {
-  return call('insights_get', { session_id: sessionId, ...(args ? { args } : {}) });
-}
 
 /** 学习时间线 */
 export async function getLearningFrames(): Promise<{ nodes: Array<{ id: string; modified: number }>; [k: string]: unknown }> {
@@ -166,11 +156,6 @@ export async function getLearningDetail(id: string): Promise<{ ok: boolean; id: 
 /** 删除学习节点 */
 export async function deleteLearning(id: string): Promise<{ ok: boolean; id: string }> {
   return call('learning_delete', { id });
-}
-
-/** 编辑学习节点 */
-export async function editLearning(id: string, content: string): Promise<{ ok: boolean; id: string }> {
-  return call('learning_edit', { id, content });
 }
 
 /** 回滚点列表 */
@@ -189,14 +174,6 @@ export async function restoreRollback(hash: string, cwd: string): Promise<{ stat
 }
 
 // ====== 模型 ======
-
-export async function fetchModels(): Promise<any> {
-  return call('list_models', {});
-}
-
-export async function fetchConfig(): Promise<any> {
-  return call('get_config', {});
-}
 
 export async function setModel(modelName: string): Promise<any> {
   return call('update_config_raw', { yaml_text: `model: ${modelName}` });
@@ -237,10 +214,6 @@ export async function fetchCommands(): Promise<any[]> {
   }
 
   return commands;
-}
-
-export async function executeCommand(command: string, args = '', sessionId: string | null = null): Promise<any> {
-  return call('execute_command', { command });
 }
 
 // ====== 工具 ======
@@ -288,11 +261,6 @@ export async function fetchProfiles(): Promise<{ profiles: any[]; active: string
     profiles: Array.isArray(data?.profiles) ? data.profiles : [],
     active: typeof data?.active === 'string' ? data.active : 'default',
   };
-}
-
-/** profiles.set_active — 切换活动 profile（对齐 Hermes `profile use`） */
-export async function setActiveProfile(name: string): Promise<any> {
-  return call('set_active_profile', { name });
 }
 
 /** profiles.get_active — 查询当前活动 profile 名 */
@@ -459,10 +427,6 @@ export async function getKanbanAttachments(taskId: string, board = 'default'): P
 
 export async function uploadKanbanAttachment(taskId: string, filename: string, contentBase64: string, board = 'default'): Promise<any> {
   return call('upload_kanban_attachment', { task_id: taskId, filename, content_base64: contentBase64, board });
-}
-
-export async function downloadKanbanAttachment(attachmentId: string): Promise<any> {
-  return call('download_kanban_attachment', { attachment_id: attachmentId });
 }
 
 export async function deleteKanbanAttachment(attachmentId: string): Promise<any> {

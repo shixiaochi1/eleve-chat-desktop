@@ -59,10 +59,6 @@ export function subscribe(fn: (notifications: AppNotification[]) => void): () =>
   return () => { listeners = listeners.filter(l => l !== fn); };
 }
 
-export function getNotifications(): AppNotification[] {
-  return _notifications;
-}
-
 // ── 错误摘要 ── 对齐 Eleve ERROR_SUMMARIES
 
 interface ErrorSummaryRule {

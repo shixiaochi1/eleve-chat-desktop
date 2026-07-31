@@ -198,16 +198,6 @@ export async function lookupModelCapabilities(provider: string, model: string): 
   }
 }
 
-/** 列出指定 provider 在 models.dev 上的所有模型 */
-export async function listProviderModels(provider: string): Promise<string[]> {
-  try {
-    const res = await call('models_dev_list', { provider });
-    return Array.isArray(res) ? res : [];
-  } catch {
-    return [];
-  }
-}
-
 // =============================================================================
 // Phase P5: 全局 Provider 池 CRUD（经 WS RPC，对齐 P3 后端端点）
 // =============================================================================
@@ -257,14 +247,4 @@ export async function savePoolProviderKey(providerId: string, apiKey: string): P
 export async function disconnectPoolProvider(providerId: string): Promise<boolean> {
   await call('provider_disconnect', { provider_id: providerId });
   return true;
-}
-
-/** 列出 Provider 模型目录 */
-export async function listPoolProviderModels(providerId: string): Promise<{ name: string; context_length: number; max_output: number }[]> {
-  try {
-    const res = await call('provider_models', { provider_id: providerId }) as { models?: { name: string; context_length: number; max_output: number }[] };
-    return res.models || [];
-  } catch {
-    return [];
-  }
 }
