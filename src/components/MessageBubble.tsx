@@ -3,13 +3,8 @@ import { createPortal } from 'react-dom';
 import { renderMarkdown } from '../utils/markdown';
 import { resolveMediaText } from '../utils/media';
 import { formatMessageTime } from '../utils/time';
-import { CopyIcon, CheckIcon, TrashIcon, BotIcon } from './Icons';
+import { CopyIcon, CheckIcon, TrashIcon } from './Icons';
 import { cn } from '@/lib/utils';
-
-interface AgentAttribution {
-  model?: string;
-  goal?: string;
-}
 
 interface MessageBubbleProps {
   type: string;
@@ -18,7 +13,6 @@ interface MessageBubbleProps {
   timestamp?: number;
   messageId?: string;
   onDelete?: (messageId: string) => void;
-  agentAttribution?: AgentAttribution;
 }
 
 /**
@@ -33,13 +27,11 @@ function mayHaveLocalImage(text?: string): boolean {
 /**
  * 消息气泡 — user / agent / system / error
  *
- * 支持 agentAttribution: 当消息来自委托子 Agent 时，显示模型/目标徽标
- *
  * streaming 模式优化：流式期间跳过 Markdown 渲染（marked + DOMPurify + addCopyButtons），
  * 只做简单换行显示。流式结束后一次性渲染完整 Markdown。
  * 避免每次 content 变化都全量重渲染 → O(n²) DOM 操作 → 内存/CPU 爆炸
  */
-export default function MessageBubble({ type, content, streaming, timestamp, messageId, onDelete, agentAttribution }: MessageBubbleProps) {
+export default function MessageBubble({ type, content, streaming, timestamp, messageId, onDelete }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [displayContent, setDisplayContent] = useState(content);
   const [zoomedSrc, setZoomedSrc] = useState<string | null>(null);
@@ -148,18 +140,6 @@ export default function MessageBubble({ type, content, streaming, timestamp, mes
   return (
     <div className="group w-fit max-w-[85%] min-w-0 select-text">
       <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed border border-border shadow-sm overflow-hidden">
-        {!streaming && agentAttribution && (
-          <div
-            className="flex items-center gap-1 text-xs text-muted-foreground mb-1.5"
-            title={`来自委托 Agent: ${agentAttribution.model || ''} — ${agentAttribution.goal || ''}`}
-          >
-            <BotIcon size={10} />
-            <span className="font-medium">{agentAttribution.model || '子 Agent'}</span>
-            {agentAttribution.goal && (
-              <span className="text-muted-foreground/70 truncate">{agentAttribution.goal}</span>
-            )}
-          </div>
-        )}
         {streaming ? (
           <span ref={textRef} className="whitespace-pre-wrap break-words leading-[1.75]">
             {displayContent || ''}

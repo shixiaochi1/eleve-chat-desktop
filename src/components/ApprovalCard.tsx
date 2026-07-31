@@ -19,6 +19,8 @@ interface ApprovalCardProps {
   pattern?: string;
   choices?: string[];
   run_id?: string;  // 即 session_id，用于 WS approval.respond
+  /** 🔴 卡片归属 profile（宫格模式显式传入）；undefined 时 sendRpc 自动盖当前活跃 profile（单视图正确） */
+  profile?: string;
   onDone?: (choice: string) => void;
 }
 
@@ -29,7 +31,7 @@ const choiceLabels: Record<string, string> = {
   deny: '拒绝',
 };
 
-export default function ApprovalCard({ command, description, pattern, choices, run_id, onDone }: ApprovalCardProps) {
+export default function ApprovalCard({ command, description, pattern, choices, run_id, profile, onDone }: ApprovalCardProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -49,6 +51,7 @@ export default function ApprovalCard({ command, description, pattern, choices, r
         session_id: run_id,
         choice,
         all: false,
+        profile, // 显式归属 profile（undefined → sendRpc 自动盖章）
       });
       setSubmitted(true);
       onDone?.(choice);
@@ -57,7 +60,7 @@ export default function ApprovalCard({ command, description, pattern, choices, r
     } finally {
       setSubmitting(false);
     }
-  }, [submitting, submitted, onDone, run_id]);
+  }, [submitting, submitted, onDone, run_id, profile]);
 
   // ── 已完成折叠态 ──
   if (submitted) {

@@ -36,6 +36,8 @@ interface SessionsPanelProps {
   onSwitchSession?: (id: string) => void;
   onDeleteSession?: (id: string) => void;
   sessionTitles?: Record<string, string>;
+  /** 🔴 重命名回调（走 useSessions.setTitle 不可变更新 + storage，禁止直接 mutate sessionTitles prop） */
+  onRenameTitle?: (id: string, title: string) => void;
   isStreaming?: boolean;
   /** 当前 Agent 名（合并侧栏区块头显示） */
   agentName?: string;
@@ -204,6 +206,7 @@ export default function SessionsPanel({
   onSwitchSession,
   onDeleteSession,
   sessionTitles,
+  onRenameTitle,
   isStreaming,
   agentName,
 }: SessionsPanelProps) {
@@ -318,11 +321,10 @@ export default function SessionsPanel({
     } catch {
       notifyInfo('重命名已保存（本地）');
     }
-    if (sessionTitles) {
-      sessionTitles[id] = newTitle;
-    }
+    // 🔴 不 mutate prop（sessionTitles 是 useSessions 的 state 对象）——走 onRenameTitle 不可变更新
+    onRenameTitle?.(id, newTitle);
     setRenameTarget(null);
-  }, [sessionTitles]);
+  }, [onRenameTitle]);
 
   // ── 导出 ──
   const handleExport = useCallback(async (id: string, title: string) => {

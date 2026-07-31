@@ -297,9 +297,10 @@ export async function fetchGatewayStatus(): Promise<any> {
  * - WS 连接时：通过 JSON-RPC clarify.respond 提交（同一长连接，无额外 HTTP 开销）
  * - SSE/降级时：通过 HTTP POST /api/clarify-response 提交
  */
-export async function submitClarifyResponse(clarifyId: string, response: string): Promise<any> {
+export async function submitClarifyResponse(clarifyId: string, response: string, profile?: string): Promise<any> {
   // 🔴 P2-1: 统一走 bridge.call（WS 优先→HTTP 降级由 bridge 内部处理）
-  return call('submit_clarify_response', { clarify_id: clarifyId, response });
+  // profile 显式归属（宫格模式）；undefined 时 sendRpc 自动盖当前活跃 profile
+  return call('submit_clarify_response', { clarify_id: clarifyId, response, profile });
 }
 
 // ====== 健康检查 ======

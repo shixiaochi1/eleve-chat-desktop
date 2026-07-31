@@ -74,16 +74,26 @@ export function useSlashAutocomplete({ enabled, refreshKey }: Options) {
     setFilter('');
   }, []);
 
-  return {
-    commands,
-    filtered,
-    selectedIndex,
-    showPopup,
-    setSelectedIndex,
-    syncFromValue,
-    moveSelection,
-    close,
-    /** 当前高亮命令（弹窗未开/空列表时为 null） */
-    activeCommand: showPopup && filtered.length > 0 ? (filtered[selectedIndex] ?? null) : null,
-  };
+  // 🔴 稳定化：activeCommand + 返回对象均 memoize，消灭下游 useCallback 每帧重建
+  // （InputArea/AgentCardComposer 的 handleKeyDown 依赖整个返回对象，旧版每渲染新引用 → 回调恒重建）
+  const activeCommand = useMemo(
+    () => (showPopup && filtered.length > 0 ? (filtered[selectedIndex] ?? null) : null),
+    [showPopup, filtered, selectedIndex],
+  );
+
+  return useMemo(
+    () => ({
+      commands,
+      filtered,
+      selectedIndex,
+      showPopup,
+      setSelectedIndex,
+      syncFromValue,
+      moveSelection,
+      close,
+      /** 当前高亮命令（弹窗未开/空列表时为 null） */
+      activeCommand,
+    }),
+    [commands, filtered, selectedIndex, showPopup, syncFromValue, moveSelection, close, activeCommand],
+  );
 }

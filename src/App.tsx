@@ -868,6 +868,7 @@ export default function App() {
                   onSwitchSession={gridAwareSwitchSession}
                   onDeleteSession={handleDeleteSession}
                   sessionTitles={sess.titles}
+                  onRenameTitle={sess.setTitle}
                   onNewSession={handleNewSession}
                   isStreaming={isStreaming}
                   debugEvents={debugEvents}

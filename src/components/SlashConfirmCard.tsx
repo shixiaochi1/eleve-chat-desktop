@@ -16,6 +16,8 @@ interface SlashConfirmCardProps {
   command: string;
   description: string;
   sessionId?: string;
+  /** 🔴 卡片归属 profile（宫格模式显式传入）；undefined 时 sendRpc 自动盖章（单视图正确） */
+  profile?: string;
   onDone?: (choice: string, result?: any) => void;
 }
 
@@ -24,6 +26,7 @@ export default function SlashConfirmCard({
   command,
   description,
   sessionId,
+  profile,
   onDone,
 }: SlashConfirmCardProps) {
   const [submitting, setSubmitting] = useState(false);
@@ -41,6 +44,7 @@ export default function SlashConfirmCard({
         choice,
         session_id: sessionId || '',
         command,
+        profile, // 显式归属 profile（undefined → sendRpc 自动盖章）
       });
       setSubmitted(choice);
       onDone?.(choice, result);
@@ -49,7 +53,7 @@ export default function SlashConfirmCard({
     } finally {
       setSubmitting(false);
     }
-  }, [submitting, submitted, confirmId, command, sessionId, onDone]);
+  }, [submitting, submitted, confirmId, command, sessionId, profile, onDone]);
 
   // ── 已完成折叠态 ──
   if (submitted) {

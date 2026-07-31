@@ -4,6 +4,8 @@
  * 包含顶部标题 + 内容区
  */
 import { cn } from '@/lib/utils';
+import type { Session } from '@/types';
+import type { ChatMessage } from '@/lib/chat-messages';
 import AgentsPanel from './AgentsPanel';
 import CronPanel from './CronPanel';
 import DebugPanel from './DebugPanel';
@@ -28,7 +30,28 @@ interface SidePanelProps {
   activePanel?: string | null;
   onPanelChange?: (panel: string | null) => void;
   gatewayOnline?: boolean;
-  [key: string]: unknown;
+  // ── Agent / Profile ──
+  currentProfile?: string;
+  onProfileChange?: (name: string) => void;
+  onProfilesChange?: (count: number) => void;
+  onOpenSettings?: () => void;
+  onRestart?: () => void;
+  // ── 会话 ──
+  sessionId?: string | null;
+  sessions?: Session[];
+  onSwitchSession?: (id: string) => void;
+  onDeleteSession?: (id: string) => void;
+  sessionTitles?: Record<string, string>;
+  onRenameTitle?: (id: string, title: string) => void;
+  onNewSession?: () => void;
+  isStreaming?: boolean;
+  // ── 调试 / 用量 ──
+  debugEvents?: Array<{ ts: number; type: string; detail: string }>;
+  debugToolCalls?: unknown[];
+  messageCount?: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  messages?: ChatMessage[];
 }
 
 export default function SidePanel({ activePanel, onPanelChange, ...props }: SidePanelProps) {
@@ -69,7 +92,7 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
       <div className="flex-1 overflow-hidden min-h-0">
         {PanelComponent ? (
           <div key={activePanel} className="panel-enter h-full">
-            <PanelComponent {...props} activePanel={activePanel} onPanelChange={onPanelChange} gatewayOnline={props.gatewayOnline} />
+            <PanelComponent {...props} activePanel={activePanel} onPanelChange={onPanelChange} />
           </div>
         ) : (
           <div key={activePanel} className="panel-enter flex flex-col items-center justify-center py-12 text-muted-foreground gap-1">

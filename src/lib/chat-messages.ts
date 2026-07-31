@@ -81,7 +81,6 @@ export interface ChatMessage {
   outputTokens?: number
   time?: string
   show?: boolean
-  agentAttribution?: string
   resultStr?: string
 }
 

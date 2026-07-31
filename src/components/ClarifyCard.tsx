@@ -13,10 +13,12 @@ interface ClarifyCardProps {
   clarifyId?: string;
   question?: string;
   choices?: string[];
+  /** 🔴 卡片归属 profile（宫格模式显式传入）；undefined 时自动盖当前活跃 profile（单视图正确） */
+  profile?: string;
   onDone?: (response: string) => void;
 }
 
-export default function ClarifyCard({ clarifyId, question, choices, onDone }: ClarifyCardProps) {
+export default function ClarifyCard({ clarifyId, question, choices, profile, onDone }: ClarifyCardProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [otherText, setOtherText] = useState('');
   const [openInput, setOpenInput] = useState('');
@@ -31,7 +33,7 @@ export default function ClarifyCard({ clarifyId, question, choices, onDone }: Cl
     setSubmitting(true);
     setError(null);
     try {
-      const result = await submitClarifyResponse(clarifyId ?? "", response ?? "");
+      const result = await submitClarifyResponse(clarifyId ?? "", response ?? "", profile);
       if (result.status === 'resolved' || result.status === 'ok') {
         setSubmitted(true);
         onDone?.(response);
@@ -43,7 +45,7 @@ export default function ClarifyCard({ clarifyId, question, choices, onDone }: Cl
     } finally {
       setSubmitting(false);
     }
-  }, [clarifyId, submitting, submitted, onDone]);
+  }, [clarifyId, submitting, submitted, profile, onDone]);
 
   const handleChoice = useCallback((choice: string) => {
     setSelected(choice);

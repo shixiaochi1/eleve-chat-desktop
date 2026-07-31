@@ -263,6 +263,7 @@ export const AgentChatCard = memo(function AgentChatCard({
             pattern={approval.pattern}
             choices={approval.choices}
             run_id={approval.run_id}
+            profile={name}
             onDone={() => onClearPending(name, 'approval')}
           />
         </div>
@@ -273,6 +274,7 @@ export const AgentChatCard = memo(function AgentChatCard({
             clarifyId={clarify.clarify_id}
             question={clarify.question}
             choices={clarify.choices}
+            profile={name}
             onDone={() => onClearPending(name, 'clarify')}
           />
         </div>
@@ -284,7 +286,7 @@ export const AgentChatCard = memo(function AgentChatCard({
             title="Sudo 权限请求"
             description={sudo.prompt || '需要 sudo 密码'}
             onSubmit={async (password) => {
-              await call('sudo_respond', { request_id: sudo.request_id, password });
+              await call('sudo_respond', { request_id: sudo.request_id, password, profile: name });
               onClearPending(name, 'sudo');
             }}
             onDismiss={() => onClearPending(name, 'sudo')}
@@ -298,7 +300,7 @@ export const AgentChatCard = memo(function AgentChatCard({
             title="Secret 请求"
             description={`环境变量 ${secret.env_var ?? ''}: ${secret.prompt ?? '需要凭据'}`}
             onSubmit={async (value) => {
-              await call('secret_respond', { request_id: secret.request_id, value });
+              await call('secret_respond', { request_id: secret.request_id, value, profile: name });
               onClearPending(name, 'secret');
             }}
             onDismiss={() => onClearPending(name, 'secret')}
@@ -313,6 +315,7 @@ export const AgentChatCard = memo(function AgentChatCard({
             command={slashConfirm.command}
             description={slashConfirm.description}
             sessionId={state.sessionId ?? undefined}
+            profile={name}
             onDone={(choice, result) => onSlashConfirmDone(name, choice, result)}
           />
         </div>
