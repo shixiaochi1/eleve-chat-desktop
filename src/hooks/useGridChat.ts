@@ -50,6 +50,7 @@ import { toChatMessages, textPart, type SessionMessage, type ChatMessagePart } f
 import { createAccumulator, resetAccumulator, processAccumulatorEvent, finalizeAccumulator, extractPendingInteractions, type StreamAccumulator } from '@/lib/ws-event-processor';
 import { handleGlobalEvent } from '@/lib/global-events';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
+import { enqueue as queueEnqueue, dequeue as queueDequeue, clearQueue, getQueueLength, MAX_DRAIN_ATTEMPTS } from '@/lib/message-queue';
 import type { ChatMessage } from '@/types';
 
 const WINDOW_MAX = 100;   // 每 Agent 内存最多保留消息数（超出 evict 头部）
@@ -120,10 +121,10 @@ export function useGridChat(active: boolean): {
   const statesRef = useRef(states);
   statesRef.current = states;
 
-  // 🔴 per-agent 发送锁 + 排队（对齐单视图 isSendingRef + pendingQueue）
+  // 🔴 per-agent 发送锁 + 排队（队列走 message-queue.ts localStorage 持久化，对齐 Hermes composer-queue）
   const sendingRef = useRef<Record<string, boolean>>({});
-  // 🔴 Phase B: 排队结构含 modelOpts（drain 时传递用户选择的模型，不再写死 undefined）
-  const queueRef = useRef<Record<string, { text: string; modelOpts?: { model?: string; provider?: string } }[]>>({});
+  // 🔴 对齐 Hermes MAX_AUTO_DRAIN_ATTEMPTS: per-profile 连续失败计数
+  const drainAttemptsRef = useRef<Record<string, number>>({});
   // sendTo 镜像 ref（供 WS handler message.complete 内 drain 调用，避免循环依赖）
   const sendToRef = useRef<(profile: string, text: string, modelOpts?: { model?: string; provider?: string }, fromDrain?: boolean) => Promise<void>>(async () => {});
 
@@ -137,7 +138,7 @@ export function useGridChat(active: boolean): {
     // 🔴 P0-3: 切会话前重置旧流状态（防旧流 message.complete 终稿注入新会话）
     if (accRef.current[profile]) resetAccumulator(accRef.current[profile]);
     sendingRef.current[profile] = false;
-    queueRef.current[profile] = [];
+    clearQueue(profile);
     patch(profile, (s) => ({ ...s, sessionId, status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '' }));
     try {
       const res = await call('get_session_messages', { session_id: sessionId, limit: PAGE_SIZE }) as {
@@ -194,9 +195,9 @@ export function useGridChat(active: boolean): {
   const sendTo = useCallback(async (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, fromDrain?: boolean) => {
     if (!text.trim()) return;
 
-    // 🔴 per-agent 发送锁：流式期间排队，结束后自动发送（对齐单视图 isSendingRef + pendingQueue）
+    // 🔴 per-agent 发送锁：流式期间排队（持久化，对齐 Hermes composer-queue），结束后自动发送
     if (sendingRef.current[profile]) {
-      (queueRef.current[profile] ??= []).push({ text, modelOpts });
+      queueEnqueue(profile, { text, modelOpts });
       patch(profile, (st) => ({
         ...st,
         messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
@@ -324,7 +325,7 @@ export function useGridChat(active: boolean): {
     // 🔴 释放发送锁 + 清排队消息（对齐单视图 resetSendingLock）
     // 不释放 → 旧流被 abort 后 message.complete 永不到达 → sendingRef 恒 true → Agent 锁死
     sendingRef.current[profile] = false;
-    queueRef.current[profile] = [];
+    clearQueue(profile);
     patch(profile, (st) => ({
       ...emptyState(),
       lastActivity: st.lastActivity,
@@ -434,10 +435,10 @@ export function useGridChat(active: boolean): {
           // 🔴 Phase B: 释放发送锁 + 排队消息自动发送（单一权威终止入口）
           // abort 不自 drain，message.complete 是唯一释放点 → 消灭双 drain 并发 turn
           sendingRef.current[profile] = false;
-          const q = queueRef.current[profile];
-          if (q?.length) {
-            const next = q.shift()!;
-            sendToRef.current(profile, next.text, next.modelOpts, true);
+          drainAttemptsRef.current[profile] = 0; // 成功重置计数
+          if (getQueueLength(profile) > 0) {
+            const next = queueDequeue(profile);
+            if (next) sendToRef.current(profile, next.text, next.modelOpts, true);
           }
           break;
         }
@@ -485,7 +486,7 @@ export function useGridChat(active: boolean): {
             const newSid = payload.new_session_id as string | undefined;
             // 🔴 释放发送锁 + 清排队（后端 reset 会中断当前流，message.complete 可能不到达）
             sendingRef.current[profile] = false;
-            queueRef.current[profile] = [];
+            clearQueue(profile);
             if (newSid) {
               patch(profile, (s) => ({
                 ...emptyState(),
@@ -516,10 +517,10 @@ export function useGridChat(active: boolean): {
           });
           // 🔴 Phase B: error 也是权威终止事件，释放锁 + drain（对齐单视图 onError → drainQueue）
           sendingRef.current[profile] = false;
-          const errQ = queueRef.current[profile];
-          if (errQ?.length) {
-            const next = errQ.shift()!;
-            sendToRef.current(profile, next.text, next.modelOpts, true);
+          drainAttemptsRef.current[profile] = (drainAttemptsRef.current[profile] ?? 0) + 1;
+          if ((drainAttemptsRef.current[profile] ?? 0) < MAX_DRAIN_ATTEMPTS && getQueueLength(profile) > 0) {
+            const next = queueDequeue(profile);
+            if (next) sendToRef.current(profile, next.text, next.modelOpts, true);
           }
           break;
         }
@@ -610,11 +611,11 @@ export function useGridChat(active: boolean): {
                 : s.messages;
               return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '', lastActivity: Date.now() };
             });
-            // drain 排队消息
-            const siQ = queueRef.current[profile];
-            if (siQ?.length) {
-              const next = siQ.shift()!;
-              sendToRef.current(profile, next.text, next.modelOpts, true);
+            // drain 排队消息（自愈 = 成功终止，重置计数）
+            drainAttemptsRef.current[profile] = 0;
+            if (getQueueLength(profile) > 0) {
+              const next = queueDequeue(profile);
+              if (next) sendToRef.current(profile, next.text, next.modelOpts, true);
             }
             break;
           }

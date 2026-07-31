@@ -569,6 +569,7 @@ export default function App() {
       return undefined;
     })(),
     onSlashConfirm: (data) => setActiveSlashConfirm(data),
+    currentProfile,
   });
 
   // ── useImageAttachments: 图片附件状态管理 ──

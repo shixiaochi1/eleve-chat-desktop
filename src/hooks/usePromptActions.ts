@@ -5,6 +5,7 @@ import { setMessages as storeSetMessages, getMessages } from '../store/messages'
 import { textPart } from '@/lib/chat-messages'
 import { getWsClient } from '../services/ws-client';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
+import { enqueue, dequeue, clearQueue, getQueueLength, MAX_DRAIN_ATTEMPTS } from '@/lib/message-queue';
 import type { ChatMessage } from '@/types'
 import type { SessionManagerHandle } from './useMessageStream';
 
@@ -33,6 +34,7 @@ export function usePromptActions({
   handleNewSession,
   currentModel,
   currentProvider,
+  currentProfile,
   onSlashConfirm,
 }: {
   sess: SessionManagerHandle
@@ -47,27 +49,39 @@ export function usePromptActions({
   /** 对齐 Hermes: UI 选择的模型，传入 session.create 作为 per-session override */
   currentModel?: string
   currentProvider?: string
+  /** 当前活跃 profile（队列键控） */
+  currentProfile: string
   /** 破坏性斜杠命令确认回调（D1 slash_confirm GUI） */
   onSlashConfirm?: (data: { confirmId: string; command: string; description: string }) => void
 }): {
   handleSend: (text: string) => void
   handleAbort: () => void
   handleCommand: (cmdName: string, args?: string) => Promise<void>
-  pendingQueue: MutableRefObject<string[]>
   isSendingRef: MutableRefObject<boolean>
   drainQueue: () => void
   drainQueueRef: MutableRefObject<(() => void) | null>
   resetSendingLock: () => void
 } {
-  // ── 消息队列 — 流式期间允许输入并排队 ──
-  const pendingQueue = useRef<string[]>([]);
+  // ── 消息队列 — 流式期间允许输入并排队（对齐 Hermes composer-queue: localStorage 持久化） ──
   const isSendingRef = useRef(false);
   const drainQueueRef = useRef<(() => void) | null>(null);
+  // 🔴 对齐 Hermes MAX_AUTO_DRAIN_ATTEMPTS: 连续失败计数，超限停止自动出队
+  const drainAttemptsRef = useRef(0);
 
   const drainQueue = useCallback(async () => {
     isSendingRef.current = false;
-    const next = pendingQueue.current.shift();
-    if (!next) return;
+    // 🔴 对齐 Hermes MAX_AUTO_DRAIN_ATTEMPTS: 连续失败超限停止自动出队，条目留队等手动
+    if (drainAttemptsRef.current >= MAX_DRAIN_ATTEMPTS) {
+      if (getQueueLength(currentProfile) > 0) {
+        console.warn(`[drainQueue] ${MAX_DRAIN_ATTEMPTS} consecutive failures, pausing auto-drain for ${currentProfile}`);
+        import('../utils/notifications').then(({ notifyError }) => {
+          notifyError(`排队消息发送连续失败 ${MAX_DRAIN_ATTEMPTS} 次，已暂停自动发送`, '队列暂停');
+        });
+      }
+      return;
+    }
+    const entry = dequeue(currentProfile);
+    if (!entry) { drainAttemptsRef.current = 0; return; }
     isSendingRef.current = true;
 
     // 🔴 守卫：storage 未初始化完成时，不发消息
@@ -77,21 +91,23 @@ export function usePromptActions({
     }
 
     // 🔴 P1-2.6: drain 不再追加用户消息（排队时已上屏，再追加 = 重复显示）
-    // storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(next)], timestamp: Date.now() } as ChatMessage]);
-
-    // 对齐架构原则：后端是 session 生命周期权威源，drainQueue 不预创建 session
-    // 直接发 prompt.submit，后端自动处理
-    const modelOpts = currentModel ? { model: currentModel, provider: currentProvider } : undefined;
+    const modelOpts = entry.modelOpts ?? (currentModel ? { model: currentModel, provider: currentProvider } : undefined);
 
     if (sess.sessionId && !sess.titles[sess.sessionId]) {
-      sess.setTitle(sess.sessionId, next.slice(0, 30));
+      sess.setTitle(sess.sessionId, entry.text.slice(0, 30));
     }
 
     setConnectionStatus('connected');
-    setDebugInfo((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: next.slice(0, 40) }));
-    addDebugEvent('text', `user: ${next.slice(0, 60)}`);
-    send(next, sess.sessionId as null | undefined, modelOpts);
-  }, [sess, genId, send, addDebugEvent, setConnectionStatus, setDebugInfo]);
+    setDebugInfo((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: entry.text.slice(0, 40) }));
+    addDebugEvent('text', `user: ${entry.text.slice(0, 60)}`);
+    try {
+      await send(entry.text, sess.sessionId as null | undefined, modelOpts);
+      drainAttemptsRef.current = 0; // 成功重置计数
+    } catch {
+      drainAttemptsRef.current++;
+      isSendingRef.current = false;
+    }
+  }, [sess, send, addDebugEvent, setConnectionStatus, setDebugInfo, currentModel, currentProvider, currentProfile]);
 
   // keep ref fresh for onDone callback
   drainQueueRef.current = drainQueue;
@@ -167,9 +183,10 @@ export function usePromptActions({
       return;
     }
 
-    // 流式期间 → 排队，结束后自动发送
+    // 流式期间 → 排队（持久化，对齐 Hermes composer-queue），结束后自动发送
     if (isSendingRef.current) {
-      pendingQueue.current.push(text);
+      const modelOpts = currentModel ? { model: currentModel, provider: currentProvider } : undefined;
+      enqueue(currentProfile, { text, modelOpts });
       storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage]);
       return;
     }
@@ -242,14 +259,14 @@ export function usePromptActions({
   // ── 重置发送锁 ──
   const resetSendingLock = useCallback(() => {
     isSendingRef.current = false;
-    pendingQueue.current = [];
-  }, []);
+    drainAttemptsRef.current = 0;
+    clearQueue(currentProfile);
+  }, [currentProfile]);
 
   return {
     handleSend,
     handleAbort,
     handleCommand,
-    pendingQueue,
     isSendingRef,
     drainQueue,
     drainQueueRef,
