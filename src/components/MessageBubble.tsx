@@ -33,26 +33,26 @@ function mayHaveLocalImage(text?: string): boolean {
  */
 export default function MessageBubble({ type, content, streaming, timestamp, messageId, onDelete }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
-  const [displayContent, setDisplayContent] = useState(content);
+  const [resolvedMedia, setResolvedMedia] = useState<string | null>(null);
   const [zoomedSrc, setZoomedSrc] = useState<string | null>(null);
   const textRef = useRef<HTMLSpanElement | null>(null);
 
-  // 解析本地图片引用（仅非流式时，避免流式期间频繁异步 resolve）
+  // 🔴 P2-3: 本地图片异步解析（仅非流式且可能含本地图时）。
+  // 旧实现所有 content 都经 displayContent state 中转 → 完成首帧慢一拍（闪旧内容/二次重排）。
+  // 新实现：无图路径 displayContent 直接由 props 派生（与渲染同帧）；仅图片解析结果走 state 覆盖。
   useEffect(() => {
-    if (streaming) {
-      setDisplayContent(content ?? "");
+    if (streaming || !mayHaveLocalImage(content ?? "")) {
+      setResolvedMedia(null);
       return;
     }
     let cancelled = false;
-    if (mayHaveLocalImage(content ?? "")) {
-      resolveMediaText(content ?? "").then((resolved) => {
-        if (!cancelled) setDisplayContent(resolved);
-      });
-    } else {
-      setDisplayContent(content ?? "");
-    }
+    resolveMediaText(content ?? "").then((resolved) => {
+      if (!cancelled) setResolvedMedia(resolved);
+    });
     return () => { cancelled = true; };
   }, [content, streaming]);
+
+  const displayContent = (!streaming && resolvedMedia != null) ? resolvedMedia : (content ?? "");
 
   // 非流式时缓存 Markdown 渲染结果，避免父组件 re-render 导致重复渲染
   const renderedHtml = useMemo(() => {

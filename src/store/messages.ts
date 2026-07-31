@@ -192,15 +192,26 @@ export function useMessage(index: number): ChatMessage | null {
 
 let _sigMessages: ChatMessage[] | null = null
 let _sigCache = ''
+let _sigQuickKey = ''
 
 function computeSignature(): string {
   // Same messages reference → same signature (no recomputation)
   if (messages === _sigMessages) return _sigCache
+  // 🔴 P2-2: O(1) 快速通道 — 流式 30fps flush 每帧产生新 messages 引用（mutateStream），
+  // 但结构不变（同一条流式消息 parts 增长）。快查（数量+首尾 id）不变时跳过全量 map+join，
+  // 长会话（数百条）下消灭每帧 O(n) 字符串构建。结构变化（增/删消息）快查必变 → 回退全量重算。
+  const lastMsg = messages.length ? messages[messages.length - 1] : null
+  const quickKey = `${messages.length}:${messages[0]?.id ?? ''}:${lastMsg?.id ?? ''}`
+  if (quickKey === _sigQuickKey && _sigCache) {
+    _sigMessages = messages
+    return _sigCache
+  }
   const sig = messages.map((m, i) => `${i}:${m.id}:${m.role}`).join('\n')
   // Only update cache if signature content actually changed
   if (sig !== _sigCache) {
     _sigCache = sig
   }
+  _sigQuickKey = quickKey
   _sigMessages = messages
   return _sigCache
 }

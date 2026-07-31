@@ -234,6 +234,8 @@ export function useGridChat(active: boolean): {
     if (!connected) {
       sendingRef.current[profile] = false;
       patch(profile, (s) => ({ ...s, status: 'idle', streamParts: [], activityHint: '' }));
+      // 🔴 #11: 显式失败反馈（旧实现静默 return — 用户以为发出去了）
+      import('../utils/notifications').then(({ notifyError }) => notifyError('WebSocket 连接超时，消息未发送', '发送失败')).catch(() => {});
       return;
     }
 
@@ -252,6 +254,7 @@ export function useGridChat(active: boolean): {
       sendingRef.current[profile] = false;
       patch(profile, (st) => ({ ...st, status: 'idle' }));
       console.error('[useGridChat] sendTo failed:', profile, e);
+      import('../utils/notifications').then(({ notifyError }) => notifyError('发送失败，请检查连接', '发送失败')).catch(() => {});
     }
   }, [patch]);
 
@@ -396,6 +399,18 @@ export function useGridChat(active: boolean): {
 
       const acc = (accRef.current[profile] ??= createAccumulator());
 
+      // 🔴 #10: 过期流统一守卫 — 事件 session 与 slot 当前 session 不匹配（切会话后迟到）。
+      // 累加事件直接丢弃（防旧流 delta 注入新会话）；终止事件释放 per-profile 锁（旧轮持锁）后丢弃。
+      // 新鲜发送兼容：slot sessionId 为 null（新会话未拿到 id）时放行 — 事件已按 profile 前缀正确路由。
+      const slotSid = statesRef.current[profile]?.sessionId;
+      if (sessionId && slotSid && sessionId !== slotSid) {
+        if (eventName === 'message.complete' || eventName === 'error') {
+          sendingRef.current[profile] = false;
+          resetAccumulator(acc);
+        }
+        return;
+      }
+
       // 🔴 P2-D: 流式累加事件走共享处理器（与单视图 useMessageStream 同一权威路径）
       if (!processAccumulatorEvent(acc, eventName, payload)) {
       switch (eventName) {
@@ -404,15 +419,8 @@ export function useGridChat(active: boolean): {
           patch(profile, (s) => ({ ...s, status: 'streaming', lastActivity: Date.now() }));
           break;
         case 'message.complete': {
-          // 🔴 P0-3: 过期流守卫 — 事件 session_id 与 slot 当前 sessionId 不匹配时，
-          // 说明是旧流的终止事件（切会话后迟到）：释放锁但不 append（防旧流终稿注入新会话）
-          const slotSid = statesRef.current[profile]?.sessionId;
-          if (sessionId && slotSid && sessionId !== slotSid) {
-            sendingRef.current[profile] = false;
-            resetAccumulator(acc);
-            break;
-          }
           // 🔴 Phase 4b #5: 记录后端权威终稿（finalizeAccumulator 累加为空时兜底）
+          // （过期流守卫已上提至 handler 顶部统一处理 — #10）
           acc.serverContent = (payload.content as string) || '';
           // 🔴 P2-D: 复用 finalizeAccumulator（与单视图同一 parts 组装逻辑）
           const finalParts = finalizeAccumulator(acc);
@@ -510,11 +518,13 @@ export function useGridChat(active: boolean): {
           resetAccumulator(acc);
           const errMsg = (payload.message as string) || (payload.error as string) || '未知错误';
           patch(profile, (s) => {
+            // 🔴 #9: 累加器为空时 errMsg 也必须上屏（旧实现静默丢弃错误）+ toast（对齐单视图 onError）
             const msgs = errParts.length
               ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: errParts, error: errMsg, timestamp: Date.now() }]
-              : s.messages;
+              : [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: [textPart(errMsg)], error: errMsg, timestamp: Date.now() }];
             return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamParts: [], activityHint: '' };
           });
+          import('../utils/notifications').then(({ notifyError }) => notifyError(errMsg, 'Agent 错误')).catch(() => {});
           // 🔴 Phase B: error 也是权威终止事件，释放锁 + drain（对齐单视图 onError → drainQueue）
           sendingRef.current[profile] = false;
           drainAttemptsRef.current[profile] = (drainAttemptsRef.current[profile] ?? 0) + 1;
@@ -582,7 +592,8 @@ export function useGridChat(active: boolean): {
         }
         case 'interim.message': {
           const imContent = (payload.content as string) || '';
-          if (imContent) {
+          // 🔴 #12: already_streamed 守卫（对齐单视图）— 流式已上屏的内容不重复 append
+          if (imContent && !(payload.already_streamed as boolean)) {
             patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'assistant', parts: [textPart(imContent)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
           }
           break;

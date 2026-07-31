@@ -365,7 +365,9 @@ function processEvent(
       // 合并两个重复case — 通用 status.update + lifecycle reset 分发
       const kind = chunk.kind as string;
       cbs.onStatusUpdate?.({ kind, text: chunk.text as string });
-      if (kind === 'lifecycle') {
+      // 🔴 P2-9: lifecycle 无 new_session_id 时不分发 reset（对齐宫格 `if (newSid)` 守卫）—
+      // 否则 onSessionReset 会 setSessionId(undefined) + 误清消息列表
+      if (kind === 'lifecycle' && chunk.new_session_id) {
         cbs.onSessionReset?.({ old_session_id: '', new_session_id: chunk.new_session_id as string });
       }
       break;

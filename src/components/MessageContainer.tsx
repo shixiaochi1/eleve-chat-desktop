@@ -361,14 +361,25 @@ function useThreadScrollAnchor({ enabled, groupCount, scrollerRef, sessionKey, v
       }
     }
 
+    // 🔴 P2-1: 键盘上翻解除 sticky-bottom。流式中 scrollHeight 持续增长 →
+    // onScroll 的 heightGrew 门控会吞掉 PgUp/ArrowUp 的滚动事件（永不解除，被 RO 拉回）。
+    // 键盘导航不经过 wheel 监听器 → 单独识别解除（仅限滚动区内焦点，避免误伤输入框）。
+    const onKeyNav = (event: KeyboardEvent) => {
+      if (event.key !== 'PageUp' && event.key !== 'Home' && event.key !== 'ArrowUp') return
+      if (!(event.target instanceof Node) || !el.contains(event.target)) return
+      disarm()
+    }
+
     el.addEventListener('scroll', onScroll, { passive: true })
     el.addEventListener('wheel', onWheel, { passive: true })
     el.addEventListener('touchmove', disarm, { passive: true })
+    document.addEventListener('keydown', onKeyNav, { passive: true })
 
     return () => {
       el.removeEventListener('scroll', onScroll)
       el.removeEventListener('wheel', onWheel)
       el.removeEventListener('touchmove', disarm)
+      document.removeEventListener('keydown', onKeyNav)
     }
   }, [scrollerRef])
 
