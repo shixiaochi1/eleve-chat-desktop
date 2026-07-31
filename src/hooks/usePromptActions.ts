@@ -116,8 +116,10 @@ export function usePromptActions({
           }
           storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(action.kickoff)] } as ChatMessage]);
           isSendingRef.current = true;
+          // 🔴 P1-9: 不用 finally 释锁（send 在 prompt.submit 响应即 resolve，流还在跑 → 锁提前释放 → 并发 turn 交错）
+          // 锁生命周期交给 onDone/drainQueue（对齐常规 handleSend 路径）；仅 send 本身 reject 时释锁
           try { await send(action.kickoff, sess.sessionId || undefined); }
-          finally { isSendingRef.current = false; }
+          catch (e) { isSendingRef.current = false; throw e; }
           return;
         }
         case 'rotate':

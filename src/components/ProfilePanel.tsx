@@ -215,6 +215,10 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
     try {
       await deleteProfile(deletingTarget);
       notifySuccess(`Agent「${deletingTarget}」已移入回收站`);
+      // 🔴 P1-1: 删除当前活跃 Agent 后必须回调切换（否则 currentProfile 悬空 + 盖章死 profile）
+      if (deletingTarget === currentProfile) {
+        onProfileChange?.('default');
+      }
       cancelDelete();
       void load();
     } catch (err: unknown) {
@@ -222,7 +226,7 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
     } finally {
       setDeletingBusy(false);
     }
-  }, [deletingTarget, deleteConfirmName, deletingBusy, cancelDelete, load]);
+  }, [deletingTarget, deleteConfirmName, deletingBusy, cancelDelete, load, currentProfile, onProfileChange]);
 
   return (
     <div className="flex flex-col h-full min-h-0">

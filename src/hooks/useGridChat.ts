@@ -228,7 +228,13 @@ export function useGridChat(active: boolean): {
 
     // 🔴 3.1: 统一连接保障入口（消灭 3 份重复）
     const ws = getWsClient();
-    await ws.ensureConnected(10000);
+    // 🔴 P1-7: 检查返回值（对齐单视图 useSSE.send）—— 超时时快速失败，不让 sendRpc 排队 30min 静默卡死
+    const connected = await ws.ensureConnected(10000);
+    if (!connected) {
+      sendingRef.current[profile] = false;
+      patch(profile, (s) => ({ ...s, status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '' }));
+      return;
+    }
 
     try {
       const result = await ws.sendRpc('prompt.submit', {
@@ -497,9 +503,17 @@ export function useGridChat(active: boolean): {
           }
           break;
         }
-        case 'error':
-          patch(profile, (s) => ({ ...s, status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '' }));
+        case 'error': {
+          // 🔴 P1-6: 保留已累积内容（对齐单视图 onError：finalize + 错误标记 + toast）
+          const errParts = finalizeAccumulator(acc);
           resetAccumulator(acc);
+          const errMsg = (payload.message as string) || (payload.error as string) || '未知错误';
+          patch(profile, (s) => {
+            const msgs = errParts.length
+              ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: errParts, error: errMsg, timestamp: Date.now() }]
+              : s.messages;
+            return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '' };
+          });
           // 🔴 Phase B: error 也是权威终止事件，释放锁 + drain（对齐单视图 onError → drainQueue）
           sendingRef.current[profile] = false;
           const errQ = queueRef.current[profile];
@@ -508,6 +522,7 @@ export function useGridChat(active: boolean): {
             sendToRef.current(profile, next.text, next.modelOpts, true);
           }
           break;
+        }
         // ── 推理生命周期（对齐单视图 onReasoningStart / onReasoningComplete）──
         case 'reasoning.available':
           // 推理块开始通知（无文本，delta 事件随后到）—— 不额外处理

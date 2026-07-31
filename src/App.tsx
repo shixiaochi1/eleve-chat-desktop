@@ -126,6 +126,8 @@ export default function App() {
             setTimeout(tryGetActive, 800 * attempts);
           } else if (!cancelled) {
             // 🔴 P0-2: 重试耗尽也要解锁，否则启动恢复永远阻塞
+            // 🔴 P1-5: 记录降级标志，网关恢复后补拉（CLI 设的 active 桌面不跟随）
+            profileDegradedRef.current = true;
             setProfileResolved(true);
           }
         });
@@ -150,6 +152,7 @@ export default function App() {
   // ── 多 Agent UI：Ctrl+G 切换单视图/宫格 ──
   // 🔴 P1-3: grid→single 必须走 handleExitGrid（persistPointers + restoreProfileSession）
   const exitGridRef = useRef<() => void>(() => {});
+  const profileDegradedRef = useRef(false); // 🔴 P1-5: getActiveProfile 重试耗尽降级标志
   const toggleViewMode = useCallback(() => {
     if (viewMode === 'single') {
       hideDeepSeek().then(() => setDeepseekVisible(false));
@@ -225,7 +228,15 @@ export default function App() {
   const gatewayHealth = useGatewayHealth({
     interval: 10000,
     enabled: portReady,
-    onOnline: () => { if (connectionStatus === 'error') setConnectionStatus('idle'); },
+    onOnline: () => {
+      if (connectionStatus === 'error') setConnectionStatus('idle');
+      // 🔴 P1-5: 网关恢复后补拉 active profile（重试耗尽降级时 CLI 设的 active 桌面不跟随）
+      if (profileDegradedRef.current) {
+        getActiveProfile()
+          .then((name) => { profileDegradedRef.current = false; setWsActiveProfile(name); setCurrentProfile(name); })
+          .catch(() => {});
+      }
+    },
     onOffline: () => {
       // 网关离线 → 可能 eleved 重启换了端口，重新发现
       console.warn('[App] Gateway offline, re-discovering port...');
@@ -295,6 +306,8 @@ export default function App() {
   //  不比异步 sess.sessionId（setState 异步 → .then() 时闭包值陈旧 → 误丢有效历史 → 首次切换丢消息）。
   //  调用前提：调用方必须先 resetStream(targetId) 同步锁定权威 ref。
   const loadSessionIntoView = useCallback((targetId: string) => {
+    // 🔴 P1-3: 切换会话时清空所有 pending 交互卡片（防 A 的审批卡留在 B 视图）
+    setActiveClarify(null); setActiveApproval(null); setActiveSudo(null); setActiveSecret(null); setActiveSlashConfirm(null);
     sess.setSessionId(targetId);
     persistSessionPointer(targetId);
     sess.setFreshDraftReady(false);
@@ -314,6 +327,8 @@ export default function App() {
 
   // 无历史会话 → 空白草稿（单一权威入口；profile = 要清指针的目标 profile）
   const clearSessionView = useCallback((profile: string) => {
+    // 🔴 P1-3: 同 loadSessionIntoView
+    setActiveClarify(null); setActiveApproval(null); setActiveSudo(null); setActiveSecret(null); setActiveSlashConfirm(null);
     sess.setSessionId(null);
     clearSessionPointer(profile);
     sess.setFreshDraftReady(true);
@@ -422,7 +437,9 @@ export default function App() {
   // 不回写“切走”会话（避免用陈旧的全局 sess.sessionId 覆盖宫格刚写回的权威指针）。
   const restoreProfileSession = useCallback((profile: string) => {
     const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
-    const targetId = map[profile] || null;
+    // 🔴 P1-2: 串台防御 — map 指针可能指向其他 profile 的 session（污染指针），校验后才恢复
+    const rawTarget = map[profile] || null;
+    const targetId = rawTarget && sessionIdMatchesProfile(rawTarget, profile) ? rawTarget : null;
     // 🔴 串台根因修复：同步锁定过滤 ref 到目标 session（宫格→单视图同样消灭异步窗口）
     resetStream(targetId);
     // 🔴 P0 修复：宫格→单视图同样重置发送锁（宫格期间单视图锁可能被孤立流式事件锁死）

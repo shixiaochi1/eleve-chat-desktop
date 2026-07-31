@@ -3,7 +3,7 @@ import type { ChatMessage, Session } from '@/types';
 import * as api from '../utils/api';
 import { call } from '../utils/bridge';
 import * as storage from '../utils/storage';
-import { persistSessionPointer } from '../utils/session';
+import { persistSessionPointer, clearSessionPointer, profileFromSessionId } from '../utils/session';
 import { toChatMessages, type SessionMessage } from '@/lib/chat-messages';
 
 export function useSessions(): {
@@ -96,7 +96,8 @@ export function useSessions(): {
     saveCache((prev) => { const c = { ...prev }; delete c[id]; return c; });
     if (sessionId === id) {
       setSessionId(null);
-      storage.remove('session_id');
+      // 🔴 P1-4: 收敛到权威函数（禁止裸调 storage.remove，防僵尸指针）
+      clearSessionPointer(profileFromSessionId(id) ?? undefined);
     }
   }, [sessionId, saveCache]);
 
