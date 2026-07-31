@@ -524,9 +524,14 @@ export function useSSE(
 } {
   const isStreaming = useIsStreaming();
   const currentSessionRef = useRef<string | null>(null);
-  // 🔴 串台根因修复：显式标记“本人刚发送、等后端分配 session_id”。
-  // 过滤器 current===null 时仅在此标志为 true 才放行——区分“刚发送等响应”与“切到空白 Agent”。
+  // 🔴 串台绝对闭环：显式标记“本人刚发送新建会话、等后端分配 session_id”。
+  // 过滤器 current===null 时仅在此标志为 true 才进入缓冲——区分“刚发送等响应”与“切到空白 Agent”。
   const pendingSendRef = useRef(false);
+  // 🔴 串台绝对闭环：新建会话 session 未知窗口内，缓冲原始事件，待响应锁定 session 后冲洗。
+  // 后端 tokio::spawn(流式) 与 Ok(session_id) 并发，不保证响应先于事件——不能靠时序，必须缓冲。
+  const pendingBufferRef = useRef<Array<{ eventName: string; data: unknown }> | null>(null);
+  // routeWsEvent 镜像 ref（供 flushPendingBuffer 重放，避免 useCallback 循环依赖）
+  const routeWsEventRef = useRef<((eventName: string, data: unknown) => void) | null>(null);
   const isStreamingRef = useRef(false);
   const cbsRef = useRef<SSECallbacks>(callbacks);
   cbsRef.current = callbacks;
@@ -558,8 +563,10 @@ export function useSSE(
         // 已锁定当前会话：非本会话事件一律丢弃
         if (eventSessionId !== current) return;
       } else if (pendingSendRef.current) {
-        // current 为 null 且本人刚发送：放行首个事件并立即关窗（后端分配的 session 由 onRunStart 锁定）
-        pendingSendRef.current = false;
+        // 🔴 绝对闭环：current 为 null 且本人刚发送新建会话——session 未知，缓冲原始事件，
+        // 待响应锁定 session 后冲洗。不丢自己的早期事件（session.info/message.start），不漏外来流式。
+        pendingBufferRef.current?.push({ eventName, data });
+        return;
       } else {
         // 🔴 串台根因修复：current 为 null 但非本人发送（切到空白 Agent）→ 丢弃外来流式。
         // 后端已持久化，切回源 Agent 时 loadHistory 恢复，不丢消息。
@@ -575,6 +582,19 @@ export function useSSE(
       isStreamingRef.current = false;
     }
   }, [currentSessionIdRef]);
+  routeWsEventRef.current = routeWsEvent;
+
+  // 🔴 串台绝对闭环：响应锁定 session 后冲洗缓冲——重放走 routeWsEvent 正常过滤
+  // （自己的事件 session 匹配放行，外来事件 session 不匹配丢弃）。与时序无关。
+  const flushPendingBuffer = useCallback(() => {
+    pendingSendRef.current = false;
+    const buf = pendingBufferRef.current;
+    pendingBufferRef.current = null;
+    if (!buf?.length) return;
+    for (const evt of buf) {
+      routeWsEventRef.current?.(evt.eventName, evt.data);
+    }
+  }, []);
 
   // ── WS 连接生命周期 ──
   // 🔴 宫格/单视图互斥：enabled=false（宫格模式）时 useSSE 暂停、不注册 listener，
@@ -602,8 +622,17 @@ export function useSSE(
 
     // 记录当前流式会话 ID，abort 时使用
     currentSessionRef.current = sessionId ?? null;
-    // 🔴 串台根因修复：标记本人发送，过滤器在 session 分配前放行自己的响应
-    pendingSendRef.current = true;
+    // 🔴 串台绝对闭环：
+    //  - 已有会话发送 → 预锁过滤 ref，外来事件立即按 session 过滤（无窗口）。
+    //  - 新建会话发送 → session 未知，进入缓冲窗口，等响应锁定后冲洗。
+    if (sessionId) {
+      if (currentSessionIdRef) currentSessionIdRef.current = sessionId;
+      pendingSendRef.current = false;
+      pendingBufferRef.current = null;
+    } else {
+      pendingSendRef.current = true;
+      pendingBufferRef.current = [];
+    }
 
     const cbs = cbsRef.current;
 
@@ -619,6 +648,8 @@ export function useSSE(
       console.error('[useSSE] WS not connected after waiting 10s');
       storeSetIsStreaming(false);
       isStreamingRef.current = false;
+      pendingSendRef.current = false;
+      pendingBufferRef.current = null;
       if (cbs?.onError) {
         cbs.onError('连接断开，正在重连，请稍后重试');
       }
@@ -635,23 +666,31 @@ export function useSSE(
       if (result?.session_id && result.session_id !== sessionId) {
         const newSid = result.session_id;
         persistSessionPointer(newSid);
-        // 🔴 立即锁定 session 过滤 ref（promptSubmit 是 await，streaming 事件在 response 之后才到）
+        // 🔴 立即锁定 session 过滤 ref
         if (currentSessionIdRef) currentSessionIdRef.current = newSid;
+        // 🔴 绝对闭环：锁定后冲洗缓冲窗口（自己的事件匹配放行，外来丢弃）
+        flushPendingBuffer();
         if (cbs?.onSessionCreated) {
           cbs.onSessionCreated(newSid);
         }
+      } else {
+        // 响应未带新 session（已有会话或异常）→ 安全关窗，防缓冲卡死
+        pendingSendRef.current = false;
+        pendingBufferRef.current = null;
       }
       return; // WS 发送成功，事件通过 routeWsEvent 回调
     } catch (wsErr) {
       console.error('[useSSE] WS prompt.submit failed:', wsErr);
       storeSetIsStreaming(false);
       isStreamingRef.current = false;
+      pendingSendRef.current = false;
+      pendingBufferRef.current = null;
       if (cbs?.onError) {
         cbs.onError(`发送失败: ${(wsErr as Error).message}`);
       }
       return;
     }
-  }, []);
+  }, [flushPendingBuffer]);
 
   const abort = useCallback(async () => {
     // ── WS only：对齐 Hermes TUI，无 HTTP 降级 ──
@@ -677,8 +716,9 @@ export function useSSE(
     storeSetIsStreaming(false);
     isStreamingRef.current = false;
     currentSessionRef.current = null;
-    // 🔴 串台根因修复：切换会话/Agent 时关闭“本人发送”窗口，外来流式不再放行
+    // 🔴 串台绝对闭环：切换会话/Agent 时关闭发送窗口 + 丢弃缓冲（外来流式不冲洗进新视图）
     pendingSendRef.current = false;
+    pendingBufferRef.current = null;
     wsAccumulatorsRef.current = createAccumulator();
   }, []);
 
