@@ -584,6 +584,9 @@ export function useMessageStream({
         }
         storeSetIsStreaming(false);
         setConnectionStatus('idle');
+        // 🔴 P0-4: 自愈必须释放发送锁（对齐宫格 useGridChat:574-577 + 单视图 onDone:624）
+        // 不释锁 → isSendingRef 恒 true → 后续消息静默进死队列永不发送
+        if (drainQueueRef.current) drainQueueRef.current();
       } else {
         storeSetIsStreaming(true);
         setConnectionStatus('streaming');

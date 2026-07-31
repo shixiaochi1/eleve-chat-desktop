@@ -51,6 +51,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { readFileAsDataURL, base64FromDataURL } from '@/utils/file';
+import { getWsActiveProfile } from '@/services/ws-client';
 import {
   getKanbanBoard,
   getKanbanTask,
@@ -1102,7 +1103,7 @@ function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onViewLog, 
                       <Paperclip size={12} className="shrink-0 text-[var(--ui-text-tertiary)]" />
                       <span className="truncate text-[var(--ui-text-primary)]">{a.filename || a.name || `附件 ${i + 1}`}</span>
                       {a.size && <span className="text-[0.65rem] text-[var(--ui-text-quaternary)] ml-auto">{(a.size / 1024).toFixed(1)}KB</span>}
-                      <button onClick={() => { const base = getApiBase(); window.open(`${base}/api/kanban/attachments/${a.id}?board=default`, '_blank'); }} title="下载附件"
+                      <button onClick={() => { const base = getApiBase(); const p = getWsActiveProfile(); const prefix = p ? `/p/${p}` : ''; window.open(`${base}${prefix}/api/kanban/attachments/${a.id}?board=default`, '_blank'); }} title="下载附件"
                         className="text-[var(--kanban-hover-bg)] hover:text-[var(--kanban-hover-bg)] transition-colors ml-1"><Download size={11} strokeWidth={1.5} /></button>
                       <button onClick={async () => { try { await deleteKanbanAttachment(a.id!); const data = await getKanbanAttachments(task.id); setAttachments(data?.attachments || data || []); } catch {} }} title="删除附件"
                         className="text-danger/70 hover:text-danger transition-colors ml-1"><Trash2 size={11} /></button>
@@ -1439,7 +1440,10 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
     const connectSSE = () => {
       if (eventSource) { eventSource.close(); eventSource = null; }
       const baseUrl = getApiBase();
-      eventSource = new EventSource(`${baseUrl}/api/kanban/events?since=${cursor}&board=${encodeURIComponent(currentBoard)}`);
+      // 🔴 P0-5: SSE EventSource 绕过 bridge 链路，必须手动注入 /p/ 前缀（对齐 kanbanHttpFallback）
+      const sseProfile = getWsActiveProfile();
+      const profilePrefix = sseProfile ? `/p/${sseProfile}` : '';
+      eventSource = new EventSource(`${baseUrl}${profilePrefix}/api/kanban/events?since=${cursor}&board=${encodeURIComponent(currentBoard)}`);
       eventSource.addEventListener('kanban', (e) => {
         try {
           const evt = JSON.parse(e.data);

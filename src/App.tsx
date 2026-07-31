@@ -86,6 +86,7 @@ export default function App() {
   const [commandCenterOpen, setCommandCenterOpen] = useState<boolean>(false);
   const [depsReady, setDepsReady] = useState<boolean>(false);
   const [portReady, setPortReady] = useState<boolean>(false); // 需要 discoverPort 后才就绪
+  const [storageReady, setStorageReady] = useState<boolean>(false); // 🔴 P0-1: storage.init() 成功后才允许恢复会话
   const [profileResolved, setProfileResolved] = useState<boolean>(false); // 🔴 P0-2: getActiveProfile 完成后才允许恢复会话
   const [sessionListVersion, setSessionListVersion] = useState<number>(0);  // 刷新会话列表
   const [currentProfile, setCurrentProfile] = useState<string>('default');  // F9+ 当前活动 Profile（多 Profile 全局状态）
@@ -336,7 +337,8 @@ export default function App() {
   useEffect(() => {
     // 🔴 P0-2: 必须等 profileResolved（getActiveProfile 完成）后才恢复，
     // 否则 currentProfile 还是 'default' 初始值，闩锁后真实 profile 永远不被恢复。
-    if (!portReady || !profileResolved || startupRestored.current) return;
+    // 🔴 P0-1: 必须等 storageReady（storage.init 成功）后才恢复，否则读空缓存永不恢复会话。
+    if (!portReady || !profileResolved || !storageReady || startupRestored.current) return;
     startupRestored.current = true;
     const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
     // 🔴 串台防御：map 指针或全局 fallback 可能指向其他 profile 的 session，校验后才恢复
@@ -346,7 +348,7 @@ export default function App() {
       resetStream(targetId); // 🔴 同步锁定权威 ref（loadSessionIntoView 守卫前提）
       loadSessionIntoView(targetId);
     }
-  }, [portReady, profileResolved, currentProfile, sess, resetStream, loadSessionIntoView]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [portReady, profileResolved, storageReady, currentProfile, sess, resetStream, loadSessionIntoView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ═══════════════════════════════════════════════════════════════════
   //  多 Profile 切换 — 单视图 Agent 切换的完整生命周期
@@ -614,7 +616,10 @@ export default function App() {
       const portPromise = discoverPort();
 
       // 🔴 P0-1: 只预加载 cache/titles，不设 sessionId、不加载消息
+      // 冷启动时 WS 未连，init() 会失败（不置 _initialized），WS onOpen 后重试
       storage.init().then(async () => {
+        if (!storage.isReady()) return; // WS 未连接时 init 失败，等 onOpen 重试
+        setStorageReady(true);
         const restoredCache = storage.load('msg_cache', {} as Record<string, ChatMessage[]>) as Record<string, ChatMessage[]>;
         const restoredTitles = storage.load('titles', {} as Record<string, string>) as Record<string, string>;
         if (Object.keys(restoredCache).length > 0 && Object.keys(sess.msgCache).length === 0) {
@@ -645,6 +650,8 @@ export default function App() {
       setPortReady(true);
       // 🔴 P0-1: 同 Tauri 分支，只预加载 cache/titles
       storage.init().then(async () => {
+        if (!storage.isReady()) return;
+        setStorageReady(true);
         const restoredCache = storage.load('msg_cache', {} as Record<string, ChatMessage[]>) as Record<string, ChatMessage[]>;
         const restoredTitles = storage.load('titles', {} as Record<string, string>) as Record<string, string>;
         if (Object.keys(restoredCache).length > 0 && Object.keys(sess.msgCache).length === 0) {
@@ -672,6 +679,10 @@ export default function App() {
           console.log('[App] WS connected');
           // 🔴 P1-1: 冷启动时 useSessions.refresh 在 WS 未连时静默失败，连接建立后补刷
           sess.refresh();
+          // 🔴 P0-1: 冷启动 storage.init() 在 WS 未连时必然失败，连接后重试加载持久化数据
+          storage.init().then(() => {
+            if (storage.isReady()) setStorageReady(true);
+          });
         },
         onClose: (code, reason) => console.log('[App] WS closed:', code, reason),
         onError: (err) => console.error('[App] WS error:', err),

@@ -52,7 +52,10 @@ export async function init(): Promise<void> {
         }
       }
     } catch {
-      // 首次启动无数据，正常
+      // 🔴 P0-1: RPC 失败（WS 未连接）≠ 无数据。不置 _initialized，允许 WS 连接后重试。
+      // 旧行为：catch 当"首次启动无数据"吞掉 → _initialized=true 封死重试 → 冷启动恢复链整条失效。
+      _initPromise = null;
+      return;
     }
 
     // 3. 检查是否需要从 localStorage 迁移

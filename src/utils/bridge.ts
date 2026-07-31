@@ -125,7 +125,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   provider_switch:        'provider.switch',
   list_memories:          'memory.list',
   delete_memory:          'memory.delete',
-  reload_mcp:             'mcp.reload',
+  reload_mcp:             'reload.mcp',
   get_app_data:           'app_data.get',
   set_app_data:           'app_data.set',
   delete_app_data:        'app_data.delete',
@@ -187,7 +187,8 @@ function adaptParams(command: string, args: Record<string, any>): Record<string,
       return { name: args.command, arg: args.args || '', session_id: args.session_id || '' };
     case 'submit_clarify_response':
       // HTTP: {clarify_id, response} → WS: {request_id, answer}
-      return { request_id: args.clarify_id, answer: args.response };
+      // 🔴 P0-2: 透传 profile（宫格模式 ClarifyCard 显式传归属 Agent，剥掉会被 sendRpc 盖焦点 Agent 章 → 串台）
+      return { request_id: args.clarify_id, answer: args.response, ...(args.profile ? { profile: args.profile } : {}) };
     case 'update_config': {
       // {config:{...}} → {yaml_text: string}（WS config.set.raw 期望 yaml_text）
       if (args.yaml_text) return args;

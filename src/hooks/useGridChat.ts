@@ -134,18 +134,26 @@ export function useGridChat(active: boolean): {
 
   // ── 加载最新 N 条（进入宫格 / 切到某 Agent 时） ──
   const loadLatest = useCallback(async (profile: string, sessionId: string) => {
-    patch(profile, (s) => ({ ...s, sessionId }));
+    // 🔴 P0-3: 切会话前重置旧流状态（防旧流 message.complete 终稿注入新会话）
+    if (accRef.current[profile]) resetAccumulator(accRef.current[profile]);
+    sendingRef.current[profile] = false;
+    queueRef.current[profile] = [];
+    patch(profile, (s) => ({ ...s, sessionId, status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '' }));
     try {
       const res = await call('get_session_messages', { session_id: sessionId, limit: PAGE_SIZE }) as {
         messages?: SessionMessage[]; has_more?: boolean; oldest_id?: number | null;
       };
       const msgs = toChatMessages((res?.messages ?? []) as SessionMessage[]);
-      patch(profile, (s) => ({
-        ...s,
-        messages: msgs.slice(-WINDOW_MAX),
-        hasMore: !!res?.has_more,
-        oldestId: res?.oldest_id ?? null,
-      }));
+      // 🔴 P1-10: 过期响应守卫 — 快速切换时旧响应不覆盖新会话
+      patch(profile, (s) => {
+        if (s.sessionId !== sessionId) return s;
+        return {
+          ...s,
+          messages: msgs.slice(-WINDOW_MAX),
+          hasMore: !!res?.has_more,
+          oldestId: res?.oldest_id ?? null,
+        };
+      });
     } catch { /* offline：保留现有 */ }
   }, [patch]);
 
@@ -153,13 +161,17 @@ export function useGridChat(active: boolean): {
   const loadMore = useCallback(async (profile: string) => {
     const s = statesRef.current[profile];
     if (!s?.sessionId || !s.hasMore || s.isLoadingMore || s.oldestId == null) return;
+    // 🔴 P1-10: 快照当前 sessionId，用于过期响应守卫
+    const expectedSid = s.sessionId;
     patch(profile, (st) => ({ ...st, isLoadingMore: true }));
     try {
       const res = await call('get_session_messages', {
-        session_id: s.sessionId, limit: PAGE_SIZE, before_id: s.oldestId,
+        session_id: expectedSid, limit: PAGE_SIZE, before_id: s.oldestId,
       }) as { messages?: SessionMessage[]; has_more?: boolean; oldest_id?: number | null };
       const older = toChatMessages((res?.messages ?? []) as SessionMessage[]);
       patch(profile, (st) => {
+        // 🔴 P1-10: 过期响应守卫 — 切会话期间旧响应不覆盖新会话
+        if (st.sessionId !== expectedSid) return { ...st, isLoadingMore: false };
         const merged = [...older, ...st.messages];
         // 内存窗口：超 WINDOW_MAX 从尾部 evict（保留最新）—— 上翻加载的是更早的，插头部
         // 但为内存可控，限制总量；用户继续上翻会再加载
@@ -385,6 +397,14 @@ export function useGridChat(active: boolean): {
           patch(profile, (s) => ({ ...s, status: 'streaming', lastActivity: Date.now() }));
           break;
         case 'message.complete': {
+          // 🔴 P0-3: 过期流守卫 — 事件 session_id 与 slot 当前 sessionId 不匹配时，
+          // 说明是旧流的终止事件（切会话后迟到）：释放锁但不 append（防旧流终稿注入新会话）
+          const slotSid = statesRef.current[profile]?.sessionId;
+          if (sessionId && slotSid && sessionId !== slotSid) {
+            sendingRef.current[profile] = false;
+            resetAccumulator(acc);
+            break;
+          }
           // 🔴 Phase 4b #5: 记录后端权威终稿（finalizeAccumulator 累加为空时兜底）
           acc.serverContent = (payload.content as string) || '';
           // 🔴 P2-D: 复用 finalizeAccumulator（与单视图同一 parts 组装逻辑）
