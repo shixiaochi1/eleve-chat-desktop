@@ -595,13 +595,39 @@ export default function App() {
     removeImage,
     clearImages,
     clearError: clearImageError,
-  } = useImageAttachments();
+    uploadUnuploaded,
+  } = useImageAttachments({ getSessionId: () => sess.sessionId });
 
   // 包装 handleSend — 附件排队归属 + 发送后清空预览
   // 🔴 对齐 Hermes entry 级附件归属：busy 时排队附件 base64 暂存内存 + 从 session 分离
-  const handleSend = useCallback((text: string) => {
+  const handleSend = useCallback(async (text: string) => {
     const wasBusy = isSendingRef.current;
     const images = [...attachedImages];
+
+    // 🔴 新会话图片附件 submit 时序（对齐 Hermes submit.ts: createBackendSessionForSend → syncAttachmentsForSubmit → prompt.submit）
+    // 无会话时 addImage 仅本地暂存（uploaded=false）；此处发送前懒创建会话并上传，
+    // 保证图片进入后端 session.attached_images，随后 prompt.submit 被后端 drain 消费。
+    // 仅直接发送路径（!wasBusy）需要；busy 排队路径由 drain 时附着（会话必然存在）。
+    if (!wasBusy && images.some((img) => !img.uploaded)) {
+      const ws = getWsClient();
+      let sid = sess.sessionId ?? undefined;
+      if (!sid) {
+        try {
+          const created = await ws.sessionCreate({
+            profile: currentProfile,
+            title: sess.pendingTitle ?? undefined,
+          });
+          sid = created.session_id;
+          sess.setSessionId(sid);
+          ws.switchSession(sid);
+        } catch (err) {
+          console.error('[handleSend] sessionCreate failed, aborting send:', err);
+          return; // 对齐 Hermes: 建会话失败 → 中止发送
+        }
+      }
+      const synced = await uploadUnuploaded(sid);
+      if (!synced) return; // 对齐 Hermes: 附件同步失败 → 中止发送
+    }
 
     // 准备附件元数据 + base64（排队用）
     const queuedAttachments = images.map((img) => ({
@@ -617,14 +643,15 @@ export default function App() {
       const ws = getWsClient();
       const sid = sess.sessionId ?? undefined;
       for (const img of images) {
-        ws.imageDetach(img.path, sid).catch(() => {});
+        // 仅分离已上传到后端的图片（本地暂存的无后端状态）
+        if (img.uploaded && img.path) ws.imageDetach(img.path, sid).catch(() => {});
       }
     }
     // 发送/排队后都清本地预览（后端 prompt.submit 自动 drain / 排队已暂存）
     if (images.length > 0) {
       clearImages();
     }
-  }, [rawHandleSend, attachedImages, clearImages, isSendingRef, sess.sessionId]);
+  }, [rawHandleSend, attachedImages, clearImages, isSendingRef, sess.sessionId, sess, currentProfile, uploadUnuploaded]);
 
   // 适配 addImage 签名：useImageAttachments 返回 Promise<AttachedImage | null>，
   // InputArea 的 onAddImage 期望 Promise<void>，丢弃返回值即可

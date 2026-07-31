@@ -26,6 +26,9 @@ export interface AttachedImage {
   preview: string;
   /** 文件大小（字节） */
   size: number;
+  /** 是否已上传到后端 session.attached_images。
+   * 无会话时仅本地暂存（false），submit 时由 uploadUnuploaded() 上传（对齐 Hermes 延迟上传语义） */
+  uploaded: boolean;
 }
 
 /** 客户端预检限制（对齐后端 ws/mod.rs 25MB 限制） */
@@ -89,15 +92,32 @@ export function useImageAttachments(options?: {
       // 5. 读取文件为 base64 data URL（用于本地预览）
       const dataUrl = await readFileAsDataURL(file);
 
-      // 6. 提取纯 base64 内容
-      const contentBase64 = base64FromDataURL(dataUrl);
+      // 6. 会话门槛（对齐 Hermes "Images are intentionally NOT eager-uploaded"）：
+      //    无会话 → 仅本地暂存（uploaded=false），submit 时由 uploadUnuploaded() 上传；
+      //    有会话 → eager 上传（对齐 Hermes eagerlyUploadAttachment 的转圈 UX）。
+      //    Rust 长生命周期：会话是常驻 Actor，禁止为新会话草稿 eager 建会话（会泄漏持久 Actor），
+      //    因此无会话时绝不触发后端，纯客户端暂存。
+      const sessionId = getSessionIdRef.current?.() ?? undefined;
+      if (!sessionId) {
+        const staged: AttachedImage = {
+          id: crypto.randomUUID(),
+          path: '',
+          name: file.name,
+          preview: dataUrl,
+          size: file.size,
+          uploaded: false,
+        };
+        setAttachedImages((prev) => [...prev, staged]);
+        return staged;
+      }
 
-      // 7. 调用后端 image.attach_bytes 上传
+      // 7. 有会话：提取纯 base64 内容并调用后端 image.attach_bytes 上传
+      const contentBase64 = base64FromDataURL(dataUrl);
       const wsClient = getWsClient();
       const result: ImageAttachResponse = await wsClient.imageAttachBytes(
         contentBase64,
         file.name,
-        getSessionIdRef.current?.() ?? undefined,
+        sessionId,
       );
 
       if (!result.attached || !result.path) {
@@ -106,13 +126,14 @@ export function useImageAttachments(options?: {
         );
       }
 
-      // 8. 添加到本地状态
+      // 8. 添加到本地状态（已上传到后端）
       const newImage: AttachedImage = {
         id: crypto.randomUUID(),
         path: result.path,
         name: file.name,
         preview: dataUrl,
         size: result.bytes ?? file.size,
+        uploaded: true,
       };
       setAttachedImages((prev) => [...prev, newImage]);
 
@@ -134,14 +155,63 @@ export function useImageAttachments(options?: {
     // 先从本地状态移除（即时响应）
     setAttachedImages((prev) => prev.filter((img) => img.id !== id));
 
-    // 调用后端 image.detach 移除
-    try {
-      const wsClient = getWsClient();
-      await wsClient.imageDetach(image.path, getSessionIdRef.current?.() ?? undefined);
-    } catch (err) {
-      // 后端 detach 失败不阻塞 UI，记录错误即可
-      console.warn('[useImageAttachments] detach failed:', err);
+    // 调用后端 image.detach 移除（仅对已上传到后端的图片；本地暂存的无后端状态，无需 detach）
+    if (image.uploaded && image.path) {
+      try {
+        const wsClient = getWsClient();
+        await wsClient.imageDetach(image.path, getSessionIdRef.current?.() ?? undefined);
+      } catch (err) {
+        // 后端 detach 失败不阻塞 UI，记录错误即可
+        console.warn('[useImageAttachments] detach failed:', err);
+      }
     }
+  }, [attachedImages]);
+
+  /** submit 时上传所有本地暂存（uploaded=false）的图片 — 对齐 Hermes syncAttachmentsForSubmit。
+   * 调用方（App.handleSend）须先确保会话存在（无则 session.create 懒创建），再传入 sessionId。
+   * @returns true=全部成功；false=有失败（已 setError，调用方应中止发送，对齐 Hermes 附件同步失败即 abort）
+   */
+  const uploadUnuploaded = useCallback(async (sessionId: string): Promise<boolean> => {
+    const pending = attachedImages.filter((img) => !img.uploaded);
+    if (pending.length === 0) return true;
+
+    const wsClient = getWsClient();
+    const updatedPaths = new Map<string, string>();
+    let allOk = true;
+
+    for (const img of pending) {
+      try {
+        const contentBase64 = base64FromDataURL(img.preview);
+        const result: ImageAttachResponse = await wsClient.imageAttachBytes(
+          contentBase64,
+          img.name,
+          sessionId,
+        );
+        if (result.attached && result.path) {
+          updatedPaths.set(img.id, result.path);
+        } else {
+          allOk = false;
+          setError(`图片上传失败: ${img.name}（后端未确认附件）`);
+        }
+      } catch (err) {
+        allOk = false;
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(`图片上传失败: ${msg}`);
+      }
+    }
+
+    // 标记已上传 + 补后端 path（供后续 detach / busy 排队分离使用）
+    if (updatedPaths.size > 0) {
+      setAttachedImages((prev) =>
+        prev.map((img) =>
+          updatedPaths.has(img.id)
+            ? { ...img, uploaded: true, path: updatedPaths.get(img.id)! }
+            : img,
+        ),
+      );
+    }
+
+    return allOk;
   }, [attachedImages]);
 
   const clearImages = useCallback(() => {
@@ -162,5 +232,6 @@ export function useImageAttachments(options?: {
     removeImage,
     clearImages,
     clearError,
+    uploadUnuploaded,
   };
 }

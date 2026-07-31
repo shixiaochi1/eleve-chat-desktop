@@ -103,7 +103,7 @@ export function useGridChat(active: boolean): {
   states: Record<string, AgentChatState>;
   loadLatest: (profile: string, sessionId: string) => Promise<void>;
   loadMore: (profile: string) => Promise<void>;
-  sendTo: (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachments?: QueuedAttachment[]; attachmentDataURLs?: string[] }) => Promise<void>;
+  sendTo: (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachments?: QueuedAttachment[]; attachmentDataURLs?: string[]; explicitSessionId?: string }) => Promise<void>;
   abortAgent: (profile: string) => Promise<void>;
   clearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm') => void;
   /** 新建会话：清空本 Agent 上下文，下条 sendTo 后端自动建新 session */
@@ -130,7 +130,7 @@ export function useGridChat(active: boolean): {
   // 🔴 per-entry 失败计数（对齐 Hermes drainFailuresRef Map）：记录当前正在 drain 的条目 ID
   const lastDrainEntryRef = useRef<Record<string, string | null>>({});
   // sendTo 镜像 ref（供 WS handler message.complete 内 drain 调用，避免循环依赖）
-  const sendToRef = useRef<(profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachments?: QueuedAttachment[]; attachmentDataURLs?: string[] }, fromDrain?: boolean) => Promise<void>>(async () => {});
+  const sendToRef = useRef<(profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachments?: QueuedAttachment[]; attachmentDataURLs?: string[]; explicitSessionId?: string }, fromDrain?: boolean) => Promise<void>>(async () => {});
 
   // 单 Agent 状态更新（不可变 patch）
   const patch = useCallback((profile: string, updater: (s: AgentChatState) => AgentChatState) => {
@@ -196,7 +196,7 @@ export function useGridChat(active: boolean): {
   }, [patch]);
 
   // ── 发送消息到指定 Agent（显式 profile + session_id，不切全局盖章） ──
-  const sendTo = useCallback(async (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachments?: QueuedAttachment[]; attachmentDataURLs?: string[] }, fromDrain?: boolean) => {
+  const sendTo = useCallback(async (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachments?: QueuedAttachment[]; attachmentDataURLs?: string[]; explicitSessionId?: string }, fromDrain?: boolean) => {
     if (!text.trim()) return;
 
     // 🔴 per-agent 发送锁：流式期间排队（持久化，对齐 Hermes composer-queue），结束后自动发送
@@ -213,8 +213,15 @@ export function useGridChat(active: boolean): {
 
     const s = statesRef.current[profile];
     // 🔴 串台防御：sessionId 的 profile 前缀必须匹配目标 profile，否则丢弃（让后端新建）
-    const rawSid = s?.sessionId ?? undefined;
+    // 🔴 explicitSessionId 优先：新会话图片附件场景，AgentChatCard 已 session.create 并上传图片，
+    //    必须用同一 session 提交（对齐 Hermes submit.ts: createBackendSessionForSend → syncAttachmentsForSubmit → prompt.submit）
+    const rawSid = opts?.explicitSessionId ?? s?.sessionId ?? undefined;
     const sessionId = sessionIdMatchesProfile(rawSid, profile) ? rawSid : undefined;
+    // explicitSessionId 场景：同步 slot 指针 + 持久化（该 session 由前端预创建，prompt.submit 不再返回新 id）
+    if (opts?.explicitSessionId && sessionId) {
+      patch(profile, (st) => ({ ...st, sessionId }));
+      persistSessionPointer(sessionId);
+    }
     // 🔴 自含防御（审查 P2）：前缀不匹配即同步清除 slot 脏指针 — 不归属本 profile 的 sessionId 不应占据 slot
     // （后续 abortAgent/execCommand 语义亦正确）。与 handler stale 守卫的前缀校验双保险：
     // 即使清除尚未镜像到 statesRef，守卫也不会拿脏值作丢弃依据；脏值清除后 slotSid=null 走“新鲜发送兼容”放行。

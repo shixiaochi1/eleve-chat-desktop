@@ -526,6 +526,19 @@ export class GatewayWsClient {
     })
   }
 
+  /** 创建会话 — 对齐 Eleve session.create（后端是 session 生命周期权威源）
+   * 用于“有图片附件但尚无会话”时在 submit 前懒创建（对齐 Hermes createBackendSessionForSend）。
+   * model/provider 不在此传：随后的 prompt.submit 会携带并应用 per-session override（复用既有 switch_model 路径）。
+   */
+  async sessionCreate(options?: { profile?: string; title?: string; cwd?: string }): Promise<SessionCreateResponse> {
+    const result = await this.sendRpc('session.create', {
+      ...(options?.profile ? { profile: options.profile } : {}),
+      ...(options?.title ? { title: options.title } : {}),
+      ...(options?.cwd ? { cwd: options.cwd } : {}),
+    })
+    return result as SessionCreateResponse
+  }
+
   /** 中止当前流 — 对齐 Eleve session.interrupt */
   async abortStream(sessionId?: string): Promise<unknown> {
     return this.sendRpc('session.interrupt', {
@@ -612,6 +625,15 @@ export interface ImageAttachResponse {
 export interface ImageDetachResponse {
   detached?: boolean
   count?: number
+}
+
+// ── 会话创建 RPC 响应类型（对齐后端 ws/rpc_session.rs session.create）──
+
+export interface SessionCreateResponse {
+  session_id: string
+  stored_session_id?: string
+  message_count?: number
+  info?: { model?: string; cwd?: string; [key: string]: unknown }
 }
 
 // ── 语音 RPC 响应类型（对齐后端 ws/mod.rs voice.*）──

@@ -49,7 +49,7 @@ interface AgentChatCardProps {
   color: AgentCardColor;
   focused: boolean;
   portReady: boolean;
-  onSend: (profile: string, text: string, attachments?: Array<{ id: string; name: string; size: number; preview: string }>, attachmentDataURLs?: string[]) => void;
+  onSend: (profile: string, text: string, attachments?: Array<{ id: string; name: string; size: number; preview: string }>, attachmentDataURLs?: string[], sessionId?: string) => void;
   onLoadMore: (profile: string) => void;
   onAbort: (profile: string) => void;
   onClearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm') => void;
@@ -157,7 +157,7 @@ export const AgentChatCard = memo(function AgentChatCard({
   const stateRef = useRef(state);
   stateRef.current = state;
   const {
-    attachedImages, uploading: imageUploading, addImage, removeImage, clearImages,
+    attachedImages, uploading: imageUploading, addImage, removeImage, clearImages, uploadUnuploaded,
   } = useImageAttachments({ getSessionId: () => stateRef.current.sessionId });
 
   // ── 滚动：到顶触发上翻 + 跟踪是否贴底 ──
@@ -189,25 +189,48 @@ export const AgentChatCard = memo(function AgentChatCard({
   }, [state.messages.length, state.streamParts]);
 
   // ── 发送（贴底跟随 + 路由到本 Agent + 🔴 附件归属处理）──
-  const handleSend = useCallback((text: string) => {
+  const handleSend = useCallback(async (text: string) => {
     stickBottomRef.current = true;
     const wasBusy = state.status === 'streaming';
     const images = [...attachedImages];
+
+    // 🔴 新会话图片附件 submit 时序（对齐 Hermes submit.ts，与主视图 App.handleSend 同构）：
+    // 无会话时 addImage 仅本地暂存（uploaded=false）；发送前懒创建会话并上传，经 explicitSessionId 穿透到 sendTo。
+    // 仅直接发送路径（!wasBusy）需要；busy 排队路径由 useGridChat drain 时附着（会话必然存在）。
+    let explicitSid: string | undefined;
+    if (!wasBusy && images.some((img) => !img.uploaded)) {
+      const ws = getWsClient();
+      let sid = stateRef.current.sessionId ?? undefined;
+      if (!sid) {
+        try {
+          const created = await ws.sessionCreate({ profile: name });
+          sid = created.session_id;
+        } catch (err) {
+          console.error('[AgentChatCard] sessionCreate failed, aborting send:', err);
+          return; // 对齐 Hermes: 建会话失败 → 中止发送
+        }
+      }
+      const synced = await uploadUnuploaded(sid);
+      if (!synced) return; // 对齐 Hermes: 附件同步失败 → 中止发送
+      explicitSid = sid;
+    }
+
     // 准备附件元数据 + base64（排队用）
     const queuedAttachments = images.map((img) => ({ id: img.id, name: img.name, size: img.size, preview: img.preview }));
     const dataURLs = images.map((img) => img.preview);
-    onSend(name, text, queuedAttachments.length > 0 ? queuedAttachments : undefined, dataURLs.length > 0 ? dataURLs : undefined);
+    onSend(name, text, queuedAttachments.length > 0 ? queuedAttachments : undefined, dataURLs.length > 0 ? dataURLs : undefined, explicitSid);
     // 🔴 busy 时排队：从 session 分离图片（防下次发送误消费）
     // 🔴 P2: 显式传本 Agent sessionId（禁止 fallback 到 ws-client 全局 sessionId，宫格多 Agent 并发会 detach 错 session）
     if (wasBusy && images.length > 0) {
       const ws = getWsClient();
       const sid = stateRef.current.sessionId ?? undefined;
       for (const img of images) {
-        ws.imageDetach(img.path, sid).catch(() => {});
+        // 仅分离已上传到后端的图片（本地暂存的无后端状态）
+        if (img.uploaded && img.path) ws.imageDetach(img.path, sid).catch(() => {});
       }
     }
     if (images.length > 0) clearImages();
-  }, [onSend, name, clearImages, attachedImages, state.status]);
+  }, [onSend, name, clearImages, attachedImages, state.status, uploadUnuploaded]);
 
   const approval = state.pendingApproval as ApprovalPayload | null;
   const clarify = state.pendingClarify as ClarifyPayload | null;
