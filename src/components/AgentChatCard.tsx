@@ -217,7 +217,7 @@ export const AgentChatCard = memo(function AgentChatCard({
           </div>
         )}
 
-        {state.messages.length === 0 && !state.streamText ? (
+        {state.messages.length === 0 && !state.streamText && !state.streamReasoning && !state.streamParts?.length ? (
           <div className="flex flex-col items-center justify-center gap-1.5 h-full py-8">
             <Bot size={22} strokeWidth={1} className="text-muted-foreground/20" />
             <span className="text-[10px] text-muted-foreground/30">暂无对话 · 下方输入开始</span>

@@ -305,6 +305,7 @@ export default function App() {
     setActiveApproval,
     setActiveSudo,
     setActiveSecret,
+    setActiveSlashConfirm,
     sess,
     drainQueueRef,
     setSessionListVersion,

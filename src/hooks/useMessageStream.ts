@@ -66,6 +66,7 @@ export interface UseMessageStreamProps {
   setActiveApproval: React.Dispatch<React.SetStateAction<{ command: string; description: string; pattern: string; choices: string[]; run_id: string } | null>>
   setActiveSudo?: React.Dispatch<React.SetStateAction<{ request_id: string; prompt?: string } | null>>
   setActiveSecret?: React.Dispatch<React.SetStateAction<{ request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> } | null>>
+  setActiveSlashConfirm?: React.Dispatch<React.SetStateAction<{ confirmId: string; command: string; description: string } | null>>
   sess: SessionManagerHandle
   drainQueueRef: MutableRefObject<(() => void) | null>
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
@@ -118,6 +119,7 @@ export function useMessageStream({
   setActiveApproval,
   setActiveSudo,
   setActiveSecret,
+  setActiveSlashConfirm,
   sess,
   drainQueueRef,
   setSessionListVersion,
@@ -553,6 +555,8 @@ export function useMessageStream({
         if (pending.approval) setActiveApproval(pending.approval);
         if (pending.sudo) setActiveSudo?.(pending.sudo);
         if (pending.secret) setActiveSecret?.(pending.secret);
+        // 🔴 P1 修复：slash_confirm 恢复（之前漏掉，刷新后 pending 的 /new /undo /reset 确认卡不恢复）
+        if (pending.slashConfirm) setActiveSlashConfirm?.(pending.slashConfirm as { confirmId: string; command: string; description: string });
       }
       // 更新 monitorState — 同步 usage 绝对值（session.info 每次 push 都是完整快照）
       setMonitorState((prev) => ({
