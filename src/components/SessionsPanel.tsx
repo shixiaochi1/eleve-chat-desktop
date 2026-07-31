@@ -21,6 +21,7 @@ import { deleteSession, undoSessionTurn, compressSession, branchSession, getSess
 import { call } from '../utils/bridge';
 import * as storage from '../utils/storage';
 import { notifyError, notifySuccess, notifyInfo } from '../utils/notifications';
+import type { Session } from '@/types';
 import {
   CheckSquare, Square, Trash2, Download, Pin, PinOff,
   Archive, ArchiveRestore, Edit3, Copy, MoreHorizontal,
@@ -28,13 +29,7 @@ import {
 } from 'lucide-react';
 import { DeleteIcon, DotIcon } from './Icons';
 import OutlinePanel from './OutlinePanel';
-interface Session {
-  id: string;
-  title?: string;
-  preview?: string;
-  last_active?: number;
-  started_at?: number;
-}
+// 🔴 P2-8: 使用共享 Session 类型（= SessionInfo，单一来源 eleve.ts）
 
 interface SessionsPanelProps {
   sessionId?: string;

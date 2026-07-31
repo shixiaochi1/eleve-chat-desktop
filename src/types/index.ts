@@ -43,14 +43,8 @@ export interface SignatureRow {
 }
 
 // ── Session types ──
-
-export interface Session {
-  id: string
-  title: string
-  created_at: string
-  updated_at: string
-  message_count?: number
-}
+// 🔴 P2-8: 消灭平行类型。Session = SessionInfo（后端真实形状，单一来源 eleve.ts）
+export type { SessionInfo as Session } from './eleve';
 
 // ── Store callback types ──
 

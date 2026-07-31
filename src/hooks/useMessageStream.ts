@@ -27,7 +27,7 @@ import type { Session } from '@/types';
 
 export interface SessionManagerHandle {
   sessionId: string | null
-  sessions: { id: string; title: string; created_at: string; updated_at: string; message_count?: number }[]
+  sessions: Session[]
   msgCache: Record<string, ChatMessage[]>
   titles: Record<string, string>
   freshDraftReady: boolean

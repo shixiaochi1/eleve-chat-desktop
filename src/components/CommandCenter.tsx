@@ -39,7 +39,7 @@ import {
 
 interface SessionItem {
   id: string;
-  title?: string;
+  title?: string | null;
 }
 
 interface FlatResult {
