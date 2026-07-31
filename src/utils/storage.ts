@@ -10,7 +10,7 @@
  * - save/remove 后台异步写 AppService（不阻塞 UI）
  * - 与旧 localStorage 接口 100% 兼容，零改动调用方
  */
-import { call } from './bridge';
+import { call, getHttpBase } from './bridge';
 
 // ====== 内存缓存（启动时从 AppService 加载，后续同步读写） ======
 const _cache = new Map<string, string>();
@@ -176,7 +176,7 @@ export function saveBeacon(key: string, value: unknown): void {
   } else {
     // 浏览器 fallback：sendBeacon
     navigator.sendBeacon(
-      `http://127.0.0.1:3001/api/app-data/${encodeURIComponent(key)}`,
+      `${getHttpBase()}/api/app-data/${encodeURIComponent(key)}`,
       new Blob([serialized], { type: 'text/plain' })
     );
   }
