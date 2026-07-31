@@ -215,7 +215,7 @@ function processEvent(
       processAccumulatorEvent(acc, eventName, chunk);
       // 🔴 P0-3: tool.failed 是可恢复事件（错误回喂模型继续跑），不路由到 onError。
       // onError 会终止流 + 误发排队消息 + 弹错误 toast，语义完全错误。
-      // 走 onToolEnd(error:true) 让 ToolCallGroup 渲染错误状态，流继续。
+      // 走 onToolEnd(error:true) 让 ToolEntry 渲染错误状态（isError 三值），流继续。
       cbs.onToolEnd?.({ id: (chunk.toolCallId as string) || null, name: chunk.tool as string, duration: chunk.duration as number | undefined, error: true });
       break;
     }

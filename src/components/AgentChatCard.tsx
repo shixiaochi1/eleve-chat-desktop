@@ -228,7 +228,7 @@ export const AgentChatCard = memo(function AgentChatCard({
 
         {/* ── 流式气泡 — 经 MessageRow 渲染 = 与单视图 100% 一致（不重复造轮子）──
             单视图流式 = store 里 pending 消息经 MessageRow（MessageBubble streaming 模式 +
-            ReasoningBlock shimmer/计时器/折叠）。宫格用合成 pending 消息走同一条渲染路径，
+            ReasoningBlock shimmer/计时器/三态折叠）。宫格用合成 pending 消息走同一条渲染路径，
             气泡样式/推理块/间距全自动对齐，MessageRow 任何改动宫格流式同步生效。
             🔴 Phase 1: streamParts = 累加器到达序 segment 的 flush 镜像（与单视图 live parts 同构），
             直接作为合成消息的 parts — 不再三字段拼装（消灭 reasoning→tools→text 类型序跳变）。
