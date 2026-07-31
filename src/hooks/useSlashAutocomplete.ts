@@ -12,6 +12,8 @@ export interface CommandDef {
   name: string;
   description: string;
   aliases: string[];
+  /** 后端 commands.catalog 分组名（可选，CommandMenu 分组用） */
+  category?: string;
 }
 
 interface Options {

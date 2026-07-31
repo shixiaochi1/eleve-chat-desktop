@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import * as api from '../utils/api';
+import { fetchCommands } from '../utils/api';
+import type { CommandDef } from '@/hooks/useSlashAutocomplete';
 
 // ── 系统会话来源（对齐 SessionsPanel HIDDEN_SOURCES）──
 const HIDDEN_SOURCES = new Set(['tool', 'cron', 'api']);
@@ -80,8 +81,14 @@ export default function CommandCenter({
 }: CommandCenterProps) {
   const [query, setQuery] = useState('');
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [commands, setCommands] = useState<CommandDef[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+
+  // ── 命令列表从后端拉取（与 / 补全同一数据源，消灭硬编码）──
+  useEffect(() => {
+    fetchCommands().then(setCommands).catch(() => {});
+  }, []);
 
   // ── Reset state on open ──
   useEffect(() => {
@@ -124,26 +131,7 @@ export default function CommandCenter({
       });
     }
 
-    // 2. Commands
-    interface CommandDef {
-      name: string;
-      description: string;
-      aliases: string[];
-      category: string;
-    }
-
-    const commands: CommandDef[] = [
-      { name: 'new', description: 'Start a new session', aliases: ['n', 'clear'], category: 'Session' },
-      { name: 'reset', description: 'Reset current session context', aliases: [], category: 'Session' },
-      { name: 'help', description: 'Show help information', aliases: ['h', '?'], category: 'Help' },
-      { name: 'retry', description: 'Retry the last assistant response', aliases: ['redo'], category: 'Actions' },
-      { name: 'continue', description: 'Continue the last response', aliases: ['cont'], category: 'Actions' },
-      { name: 'save', description: 'Save current conversation', aliases: ['export'], category: 'Session' },
-      { name: 'inject', description: 'Inject context into the conversation', aliases: [], category: 'Advanced' },
-      { name: 'feedback', description: 'Send feedback', aliases: ['bug'], category: 'Other' },
-      { name: 'think', description: 'Toggle thinking mode', aliases: ['reason'], category: 'Settings' },
-    ];
-
+    // 2. Commands（后端拉取，与 / 补全同一数据源）
     const matchedCommands = q
       ? commands.filter((c) =>
           c.name.toLowerCase().includes(q) ||
@@ -201,7 +189,7 @@ export default function CommandCenter({
     }
 
     return results;
-  }, [query, sessions, sessionTitles, sessionId]);
+  }, [query, sessions, sessionTitles, sessionId, commands]);
 
   // ── Get selectable items (skip labels) ──
   const selectableIndices = useMemo(() => {

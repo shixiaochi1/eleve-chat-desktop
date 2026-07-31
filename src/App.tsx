@@ -575,6 +575,15 @@ export default function App() {
     currentProfile,
   });
 
+  // 🔴 P1: 宫格模式 CommandCenter（CMD+K）命令执行路由进宫格（写入 per-agent 状态槽，非不可见的 zustand store）
+  const gridAwareCommand = useCallback((cmdName: string, args: string) => {
+    if (viewMode === 'grid') {
+      gridRef.current?.execCommand(currentProfile, cmdName, args);
+      return;
+    }
+    handleCommand(cmdName, args);
+  }, [viewMode, currentProfile, handleCommand]);
+
   // ── useImageAttachments: 图片附件状态管理 ──
   // 对齐 Hermes Desktop: prompt.submit 后后端自动 drain session.attached_images
   // 前端在发送成功后清空本地预览状态
@@ -1125,7 +1134,7 @@ export default function App() {
         sessionId={sess.sessionId ?? undefined}
         onSwitchSession={gridAwareSwitchSession}
         onNewSession={gridAwareNewSession}
-        onCommand={handleCommand}
+        onCommand={gridAwareCommand}
         onNavigate={handleNavigate}
       />
 

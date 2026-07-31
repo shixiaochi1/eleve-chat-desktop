@@ -67,8 +67,10 @@ import { useModelContext } from '@/contexts/ModelContext';
 export interface GridModeViewHandle {
   switchToSession: (profile: string, sessionId: string) => void;
   persistPointers: () => void;
-  /** 侧栏“新建会话”路由进宫格：重置焦点 Agent 卡片 + 全局副作用 */
+  /** 侧栏"新建会话"路由进宫格：重置焦点 Agent 卡片 + 全局副作用 */
   newSession: (profile: string) => void;
+  /** 宫格内执行 slash 命令（CommandCenter CMD+K 路由用） */
+  execCommand: (profile: string, cmdName: string, args: string) => void;
 }
 
 // ── Agent 颜色调色板（对齐 --ui-* 设计 token）──
@@ -277,7 +279,7 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   }, [loadLatest, onFocusChange]);
 
   // 🔴 命令式句柄：App 经 gridRef 调度宫格（switchToSession / persistPointers / newSession）
-  useImperativeHandle(ref, () => ({ switchToSession, persistPointers, newSession: handleGridNewSession }), [switchToSession, persistPointers, handleGridNewSession]);
+  useImperativeHandle(ref, () => ({ switchToSession, persistPointers, newSession: handleGridNewSession, execCommand }), [switchToSession, persistPointers, handleGridNewSession, execCommand]);
 
   // 🔴 退出/展开：持久化权威收敛到 App（handleExitGrid/handleExpandAgent 经 gridRef.persistPointers）。
   // 此处只回调 App，不再本地 persist，消灭“按钮退出持久化 / Ctrl+G 退出不持久化”的双路径不一致。

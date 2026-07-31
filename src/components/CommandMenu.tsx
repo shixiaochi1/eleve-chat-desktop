@@ -1,22 +1,15 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { CommandMenuIcon } from './Icons';
+import type { CommandDef } from '@/hooks/useSlashAutocomplete';
 
 /**
  * Spotlight 风格命令菜单 — 输入区左侧按钮，点击弹出分组下拉菜单
  *
  * Props:
- *   commands: [{name, description, category, aliases, args_hint}]
+ *   commands: CommandDef[]（来自 useSlashAutocomplete，后端 commands.catalog）
  *   onCommand: (cmdName, args) => void
  */
-
-interface CommandDef {
-  name: string;
-  description: string;
-  category?: string;
-  aliases: string[];
-  args_hint?: string;
-}
 
 interface CommandMenuProps {
   commands?: CommandDef[];
@@ -121,9 +114,6 @@ export default function CommandMenu({ commands = [], onCommand }: CommandMenuPro
                       </span>
                     )}
                     <span className="truncate text-muted-foreground/70 flex-1 text-right">{cmd.description}</span>
-                    {cmd.args_hint && (
-                      <span className="text-[10px] text-muted-foreground/40 shrink-0">{cmd.args_hint}</span>
-                    )}
                   </div>
                 ))}
               </div>

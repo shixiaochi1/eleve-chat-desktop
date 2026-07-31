@@ -75,10 +75,11 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
   const slash = useSlashAutocomplete({ enabled: portReady });
 
   // 命令式句柄（队列编辑时父级读/写草稿）
+  // 🔴 稳定化：getValue 读 DOM 值（受控组件 DOM 与 state 同步），避免 deps 含 value 导致每次按键重建句柄
   useImperativeHandle(ref, () => ({
-    getValue: () => value,
+    getValue: () => inputRef.current?.value ?? '',
     setValue: (text: string) => setValue(text),
-  }), [value]);
+  }), []);
 
   // ── 自动撑大：内容变化 → 重置高度再按 scrollHeight 撑（单行起，max 120 滚动） ──
   useLayoutEffect(() => {
