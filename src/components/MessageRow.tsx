@@ -136,65 +136,19 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete }: Mes
     }
   }
 
-  // ── Legacy fallback（扁平字段，迁移期兼容） ──
-  let element
-  switch (m.type) {
-    case 'user':
-      element = <MessageBubble type="user" content={m.content} timestamp={m.timestamp} messageId={m.id} onDelete={onDelete} />
-      break
-    case 'agent':
-      element = (
-        <MessageBubble
-          type="agent"
-          content={m.content}
-          streaming={!!m._streaming}
-          timestamp={m.timestamp}
-          messageId={m.id}
-          onDelete={onDelete}
-          agentAttribution={m.agentAttribution as unknown as Parameters<typeof MessageBubble>[0]['agentAttribution']}
-        />
-      )
-      break
-    case 'system':
-      element = <MessageBubble type="system" content={m.content} />
-      break
-    case 'error':
-      element = <MessageBubble type="error" content={m.content || m.error} />
-      break
-    case 'reasoning':
-      element = <ReasoningBlock text={m.content || m.reasoning_content} visible={!!(m.content || m.reasoning_content)} messageId={m.id} pending={!!m.pending} />
-      break
-    case 'tool':
-      element = (
-        <ToolCallGroup
-          tools={[{
-            name: m.toolName || m.tool_name,
-            callId: m.callId || m.tool_call_id,
-            argsStr: m.argsStr || m.tool_input,
-            resultStr: m.resultStr || m.tool_output,
-            status: m.status,
-          }]}
-        />
-      )
-      break
-    case 'usage':
-      element = (
-        <div className="text-xs text-center text-muted-foreground py-1 px-3">
-          Tokens: 输入 {m.inputTokens} | 输出 {m.outputTokens}
-        </div>
-      )
-      break
-    default:
-      return null
+  // ── P2-4: Legacy fallback（防御性兜底） ──
+  // toChatMessages 和流式累加器总是产 parts，此路径在当前代码中不可达。
+  // 保留为防御：旧缓存/异常数据混入时不至于白屏。
+  if (import.meta.env.DEV) {
+    console.warn('[MessageRow] Legacy fallback hit — message missing parts:', m.id, m);
   }
-
-  const alignClass = m.type === 'user'
-    ? 'flex justify-end px-4 mb-1.5'
-    : m.type === 'agent'
-      ? 'flex justify-start px-4 mb-1.5'
-      : 'px-4 py-0.5'
-
-  return <div className={alignClass}>{element}</div>
+  const fallbackText = m.content || m.error || m.reasoning_content || m.tool_output || '';
+  const fallbackRole = m.role === 'user' ? 'user' : m.type === 'error' ? 'error' : 'agent';
+  return (
+    <div className={m.role === 'user' ? 'flex justify-end px-4 mb-1.5' : 'flex justify-start px-4 mb-1.5'}>
+      <MessageBubble type={fallbackRole as 'user' | 'agent' | 'error'} content={fallbackText} timestamp={m.timestamp} messageId={m.id} onDelete={onDelete} />
+    </div>
+  )
 })
 
 export default MessageRow
