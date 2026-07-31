@@ -472,10 +472,6 @@ function processEvent(
       cbs.onDone?.(chunk.session_id as string | null);
       return 'done';
 
-    case 'dequeue':
-      cbs.onText?.((chunk.text as string) || '', '');
-      break;
-
     // ── 用量汇总（对齐 Hermes: Done时推送usage统计）──
     case 'usage.summary':
       cbs.onUsage?.({
@@ -490,12 +486,6 @@ function processEvent(
         contextMax: (chunk.usage as any)?.context_max,
         compressions: (chunk.usage as any)?.compressions,
       });
-      break;
-
-    // ── 静默事件（WS/SSE 路由中不需要额外处理）──
-    case 'usage':
-    case 'finish_reason':
-    case 'rate_limit':
       break;
 
     default:
