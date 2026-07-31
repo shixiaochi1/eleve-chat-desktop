@@ -55,6 +55,8 @@ interface AgentChatCardProps {
   onNewSession: (profile: string) => void;
   /** per-agent slash 命令执行 */
   onCommand: (profile: string, cmdName: string, args: string) => void;
+  /** slash 破坏性命令确认完成（输出上屏 + session 轮换，对齐单视图） */
+  onSlashConfirmDone: (profile: string, choice: string, result?: { output?: string; session_id?: string }) => void;
 }
 
 // ── pending 交互 payload 形状（与单视图 activeApproval/activeClarify/activeSudo 一致）──
@@ -94,7 +96,7 @@ function RobotAvatar({ agentColor }: { agentColor: string }) {
 
 export const AgentChatCard = memo(function AgentChatCard({
   profile, state, color, focused, portReady,
-  onSend, onLoadMore, onAbort, onClearPending, onExpand, onNewSession, onCommand,
+  onSend, onLoadMore, onAbort, onClearPending, onExpand, onNewSession, onCommand, onSlashConfirmDone,
 }: AgentChatCardProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
@@ -180,7 +182,7 @@ export const AgentChatCard = memo(function AgentChatCard({
         {/* 右侧工具簇 — 模型选择 + 展开 */}
         <div className="ml-auto flex items-center gap-0.5 shrink-0">
           <div className="-my-1">
-            <ModelPill />
+            <ModelPill model={state.modelName ?? undefined} />
           </div>
           <button
             className="flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 cursor-pointer"
@@ -310,7 +312,7 @@ export const AgentChatCard = memo(function AgentChatCard({
             command={slashConfirm.command}
             description={slashConfirm.description}
             sessionId={state.sessionId ?? undefined}
-            onDone={() => onClearPending(name, 'slash_confirm')}
+            onDone={(choice, result) => onSlashConfirmDone(name, choice, result)}
           />
         </div>
       )}

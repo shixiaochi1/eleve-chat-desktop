@@ -89,6 +89,8 @@ export default function App() {
   const [sessionListVersion, setSessionListVersion] = useState<number>(0);  // 刷新会话列表
   const [currentProfile, setCurrentProfile] = useState<string>('default');  // F9+ 当前活动 Profile（多 Profile 全局状态）
   const [viewMode, setViewMode] = useState<'single' | 'grid'>('single');  // 多 Agent 视图模式
+  // 🔴 Phase 4b #4: 宫格焦点 Agent 的实时 sessionId（GridModeView 上抛）→ 侧栏会话列表高亮跟随
+  const [focusedGridSessionId, setFocusedGridSessionId] = useState<string | null>(null);
   const [agentCount, setAgentCount] = useState<number>(1);  // Agent 数量（宫格按钮禁用判断）
   const [deepseekVisible, setDeepseekVisible] = useState<boolean>(false);  // DeepSeek 嵌入 WebView 显隐
   const chatCardRef = useRef<HTMLDivElement>(null);  // DeepSeek WebView 锚点
@@ -848,7 +850,7 @@ export default function App() {
                   onProfileChange={handleProfileChange}
                   onOpenSettings={() => handleOpenOverlay('settings')}
                   onRestart={handleRestartService}
-                  sessionId={sess.sessionId}
+                  sessionId={viewMode === 'grid' ? (focusedGridSessionId ?? sess.sessionId) : sess.sessionId}
                   sessions={sess.sessions}
                   onSwitchSession={gridAwareSwitchSession}
                   onDeleteSession={handleDeleteSession}
@@ -882,6 +884,7 @@ export default function App() {
                   onExitGrid={handleExitGrid}
                   onExpandAgent={handleExpandAgent}
                   onFocusChange={handleProfileChange}
+                  onFocusedSessionChange={setFocusedGridSessionId}
                   portReady={portReady}
                   onNewSessionEffects={handleGridNewSessionEffects}
                 />

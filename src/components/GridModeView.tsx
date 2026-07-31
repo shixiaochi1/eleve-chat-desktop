@@ -95,6 +95,8 @@ interface GridModeViewProps {
   onExpandAgent: (profile: string) => void;
   /** 宫格焦点切换 → 回传 App（侧栏高亮联动） */
   onFocusChange?: (name: string) => void;
+  /** 焦点 Agent 的 session 变化 → 上抛 App（侧栏会话列表高亮跟随 focusedAgent） */
+  onFocusedSessionChange?: (sessionId: string | null) => void;
   /** 网关就绪（slash 补全拉取命令列表） */
   portReady: boolean;
   /** 新建会话的全局副作用（清 localStorage 指针 + 刷新会话列表），由 App 注入，
@@ -136,7 +138,7 @@ function slotPos(index: number, cols: number, cellW: number, cellH: number) {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-export default function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, portReady, onNewSessionEffects }: GridModeViewProps) {
+export default function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, onFocusedSessionChange, portReady, onNewSessionEffects }: GridModeViewProps) {
   // 🔴 模型系统经 Context 消费（消除 App→GridModeView→AgentChatCard 三层 prop drilling）
   const { currentModel } = useModelContext();
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
@@ -148,7 +150,14 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
   const [height, setHeight] = useState(0);
 
   // 宫格聊天引擎：挂载即激活（本组件仅 grid 模式挂载）
-  const { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand } = useGridChat(true);
+  const { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand, handleSlashConfirmDone } = useGridChat(true);
+
+  // 🔴 Phase 4b #4: 焦点 Agent 的真实 session 上抛 App → 侧栏会话列表高亮跟随 focusedAgent
+  // （宫格模式下 sess.sessionId 是进宫格前的单视图全局 session，与焦点 Agent 不一致）
+  const focusedSessionId = states[currentProfile]?.sessionId ?? null;
+  useEffect(() => {
+    onFocusedSessionChange?.(focusedSessionId);
+  }, [focusedSessionId, onFocusedSessionChange]);
 
   // 🔴 新建会话：per-agent 状态槽归零 + 全局副作用（复用单视图 handleNewSession 同一套工具链）
   const handleGridNewSession = useCallback((profile: string) => {
@@ -438,6 +447,7 @@ export default function GridModeView({ currentProfile, currentSessionId, onExitG
                   onExpand={handleExpand}
                   onNewSession={handleGridNewSession}
                   onCommand={execCommand}
+                  onSlashConfirmDone={handleSlashConfirmDone}
                 />
               </div>
             ))}

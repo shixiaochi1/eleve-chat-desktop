@@ -168,6 +168,35 @@ export default function AgentCardComposer({
     input.click();
   }, [onAddImage]);
 
+  // ── 图片粘贴/拖拽（对齐 InputArea handlePaste/handleDrop）──
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          try { await onAddImage(file); } catch (err) { console.error('[AgentCardComposer] Paste image failed:', err); }
+        }
+        break;
+      }
+    }
+  }, [onAddImage]);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    const files = Array.from(e.dataTransfer.files);
+    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+    if (imageFiles.length === 0) return;
+    e.preventDefault();
+    for (const file of imageFiles) {
+      try { await onAddImage(file); } catch (err) { console.error('[AgentCardComposer] Drop image failed:', err); }
+    }
+  }, [onAddImage]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
+  }, []);
+
   // ── 链接插入光标处 ──
   const handleAddUrl = useCallback((url: string) => {
     const el = inputRef.current;
@@ -253,6 +282,9 @@ export default function AgentCardComposer({
           value={value}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
         />
 
         {/* 附件 + 菜单（图片接通后端、链接插入光标） */}

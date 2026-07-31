@@ -441,6 +441,8 @@ function processEvent(
 
     case 'message.complete':
       // message.complete 替代 done + run.completed（对齐 Phase 4）
+      // 🔴 Phase 4b #5: 记录后端权威终稿（finalizeAccumulator 累加为空时兜底）
+      acc.serverContent = (chunk.content as string) || '';
       if (chunk.usage) {
         cbs.onUsage?.({
           input: (chunk.usage as any).input_tokens,

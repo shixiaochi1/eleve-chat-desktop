@@ -22,16 +22,19 @@ export interface StreamAccumulator {
   text: string;
   reasoning: string;
   parts: ChatMessagePart[];
+  /** 后端 message.complete 权威终稿全文（累加结果发散时兜底） */
+  serverContent?: string;
 }
 
 export function createAccumulator(): StreamAccumulator {
-  return { text: '', reasoning: '', parts: [] };
+  return { text: '', reasoning: '', parts: [], serverContent: undefined };
 }
 
 export function resetAccumulator(acc: StreamAccumulator): void {
   acc.text = '';
   acc.reasoning = '';
   acc.parts = [];
+  acc.serverContent = undefined;
 }
 
 /**
@@ -95,7 +98,10 @@ export function finalizeAccumulator(acc: StreamAccumulator): ChatMessagePart[] {
   const parts: ChatMessagePart[] = [];
   if (acc.reasoning) parts.push({ type: 'reasoning' as const, text: acc.reasoning });
   parts.push(...acc.parts);
-  if (acc.text) parts.push(textPart(acc.text));
+  // 🔴 Phase 4b #5: 累加文本为空时用后端权威终稿兜底（修复丢 delta/重连导致的空白消息）；
+  // 非空保留 acc.text（含 runtime footer，后端 content 不含 footer，直接覆盖会丢）。
+  const finalText = acc.text || acc.serverContent || '';
+  if (finalText) parts.push(textPart(finalText));
   return parts;
 }
 

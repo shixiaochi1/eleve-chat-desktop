@@ -108,6 +108,8 @@ export function useGridChat(active: boolean): {
   resetAgent: (profile: string) => void;
   /** per-agent slash 命令执行（路由到本 Agent 的 session） */
   execCommand: (profile: string, cmdName: string, args?: string) => Promise<void>;
+  /** slash 破坏性命令确认完成（对齐单视图 handleSlashConfirmDone：输出上屏 + session 轮换） */
+  handleSlashConfirmDone: (profile: string, choice: string, result?: { output?: string; session_id?: string }) => void;
 } {
   const [states, setStates] = useState<Record<string, AgentChatState>>({});
 
@@ -257,13 +259,42 @@ export function useGridChat(active: boolean): {
   // AgentChatCard 提供 sudo_respond 的 onSubmit）——与单视图完全一致的单一权威路径。
   // 本 hook 只负责交互状态管理：卡片完成后调用 clearPending 收起弹窗、恢复 streaming。
   const clearPending = useCallback((profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm') => {
+    // 🔴 Phase 4b #7: status 由权威发送锁决定——锁在 = run 进行中 → streaming；
+    // 锁不在 = run 已结束（或 onDismiss/deny 终止 turn）→ idle。
+    // 根治“run 已结束 → 迟到卡片交互误置 streaming 卡死转圈”。
+    const next: AgentStatus = sendingRef.current[profile] ? 'streaming' : 'idle';
     patch(profile, (st) => {
-      if (kind === 'approval') return { ...st, pendingApproval: null, status: 'streaming' };
-      if (kind === 'clarify') return { ...st, pendingClarify: null, status: 'streaming' };
-      if (kind === 'sudo') return { ...st, pendingSudo: null, status: 'streaming' };
-      if (kind === 'slash_confirm') return { ...st, pendingSlashConfirm: null, status: 'streaming' };
-      return { ...st, pendingSecret: null, status: 'streaming' };
+      if (kind === 'approval') return { ...st, pendingApproval: null, status: next };
+      if (kind === 'clarify') return { ...st, pendingClarify: null, status: next };
+      if (kind === 'sudo') return { ...st, pendingSudo: null, status: next };
+      if (kind === 'slash_confirm') return { ...st, pendingSlashConfirm: null, status: next };
+      return { ...st, pendingSecret: null, status: next };
     });
+  }, [patch]);
+
+  // ── slash 破坏性命令确认完成（镜像单视图 App.handleSlashConfirmDone）──
+  // 后端 slash_confirm.respond 返回 { type:'exec', output, session_id? }：
+  // output 上屏为 system 消息；session_id 轮换时重置消息窗口 + persistSessionPointer。
+  const handleSlashConfirmDone = useCallback((profile: string, choice: string, result?: { output?: string; session_id?: string }) => {
+    if (choice === 'cancel' || !result) {
+      patch(profile, (st) => ({ ...st, pendingSlashConfirm: null, status: 'idle' }));
+      return;
+    }
+    const output = result.output || '';
+    const newSid = result.session_id;
+    patch(profile, (st) => {
+      if (newSid && newSid !== st.sessionId) {
+        return {
+          ...st, pendingSlashConfirm: null, sessionId: newSid, status: 'idle',
+          messages: [{ id: gridMsgId(), role: 'system', parts: [textPart(output)], timestamp: Date.now() } as ChatMessage],
+        };
+      }
+      return {
+        ...st, pendingSlashConfirm: null, status: 'idle',
+        messages: [...st.messages, { id: gridMsgId(), role: 'system', parts: [textPart(output)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
+      };
+    });
+    if (newSid) persistSessionPointer(newSid);
   }, [patch]);
 
   // ── 新建会话：清空本 Agent 的 session 指针 + 消息 + 流式/交互状态 ──
@@ -358,10 +389,13 @@ export function useGridChat(active: boolean): {
           patch(profile, (s) => ({ ...s, status: 'streaming', lastActivity: Date.now() }));
           break;
         case 'message.complete': {
+          // 🔴 Phase 4b #5: 记录后端权威终稿（finalizeAccumulator 累加为空时兜底）
+          acc.serverContent = (payload.content as string) || '';
           // 🔴 P2-D: 复用 finalizeAccumulator（与单视图同一 parts 组装逻辑）
           const finalParts = finalizeAccumulator(acc);
           resetAccumulator(acc);
-          // 🔴 提取 usage（对齐单视图 onUsage）
+          // 🔴 Phase 4b #5: 后端 message.complete 不带 usage（走独立 usage.summary 事件），
+          // payload.usage 恒 undefined —— 仅在真有值时覆盖，避免冲掉 usage.summary 已写入的 lastUsage
           const mUsage = payload.usage as Record<string, unknown> | undefined;
           const usageData = mUsage ? {
             input: (mUsage.input_tokens as number) || 0,
@@ -373,7 +407,7 @@ export function useGridChat(active: boolean): {
             const msgs = finalParts.length
               ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: finalParts, timestamp: Date.now() }]
               : s.messages;
-            return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '', lastUsage: usageData, lastActivity: Date.now() };
+            return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamText: '', streamReasoning: '', streamParts: [], activityHint: '', lastUsage: usageData ?? s.lastUsage, lastActivity: Date.now() };
           });
           // 🔴 释放发送锁 + 排队消息自动发送（对齐单视图 drainQueue）
           sendingRef.current[profile] = false;
@@ -602,5 +636,5 @@ export function useGridChat(active: boolean): {
     };
   }, [active, patch]);
 
-  return { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand };
+  return { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand, handleSlashConfirmDone };
 }
