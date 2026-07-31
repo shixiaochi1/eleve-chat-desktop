@@ -36,7 +36,7 @@ export function useSessionActions({
   setDebugInfo: React.Dispatch<React.SetStateAction<Record<string, unknown>>>
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
   resetSendingLock?: () => void
-  resetStream?: () => void
+  resetStream?: (nextSessionId?: string | null) => void
 }): {
   handleSwitchSession: (id: string) => Promise<void>
   handleDeleteSession: (id: string) => Promise<void>
@@ -47,7 +47,8 @@ export function useSessionActions({
   const handleSwitchSession = useCallback(async (id: string) => {
     if (id === sess.sessionId) return;
     resetSendingLock?.();
-    resetStream?.();
+    // 🔴 串台根因修复：同步锁定过滤 ref 到目标 session
+    resetStream?.(id);
     sess.switchTo(id);
     sess.refresh();
     setDebugInfo((prev) => ({ ...prev, sessionId: id, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
@@ -93,7 +94,8 @@ export function useSessionActions({
       storeSetMessages([]);
       // 🔴 P1-2.4: 删当前会话时释放锁 + 清 WS client session（对齐 handleNewSession）
       resetSendingLock?.();
-      resetStream?.();
+      // 🔴 串台根因修复：删当前会话 → 无会话，同步锁定过滤 ref 为 null
+      resetStream?.(null);
       getWsClient().switchSession('');
     }
     if (setSessionListVersion) setSessionListVersion(v => v + 1);
@@ -104,7 +106,8 @@ export function useSessionActions({
   // 后端 session 懒创建 — 首条消息发送时通过 createSession() 创建
   const handleNewSession = useCallback(async (title?: string) => {
     resetSendingLock?.();
-    resetStream?.();
+    // 🔴 串台根因修复：新建会话 → 无会话，同步锁定过滤 ref 为 null
+    resetStream?.(null);
     // 清空前端状态（不触发后端请求）
     storeSetMessages([]);
     // 🔴 P1-6: 先捕获 profile 再清 sessionId（否则 profileFromSessionId 拿到 null）

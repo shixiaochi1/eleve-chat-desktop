@@ -524,6 +524,9 @@ export function useSSE(
 } {
   const isStreaming = useIsStreaming();
   const currentSessionRef = useRef<string | null>(null);
+  // 🔴 串台根因修复：显式标记“本人刚发送、等后端分配 session_id”。
+  // 过滤器 current===null 时仅在此标志为 true 才放行——区分“刚发送等响应”与“切到空白 Agent”。
+  const pendingSendRef = useRef(false);
   const isStreamingRef = useRef(false);
   const cbsRef = useRef<SSECallbacks>(callbacks);
   cbsRef.current = callbacks;
@@ -551,8 +554,17 @@ export function useSSE(
     const eventSessionId = chunk.session_id as string | undefined;
     if (eventSessionId && currentSessionIdRef) {
       const current = currentSessionIdRef.current;
-      // current 为 null（刚发完 prompt 等响应）→ 放行（send 会立即锁定）
-      if (current && eventSessionId !== current) return;
+      if (current) {
+        // 已锁定当前会话：非本会话事件一律丢弃
+        if (eventSessionId !== current) return;
+      } else if (pendingSendRef.current) {
+        // current 为 null 且本人刚发送：放行首个事件并立即关窗（后端分配的 session 由 onRunStart 锁定）
+        pendingSendRef.current = false;
+      } else {
+        // 🔴 串台根因修复：current 为 null 但非本人发送（切到空白 Agent）→ 丢弃外来流式。
+        // 后端已持久化，切回源 Agent 时 loadHistory 恢复，不丢消息。
+        return;
+      }
     }
 
     const result = processEvent(eventName, chunk, acc, cbs);
@@ -590,6 +602,8 @@ export function useSSE(
 
     // 记录当前流式会话 ID，abort 时使用
     currentSessionRef.current = sessionId ?? null;
+    // 🔴 串台根因修复：标记本人发送，过滤器在 session 分配前放行自己的响应
+    pendingSendRef.current = true;
 
     const cbs = cbsRef.current;
 
@@ -663,6 +677,8 @@ export function useSSE(
     storeSetIsStreaming(false);
     isStreamingRef.current = false;
     currentSessionRef.current = null;
+    // 🔴 串台根因修复：切换会话/Agent 时关闭“本人发送”窗口，外来流式不再放行
+    pendingSendRef.current = false;
     wsAccumulatorsRef.current = createAccumulator();
   }, []);
 

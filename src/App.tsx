@@ -133,7 +133,8 @@ export default function App() {
     return () => { cancelled = true; };
   }, [portReady]);
 
-  // ── 多 Agent UI：拉取 Agent 数量（宫格按钮禁用判断）──
+  // ── 多 Agent UI：Agent 数量（宫格按钮禁用判断）──
+  // 初始值：portReady 时拉取（面板可能从未打开，覆盖“启动前已存在多 Agent”）。
   useEffect(() => {
     if (!portReady) return;
     let cancelled = false;
@@ -142,6 +143,8 @@ export default function App() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [portReady]);
+  // 🔴 宫格按钮修复：运行期建/删 Agent 由 ProfilePanel 回调驱动（消灭一次性快照平行源）。
+  const handleProfilesChange = useCallback((count: number) => setAgentCount(count), []);
 
   // ── 多 Agent UI：Ctrl+G 切换单视图/宫格 ──
   // 🔴 P1-3: grid→single 必须走 handleExitGrid（persistPointers + restoreProfileSession）
@@ -343,8 +346,12 @@ export default function App() {
     }
     storage.save('profile_session_map', map);
 
-    // ── Step 2: 重置流式状态（清流式指示器 + 累加器 + streamId） ──
-    resetStream();
+    // ── Step 1b: 🔴 串台根因修复 — 先算目标 session（map 指针可能被历史污染，校验归属后才恢复） ──
+    const rawTargetId = map[name] || null;
+    const targetId = rawTargetId && sessionIdMatchesProfile(rawTargetId, name) ? rawTargetId : null;
+
+    // ── Step 2: 重置流式状态 + 同步锁定过滤 ref 到目标 session（消灭 effect 异步串台窗口） ──
+    resetStream(targetId);
 
     // ── Step 3: 切换盖章（同步，保证后续 sendRpc 盖章正确） ──
     setWsActiveProfile(name);
@@ -354,9 +361,6 @@ export default function App() {
     sess.refresh();
 
     // ── Step 4: 恢复目标会话（后端是权威源，始终 loadHistory） ──
-    // 🔴 串台防御：map 指针可能被历史污染，校验归属后才恢复
-    const rawTargetId = map[name] || null;
-    const targetId = rawTargetId && sessionIdMatchesProfile(rawTargetId, name) ? rawTargetId : null;
     if (targetId) {
       sess.setSessionId(targetId);
       persistSessionPointer(targetId);
@@ -392,7 +396,8 @@ export default function App() {
   const restoreProfileSession = useCallback((profile: string) => {
     const map = (storage.load('profile_session_map', {}) as Record<string, string | null>) || {};
     const targetId = map[profile] || null;
-    resetStream();
+    // 🔴 串台根因修复：同步锁定过滤 ref 到目标 session（宫格→单视图同样消灭异步窗口）
+    resetStream(targetId);
     setWsActiveProfile(profile);
     setCurrentProfile(profile);
     // 🔴 S2: 宫格→单视图同样刷新会话列表（与 handleProfileChange 一致）
@@ -836,6 +841,7 @@ export default function App() {
                   onPanelChange={setActivePanel}
                   currentProfile={currentProfile}
                   onProfileChange={handleProfileChange}
+                  onProfilesChange={handleProfilesChange}
                   onOpenSettings={() => handleOpenOverlay('settings')}
                   onRestart={handleRestartService}
                   sessionId={viewMode === 'grid' ? (focusedGridSessionId ?? sess.sessionId) : sess.sessionId}

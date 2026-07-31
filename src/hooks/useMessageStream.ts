@@ -126,7 +126,7 @@ export function useMessageStream({
   isStreaming: boolean
   send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string }) => Promise<void>
   abort: () => Promise<void>
-  resetStream: () => void
+  resetStream: (nextSessionId?: string | null) => void
 } {
   // ── Stream ID — same as Eleve: one unique ID per streaming turn ──
   // [FIX #1] Lazy creation: mutateStream auto-allocates if null
@@ -919,7 +919,12 @@ export function useMessageStream({
   const { isStreaming, send, abort, resetStream: resetSSEStream, drainFinalParts } = useSSE(sseCallbacks.current, currentSessionIdRef, enabled);
 
   // 🔴 多 Agent 隔离：切换会话时重置全部流式状态（SSE 累加器 + streamId）
-  const resetStream = useCallback(() => {
+  // 🔴 串台根因修复：nextSessionId 提供时同步锁定过滤 ref，消灭“effect 异步更新”的串台窗口。
+  // 稳态仍由 useEffect([sess.sessionId]) 对账（后端驱动的 session 变更经 onRunStart/onSessionCreated）。
+  const resetStream = useCallback((nextSessionId?: string | null) => {
+    if (nextSessionId !== undefined) {
+      currentSessionIdRef.current = nextSessionId;
+    }
     resetSSEStream();
     streamIdRef.current = null;
     queuedDeltasRef.current = { assistant: '', reasoning: '' };

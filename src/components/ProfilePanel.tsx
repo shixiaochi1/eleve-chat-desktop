@@ -30,6 +30,8 @@ interface ProfileCardData {
 interface ProfilePanelProps {
   currentProfile?: string;
   onProfileChange?: (name: string) => void;
+  /** 🔴 宫格按钮修复：profile 列表变化时上抛数量，App 据此驱动 agentCount（消灭平行数据源） */
+  onProfilesChange?: (count: number) => void;
   [key: string]: unknown;
 }
 
@@ -120,7 +122,7 @@ function ProfileCard({
 }
 
 // ── 主面板 ──
-export default function ProfilePanel({ currentProfile, onProfileChange }: ProfilePanelProps) {
+export default function ProfilePanel({ currentProfile, onProfileChange, onProfilesChange }: ProfilePanelProps) {
   const [profiles, setProfiles] = useState<ProfileCardData[]>([]);
   // 🔴 高亮唯一权威源 = App 的 currentProfile（UI 焦点 ①），经 prop 下发，不读后端 active_profile（③）。
   // 决策④：UI 切换不写 ③，故 ③ 恒为系统默认（CLI 权威）；若拿 ③ 当高亮源，点选后 load() 会把高亮弹回 default。
@@ -157,6 +159,10 @@ export default function ProfilePanel({ currentProfile, onProfileChange }: Profil
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // 🔴 宫格按钮修复：列表数据变化（建/删/手动刷新）时上抛数量。
+  // App.agentCount 为唯一持有者，初始值由 portReady fetch 兜底，运行期由此回调驱动。
+  useEffect(() => { onProfilesChange?.(profiles.length); }, [profiles, onProfilesChange]);
 
   const handleSelect = useCallback((name: string) => {
     if (name === activeName) return;
