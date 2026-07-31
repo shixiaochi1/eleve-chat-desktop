@@ -441,7 +441,8 @@ export function useGridChat(active: boolean): {
           break;
         // 🔴 P2-D: 审批被其他人/路径响应后收起卡片（对齐单视图 approval.responded）
         case 'approval.responded':
-          patch(profile, (s) => s.pendingApproval ? { ...s, pendingApproval: null, status: 'streaming' } : s);
+          // P2-9: 不硬编码 status，由后续事件（message.delta/complete）驱动真实状态
+          patch(profile, (s) => s.pendingApproval ? { ...s, pendingApproval: null } : s);
           break;
         // 🔴 P2-D: 子 Agent 委托事件（对齐单视图 delegate.start/end）
         case 'delegate.start':
@@ -497,8 +498,9 @@ export function useGridChat(active: boolean): {
           break;
         case 'reasoning.end': {
           // 推理结束 → 将累加器中的 reasoning 移入 parts（完成态，停止 shimmer）
+          // P2-10: append（不是 prepend），保持事件到达顺序
           if (acc.reasoning) {
-            acc.parts = [{ type: 'reasoning' as const, text: acc.reasoning }, ...acc.parts];
+            acc.parts = [...acc.parts, { type: 'reasoning' as const, text: acc.reasoning }];
             acc.reasoning = '';
           }
           break;

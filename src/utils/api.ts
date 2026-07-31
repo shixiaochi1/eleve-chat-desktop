@@ -10,7 +10,6 @@
  * 或经 hooks 层封装。存量函数随消费方迁移逐步删除。
  */
 import { call, discoverPort, setHttpBase, getHttpBase } from './bridge';
-import { getWsClient } from '@/services/ws-client';
 
 // ====== 会话 ======
 
@@ -299,20 +298,7 @@ export async function fetchGatewayStatus(): Promise<any> {
  * - SSE/降级时：通过 HTTP POST /api/clarify-response 提交
  */
 export async function submitClarifyResponse(clarifyId: string, response: string): Promise<any> {
-  const wsClient = getWsClient();
-  if (wsClient.state === 'connected') {
-    try {
-      const result = await wsClient.sendRpc('clarify.respond', {
-        request_id: clarifyId,
-        answer: response,
-      });
-      // WS 返回 { status: "ok" }，统一为 { status: "resolved" } 供 ClarifyCard 判断
-      // 注意：展开顺序很重要，status 必须在最后才能覆盖
-      return { ...(result as object), status: 'resolved' };
-    } catch (wsErr) {
-      console.warn('[api] WS clarify.respond failed, falling back to HTTP:', wsErr);
-    }
-  }
+  // 🔴 P2-1: 统一走 bridge.call（WS 优先→HTTP 降级由 bridge 内部处理）
   return call('submit_clarify_response', { clarify_id: clarifyId, response });
 }
 
