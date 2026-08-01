@@ -25,6 +25,7 @@ import ClarifyCard from './ClarifyCard';
 import CredentialCard from './CredentialCard';
 import AgentCardComposer from './AgentCardComposer';
 import ModelPill from './ModelPill';
+import CardContextGauge from './CardContextGauge';
 import SlashConfirmCard from './SlashConfirmCard';
 import QueuePanel from './QueuePanel';
 import { useImageAttachments } from '@/hooks/useImageAttachments';
@@ -285,11 +286,12 @@ export const AgentChatCard = memo(function AgentChatCard({
           {profile.display_name || profile.name}
         </span>
 
-        {/* 右侧工具簇 — 模型选择 + 展开 */}
+        {/* 右侧工具簇 — 模型选择 + 上下文环 + 展开 */}
         <div className="ml-auto flex items-center gap-0.5 shrink-0">
           <div className="-my-1">
             <ModelPill model={state.modelName ?? undefined} />
           </div>
+          <CardContextGauge sessionId={state.sessionId ?? null} />
           <button
             className="flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 cursor-pointer"
             title="展开为单视图"
