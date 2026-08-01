@@ -40,9 +40,17 @@ export const CardContextGauge = memo(function CardContextGauge({ sessionId, inte
     return () => { cancelled = true; clearInterval(i); };
   }, [sessionId, intervalMs]);
 
-  // 未建会话：占位，不轮询
+  // 未建会话：显示空环 + 占位（环始终可见，会话建立后自动填充）
   if (!sessionId) {
-    return <span className="text-[10px] text-muted-foreground/50 px-1 shrink-0">–</span>;
+    return (
+      <span
+        className="flex items-center gap-1 px-1 shrink-0"
+        title="尚未建立会话"
+      >
+        <ContextRing pct={0} />
+        <span className="text-[10px] text-muted-foreground/40">--</span>
+      </span>
+    );
   }
 
   const total = ctx?.total_tokens ?? 0;
