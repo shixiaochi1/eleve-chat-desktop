@@ -1,8 +1,8 @@
-import { memo, useState, useEffect, useRef, useCallback } from 'react';
+import { memo, useEffect, useRef, useCallback } from 'react';
 import { Plus, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { fetchSessionContext } from '../utils/api';
 import ModeSwitchButton from './ModeSwitchButton';
+import { useSessionContext } from '../hooks/useSessionContext';
 
 /**
  * 格式化数字（如 134800 → "134.8k"）
@@ -18,7 +18,6 @@ interface ContextData {
   context_limit?: number;
   percentage?: number;
 }
-
 interface ContextBarProps {
   sessionId?: string | null;
   sessionStartedAt?: number | null;
@@ -44,23 +43,11 @@ interface ContextBarProps {
  * thrashing that destabilizes the virtualizer's scroll position.
  */
 const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNewSession, viewMode = 'single', onToggleViewMode, agentCount = 1, deepseekVisible, onToggleDeepSeek }: ContextBarProps) {
-  const [ctx, setCtx] = useState<ContextData | null>(null);
   const elapsedRef = useRef<HTMLSpanElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 每 3s 轮询上下文
-  useEffect(() => {
-    let cancelled = false;
-    const poll = () => {
-      if (!sessionId) return;
-      fetchSessionContext(sessionId).then((data: Record<string, unknown>) => {
-        if (!cancelled && data) setCtx(data as ContextData);
-      }).catch(() => {});
-    };
-    poll();
-    const interval = setInterval(poll, 3000);
-    return () => { clearInterval(interval); cancelled = true; };
-  }, [sessionId]);
+  // 统一轮询：useSessionContext（响应序号守卫 + 链式 setTimeout，防旧响应覆盖新值）
+  const ctx = useSessionContext(sessionId) as ContextData | null;
 
   // 每秒更新 elapsed — direct DOM write, NO React re-render
   useEffect(() => {

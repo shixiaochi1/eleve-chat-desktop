@@ -1,13 +1,14 @@
 /**
  * CardContextGauge — 宫格卡片上下文占用指示（工具状态栏 · 模型选择右侧）
  *
- * 每卡片独立轮询 fetchSessionContext（per-agent sessionId），
  * 环形（ContextRing）+ 当前/上限 + 占比%。
- * 轮询默认 5s：宫格 N 卡片并发轮询，3s 会放大请求风暴。
+ * 数据源统一走 useSessionContext（与单视图 ContextBar 共享轮询逻辑）：
+ * - 聚焦卡片活跃轮询 3s，非聚焦降频 15s（不冻结，控并发）
+ * - 响应序号守卫（旧响应不覆盖新值）
  */
-import { memo, useState, useEffect } from 'react';
-import { fetchSessionContext } from '../utils/api';
+import { memo } from 'react';
 import { ContextRing, ringColor } from './ContextRing';
+import { useSessionContext } from '../hooks/useSessionContext';
 
 /** 格式化数字（如 134800 → "134.8k"） */
 function fmtNum(n: number): string {
@@ -19,34 +20,12 @@ function fmtNum(n: number): string {
 interface CardContextGaugeProps {
   /** 本卡片 Agent 的会话 id（null = 未建会话，显示占位） */
   sessionId?: string | null;
-  /** 卡片是否聚焦（仅聚焦卡片轮询，避免宫格 N 卡片并发 RPC 堵 WS 串行循环） */
+  /** 卡片是否聚焦（聚焦 3s 高频轮询，非聚焦 15s 降频） */
   active?: boolean;
-  /** 轮询间隔 ms（默认 3000 — 与单视图 ContextBar 持平；active 门控后仅聚焦卡片轮询） */
-  intervalMs?: number;
 }
 
-export const CardContextGauge = memo(function CardContextGauge({ sessionId, active = true, intervalMs = 3000 }: CardContextGaugeProps) {
-  const [ctx, setCtx] = useState<{ total_tokens?: number; context_limit?: number; percentage?: number } | null>(null);
-
-  // 每 intervalMs 轮询上下文；sessionId/active 变化或卸载自动重启/停止
-  // 🔴 响应序号守卫：并发请求乱序时只接受最新请求的响应（旧响应覆盖新值 = 竞态）
-  useEffect(() => {
-    if (!sessionId || !active) return;
-    let cancelled = false;
-    let seq = 0;
-    const poll = async () => {
-      const mySeq = ++seq;
-      try {
-        const data = await fetchSessionContext(sessionId);
-        if (!cancelled && mySeq === seq && data) {
-          setCtx(data as { total_tokens?: number; context_limit?: number; percentage?: number });
-        }
-      } catch { /* 静默 */ }
-    };
-    poll();
-    const i = setInterval(poll, intervalMs);
-    return () => { cancelled = true; seq++; clearInterval(i); };
-  }, [sessionId, active, intervalMs]);
+export const CardContextGauge = memo(function CardContextGauge({ sessionId, active = true }: CardContextGaugeProps) {
+  const ctx = useSessionContext(sessionId, { active });
 
   // 未建会话：显示空环 + 占位（环始终可见，会话建立后自动填充）
   if (!sessionId) {
@@ -65,7 +44,7 @@ export const CardContextGauge = memo(function CardContextGauge({ sessionId, acti
   const limit = ctx?.context_limit || 0;
   const pct = Math.min(ctx?.percentage ?? 0, 100);
   // 🔴 后端 P3-1 token 统计未接线：total_tokens 恒 0（session_input_tokens 等全仓无更新点）。
-  // 有数据才算数，避免把“0/128k 0.0%”当真实数据展示
+  // 有数据才算数，避免把 “0/128k 0.0%” 当真实数据展示
   const hasData = limit > 0 && total > 0;
 
   return (
