@@ -15,6 +15,7 @@ import MessageBubble from './MessageBubble'
 import ReasoningBlock from './ReasoningBlock'
 import ToolEntry, { type ToolCallItem } from './ToolEntry'
 import HoistedTodoPanel, { todosFromMessageParts } from './HoistedTodoPanel'
+import StreamStallIndicator from './StreamStallIndicator'
 import type { ChatMessage, ChatMessagePart } from '@/types'
 
 interface MessageRowProps {
@@ -46,6 +47,8 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete }: Mes
       const renderItems: RenderItem[] = []
       let textOrdinal = 0
       let reasoningOrdinal = 0
+      // 流式文本（最后一个 text part）— 供 StreamStallIndicator 做进展检测
+      let streamText = ''
 
       for (let pi = 0; pi < m.parts.length; pi++) {
         const part = m.parts[pi]
@@ -67,6 +70,7 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete }: Mes
           renderItems.push({ kind: 'reasoning', key: `r-${m.id}-${reasoningOrdinal}`, text: part.text, done: part.done, idx: reasoningOrdinal })
           reasoningOrdinal++
         } else if (part.type === 'text') {
+          streamText = part.text
           renderItems.push({ kind: 'text', key: `t-${m.id}-${textOrdinal}`, text: part.text, isLast: pi === m.parts.length - 1 })
           textOrdinal++
         }
@@ -101,6 +105,8 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete }: Mes
             }
           })}
           {m.error && <MessageBubble type="error" content={m.error} />}
+          {/* 流式停滞提示（对齐 Hermes StreamStallIndicator）：12s 无进展显示“正在思考” */}
+          {m.pending && <StreamStallIndicator text={streamText} />}
         </div>
       )
     }

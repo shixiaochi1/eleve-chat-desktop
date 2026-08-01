@@ -93,11 +93,12 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
           {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
         </button>
       </div>
-      {/* 内容区 */}
+      {/* 内容区 — whitespace-pre-line：单换行折叠为空格、空行保留段落（对齐 Hermes 换行语义，
+          消灭推理文本“几个字占一行”的碎行） */}
       <div
         ref={contentRef}
         className={cn(
-          'text-sm whitespace-pre-wrap break-words select-text',
+          'text-sm whitespace-pre-line break-words select-text',
           pending ? 'text-muted-foreground/55' : 'text-muted-foreground',
           !open && isLong && 'max-h-[5.5em] overflow-hidden cursor-pointer [-webkit-mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)] [mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)]',
           open && 'select-text',

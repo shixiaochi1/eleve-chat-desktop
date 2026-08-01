@@ -292,6 +292,9 @@
     --dt-letter-spacing: 0;
     --dt-spacing-mul: 1;
 
+    /* 段落间距 — 对齐 Hermes：块级元素间距统一由该变量驱动（见 StreamBlocks） */
+    --paragraph-gap: 0.7rem;
+
     --radius: 0.75rem;
     --radius-scalar: 0.6;
 
@@ -1339,27 +1342,54 @@ canvas {
   margin: 0.4em 0;
 }
 
-/* ── 代码块复制按钮（markdown.ts addCopyButtons 注入，原无样式裸奔） ── */
-.code-block-wrapper { position: relative; }
+/* ── 代码块卡片（markdown.ts addCopyButtons 注入，对齐 Hermes CodeCard）──
+   卡片化容器：header（语言标签 + 复制按钮）+ pre 主体，整体圆角边框 */
+.code-block-wrapper {
+  position: relative;
+  margin: 0.6em 0;
+  border: 1px solid var(--dt-border);
+  border-radius: 0.5em;
+  overflow: hidden;
+}
+.code-block-wrapper pre {
+  margin: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+  padding: 0.2em 0.5em 0.2em 0.75em;
+  background: color-mix(in srgb, var(--dt-foreground) 3%, transparent);
+  border-bottom: 1px solid var(--dt-border);
+}
+.code-lang {
+  font-family: var(--dt-font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--dt-muted-foreground);
+  text-transform: lowercase;
+}
 .code-block-wrapper .copy-btn {
-  position: absolute;
-  bottom: 0.45em;
-  right: 0.45em;
-  padding: 0.2em 0.55em;
+  padding: 0.1em 0.5em;
   font-size: 11px;
   font-family: var(--dt-font-sans);
   border-radius: 0.35em;
-  border: 1px solid var(--dt-border);
-  background: color-mix(in srgb, var(--dt-card) 85%, transparent);
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--dt-muted-foreground);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
 }
-.code-block-wrapper:hover .copy-btn { opacity: 1; }
+.code-block-wrapper:hover .copy-btn,
+.code-block-wrapper .copy-btn:focus-visible { opacity: 1; }
 .code-block-wrapper .copy-btn:hover {
   color: var(--dt-foreground);
   background: var(--dt-card);
+  border-color: var(--dt-border);
 }
 .code-block-wrapper .copy-btn.copied {
   color: var(--ui-green);

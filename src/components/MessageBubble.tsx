@@ -1,10 +1,13 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useState, useCallback, useEffect, useRef, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
-import { renderMarkdown } from '../utils/markdown';
 import { resolveMediaText } from '../utils/media';
 import { formatMessageTime } from '../utils/time';
 import { CopyIcon, CheckIcon, TrashIcon } from './Icons';
 import { cn } from '@/lib/utils';
+import StreamBlocks from './StreamBlocks';
+import UserMessageText from './UserMessageText';
+import { useSmoothReveal } from '@/hooks/useSmoothReveal';
+import { useEnterAnimation } from '@/hooks/useEnterAnimation';
 
 interface MessageBubbleProps {
   type: string;
@@ -27,15 +30,17 @@ function mayHaveLocalImage(text?: string): boolean {
 /**
  * 消息气泡 — user / agent / system / error
  *
- * streaming 模式优化：流式期间跳过 Markdown 渲染（marked + DOMPurify + addCopyButtons），
- * 只做简单换行显示。流式结束后一次性渲染完整 Markdown。
- * 避免每次 content 变化都全量重渲染 → O(n²) DOM 操作 → 内存/CPU 爆炸
+ * agent 流式渲染（对齐 Hermes markdown-text 管线）：
+ * - 流式/完成共用同一渲染管线（StreamBlocks 块级渲染）→ 落定零突变
+ * - useSmoothReveal：rAF 比例排空逐帧揭示，文字平滑流出不跳变
+ * - useDeferredValue：渲染降优先级，React 并发调度可跳过中间 token 状态
+ * - 气泡宽度占满容器（w-full），宽度恒定 → 消除流式宽度重排抖动
  */
 export default function MessageBubble({ type, content, streaming, timestamp, messageId, onDelete }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [resolvedMedia, setResolvedMedia] = useState<string | null>(null);
   const [zoomedSrc, setZoomedSrc] = useState<string | null>(null);
-  const textRef = useRef<HTMLSpanElement | null>(null);
+  const textRef = useRef<HTMLDivElement | null>(null);
 
   // 🔴 P2-3: 本地图片异步解析（仅非流式且可能含本地图时）。
   // 旧实现所有 content 都经 displayContent state 中转 → 完成首帧慢一拍（闪旧内容/二次重排）。
@@ -54,11 +59,17 @@ export default function MessageBubble({ type, content, streaming, timestamp, mes
 
   const displayContent = (!streaming && resolvedMedia != null) ? resolvedMedia : (content ?? "");
 
-  // 非流式时缓存 Markdown 渲染结果，避免父组件 re-render 导致重复渲染
-  const renderedHtml = useMemo(() => {
-    if (streaming) return null; // 流式期间不渲染 Markdown
-    return renderMarkdown(displayContent || '');
-  }, [displayContent, streaming]);
+  // 🔴 对齐 Hermes：流式平滑揭示 + 渲染降级。
+  // hooks 必须在所有 early return 之前（Rules of Hooks）；
+  // 非 agent 分支（user/system/error）不受影响（reveal 直接返回原文）。
+  const revealed = useSmoothReveal(displayContent || '', !!streaming);
+  // useDeferredValue：流式渲染降为低优先级，输入/滚动不被每 token 的
+  // Markdown 解析阻塞（对齐 Hermes DeferStreamingText）。
+  const deferredContent = useDeferredValue(revealed);
+
+  // 入场动画（对齐 Hermes useEnterAnimation）：仅挂载时处于流式态的消息播放
+  // （= 新消息），历史消息/滚动重挂载被 animationKey 去重，不重播
+  const enterRef = useEnterAnimation(!!streaming, messageId);
 
   useEffect(() => {
     const el = textRef.current;
@@ -71,7 +82,7 @@ export default function MessageBubble({ type, content, streaming, timestamp, mes
     };
     el.addEventListener('click', handler);
     return () => el.removeEventListener('click', handler);
-  }, [renderedHtml]);
+  }, [deferredContent]);
 
   useEffect(() => {
     if (!zoomedSrc) return;
@@ -109,7 +120,8 @@ export default function MessageBubble({ type, content, streaming, timestamp, mes
     return (
       <div className="group w-fit max-w-[80%] ml-auto">
         <div className="bg-user-bubble text-foreground rounded-2xl rounded-br-sm px-4 py-2.5 text-sm leading-relaxed select-text border border-user-bubble-border shadow-sm">
-          <span className="whitespace-pre-wrap break-words">{content}</span>
+          {/* 用户消息最小 Markdown（对齐 Hermes UserMessageText）：fence 代码块 + 行内 code */}
+          <UserMessageText text={content || ''} />
         </div>
         {/* 操作栏 + 时间 — 时间左，复制右 */}
         <div className="flex items-center gap-1.5 mt-0.5 justify-between">
@@ -133,22 +145,16 @@ export default function MessageBubble({ type, content, streaming, timestamp, mes
     );
   }
 
-  // ── agent 消息（统一骨架：流式/非流式只切换内容渲染方式，结构一致消除切换抖动）──
-  // 流式期间：纯文本 + 简单换行（跳过 marked/DOMPurify/addCopyButtons，根治 O(n²) 重渲染）
-  // 流式结束：完整 Markdown 渲染（含代码高亮 + 复制按钮）
+  // ── agent 消息（对齐 Hermes：流式/非流式同一渲染管线，无切换抖动）──
+  // 流式期间：StreamBlocks 块级渲染 + 平滑揭示（文字逐帧流出）
+  // 流式结束：同一管线，仅揭示排空，DOM 结构零切换
   // 🔴 操作栏 + 时间戳始终渲染（与流式前同结构），避免 message.complete 时突然插入 DOM 导致气泡跳变
+  // 🔴 气泡宽度随文字自适应（w-fit + max-w 上限）：短消息小气泡、长消息封顶；
+  //   宽度变化由 useSmoothReveal 逐帧驱动（每帧 ≤30 字符）→ 平滑缩放无跳变
   return (
-    <div className="group w-fit max-w-[85%] min-w-0 select-text">
+    <div ref={enterRef} className="group w-fit max-w-[85%] min-w-0 select-text">
       <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed border border-border shadow-sm overflow-hidden">
-        {streaming ? (
-          <span ref={textRef} className="whitespace-pre-wrap break-words leading-[1.75]">
-            {displayContent || ''}
-          </span>
-        ) : (
-          /* 🔴 Phase 3: 排版对齐流式态（审查 #5）— prose 默认 line-height 1.75 与流式 leading-[1.75] 一致，
-             块级 margin 全部清零（p/pre/ul/ol/标题等），消灭 message.complete 切换瞬间的高度突变 */
-          <span ref={textRef} className="prose max-w-none [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_img]:max-w-full [&_p]:my-0 [&_pre]:my-0 [&_ul]:my-0 [&_ol]:my-0 [&_blockquote]:my-0 [&_h1]:my-0 [&_h2]:my-0 [&_h3]:my-0 [&_h4]:my-0 [&_h5]:my-0 [&_h6]:my-0 [&_hr]:my-0 [&_table]:my-0" dangerouslySetInnerHTML={{ __html: renderedHtml || '<em>(无内容)</em>' }} />
-        )}
+        <StreamBlocks ref={textRef} text={deferredContent} streaming={!!streaming} />
       </div>
       {/* 操作栏 + 时间 — 流式/非流式同结构，消除切换抖动 */}
       <div className="flex items-center gap-1.5 mt-1 justify-between">
