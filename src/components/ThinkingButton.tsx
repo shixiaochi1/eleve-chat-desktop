@@ -11,12 +11,13 @@ import { ThinkingIcon, CheckIcon, CollapseIcon } from './Icons';
 import { getWsClient } from '@/services/ws-client';
 
 /**
- * 思考深度档位 — 对齐 Hermes REASONING LEVEL 六档设计
+ * 思考深度档位 — 对齐 Hermes REASONING LEVEL 六档设计（VALID_REASONING_EFFORTS + none）
  * value 为写入后端配置 agent.reasoning_effort 的值：
- * 后端支持 ""(自动)/low/medium/high/xhigh；minimal 为透传值（交由模型处理）。
+ *   none/minimal/low/medium/high/xhigh（Hermes 同款六档）；
+ *   空/未知值读回 → medium（Hermes normalizeEffort: empty → medium）
  */
 const EFFORTS = [
-  { value: '', label: '自动', desc: '让 Eleve 和模型自行决定' },
+  { value: 'none', label: '关闭', desc: '不发送推理参数（对齐 Hermes Off）' },
   { value: 'minimal', label: '极速', desc: '最少推理，响应最快' },
   { value: 'low', label: '低', desc: '轻量推理，快速回答' },
   { value: 'medium', label: '标准', desc: '均衡推理，适合多数提示' },
@@ -36,9 +37,10 @@ const CONFIG_KEY = 'agent.reasoning_effort';
  * 选中后 config.set 持久化（内存+磁盘，立即生效）；挂载时读回已存档位。
  */
 export default function ThinkingButton() {
-  const [effort, setEffort] = useState<Effort>('');
+  // Hermes normalizeEffort 语义：空/未知 → medium
+  const [effort, setEffort] = useState<Effort>('medium');
 
-  // 挂载时读回已持久化的档位（防御性：任何异常/未知值都回退默认"自动"）
+  // 挂载时读回已持久化的档位（防御性：任何异常/未知值都回退 Hermes 默认 medium）
   useEffect(() => {
     getWsClient()
       .configGet(CONFIG_KEY)
@@ -46,6 +48,9 @@ export default function ThinkingButton() {
         const v = res?.value;
         if (typeof v === 'string' && EFFORTS.some((e) => e.value === v)) {
           setEffort(v as Effort);
+        } else {
+          // 空/旧值 ''(自动)/未知 → Hermes unset → medium
+          setEffort('medium');
         }
       })
       .catch(() => {});
