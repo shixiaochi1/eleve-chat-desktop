@@ -259,12 +259,15 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
           <button
             onClick={() => { setDeletingTarget(null); setCreating(v => !v); }}
             className={cn(
-              'p-1 rounded-md transition-colors',
-              creating ? 'bg-accent text-accent-foreground' : 'text-muted-foreground/50 hover:text-foreground hover:bg-accent/40'
+              'inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all active:scale-[0.98]',
+              creating
+                ? 'bg-accent text-accent-foreground'
+                : 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90'
             )}
             title="新建 Agent"
           >
-            <Plus size={13} strokeWidth={2} />
+            <Plus size={13} strokeWidth={2.5} />
+            新建 Agent
           </button>
         </div>
       </div>
