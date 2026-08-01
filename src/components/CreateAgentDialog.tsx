@@ -1,10 +1,11 @@
 /**
  * CreateAgentPopover — 新建 Agent 弹出卡片（锚定在侧边栏「新建 Agent」按钮下方）
  *
- * 对齐 Hermes CreateProfileDialog 的表单语义，但弹层方式不同：
+ * 对齐 Hermes CreateProfileDialog 的表单语义（昵称 + 人物性格 SOUL.md + 克隆来源）：
  *   - 从侧边栏按钮下方弹出（不居中、无全屏遮罩，不遮挡正在运行的聊天区）
- *   - 昵称主输入（支持中文），ID 自动生成（拼音懒加载，可读可改）
- *   - 高级选项（默认折叠）：ID 手动改 + 克隆来源（默认克隆 default，空白 = no_skills）
+ *   - 昵称主输入（支持中文），ID 自动生成（拼音懒加载）——不展示 ID 输入框
+ *   - 人物性格文本域（可选，写入 SOUL.md 身份块下方；留空用默认模板）
+ *   - 高级选项（默认折叠）：克隆来源（默认克隆 default，空白 = no_skills）
  *   - 创建成功 → 自动切换新 Agent
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -12,7 +13,7 @@ import { ChevronDown, Loader, Plus, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createProfile } from '../utils/api';
 import { notifySuccess, notifyError } from '../utils/notifications';
-import { generateProfileId, ensureUniqueId, validateProfileId } from '../lib/profile-id';
+import { generateProfileId, ensureUniqueId } from '../lib/profile-id';
 
 export const CLONE_BLANK = '__none__';
 
@@ -27,14 +28,11 @@ interface CreateAgentPopoverProps {
 
 export default function CreateAgentPopover({ onClose, onCreated, onProfileChange, profiles }: CreateAgentPopoverProps) {
   const [nickname, setNickname] = useState('');
-  const [idInput, setIdInput] = useState('');
-  const [idTouched, setIdTouched] = useState(false); // 用户手动改过 ID 后不再自动覆盖
-  const [idGenerating, setIdGenerating] = useState(false);
+  const [persona, setPersona] = useState('');
   const [cloneSource, setCloneSource] = useState<string>('default');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const genSeqRef = useRef(0); // 拼音懒加载竞态：只采纳最后一次生成结果
   const rootRef = useRef<HTMLDivElement>(null);
 
   // 点击外部 / Esc → 关闭（浮层无遮罩，必须自行管理）
@@ -53,55 +51,43 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
     };
   }, [onClose]);
 
-  // 昵称变化 → 自动生成 ID（未手动编辑过时）
+  // 昵称变化 → 自动生成 ID（ID 不展示给用户，仅提交时使用）
+  const generatedIdRef = useRef('');
   useEffect(() => {
-    if (idTouched) return;
     const raw = nickname.trim();
-    if (!raw) { setIdInput(''); return; }
+    if (!raw) { generatedIdRef.current = ''; return; }
     let cancelled = false;
-    const seq = ++genSeqRef.current;
-    setIdGenerating(true);
     generateProfileId(raw)
       .then((base) => {
-        if (cancelled || seq !== genSeqRef.current) return;
-        setIdInput(ensureUniqueId(base, profiles.map((p) => p.name)));
+        if (cancelled) return;
+        generatedIdRef.current = ensureUniqueId(base, profiles.map((p) => p.name));
       })
-      .catch(() => { /* 生成失败不阻塞，用户可手动填 */ })
-      .finally(() => { if (!cancelled && seq === genSeqRef.current) setIdGenerating(false); });
+      .catch(() => { /* 生成失败不阻塞，创建时兜底 */ })
+      .finally(() => { /* noop */ });
     return () => { cancelled = true; };
-  }, [open, nickname, idTouched, profiles]);
+  }, [nickname, profiles]);
 
-  // 昵称重置时允许重新自动生成
-  const handleNicknameChange = useCallback((v: string) => {
-    setNickname(v);
-    setIdTouched(false);
-  }, []);
-
-  const handleIdChange = useCallback((v: string) => {
-    setIdTouched(true);
-    setIdInput(v);
-  }, []);
-
-  // ID 校验（实时）：合法 + 唯一
-  const existingNames = new Set(profiles.map((p) => p.name.toLowerCase()));
-  const idError = idInput.trim() ? validateProfileId(idInput) : null;
-  const idTaken = !idError && idInput.trim() && existingNames.has(idInput.trim().toLowerCase());
   const nickError = nickname.trim() ? null : '昵称不能为空';
-  const canSubmit = !busy && !nickError && !idError && !idTaken && !!idInput.trim();
+  const canSubmit = !busy && !nickError;
 
   const handleCreate = useCallback(async () => {
     if (!canSubmit) return;
-    const id = idInput.trim();
     const nick = nickname.trim();
+    const soul = persona.trim();
     setBusy(true);
     setError(null);
     try {
+      // ID 兜底：生成失败时用时间戳后缀（后端会校验，若非法则报错可见）
+      let id = generatedIdRef.current;
+      if (!id) {
+        id = `agent-${Date.now().toString(36)}`;
+      }
       const blank = cloneSource === CLONE_BLANK;
       await createProfile(
         id,
         nick,
         blank ? undefined : cloneSource,
-        { noSkills: blank },
+        { noSkills: blank, ...(soul ? { soul } : {}) },
       );
       notifySuccess(`Agent「${nick}」已创建并切换`);
       onProfileChange?.(id);
@@ -113,7 +99,7 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
     } finally {
       setBusy(false);
     }
-  }, [canSubmit, idInput, nickname, cloneSource, onProfileChange, onCreated, onClose]);
+  }, [canSubmit, nickname, persona, cloneSource, onProfileChange, onCreated, onClose]);
 
   return (
     <div
@@ -133,7 +119,7 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
           <X size={13} strokeWidth={2} />
         </button>
       </div>
-      <p className="px-3.5 pb-2 -mt-0.5 text-[11px] text-muted-foreground/60">只填昵称即可，ID 会自动生成</p>
+      <p className="px-3.5 pb-2 -mt-0.5 text-[11px] text-muted-foreground/60">填昵称和人物性格，ID 自动生成</p>
 
       <div className="grid gap-3.5 px-3.5 pb-3.5">
           {/* ── 昵称（主输入） ── */}
@@ -145,7 +131,7 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
               id="new-agent-nickname"
               type="text"
               value={nickname}
-              onChange={(e) => handleNicknameChange(e.target.value)}
+              onChange={(e) => setNickname(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && canSubmit) void handleCreate(); }}
               placeholder="小老虎"
               autoFocus
@@ -153,6 +139,23 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
               className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
             />
             {nickError && <p className="text-[11px] text-destructive">{nickError}</p>}
+          </div>
+
+          {/* ── 人物性格（SOUL.md，对齐 Hermes 创建弹窗文本框） ── */}
+          <div className="grid gap-1.5">
+            <label className="text-xs font-medium text-foreground" htmlFor="new-agent-persona">
+              人物性格 <span className="font-normal text-muted-foreground/60">- 可选</span>
+            </label>
+            <textarea
+              id="new-agent-persona"
+              value={persona}
+              onChange={(e) => setPersona(e.target.value)}
+              placeholder={'这个 Agent 的身份与性格描述，例如：\n你是「小老虎」，说话干脆利落，喜欢用表情符号，擅长 Rust 架构设计。'}
+              disabled={busy}
+              rows={4}
+              className="w-full px-2.5 py-1.5 text-xs leading-5 rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50 resize-none"
+            />
+            <p className="text-[11px] text-muted-foreground/60">留空使用默认人设；填写后会写入该 Agent 的 SOUL.md，后续可随时修改</p>
           </div>
 
           {/* ── 高级选项（默认折叠） ── */}
@@ -167,27 +170,6 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
 
           {showAdvanced && (
             <div className="grid gap-3.5 pt-0.5 panel-enter">
-              {/* ID（自动生成，可改） */}
-              <div className="grid gap-1.5">
-                <label className="text-xs font-medium text-foreground" htmlFor="new-agent-id">
-                  Agent ID
-                  {idGenerating && <Loader size={11} strokeWidth={2} className="inline ml-1.5 animate-spin text-muted-foreground/50 align-[-1px]" />}
-                </label>
-                <input
-                  id="new-agent-id"
-                  type="text"
-                  value={idInput}
-                  onChange={(e) => handleIdChange(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && canSubmit) void handleCreate(); }}
-                  placeholder={idGenerating ? '生成中…' : '自动生成'}
-                  disabled={busy || idGenerating}
-                  className="w-full px-2.5 py-1.5 text-xs font-mono rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
-                />
-                <p className={cn('text-[11px]', idError ? 'text-destructive' : idTaken ? 'text-destructive' : 'text-muted-foreground/60')}>
-                  {idError ?? (idTaken ? `「${idInput.trim()}」已存在，换个 ID` : '小写字母/数字/连字符，中文昵称自动转拼音')}
-                </p>
-              </div>
-
               {/* 克隆来源（对齐 Hermes：默认克隆 default，空白 = 不克隆） */}
               <div className="grid gap-1.5">
                 <label className="text-xs font-medium text-foreground" htmlFor="new-agent-clone">
