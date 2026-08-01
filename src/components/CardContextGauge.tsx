@@ -58,7 +58,9 @@ export const CardContextGauge = memo(function CardContextGauge({ sessionId, acti
   const total = ctx?.total_tokens ?? 0;
   const limit = ctx?.context_limit || 0;
   const pct = Math.min(ctx?.percentage ?? 0, 100);
-  const hasData = limit > 0;
+  // 🔴 后端 P3-1 token 统计未接线：total_tokens 恒 0（session_input_tokens 等全仓无更新点）。
+  // 有数据才算数，避免把“0/128k 0.0%”当真实数据展示
+  const hasData = limit > 0 && total > 0;
 
   return (
     <span
