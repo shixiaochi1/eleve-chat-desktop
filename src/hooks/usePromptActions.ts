@@ -2,6 +2,7 @@ import { useRef, useCallback, type MutableRefObject } from 'react';
 import * as storage from '../utils/storage';
 import { persistSessionPointer } from '../utils/session';
 import { setMessages as storeSetMessages, getMessages } from '../store/messages';
+import { setMonitor } from '../store/debug';
 import { textPart } from '@/lib/chat-messages'
 import { getWsClient } from '../services/ws-client';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
@@ -29,7 +30,6 @@ export function usePromptActions({
   sess,
   genId,
   setConnectionStatus,
-  setDebugInfo,
   addDebugEvent,
   setSessionListVersion,
   send,
@@ -43,7 +43,6 @@ export function usePromptActions({
   sess: SessionManagerHandle
   genId: () => string
   setConnectionStatus: React.Dispatch<React.SetStateAction<string>>
-  setDebugInfo: React.Dispatch<React.SetStateAction<Record<string, unknown>>>
   addDebugEvent: (type: string, detail: string) => void
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
   send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string }) => Promise<void>
@@ -127,7 +126,7 @@ export function usePromptActions({
     }
 
     setConnectionStatus('connected');
-    setDebugInfo((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: entry.text.slice(0, 40) }));
+    setMonitor((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: entry.text.slice(0, 40) }));
     addDebugEvent('text', `user: ${entry.text.slice(0, 60)}`);
     try {
       await send(entry.text, sess.sessionId as null | undefined, modelOpts);
@@ -136,7 +135,7 @@ export function usePromptActions({
       incrementDrainFailures(entry.id);
       isSendingRef.current = false;
     }
-  }, [sess, send, addDebugEvent, setConnectionStatus, setDebugInfo, currentModel, currentProvider, currentProfile]);
+  }, [sess, send, addDebugEvent, setConnectionStatus, currentModel, currentProvider, currentProfile]);
 
   drainQueueRef.current = drainQueue;
 
@@ -222,7 +221,7 @@ export function usePromptActions({
           sess.setSessionId(action.newSessionId);
           persistSessionPointer(action.newSessionId);
           sess.refresh();
-          setDebugInfo((prev) => ({ ...prev, sessionId: action.newSessionId, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
+          setMonitor((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
           storeSetMessages([{ id: genId(), role: 'system', parts: [textPart(action.output)] } as ChatMessage]);
           if (setSessionListVersion) setSessionListVersion(v => v + 1);
           return;
@@ -233,7 +232,7 @@ export function usePromptActions({
     } catch (err) {
       storeSetMessages((prev) => [...prev, { id: genId(), role: 'assistant', parts: [textPart(`${(err as Error).message}`)], error: `${(err as Error).message}`, timestamp: Date.now() } as ChatMessage]);
     }
-  }, [sess, genId, setDebugInfo, setSessionListVersion, onSlashConfirm, send, isSendingRef]);
+  }, [sess, genId, setSessionListVersion, onSlashConfirm, send, isSendingRef]);
 
   // ── send message ──
   const handleSend = useCallback(async (text: string, attachments?: QueuedAttachment[], attachmentDataURLs?: string[]) => {
@@ -299,7 +298,7 @@ export function usePromptActions({
     }
 
     setConnectionStatus('connected');
-    setDebugInfo((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: text.slice(0, 40) }));
+    setMonitor((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: text.slice(0, 40) }));
     addDebugEvent('text', `user: ${text.slice(0, 60)}`);
 
     try {
@@ -314,7 +313,7 @@ export function usePromptActions({
     if (sess.freshDraftReady) {
       sess.setFreshDraftReady(false);
     }
-  }, [sess, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, setDebugInfo, currentModel, currentProvider, currentProfile]);
+  }, [sess, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, currentModel, currentProvider, currentProfile]);
 
   // ── abort ──
   const handleAbort = useCallback(() => {

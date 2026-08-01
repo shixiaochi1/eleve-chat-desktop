@@ -9,28 +9,12 @@ import {
 } from './Icons';
 import { MessageCircle, AlertCircle, Users, Braces } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useDebugEvents, useDebugToolCalls, useMonitorTokens, type DebugEvent, type DebugToolCall } from '../store/debug';
 
 const ICON_SIZE = 11;
 const strokeProps = { strokeWidth: 1.5, absoluteStrokeWidth: true };
 
-interface DebugEvent {
-  type: string;
-  ts: number;
-  detail?: string;
-}
-
-interface DebugToolCall {
-  name: string;
-  status: string;
-  args?: string;
-  result?: string;
-}
-
 interface DebugPanelProps {
-  debugEvents?: DebugEvent[];
-  debugToolCalls?: DebugToolCall[];
-  tokensIn?: number;
-  tokensOut?: number;
   sessionId?: string;
   messageCount?: number;
   gatewayOnline?: boolean;
@@ -57,15 +41,17 @@ const EVENT_CONFIG: Record<string, EventConfig> = {
 };
 
 export default function DebugPanel({
-  debugEvents = [],
-  debugToolCalls = [],
-  tokensIn = 0,
-  tokensOut = 0,
   sessionId = '',
   messageCount = 0,
   gatewayOnline = false,
   onClearEvents,
 }: DebugPanelProps) {
+  // 🔴 F2: debug/monitor 状态自订阅 store（App 根不再持有/透传）
+  const debugEvents = useDebugEvents();
+  const debugToolCalls = useDebugToolCalls();
+  const tokens = useMonitorTokens();
+  const tokensIn = tokens.tokensIn ?? 0;
+  const tokensOut = tokens.tokensOut ?? 0;
   const [tab, setTab] = useState('events');
   const [filter, setFilter] = useState<string | null>(null); // null = all
   const logRef = useRef<HTMLDivElement | null>(null);

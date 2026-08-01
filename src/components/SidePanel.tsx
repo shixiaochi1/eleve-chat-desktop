@@ -44,12 +44,7 @@ interface SidePanelProps {
   onRenameTitle?: (id: string, title: string) => void;
   onNewSession?: () => void;
   isStreaming?: boolean;
-  // ── 调试 / 用量 ──
-  debugEvents?: Array<{ ts: number; type: string; detail: string }>;
-  debugToolCalls?: unknown[];
   messageCount?: number;
-  tokensIn?: number;
-  tokensOut?: number;
 }
 
 export default function SidePanel({ activePanel, onPanelChange, ...props }: SidePanelProps) {

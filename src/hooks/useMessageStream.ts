@@ -9,6 +9,7 @@ import {
   updateMessage,
   setIsStreaming as storeSetIsStreaming,
 } from '../store/messages';
+import { type DebugToolCall } from '../store/debug';
 import {
   textPart,
   reasoningPart,
@@ -47,19 +48,10 @@ export interface SessionManagerHandle {
   loadHistory: (id: string) => Promise<ChatMessage[] | null>
 }
 
-export interface DebugToolCall {
-  name: string
-  callId: string
-  args: string
-  result: string
-  status: string
-}
-
 export interface UseMessageStreamProps {
   genId: () => string
   addDebugEvent: (type: string, detail: string) => void
   setConnectionStatus: React.Dispatch<React.SetStateAction<string>>
-  setDebugInfo: React.Dispatch<React.SetStateAction<{ sessionId: string; tokensIn: number; tokensOut: number; lastSent: string; sessionStartedAt: number | null }>>
   setDebugToolCalls: React.Dispatch<React.SetStateAction<DebugToolCall[]>>
   setMonitorState: React.Dispatch<React.SetStateAction<{ modelName: string | null; delegateTasks: Record<string, unknown>; tokensIn?: number; tokensOut?: number; lastSent?: string; sessionStartedAt?: number | null; statusText?: string }>>
   setActiveClarify: React.Dispatch<React.SetStateAction<{ clarify_id: string; question: string; choices: string[] } | null>>
@@ -112,7 +104,6 @@ export function useMessageStream({
   genId,
   addDebugEvent,
   setConnectionStatus,
-  setDebugInfo,
   setDebugToolCalls,
   setMonitorState,
   setActiveClarify,
@@ -426,7 +417,6 @@ export function useMessageStream({
 
     onUsage: ({ input, output }: { input: number; output: number }) => {
       addDebugEvent('usage', `↑${input} ↓${output}`);
-      setDebugInfo((prev) => ({ ...prev, tokensIn: (prev.tokensIn as number || 0) + input, tokensOut: (prev.tokensOut as number || 0) + output }));
       setMonitorState((prev) => ({ ...prev, tokensIn: (prev.tokensIn as number || 0) + input, tokensOut: (prev.tokensOut as number || 0) + output }));
       const streamId = streamIdRef.current
       if (streamId) {
@@ -447,7 +437,7 @@ export function useMessageStream({
         }
         sess.setSessionId(sessionId);
         persistSessionPointer(sessionId);
-        setDebugInfo((prev) => ({ ...prev, sessionId, sessionStartedAt: Date.now() }));
+        setMonitorState((prev) => ({ ...prev, sessionStartedAt: Date.now() }));
         if (setSessionListVersion) setSessionListVersion(v => v + 1);
         // 同步 WS 连接到新 session
         import('@/services/ws-client').then(({ getWsClient }) => {
@@ -648,7 +638,6 @@ export function useMessageStream({
           persistSessionPointer(newSessionId);
           sess.refresh();
           if (setSessionListVersion) setSessionListVersion(v => v + 1);
-          setDebugInfo((prev) => ({ ...prev, sessionId: newSessionId }));
         }, 0);
       } else {
         // 🔴 对齐 Hermes：即使无新session，也刷新列表（标题可能已更新）
@@ -685,7 +674,7 @@ export function useMessageStream({
       storeSetMessages([]);
       sess.refresh();
       if (setSessionListVersion) setSessionListVersion(v => v + 1);
-      setDebugInfo((prev) => ({ ...prev, sessionId: new_session_id, sessionStartedAt: Date.now() }));
+      setMonitorState((prev) => ({ ...prev, sessionStartedAt: Date.now() }));
       // 同步 WS 连接到新 session
       import('@/services/ws-client').then(({ getWsClient }) => {
         const wsClient = getWsClient();
@@ -702,7 +691,7 @@ export function useMessageStream({
       sess.setSessionId(newSessionId);
       persistSessionPointer(newSessionId);
       if (setSessionListVersion) setSessionListVersion(v => v + 1);
-      setDebugInfo((prev) => ({ ...prev, sessionId: newSessionId, sessionStartedAt: Date.now() }));
+      setMonitorState((prev) => ({ ...prev, sessionStartedAt: Date.now() }));
       import('@/services/ws-client').then(({ getWsClient }) => {
         const wsClient = getWsClient();
         if (wsClient.state === 'connected') {

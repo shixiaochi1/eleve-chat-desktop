@@ -1,5 +1,13 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useMessageCount, setMessages as storeSetMessages, getMessages } from './store/messages';
+import {
+  addDebugEvent,
+  setDebugToolCalls,
+  setMonitor,
+  useMonitorModelName,
+  useMonitorTokens,
+  useMonitorSessionStartedAt,
+} from './store/debug';
 import { textPart } from '@/lib/chat-messages';
 import { useSessions } from './hooks/useSessions';
 import { useGatewayHealth } from './hooks/useGatewayHealth';
@@ -251,25 +259,11 @@ export default function App() {
     },
   });
 
-  // ── debug / monitoring state ──
-  interface DebugInfo {
-    sessionId: string;
-    tokensIn: number;
-    tokensOut: number;
-    lastSent: string;
-    sessionStartedAt: number | null;
-  }
-  const [debugInfo, setDebugInfo] = useState<DebugInfo>({ sessionId: '', tokensIn: 0, tokensOut: 0, lastSent: '(none)', sessionStartedAt: null });
-  const [monitorState, setMonitorState] = useState<{ modelName: string | null; delegateTasks: Record<string, any>; tokensIn?: number; tokensOut?: number; lastSent?: string; sessionStartedAt?: number | null; statusText?: string }>({ modelName: null, delegateTasks: {} });
-  const [debugEvents, setDebugEvents] = useState<Array<{ ts: number; type: string; detail: string }>>([]);
-  const [debugToolCalls, setDebugToolCalls] = useState<any[]>([]);
-
-  const addDebugEvent = useCallback((type: string, detail: string) => {
-    setDebugEvents((prev) => {
-      const next = [...prev, { ts: Date.now(), type, detail }];
-      return next.length > 200 ? next.slice(-150) : next;
-    });
-  }, []);
+  // ── debug / monitoring state（下沉到 store/debug.ts：App 根不再持有调试状态，
+  //     DebugPanel/AppShell/ModelContext 自订阅，事件不再触发整树重渲染）──
+  const modelName = useMonitorModelName();
+  const tokens = useMonitorTokens();
+  const sessionStartedAt = useMonitorSessionStartedAt();
 
   // ── drain queue ref (wired after usePromptActions) ──
   const drainQueueRef = useRef<any>(null);
@@ -286,9 +280,8 @@ export default function App() {
     genId,
     addDebugEvent,
     setConnectionStatus,
-    setDebugInfo,
     setDebugToolCalls,
-    setMonitorState,
+    setMonitorState: setMonitor,
     setActiveClarify,
     setActiveApproval,
     setActiveSudo,
@@ -482,7 +475,6 @@ export default function App() {
   } = useSessionActions({
     sess,
     genId,
-    setDebugInfo: setDebugInfo as any,
     setSessionListVersion,
     resetSendingLock: () => resetSendingLockRef.current?.(), // 🔴 P0-1.1: ref 接线（同 drainQueueRef 模式）
     resetStream,
@@ -555,17 +547,16 @@ export default function App() {
     sess,
     genId,
     setConnectionStatus,
-    setDebugInfo: setDebugInfo as any,
     addDebugEvent,
     setSessionListVersion,
     send,
     abort,
     handleNewSession,
     // 对齐 Hermes: UI 选择的模型传入 session.create（per-session override）
-    currentModel: modelDiscovery.selectedModel || monitorState.modelName || undefined,
+    currentModel: modelDiscovery.selectedModel || modelName || undefined,
     currentProvider: (() => {
       // 从 grouped 反查 selectedModel 的 provider
-      const sel = modelDiscovery.selectedModel || monitorState.modelName;
+      const sel = modelDiscovery.selectedModel || modelName;
       if (!sel || !modelDiscovery.grouped) return undefined;
       for (const [pid, group] of Object.entries(modelDiscovery.grouped)) {
         if (group.models?.some((m: any) => m.id === sel)) return pid;
@@ -842,13 +833,13 @@ export default function App() {
       sess.setSessionId(newSid);
       persistSessionPointer(newSid);
       sess.refresh();
-      setDebugInfo((prev) => ({ ...prev, sessionId: newSid, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
+      setMonitor((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
       storeSetMessages([{ id: genId(), role: 'system', parts: [textPart(output)] } as ChatMessage]);
       if (setSessionListVersion) setSessionListVersion(v => v + 1);
     } else {
       storeSetMessages((prev) => [...prev, { id: genId(), role: 'system', parts: [textPart(output)] } as ChatMessage]);
     }
-  }, [sess, genId, setDebugInfo, setSessionListVersion]);
+  }, [sess, genId, setSessionListVersion]);
 
   // ── sudo done (TODO: implement dialog response) ──
   const handleSudoDone = useCallback(async (password: string) => {
@@ -921,14 +912,14 @@ export default function App() {
   );
 
   const modelContextValue = useMemo(() => ({
-    currentModel: modelDiscovery.selectedModel || monitorState.modelName || undefined,
+    currentModel: modelDiscovery.selectedModel || modelName || undefined,
     grouped: modelDiscovery.grouped,
     loading: modelDiscovery.loading,
     error: modelDiscovery.error,
     onSelect: modelDiscovery.selectModel,
     onOpenSettings: handleOpenSettings,
     onRefresh: modelDiscovery.refresh,
-  }), [modelDiscovery.selectedModel, monitorState.modelName, modelDiscovery.grouped, modelDiscovery.loading, modelDiscovery.error, modelDiscovery.selectModel, handleOpenSettings, modelDiscovery.refresh]);
+  }), [modelDiscovery.selectedModel, modelName, modelDiscovery.grouped, modelDiscovery.loading, modelDiscovery.error, modelDiscovery.selectModel, handleOpenSettings, modelDiscovery.refresh]);
 
   return (
     <ThemeProvider>
@@ -939,10 +930,10 @@ export default function App() {
         gatewayOnline={gatewayHealth.online}
         gatewayChecking={gatewayHealth.checking}
         sessionId={sess.sessionId}
-        modelName={modelDiscovery.selectedModel || monitorState.modelName || undefined}
+        modelName={modelDiscovery.selectedModel || modelName || undefined}
         profileName={currentProfile}
-        tokensIn={debugInfo.tokensIn}
-        tokensOut={debugInfo.tokensOut}
+        tokensIn={tokens.tokensIn}
+        tokensOut={tokens.tokensOut}
         onOpenSettings={handleOpenSettings}
       >
         {/* ===== PaneShell 三栏布局：图标栏 + 侧边面板 + 聊天区 ===== */}
@@ -983,11 +974,7 @@ export default function App() {
                   onRenameTitle={sess.setTitle}
                   onNewSession={gridAwareNewSession}
                   isStreaming={isStreaming}
-                  debugEvents={debugEvents}
-                  debugToolCalls={debugToolCalls}
                   messageCount={messageCount}
-                  tokensIn={debugInfo.tokensIn}
-                  tokensOut={debugInfo.tokensOut}
                 />
             </div>
             )}
@@ -1086,7 +1073,7 @@ export default function App() {
                       onDismiss={() => setActiveSecret(null)}
                     />
                   )}
-                  <ContextBar sessionId={sess.sessionId} sessionStartedAt={debugInfo.sessionStartedAt} onNewSession={handleNewSession} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount} deepseekVisible={deepseekVisible} onToggleDeepSeek={handleToggleDeepSeek} />
+                  <ContextBar sessionId={sess.sessionId} sessionStartedAt={sessionStartedAt} onNewSession={handleNewSession} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount} deepseekVisible={deepseekVisible} onToggleDeepSeek={handleToggleDeepSeek} />
                 </>
               )}
               <InputArea
@@ -1155,7 +1142,7 @@ export default function App() {
                 grouped={modelDiscovery.grouped}
                 loading={modelDiscovery.loading}
                 error={modelDiscovery.error}
-                selectedModel={(modelDiscovery.selectedModel || monitorState.modelName) ?? undefined}
+                selectedModel={(modelDiscovery.selectedModel || modelName) ?? undefined}
                 onSelect={modelDiscovery.selectModel}
                 onRefresh={modelDiscovery.refresh}
                 onClose={handleCloseModelPicker}
