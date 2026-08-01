@@ -10,6 +10,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { listRollbacks, getRollbackDiff, restoreRollback } from '../utils/api';
 import { notifyError, notifySuccess } from '../utils/notifications';
+import { getWsClient } from '../services/ws-client';
 import { GitCommit, RefreshCw, Eye, Undo2 } from 'lucide-react';
 
 interface RollbackEntry {
@@ -43,7 +44,15 @@ export default function RollbackPanel({ sessionId }: RollbackPanelProps) {
     }
   }, [cwd]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // 🔴 冷启动竞态修复（同 ProfilePanel）：mount 时 WS 可能未连，等连接后再加载。
+  useEffect(() => {
+    let cancelled = false;
+    getWsClient()
+      .whenConnected()
+      .then(() => { if (!cancelled) refresh(); })
+      .catch(() => { if (!cancelled) notifyError('无法连接网关，请检查后端服务', '获取回滚列表失败'); });
+    return () => { cancelled = true; };
+  }, [refresh]);
 
   const handleViewDiff = useCallback(async (hash: string) => {
     setSelectedHash(hash);

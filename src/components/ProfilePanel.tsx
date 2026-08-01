@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchProfiles, createProfile, deleteProfile } from '../utils/api';
 import { notifySuccess, notifyError } from '../utils/notifications';
+import { getWsClient } from '../services/ws-client';
 import { cn } from '@/lib/utils';
 import {
   Bot, Cpu, Plug, Package, Check, Star, Loader,
@@ -158,7 +159,17 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  // 🔴 冷启动竞态修复：mount 时 WS 可能未连（后端启动慢），sendRpc 在 disconnected 态必 reject
+  // （不排队）→ 旧实现直接显示 "WebSocket not connected (state=disconnected)" 错误横幅，
+  // 切走再切回（重挂载）时才消失。改为等 WS 连接后再 load（对齐 App 启动链补拉模式）。
+  useEffect(() => {
+    let cancelled = false;
+    getWsClient()
+      .whenConnected()
+      .then(() => { if (!cancelled) void load(); })
+      .catch(() => { if (!cancelled) setError('无法连接网关，请检查后端服务'); });
+    return () => { cancelled = true; };
+  }, [load]);
 
   // 🔴 宫格按钮修复：列表数据变化（建/删/手动刷新）时上抛数量。
   // App.agentCount 为唯一持有者，初始值由 portReady fetch 兜底，运行期由此回调驱动。

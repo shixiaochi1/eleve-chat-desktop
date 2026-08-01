@@ -10,6 +10,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { getLearningFrames, getLearningDetail, deleteLearning } from '../utils/api';
 import { notifyError, notifySuccess } from '../utils/notifications';
+import { getWsClient } from '../services/ws-client';
 import { BookOpen, RefreshCw, Trash2, X } from 'lucide-react';
 
 interface LearningNode {
@@ -56,7 +57,15 @@ export default function LearningPanel(_props: LearningPanelProps) {
     }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // 🔴 冷启动竞态修复（同 ProfilePanel）：mount 时 WS 可能未连，等连接后再加载。
+  useEffect(() => {
+    let cancelled = false;
+    getWsClient()
+      .whenConnected()
+      .then(() => { if (!cancelled) refresh(); })
+      .catch(() => { if (!cancelled) notifyError('无法连接网关，请检查后端服务', '获取学习节点失败'); });
+    return () => { cancelled = true; };
+  }, [refresh]);
 
   const handleViewDetail = useCallback(async (id: string) => {
     setSelectedId(id);

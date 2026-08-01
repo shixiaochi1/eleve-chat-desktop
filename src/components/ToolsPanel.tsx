@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchTools, fetchToolsets, toggleToolset } from '../utils/api';
 import { notifySuccess, notifyError } from '../utils/notifications';
+import { getWsClient } from '../services/ws-client';
 import { SmallToolIcon, SearchIcon, ToolIcon } from './Icons';
 import { cn } from '@/lib/utils';
 import { Switch } from './ui/switch';
@@ -82,7 +83,15 @@ function ToolsetsTab({ currentProfile }: { currentProfile?: string }) {
     }
   }, [currentProfile]);
 
-  useEffect(() => { void load(); }, [load]);
+  // 🔴 冷启动竞态修复（同 ProfilePanel）：mount 时 WS 可能未连，等连接后再 load。
+  useEffect(() => {
+    let cancelled = false;
+    getWsClient()
+      .whenConnected()
+      .then(() => { if (!cancelled) void load(); })
+      .catch(() => { if (!cancelled) setError('无法连接网关，请检查后端服务'); });
+    return () => { cancelled = true; };
+  }, [load]);
 
   const handleToggle = useCallback(async (ts: ToolsetInfo, enabled: boolean) => {
     setSaving(ts.name);

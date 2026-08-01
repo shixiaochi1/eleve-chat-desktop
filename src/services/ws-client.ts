@@ -115,6 +115,30 @@ export class GatewayWsClient {
     return () => this.stateListeners.delete(fn)
   }
 
+  /**
+   * 等待 WS 连接就绪（已连接立即 resolve；否则订阅状态变化，连接后 resolve）。
+   * 冷启动竞态修复：面板 mount 时 WS 可能仍在 connecting（后端启动慢），
+   * 此时 sendRpc 在 disconnected 态直接 reject（不排队）→ 不能立即发 RPC，必须等连接。
+   * 对齐 App 启动链模式（storage.init 失败不封死 + onOpen 补拉）。
+   * 超时 reject（默认 60s），由调用方决定降级提示。
+   */
+  whenConnected(timeoutMs = 60_000): Promise<void> {
+    if (this._state === 'connected') return Promise.resolve()
+    return new Promise((resolve, reject) => {
+      const unsub = this.onStateChange((s) => {
+        if (s === 'connected') {
+          clearTimeout(timer)
+          unsub()
+          resolve()
+        }
+      })
+      const timer = setTimeout(() => {
+        unsub()
+        reject(new RpcError('等待网关连接超时', -1))
+      }, timeoutMs)
+    })
+  }
+
   // ── 事件监听器 ──
 
   /** 注册事件监听器，返回取消注册函数 */

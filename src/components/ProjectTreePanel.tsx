@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
+import { getWsClient } from '../services/ws-client';
 
 // ── 类型定义（与后端 JSON 输出严格对齐）──
 
@@ -193,7 +194,15 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession }: Project
     }
   }, []);
 
-  useEffect(() => { fetchTree(); }, [fetchTree]);
+  // 🔴 冷启动竞态修复（同 ProfilePanel）：mount 时 WS 可能未连，等连接后再加载。
+  useEffect(() => {
+    let cancelled = false;
+    getWsClient()
+      .whenConnected()
+      .then(() => { if (!cancelled) fetchTree(); })
+      .catch(() => { if (!cancelled) setError('无法连接网关，请检查后端服务'); });
+    return () => { cancelled = true; };
+  }, [fetchTree]);
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
