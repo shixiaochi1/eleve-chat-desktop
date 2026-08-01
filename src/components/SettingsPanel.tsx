@@ -477,9 +477,12 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
 
     // 🔴 Phase 3: fallback/auxiliary/delegation 走 config.replace（整体替换）
     // 始终包含三个 section（空=清空），消灭"删除/清空复活"整类问题
-    const fbFiltered = fallbackList.filter(f => f.providerId);
+    // 🔴 对齐 Hermes _iter_fallback_entries：provider 或 model 为空的条目跳过（不报错）
+    // 若只写 provider 不写 model → model 字段缺失 → 后端 FallbackProvider.model 无 serde(default)
+    // → apply_value_to_config 全量反序列化失败 → 整个 replace_config 保存失败（含 aux/delegation）
+    const fbFiltered = fallbackList.filter(f => f.providerId && f.model);
     backendCfg.fallback = {
-      providers: fbFiltered.map(f => ({ provider: f.providerId, model: f.model || undefined })),
+      providers: fbFiltered.map(f => ({ provider: f.providerId, model: f.model })),
     };
 
     // ── Auxiliary → config.yaml auxiliary 段（字段名转 snake_case 对齐 Rust serde）──
