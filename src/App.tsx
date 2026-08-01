@@ -975,6 +975,7 @@ export default function App() {
                   onProfileChange={handleProfileChange}
                   onProfilesChange={handleProfilesChange}
                   onDisplayNamesChange={setDisplayNames}
+                  onEditAgent={setEditTarget}
                   onOpenSettings={handleOpenSettings}
                   onRestart={handleRestartService}
                   sessionId={viewMode === 'grid' ? (focusedGridSessionId ?? sess.sessionId) : sess.sessionId}
@@ -1005,7 +1006,6 @@ export default function App() {
                   onFocusedSessionChange={setFocusedGridSessionId}
                   portReady={portReady}
                   onNewSessionEffects={handleGridNewSessionEffects}
-                  onEditAgent={setEditTarget}
                 />
               </div>
             ) : (

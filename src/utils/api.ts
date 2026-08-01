@@ -304,6 +304,16 @@ export async function setProfileMemory(name: string, content: string): Promise<a
   return call('set_memory', { name, content });
 }
 
+/** profiles.get_user — 读取 Agent USER.md */
+export async function getProfileUser(name: string): Promise<{ content: string; exists: boolean }> {
+  return call('get_user', { name });
+}
+
+/** profiles.set_user — 写入 Agent USER.md */
+export async function setProfileUser(name: string, content: string): Promise<any> {
+  return call('set_user', { name, content });
+}
+
 /** profiles.delete — 删除 Agent（移入回收站，可恢复；per-profile 凭证隔离不影响其它 Agent） */
 export async function deleteProfile(name: string): Promise<any> {
   return call('delete_profile', { name });

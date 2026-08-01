@@ -6,15 +6,16 @@
  *   - 昵称：修改 display_name（同步 SOUL.md 身份块，后端 profiles.set_display_name）
  *   - SOUL.md：人物性格/身份编辑器（profiles.get_soul / set_soul）
  *   - MEMORY.md：Agent 长期记忆编辑器（profiles.get_memory / set_memory）
+ *   - USER.md：用户对 Agent 的指示/用户档案（profiles.get_user / set_user）
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader, Palette, Save, Sparkles, X, BookOpen } from 'lucide-react';
+import { Loader, Palette, Save, Sparkles, X, BookOpen, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getProfileSoul, getProfileMemory, setProfileColor, setDisplayName, setProfileSoul, setProfileMemory } from '../utils/api';
+import { getProfileSoul, getProfileMemory, getProfileUser, setProfileColor, setDisplayName, setProfileSoul, setProfileMemory, setProfileUser } from '../utils/api';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { AGENT_PALETTE } from '../lib/agent-palette';
 
-type EditTab = 'appearance' | 'soul' | 'memory';
+type EditTab = 'appearance' | 'soul' | 'memory' | 'user';
 
 interface EditAgentDialogProps {
   profile: { name: string; display_name?: string | null; color?: string | null };
@@ -37,6 +38,10 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
   const [memoryOriginal, setMemoryOriginal] = useState('');
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [memoryBusy, setMemoryBusy] = useState(false);
+  const [user, setUser] = useState('');
+  const [userOriginal, setUserOriginal] = useState('');
+  const [userLoading, setUserLoading] = useState(false);
+  const [userBusy, setUserBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -74,8 +79,15 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
         .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); })
         .finally(() => { if (!cancelled) setMemoryLoading(false); });
     }
+    if (tab === 'user' && !userLoading && userOriginal === '') {
+      setUserLoading(true);
+      getProfileUser(profile.name)
+        .then((data) => { if (!cancelled) { setUser(data.content); setUserOriginal(data.content); } })
+        .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); })
+        .finally(() => { if (!cancelled) setUserLoading(false); });
+    }
     return () => { cancelled = true; };
-  }, [tab, profile.name, soulLoading, soulOriginal, memoryLoading, memoryOriginal]);
+  }, [tab, profile.name, soulLoading, soulOriginal, memoryLoading, memoryOriginal, userLoading, userOriginal]);
 
   const flashSaved = useCallback((msg: string) => {
     setSaved(msg);
@@ -145,6 +157,21 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
     }
   }, [memory, profile.name, flashSaved]);
 
+  const handleSaveUser = useCallback(async () => {
+    setUserBusy(true);
+    setError(null);
+    try {
+      await setProfileUser(profile.name, user);
+      setUserOriginal(user);
+      flashSaved('USER.md 已保存');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      notifyError(err, '保存 USER.md 失败');
+    } finally {
+      setUserBusy(false);
+    }
+  }, [user, profile.name, flashSaved]);
+
   const tabBtn = (id: EditTab, label: string, icon: React.ReactNode) => (
     <button
       key={id}
@@ -192,6 +219,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
           {tabBtn('appearance', '外观', <Palette size={12} strokeWidth={2} />)}
           {tabBtn('soul', 'SOUL.md', <Sparkles size={12} strokeWidth={2} />)}
           {tabBtn('memory', 'MEMORY.md', <BookOpen size={12} strokeWidth={2} />)}
+          {tabBtn('user', 'USER.md', <User size={12} strokeWidth={2} />)}
           {saved && (
             <span className="ml-auto text-[11px] text-emerald-500 animate-pulse">{saved}</span>
           )}
@@ -330,6 +358,42 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
                 >
                   {memoryBusy ? <Loader size={12} strokeWidth={2.5} className="animate-spin" /> : <Save size={12} strokeWidth={2.5} />}
                   保存 MEMORY.md
+                </button>
+              </div>
+            </div>
+          )}
+
+          {tab === 'user' && (
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-foreground">用户档案 / 对 Agent 的指示（USER.md）</label>
+                {user !== userOriginal && userOriginal !== '' && (
+                  <span className="text-[11px] text-amber-500">未保存</span>
+                )}
+              </div>
+              {userLoading ? (
+                <div className="flex items-center justify-center h-40 text-muted-foreground/50">
+                  <Loader size={16} strokeWidth={2} className="animate-spin" />
+                </div>
+              ) : (
+                <textarea
+                  value={user}
+                  onChange={(e) => setUser(e.target.value)}
+                  disabled={userBusy}
+                  rows={14}
+                  placeholder="空 — 无用户档案"
+                  className="w-full px-2.5 py-2 text-xs leading-5 font-mono rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50 resize-y"
+                />
+              )}
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => void handleSaveUser()}
+                  disabled={userBusy || userLoading || user === userOriginal}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:brightness-105 active:scale-[0.98] transition-all disabled:opacity-40"
+                >
+                  {userBusy ? <Loader size={12} strokeWidth={2.5} className="animate-spin" /> : <Save size={12} strokeWidth={2.5} />}
+                  保存 USER.md
                 </button>
               </div>
             </div>

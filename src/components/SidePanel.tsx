@@ -37,6 +37,8 @@ interface SidePanelProps {
   onProfilesChange?: (count: number) => void;
   /** 🔴 昵称映射上抛（name → display_name），App 驱动状态栏/会话列表 */
   onDisplayNamesChange?: (map: Record<string, string>) => void;
+  /** 双击 Agent 卡片 → 打开编辑面板（App 层渲染 EditAgentDialog） */
+  onEditAgent?: (name: string) => void;
   onOpenSettings?: () => void;
   onRestart?: () => void;
   // ── 会话 ──

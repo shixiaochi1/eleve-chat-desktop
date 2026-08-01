@@ -39,24 +39,28 @@ interface ProfilePanelProps {
   onProfilesChange?: (count: number) => void;
   /** 🔴 昵称全局生效：上抛 name → display_name 映射，App 据此让状态栏/会话列表显示昵称而非 ID */
   onDisplayNamesChange?: (map: Record<string, string>) => void;
+  /** 双击 Agent 卡片 → 打开编辑面板（App 层渲染 EditAgentDialog） */
+  onEditAgent?: (name: string) => void;
   [key: string]: unknown;
 }
 
 // ── 单个 Agent 卡片 ──
 function ProfileCard({
-  profile, active, switching, onSelect, onDelete,
+  profile, active, switching, onSelect, onDelete, onEdit,
 }: {
   profile: ProfileCardData;
   active: boolean;
   switching: boolean;
   onSelect: (name: string) => void;
   onDelete?: (name: string) => void;
+  onEdit?: (name: string) => void;
 }) {
   return (
     <div
       role="button"
       tabIndex={0}
       onClick={() => onSelect(profile.name)}
+      onDoubleClick={() => onEdit?.(profile.name)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(profile.name); } }}
       className={cn(
         'group w-full text-left px-2.5 py-2 rounded-lg border transition-colors space-y-1.5 cursor-pointer',
@@ -129,7 +133,7 @@ function ProfileCard({
 }
 
 // ── 主面板 ──
-export default function ProfilePanel({ currentProfile, onProfileChange, onProfilesChange, onDisplayNamesChange }: ProfilePanelProps) {
+export default function ProfilePanel({ currentProfile, onProfileChange, onProfilesChange, onDisplayNamesChange, onEditAgent }: ProfilePanelProps) {
   const [profiles, setProfiles] = useState<ProfileCardData[]>([]);
   // 🔴 高亮唯一权威源 = App 的 currentProfile（UI 焦点 ①），经 prop 下发，不读后端 active_profile（③）。
   // 决策④：UI 切换不写 ③，故 ③ 恒为系统默认（CLI 权威）；若拿 ③ 当高亮源，点选后 load() 会把高亮弹回 default。
@@ -270,6 +274,7 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
               active={p.name === activeName}
               switching={switching === p.name}
               onSelect={handleSelect}
+              onEdit={onEditAgent}
               onDelete={(name) => { setDeletingTarget(name); setDeleteConfirmName(''); }}
             />
           ))
