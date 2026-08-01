@@ -291,7 +291,7 @@ export const AgentChatCard = memo(function AgentChatCard({
           <div className="-my-1">
             <ModelPill model={state.modelName ?? undefined} />
           </div>
-          <CardContextGauge sessionId={state.sessionId ?? null} />
+          <CardContextGauge sessionId={state.sessionId ?? null} active={focused} />
           <button
             className="flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 cursor-pointer"
             title="展开为单视图"

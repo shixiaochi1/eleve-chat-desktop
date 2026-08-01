@@ -19,16 +19,18 @@ function fmtNum(n: number): string {
 interface CardContextGaugeProps {
   /** 本卡片 Agent 的会话 id（null = 未建会话，显示占位） */
   sessionId?: string | null;
+  /** 卡片是否聚焦（仅聚焦卡片轮询，避免宫格 N 卡片并发 RPC 堵 WS 串行循环） */
+  active?: boolean;
   /** 轮询间隔 ms（默认 5000） */
   intervalMs?: number;
 }
 
-export const CardContextGauge = memo(function CardContextGauge({ sessionId, intervalMs = 5000 }: CardContextGaugeProps) {
+export const CardContextGauge = memo(function CardContextGauge({ sessionId, active = true, intervalMs = 5000 }: CardContextGaugeProps) {
   const [ctx, setCtx] = useState<{ total_tokens?: number; context_limit?: number; percentage?: number } | null>(null);
 
-  // 每 intervalMs 轮询上下文；sessionId 变化/卸载自动重启/停止
+  // 每 intervalMs 轮询上下文；sessionId/active 变化或卸载自动重启/停止
   useEffect(() => {
-    if (!sessionId) { setCtx(null); return; }
+    if (!sessionId || !active) return;
     let cancelled = false;
     const poll = () => {
       fetchSessionContext(sessionId).then((data: Record<string, unknown>) => {
@@ -38,7 +40,7 @@ export const CardContextGauge = memo(function CardContextGauge({ sessionId, inte
     poll();
     const i = setInterval(poll, intervalMs);
     return () => { cancelled = true; clearInterval(i); };
-  }, [sessionId, intervalMs]);
+  }, [sessionId, active, intervalMs]);
 
   // 未建会话：显示空环 + 占位（环始终可见，会话建立后自动填充）
   if (!sessionId) {
