@@ -475,12 +475,12 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
     // upsertPoolProvider + savePoolProviderKey 写入 providers.yaml。
     // config.yaml 只保留 fallback/auxiliary/delegation 等非 Provider 配置。
 
+    // 🔴 Phase 3: fallback/auxiliary/delegation 走 config.replace（整体替换）
+    // 始终包含三个 section（空=清空），消灭"删除/清空复活"整类问题
     const fbFiltered = fallbackList.filter(f => f.providerId);
-    if (fbFiltered.length) {
-      backendCfg.fallback = {
-        providers: fbFiltered.map(f => ({ provider: f.providerId, model: f.model || undefined })),
-      };
-    }
+    backendCfg.fallback = {
+      providers: fbFiltered.map(f => ({ provider: f.providerId, model: f.model || undefined })),
+    };
 
     // ── Auxiliary → config.yaml auxiliary 段（字段名转 snake_case 对齐 Rust serde）──
     const auxObj: Record<string, Record<string, unknown>> = {};
@@ -495,19 +495,15 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       if (cfg.downloadTimeout != null) taskCfg.download_timeout = cfg.downloadTimeout;
       auxObj[key] = taskCfg;
     }
-    if (Object.keys(auxObj).length > 0) backendCfg.auxiliary = auxObj;
+    backendCfg.auxiliary = auxObj;
 
     // ── Delegation → config.yaml delegation 段 ──
-    if (delProvider) {
-      backendCfg.delegation = {
-        provider: delProvider,
-        ...(delModel ? { model: delModel } : {}),
-        max_iterations: delMaxIterations,
-      };
-    }
+    backendCfg.delegation = delProvider
+      ? { provider: delProvider, ...(delModel ? { model: delModel } : {}), max_iterations: delMaxIterations }
+      : {};
 
     try {
-      await call('update_config', { config: backendCfg });
+      await call('replace_config', { sections: backendCfg });
     } catch (e: unknown) {
       setStatus({ text: `配置保存失败: ${(e as Error).message}`, className: 'text-destructive text-xs' });
       setSaving(false);

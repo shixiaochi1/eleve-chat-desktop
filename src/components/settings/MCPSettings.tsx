@@ -121,7 +121,7 @@ export default function MCPSettings() {
         }
       }
       mcp[newServer.name.trim()] = entry;
-      await call('update_config', { config: { mcp_servers: mcp } });
+      await call('replace_config', { sections: { mcp_servers: mcp } });
       notifySuccess(`MCP Server "${newServer.name.trim()}" 已添加`);
       setNewServer({ name: '', command: '', args: '', env: '' });
       setAddOpen(false);
@@ -136,7 +136,7 @@ export default function MCPSettings() {
       const cfg = await call('get_config', {});
       const mcp: Record<string, any> = cfg?.mcp_servers || {};
       delete mcp[name];
-      await call('update_config', { config: { mcp_servers: mcp } });
+      await call('replace_config', { sections: { mcp_servers: mcp } });
       notifySuccess(`MCP Server "${name}" 已删除`);
       loadServers();
     } catch (err) {
@@ -150,7 +150,7 @@ export default function MCPSettings() {
       const mcp = cfg?.mcp_servers || {};
       if (mcp[name]) {
         mcp[name].enabled = !enabled;
-        await call('update_config', { config: { mcp_servers: mcp } });
+        await call('replace_config', { sections: { mcp_servers: mcp } });
         loadServers();
       }
     } catch (err) {
@@ -161,7 +161,7 @@ export default function MCPSettings() {
   const handleSaveJson = async () => {
     try {
       const parsed = JSON.parse(jsonContent);
-      await call('update_config', { config: { mcp_servers: parsed } });
+      await call('replace_config', { sections: { mcp_servers: parsed } });
       notifySuccess('MCP 配置已通过 JSON 更新');
       setJsonMode(false);
       loadServers();

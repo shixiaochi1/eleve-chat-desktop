@@ -88,6 +88,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   // 配置类（原 HTTP，已统一迁 WS——WS 天然支持 profile 路由）
   get_config:             'config.get',
   update_config:          'config.set.raw',
+  replace_config:         'config.replace',
   // save_api_key 已删除：与 provider_save_key 重复映射同一 WS 方法，唯一消费方 saveApiKey() 已死
   get_settings:           'settings.get',
   update_settings:        'settings.update',
