@@ -876,8 +876,8 @@ export default function App() {
   // ── restart backend ──
   const handleRestartService = useCallback(async () => {
     try {
-      const { call } = await import('./utils/bridge');
-      await call('restart_service', {});
+      const { restartService } = await import('./utils/bridge');
+      await restartService();
     } catch (err) {
       console.error('Restart failed:', err);
     }

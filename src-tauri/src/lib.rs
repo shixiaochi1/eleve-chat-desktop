@@ -35,6 +35,8 @@ pub struct TauriAppState {
     pub eleved_pid: std::sync::Mutex<Option<u32>>,
     /// 是否正在关闭（防止重复 kill）
     pub shutting_down: AtomicBool,
+    /// 是否用户主动发起重启（true → eleved 退出后 wait 线程自动拉起新进程）
+    pub restarting: AtomicBool,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -211,6 +213,69 @@ async fn get_gateway_port(state: tauri::State<'_, TauriAppState>) -> Result<u16,
         }
         Err(e) => Err(e),
     }
+}
+
+/// 标记用户主动重启（前端发起 restart 前调用）
+///
+/// eleved 退出后，监控线程见 restarting=true → 自动拉起新 eleved（托管重启）。
+/// 重启完成后重置为 false；端口缓存置 0 触发前端 rediscover。
+#[tauri::command]
+fn mark_restarting(state: tauri::State<'_, TauriAppState>) -> Result<(), String> {
+    state.restarting.store(true, Ordering::SeqCst);
+    eprintln!("[TAURI] 标记重启中：eleved 退出后自动拉起新进程");
+    Ok(())
+}
+
+/// 监控 eleved 子进程生命周期（递归：重启后继续监控新进程）
+///
+/// 决策：
+/// - `shutting_down` → 用户退出应用，不重启
+/// - `restarting` → 用户主动重启：自动拉起新 eleved（托管重启），更新 pid，端口缓存置 0
+/// - 其它 → 意外退出：仅告警（前端将无法连接）
+fn spawn_eleved_monitor(
+    mut child: std::process::Child,
+    app_handle: tauri::AppHandle,
+    eleve_home: std::path::PathBuf,
+) {
+    std::thread::spawn(move || {
+        let status = child.wait();
+        match status {
+            Ok(exit_status) => {
+                eprintln!("[TAURI] eleved 子进程已退出 (status={})", exit_status);
+            }
+            Err(e) => {
+                eprintln!("[TAURI] eleved 子进程异常: {}", e);
+            }
+        }
+        let Some(state) = app_handle.try_state::<TauriAppState>() else {
+            return;
+        };
+        // 1. 正常关闭（用户退出应用）
+        if state.shutting_down.load(Ordering::SeqCst) {
+            return;
+        }
+        // 2. 用户主动重启 → 托管拉起新 eleved
+        if state.restarting.swap(false, Ordering::SeqCst) {
+            eprintln!("[TAURI] 重启中：自动拉起新 eleved...");
+            match start_eleved_process(&eleve_home) {
+                Ok(new_child) => {
+                    let new_pid = new_child.id();
+                    *state.eleved_pid.lock().unwrap() = Some(new_pid);
+                    // 端口缓存置 0：get_gateway_port 将重新读 gateway_state.json 发现新端口
+                    state.gateway_port.store(0, Ordering::SeqCst);
+                    eprintln!("[TAURI] 新 eleved 已拉起 (PID={})，继续监控", new_pid);
+                    spawn_eleved_monitor(new_child, app_handle, eleve_home);
+                }
+                Err(e) => {
+                    eprintln!("[TAURI] 拉起新 eleved 失败: {}", e);
+                }
+            }
+            return;
+        }
+        // 3. 意外退出
+        eprintln!("[TAURI] eleved 意外退出！前端将无法连接。");
+        // TODO: 可通过 Tauri event 通知前端显示错误
+    });
 }
 
 #[tauri::command]
@@ -941,6 +1006,7 @@ pub fn run() {
             set_auto_start,
             resolve_media,
             create_deepseek_webview,
+            mark_restarting,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -1046,7 +1112,7 @@ pub fn run() {
             }
 
             // 启动 eleved 子进程
-            let mut child = start_eleved_process(&eleve_home)
+            let child = start_eleved_process(&eleve_home)
                 .map_err(|e| {
                     eprintln!("[TAURI] FATAL: {}", e);
                     e
@@ -1058,6 +1124,7 @@ pub fn run() {
                 gateway_port: Arc::new(AtomicU16::new(0)),
                 eleved_pid: std::sync::Mutex::new(Some(pid)),
                 shutting_down: AtomicBool::new(false),
+                restarting: AtomicBool::new(false),
             };
             app.manage(tauri_state);
 
@@ -1076,26 +1143,12 @@ pub fn run() {
                 }
             });
 
-            // 后台线程：监控 eleved 子进程是否意外退出
+            // 后台线程：监控 eleved 子进程生命周期
+            // - shutting_down → 正常关闭（用户退出应用），不重启
+            // - restarting → 用户主动重启，自动拉起新 eleved（托管重启，新进程成为 Tauri child，关窗可杀）
+            // - 其它 → 意外退出，仅告警
             let app_handle = app.handle().clone();
-            std::thread::spawn(move || {
-                let status = child.wait();
-                match status {
-                    Ok(exit_status) => {
-                        eprintln!("[TAURI] eleved 子进程已退出 (status={})", exit_status);
-                    }
-                    Err(e) => {
-                        eprintln!("[TAURI] eleved 子进程异常: {}", e);
-                    }
-                }
-                // 如果不在关闭中，说明是意外退出
-                if let Some(state) = app_handle.try_state::<TauriAppState>() {
-                    if !state.shutting_down.load(Ordering::SeqCst) {
-                        eprintln!("[TAURI] eleved 意外退出！前端将无法连接。");
-                        // TODO: 可通过 Tauri event 通知前端显示错误
-                    }
-                }
-            });
+            spawn_eleved_monitor(child, app_handle, eleve_home);
 
             Ok(())
         })

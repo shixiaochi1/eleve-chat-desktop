@@ -4,7 +4,7 @@
  * Local/Remote 模式切换 + 连接测试 + 双保存模式 + 日志入口
  */
 import { useEffect, useState } from 'react';
-import { call } from '../../utils/bridge';
+import { call, restartService } from '../../utils/bridge';
 import { notifySuccess, notifyError } from '../../utils/notifications';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -83,8 +83,8 @@ export default function GatewaySettings() {
           },
         },
       });
-      // 立即重启 Gateway
-      await call('restart_service', {});
+      // 立即重启 Gateway（Tauri 托管重启 / CLI self-spawn）
+      await restartService();
       notifySuccess('Gateway 设置已保存并重连');
     } catch (err) {
       notifyError(err, '保存失败');

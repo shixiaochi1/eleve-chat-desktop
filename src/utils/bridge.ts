@@ -205,6 +205,26 @@ function adaptParams(command: string, args: Record<string, any>): Record<string,
 /**
  * 调用后端命令（统一走 WS JSON-RPC，Kanban 走 HTTP）
  */
+/**
+ * 重启后端服务（对齐 Hermes /restart detached 语义）
+ *
+ * 桌面模式（Tauri）：先 mark_restarting（wait 线程见标记 → 自动拉起新 eleved，
+ * 托管重启：新进程成为 Tauri child，关窗可杀、不误报"意外退出"），再发 gateway.restart RPC。
+ * 后端见 ELEVE_DESKTOP=1 不再 self-spawn，交给 Tauri 重启。
+ * 非桌面（CLI/浏览器 dev）：mark_restarting 失败被 catch → 后端无 ELEVE_DESKTOP → self-spawn。
+ */
+export async function restartService(): Promise<void> {
+  if (isDesktop()) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('mark_restarting');
+    } catch (err) {
+      console.warn('[bridge] mark_restarting failed, backend will self-spawn:', err);
+    }
+  }
+  await call('restart_service', {});
+}
+
 export async function call(command: string, args: Record<string, any> = {}): Promise<any> {
   const wsMethod = COMMAND_TO_WS_METHOD[command];
 
