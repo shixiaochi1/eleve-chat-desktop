@@ -54,7 +54,9 @@ export default function TerminalPanel({ onSend, isStreaming = false, sessionId }
   const [executing, setExecuting] = useState(false);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const writtenCallIdsRef = useRef(new Set<string>());
+  // 拆分标记：命令提示符与结果分开记账，流式结果到达后可补写（修复 4-3）
+  const writtenPromptIdsRef = useRef(new Set<string>());
+  const writtenResultIdsRef = useRef(new Set<string>());
   const initWrittenRef = useRef(false);
 
   const isAgentTab = activeTab?.kind === 'agent';
@@ -128,16 +130,20 @@ export default function TerminalPanel({ onSend, isStreaming = false, sessionId }
   }, [ready, term]);
 
   // Write new terminal tool entries to xterm
+  // 4-3 修复：命令提示符一旦出现立即显示；结果（responseMap/part.result）到达后补写，
+  // 不再预标记 writtenCallIds 导致流式结果永不落盘
   useEffect(() => {
     if (!ready || !term.write) return;
     terminalEntries.forEach((entry) => {
       const callId = entry.callId;
       if (!callId) return;
-      if (writtenCallIdsRef.current.has(callId)) return;
-      writtenCallIdsRef.current.add(callId);
-      term.write(`\r\n\x1b[1;33m$ ${entry.argsStr}\x1b[0m\r\n`);
+      if (!writtenPromptIdsRef.current.has(callId)) {
+        writtenPromptIdsRef.current.add(callId);
+        term.write(`\r\n\x1b[1;33m$ ${entry.argsStr}\x1b[0m\r\n`);
+      }
       const resp = responseMap[callId] || entry.resultStr;
-      if (resp) {
+      if (resp && !writtenResultIdsRef.current.has(callId)) {
+        writtenResultIdsRef.current.add(callId);
         const truncated = resp.length > 2000 ? resp.slice(0, 2000) + '\n... (truncated)' : resp;
         term.write(`\x1b[90m${truncated}\x1b[0m\r\n`);
       }
@@ -158,7 +164,8 @@ export default function TerminalPanel({ onSend, isStreaming = false, sessionId }
 
   const handleClear = useCallback(() => {
     term.clear();
-    writtenCallIdsRef.current = new Set();
+    writtenPromptIdsRef.current = new Set();
+    writtenResultIdsRef.current = new Set();
     term.write('\x1b[32m╔══════════════════════════════════════════╗\x1b[0m\r\n');
     term.write('\x1b[32m║  \x1b[1;37mAgent 终端助手\x1b[0m\x1b[32m                        ║\x1b[0m\r\n');
     term.write('\x1b[32m║  命令由 Agent 远程执行并返回结果              ║\x1b[0m\r\n');
