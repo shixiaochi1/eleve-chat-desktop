@@ -263,14 +263,20 @@ export async function getActiveProfile(): Promise<string> {
 }
 
 /** profiles.create — 新建 Agent（profile），可选从已有 Agent 克隆配置 */
-export async function createProfile(name: string, displayName?: string, cloneSource?: string, opts?: { noSkills?: boolean; soul?: string }): Promise<any> {
+export async function createProfile(name: string, displayName?: string, cloneSource?: string, opts?: { noSkills?: boolean; soul?: string; color?: string }): Promise<any> {
   return call('create_profile', {
     name,
     ...(displayName ? { display_name: displayName } : {}),
     ...(cloneSource ? { clone_source: cloneSource } : {}),
     ...(opts?.noSkills ? { no_skills: true } : {}),
     ...(opts?.soul ? { soul: opts.soul } : {}),
+    ...(opts?.color ? { color: opts.color } : {}),
   });
+}
+
+/** profiles.set_color — 设置 Agent 主题色（#RRGGBB，仅 UI） */
+export async function setProfileColor(name: string, color: string): Promise<any> {
+  return call('set_color', { name, color });
 }
 
 /** profiles.delete — 删除 Agent（移入回收站，可恢复；per-profile 凭证隔离不影响其它 Agent） */

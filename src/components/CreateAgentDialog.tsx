@@ -17,6 +17,14 @@ import { generateProfileId, ensureUniqueId } from '../lib/profile-id';
 
 export const CLONE_BLANK = '__none__';
 
+/** Agent 主题色板（对齐 Hermes PROFILE_COLORS 22 色） */
+export const AGENT_PALETTE = [
+  '#3498DB', '#1ABC9C', '#2ECC71', '#9B59B6', '#E67E22', '#E74C3C',
+  '#16A085', '#2980B9', '#8E44AD', '#27AE60', '#D35400', '#C0392B',
+  '#F39C12', '#34495E', '#E84393', '#00B894', '#0984E3', '#6C5CE7',
+  '#FD79A8', '#00CEC9', '#FDCB6E', '#636E72',
+];
+
 interface CreateAgentPopoverProps {
   onClose: () => void;
   /** 创建成功后刷新列表 */
@@ -29,6 +37,7 @@ interface CreateAgentPopoverProps {
 export default function CreateAgentPopover({ onClose, onCreated, onProfileChange, profiles }: CreateAgentPopoverProps) {
   const [nickname, setNickname] = useState('');
   const [persona, setPersona] = useState('');
+  const [color, setColor] = useState<string>(AGENT_PALETTE[0]);
   const [cloneSource, setCloneSource] = useState<string>('default');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -87,7 +96,7 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
         id,
         nick,
         blank ? undefined : cloneSource,
-        { noSkills: blank, ...(soul ? { soul } : {}) },
+        { noSkills: blank, ...(soul ? { soul } : {}), color },
       );
       notifySuccess(`Agent「${nick}」已创建并切换`);
       onProfileChange?.(id);
@@ -99,7 +108,7 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
     } finally {
       setBusy(false);
     }
-  }, [canSubmit, nickname, persona, cloneSource, onProfileChange, onCreated, onClose]);
+  }, [canSubmit, nickname, persona, color, cloneSource, onProfileChange, onCreated, onClose]);
 
   return (
     <div
@@ -139,6 +148,32 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
               className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
             />
             {nickError && <p className="text-[11px] text-destructive">{nickError}</p>}
+          </div>
+
+          {/* ── 主题色（对齐 Hermes profile 色板 22 色） ── */}
+          <div className="grid gap-1.5">
+            <label className="text-xs font-medium text-foreground" htmlFor="new-agent-color">
+              主题色
+            </label>
+            <div id="new-agent-color" className="flex flex-wrap gap-1.5">
+              {AGENT_PALETTE.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setColor(c)}
+                  disabled={busy}
+                  title={c}
+                  aria-label={c}
+                  className={cn(
+                    'w-5 h-5 rounded-full transition-all disabled:opacity-50',
+                    color.toLowerCase() === c.toLowerCase()
+                      ? 'ring-2 ring-offset-1 ring-offset-popover ring-foreground/70 scale-110'
+                      : 'hover:scale-110 opacity-80 hover:opacity-100'
+                  )}
+                  style={{ background: c }}
+                />
+              ))}
+            </div>
           </div>
 
           {/* ── 人物性格（SOUL.md，对齐 Hermes 创建弹窗文本框） ── */}
