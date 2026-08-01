@@ -40,3 +40,16 @@ export let staleConfig: Record<string, [number, number]> = {
 export function updateStaleConfig(patch: Record<string, [number, number]>): void {
   staleConfig = { ...staleConfig, ...patch };
 }
+
+// ── 事件 kind 分类（对齐后端 kanban event 语义）──
+/** 直接 patch 任务状态的事件（无需整板刷新） */
+export const KANBAN_PATCH_KINDS: string[] = [
+  'completed','blocked','claimed','unblocked','archived',
+  'spawn_failed','gave_up','crashed','timed_out','promoted',
+  'promoted_manual','recomputed_ready','scheduled',
+];
+
+/** 需要触发 loadBoard 全量刷新的结构性事件 */
+export const KANBAN_REFRESH_KINDS: string[] = [
+  'specified','assigned','reclaimed','decomposed','created','linked','unlinked',
+];

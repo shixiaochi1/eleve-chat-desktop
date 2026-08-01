@@ -1,7 +1,7 @@
 /**
  * Kanban 工具函数 — 从 KanbanPanel.tsx 拆分（Tier 3 · 6-2）
  */
-import type { KanbanTask, StaleThresholds, RunRecord, CommentRecord } from './types';
+import type { KanbanTask, StaleThresholds, RunRecord, CommentRecord, KanbanEvent } from './types';
 import { staleConfig } from './constants';
 
 // ═══════════════════════════════════════════════════════════════
@@ -127,4 +127,27 @@ export function mergeTasks(apiTasks: KanbanTask[], sseTasks: Record<string, unkn
     }
   }
   return Array.from(apiMap.values()).filter(t => t.status !== 'archived');
+}
+
+/**
+ * 应用单个 kanban 事件到任务列表（SSE 与轮询共用，收敛重复逻辑）。
+ * 返回新数组；归档/不匹配事件的任务条目被过滤。
+ */
+export function applyKanbanEvent(tasks: KanbanTask[], evt: KanbanEvent): KanbanTask[] {
+  return tasks.map(t => {
+    if (t.id !== evt.task_id) return t;
+    const task: KanbanTask = { ...t };
+    switch (evt.kind) {
+      case 'completed': task.status = 'done'; if (evt.payload?.summary) task.summary = evt.payload.summary; return task;
+      case 'blocked': task.status = 'blocked'; task.blocked = true; if (evt.payload?.reason) task.block_reason = evt.payload.reason; return task;
+      case 'claimed': task.status = 'running'; return task;
+      case 'unblocked': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
+      case 'promoted': case 'promoted_manual': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
+      case 'recomputed_ready': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
+      case 'scheduled': task.status = 'scheduled'; task.blocked = false; task.block_reason = ''; return task;
+      case 'archived': return null;
+      case 'spawn_failed': case 'gave_up': case 'crashed': case 'timed_out': task.status = 'ready'; return task;
+      default: return null;
+    }
+  }).filter((t): t is KanbanTask => t !== null);
 }

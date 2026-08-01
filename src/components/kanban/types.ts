@@ -95,3 +95,10 @@ export interface ColumnDef {
 export interface StaleThresholds {
   [key: string]: [number, number];
 }
+
+/** SSE / 轮询事件（task_id + kind + 可选 payload） */
+export interface KanbanEvent {
+  task_id: string;
+  kind: string;
+  payload?: { summary?: string; reason?: string };
+}

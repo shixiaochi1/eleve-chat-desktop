@@ -102,6 +102,7 @@ import { COLUMNS, COLUMN_STATUS, updateStaleConfig } from './kanban/constants';
 import { taskColumn, normalizeBoardData, mergeTasks } from './kanban/helpers';
 import { KanbanColumn } from './kanban/KanbanColumn';
 import { TaskDrawer } from './kanban/TaskDrawer';
+import { useKanbanSSE } from './kanban/useKanbanSSE';
 
 // ═══════════════════════════════════════════════════════════════
 
@@ -199,6 +200,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
   }, [currentBoard]);
 
   useEffect(() => { loadBoard(); }, [loadBoard]);
+  useKanbanSSE(currentBoard, setApiTasks, loadBoard);
 
   // Phase 4: 加载看板列表
   useEffect(() => {
@@ -235,108 +237,6 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
       getKanbanHomeChannels(selectedTask.id, currentBoard).then(data => setHomeChannels(data?.channels || data || [])).catch(() => setHomeChannels([]));
     }
   }, [selectedTask?.id, currentBoard]);
-
-  // SSE 实时推送 + pollKanbanEvents 降级轮询
-  useEffect(() => {
-    let eventSource: EventSource | null = null;
-    let cursor = 0;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
-    let sseAlive = false;
-
-    // 处理轮询返回的事件（复用 SSE 的 same 逻辑）
-    const applyEvents = (events: { task_id: string; kind: string; payload?: { summary?: string; reason?: string } }[]) => {
-      if (!events?.length) return;
-      const patchKinds = ['completed','blocked','claimed','unblocked','archived','spawn_failed','gave_up','crashed','timed_out','promoted','promoted_manual','recomputed_ready','scheduled'];
-      const refreshKinds = ['specified','assigned','reclaimed','decomposed','created','linked','unlinked'];
-      for (const evt of events) {
-        setApiTasks(prev => {
-                  const updated = prev.map(t => {
-                    if (t.id !== evt.task_id) return t;
-
-                    const task: KanbanTask = { ...t };
-                    switch (evt.kind) {
-              case 'completed': task.status = 'done'; if (evt.payload?.summary) task.summary = evt.payload.summary; return task;
-              case 'blocked': task.status = 'blocked'; task.blocked = true; if (evt.payload?.reason) task.block_reason = evt.payload.reason; return task;
-              case 'claimed': task.status = 'running'; return task;
-              case 'unblocked': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
-              case 'promoted': case 'promoted_manual': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
-              case 'recomputed_ready': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
-              case 'scheduled': task.status = 'scheduled'; task.blocked = false; task.block_reason = ''; return task;
-              case 'archived': return null;
-              case 'spawn_failed': case 'gave_up': case 'crashed': case 'timed_out': task.status = 'ready'; return task;
-              default: return null;
-            }
-          }).filter((t): t is KanbanTask => t !== null);
-          if (prev.some(t => t.id === evt.task_id) && !patchKinds.includes(evt.kind)) setTimeout(() => loadBoard(), 100);
-          return updated;
-        });
-        if (refreshKinds.includes(evt.kind)) setTimeout(() => loadBoard(), 100);
-      }
-    };
-
-    // 降级轮询：SSE 断连时每 5s 用 pollKanbanEvents 拉取
-    const startPolling = () => {
-      if (pollTimer) return;
-      pollTimer = setInterval(() => {
-        if (sseAlive) { clearInterval(pollTimer as any); pollTimer = null; return; }
-        pollKanbanEvents(String(cursor), currentBoard).then(data => {
-          const events = data?.events || data || [];
-          if (events.length) { applyEvents(events); if (data?.cursor) cursor = data.cursor; }
-        }).catch(() => {});
-      }, 5000);
-    };
-
-    const stopPolling = () => { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } };
-
-    const connectSSE = () => {
-      if (eventSource) { eventSource.close(); eventSource = null; }
-      const baseUrl = getApiBase();
-      // 🔴 P0-5: SSE EventSource 绕过 bridge 链路，必须手动注入 /p/ 前缀（对齐 kanbanHttpFallback）
-      const sseProfile = getWsActiveProfile();
-      const profilePrefix = sseProfile ? `/p/${sseProfile}` : '';
-      eventSource = new EventSource(`${baseUrl}${profilePrefix}/api/kanban/events?since=${cursor}&board=${encodeURIComponent(currentBoard)}`);
-      eventSource.addEventListener('kanban', (e) => {
-        try {
-          const evt = JSON.parse(e.data);
-          const patchKinds = ['completed','blocked','claimed','unblocked','archived','spawn_failed','gave_up','crashed','timed_out','promoted','promoted_manual','recomputed_ready','scheduled'];
-          const refreshKinds = ['specified','assigned','reclaimed','decomposed','created','linked','unlinked'];
-          setApiTasks(prev => {
-                    const updated = prev.map(t => {
-                      if (t.id !== evt.task_id) return t;
-
-                      const task: KanbanTask = { ...t };
-                      switch (evt.kind) {
-                case 'completed': task.status = 'done'; if (evt.payload?.summary) task.summary = evt.payload.summary; return task;
-                case 'blocked': task.status = 'blocked'; task.blocked = true; if (evt.payload?.reason) task.block_reason = evt.payload.reason; return task;
-                case 'claimed': task.status = 'running'; return task;
-                case 'unblocked': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
-                case 'promoted': case 'promoted_manual': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
-                case 'recomputed_ready': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
-                case 'scheduled': task.status = 'scheduled'; task.blocked = false; task.block_reason = ''; return task;
-                case 'archived': return null;
-                case 'spawn_failed': case 'gave_up': case 'crashed': case 'timed_out': task.status = 'ready'; return task;
-                default: return null;
-              }
-            }).filter((t): t is KanbanTask => t !== null);
-            if (prev.some(t => t.id === evt.task_id) && !patchKinds.includes(evt.kind)) setTimeout(() => loadBoard(), 100);
-            return updated;
-          });
-          if (refreshKinds.includes(evt.kind)) setTimeout(() => loadBoard(), 100);
-        } catch {}
-      });
-      eventSource.addEventListener('kanban_cursor', (e) => { try { cursor = JSON.parse(e.data).cursor; } catch {} });
-      eventSource.onopen = () => { sseAlive = true; stopPolling(); };
-      eventSource.onerror = () => {
-        sseAlive = false;
-        eventSource?.close();
-        startPolling();
-        reconnectTimer = setTimeout(connectSSE, 3000);
-      };
-    };
-    connectSSE();
-    return () => { eventSource?.close(); if (reconnectTimer) clearTimeout(reconnectTimer); stopPolling(); };
-  }, [currentBoard, loadBoard]);
 
   useEffect(() => { const i = setInterval(() => loadBoard(), 60000); return () => clearInterval(i); }, [loadBoard]);
 
