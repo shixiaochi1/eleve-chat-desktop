@@ -86,12 +86,84 @@ const COLOR_CATEGORIES: {
   },
 ];
 
-/** 简化颜色值为 hex（用于 color input） */
+/**
+ * 解析颜色为 {r,g,b}（支持 hex / rgb() / rgba() / color-mix(in srgb, ...) 递归）
+ * 仅用于 color input 显示预览——编辑器里的色块要展示真实混合结果，不能回退灰块
+ */
+function parseColor(color: string): { r: number; g: number; b: number } | null {
+  if (!color) return null;
+  const c = color.trim();
+  if (!c) return null;
+
+  // hex（#rgb / #rrggbb / #rrggbbaa → 丢 alpha）
+  if (c.startsWith('#')) {
+    if (/^#[0-9a-fA-F]{3}$/.test(c)) {
+      return {
+        r: parseInt(c[1] + c[1], 16),
+        g: parseInt(c[2] + c[2], 16),
+        b: parseInt(c[3] + c[3], 16),
+      };
+    }
+    if (/^#[0-9a-fA-F]{6}$/.test(c)) {
+      return {
+        r: parseInt(c.slice(1, 3), 16),
+        g: parseInt(c.slice(3, 5), 16),
+        b: parseInt(c.slice(5, 7), 16),
+      };
+    }
+    if (/^#[0-9a-fA-F]{8}$/.test(c)) return parseColor(c.slice(0, 7));
+    return null;
+  }
+
+  // rgb() / rgba()（丢 alpha）
+  const rgb = c.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*[\d.]+)?\s*\)$/);
+  if (rgb) return { r: +rgb[1], g: +rgb[2], b: +rgb[3] };
+
+  // color-mix(in srgb, <c1> <p1>%, <c2> <p2>%)
+  // 权重规则（CSS 语义）：双百分比归一化；单百分比另一色补足；无百分比 50/50
+  const mix = c.match(/^color-mix\(\s*in\s+srgb\s*,\s*(.+?)\s*,\s*(.+?)\s*\)$/);
+  if (mix) {
+    const parseSide = (s: string): { rgb: { r: number; g: number; b: number } | null; pct: number | null } => {
+      const pm = s.match(/^(.*?)\s+([\d.]+)%$/);
+      if (pm) return { rgb: parseColor(pm[1].trim()), pct: parseFloat(pm[2]) };
+      if (s.trim() === 'transparent') return { rgb: null, pct: null };
+      return { rgb: parseColor(s.trim()), pct: null };
+    };
+    const a = parseSide(mix[1]);
+    const b2 = parseSide(mix[2]);
+    // transparent 参与 → color input 不支持 alpha，诚实降级返回另一色
+    if (!a.rgb || !b2.rgb) return a.rgb ?? b2.rgb;
+    // -1 哨兵 = 未指定百分比（TS 收窄友好；CSS 语义：单百分比另一色补足，无百分比 50/50）
+    let w1 = a.pct ?? -1;
+    let w2 = b2.pct ?? -1;
+    if (w1 < 0 && w2 < 0) {
+      w1 = 50;
+      w2 = 50;
+    } else if (w1 < 0) {
+      w1 = 100 - w2;
+    } else if (w2 < 0) {
+      w2 = 100 - w1;
+    }
+    const total = w1 + w2;
+    return {
+      r: Math.round((a.rgb.r * w1 + b2.rgb.r * w2) / total),
+      g: Math.round((a.rgb.g * w1 + b2.rgb.g * w2) / total),
+      b: Math.round((a.rgb.b * w1 + b2.rgb.b * w2) / total),
+    };
+  }
+
+  return null;
+}
+
+/** 简化颜色值为 hex（用于 color input）— color-mix/rgba 解析为真实混合色，不再一律回退 #888888 */
 function toHex(color: string): string {
   if (!color) return '#888888';
   if (color.startsWith('#') && (color.length === 7 || color.length === 4)) return color;
   if (color.startsWith('#') && color.length === 9) return color.slice(0, 7); // rgba hex -> rgb hex
-  // 对于 color-mix 或 rgba()，返回默认
+  const parsed = parseColor(color);
+  if (parsed) {
+    return `#${[parsed.r, parsed.g, parsed.b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+  }
   return '#888888';
 }
 
