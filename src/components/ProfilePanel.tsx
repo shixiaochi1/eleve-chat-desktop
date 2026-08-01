@@ -7,7 +7,7 @@
  * 删除：非 default 卡片 hover 显示垃圾桶 → 输名字强确认 → 移入回收站（可恢复）。
  */
 import { useState, useEffect, useCallback } from 'react';
-import { fetchProfiles, createProfile, deleteProfile } from '../utils/api';
+import { fetchProfiles, deleteProfile } from '../utils/api';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { getWsClient } from '../services/ws-client';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,10 @@ import {
   Bot, Cpu, Plug, Package, Check, Star, Loader,
   RefreshCw, Plus, Trash2,
 } from 'lucide-react';
+import CreateAgentDialog from './CreateAgentDialog';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from './ui/dialog';
 
 interface ProfileCardData {
   name: string;
@@ -33,6 +37,8 @@ interface ProfilePanelProps {
   onProfileChange?: (name: string) => void;
   /** 🔴 宫格按钮修复：profile 列表变化时上抛数量，App 据此驱动 agentCount（消灭平行数据源） */
   onProfilesChange?: (count: number) => void;
+  /** 🔴 昵称全局生效：上抛 name → display_name 映射，App 据此让状态栏/会话列表显示昵称而非 ID */
+  onDisplayNamesChange?: (map: Record<string, string>) => void;
   [key: string]: unknown;
 }
 
@@ -123,7 +129,7 @@ function ProfileCard({
 }
 
 // ── 主面板 ──
-export default function ProfilePanel({ currentProfile, onProfileChange, onProfilesChange }: ProfilePanelProps) {
+export default function ProfilePanel({ currentProfile, onProfileChange, onProfilesChange, onDisplayNamesChange }: ProfilePanelProps) {
   const [profiles, setProfiles] = useState<ProfileCardData[]>([]);
   // 🔴 高亮唯一权威源 = App 的 currentProfile（UI 焦点 ①），经 prop 下发，不读后端 active_profile（③）。
   // 决策④：UI 切换不写 ③，故 ③ 恒为系统默认（CLI 权威）；若拿 ③ 当高亮源，点选后 load() 会把高亮弹回 default。
@@ -132,14 +138,8 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
 
-  // ── 新建 Agent 表单状态 ──
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newDisplayName, setNewDisplayName] = useState('');
-  const [cloneSource, setCloneSource] = useState('');
-  const [creatingBusy, setCreatingBusy] = useState(false);
-
-  // ── 删除 Agent 确认状态 ──
+  // ── 对话框状态（新建/删除均为独立弹窗，不与卡片列表混排） ──
+  const [createOpen, setCreateOpen] = useState(false);
   const [deletingTarget, setDeletingTarget] = useState<string | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [deletingBusy, setDeletingBusy] = useState(false);
@@ -175,6 +175,13 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
   // App.agentCount 为唯一持有者，初始值由 portReady fetch 兜底，运行期由此回调驱动。
   useEffect(() => { onProfilesChange?.(profiles.length); }, [profiles, onProfilesChange]);
 
+  // 🔴 昵称全局生效：上抛 name → display_name 映射（App 驱动状态栏/会话列表显示昵称）
+  useEffect(() => {
+    const map: Record<string, string> = {};
+    for (const p of profiles) map[p.name] = p.display_name || p.name;
+    onDisplayNamesChange?.(map);
+  }, [profiles, onDisplayNamesChange]);
+
   const handleSelect = useCallback((name: string) => {
     if (name === activeName) return;
     setSwitching(name);
@@ -188,87 +195,61 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
     }
   }, [activeName, onProfileChange]);
 
-  const resetCreateForm = useCallback(() => {
-    setCreating(false);
-    setNewName('');
-    setNewDisplayName('');
-    setCloneSource('');
-  }, []);
-
-  const handleCreate = useCallback(async () => {
-    const name = newName.trim();
-    if (!name || creatingBusy) return;
-    setCreatingBusy(true);
-    try {
-      const dn = newDisplayName.trim() || undefined;
-      await createProfile(name, dn, cloneSource || undefined);
-      // 🔴 G1: 创建后自动切换到新 Agent（纯前端切换，不写后端 active_profile）。
-      // 高亮经 onProfileChange → App.currentProfile → prop 回流驱动，不在此 setState。
-      onProfileChange?.(name);
-      notifySuccess(`Agent「${dn || name}」已创建并切换`);
-      resetCreateForm();
-      void load();
-    } catch (err: unknown) {
-      notifyError(err, `创建 ${name} 失败`);
-    } finally {
-      setCreatingBusy(false);
-    }
-  }, [newName, newDisplayName, cloneSource, creatingBusy, resetCreateForm, load, onProfileChange]);
-
-  const cancelDelete = useCallback(() => {
-    setDeletingTarget(null);
-    setDeleteConfirmName('');
-  }, []);
-
   const handleDelete = useCallback(async () => {
     if (!deletingTarget || deleteConfirmName !== deletingTarget || deletingBusy) return;
     setDeletingBusy(true);
     try {
       await deleteProfile(deletingTarget);
       notifySuccess(`Agent「${deletingTarget}」已移入回收站`);
-      // 🔴 P1-1: 删除当前活跃 Agent 后必须回调切换（否则 currentProfile 悬空 + 盖章死 profile）
       if (deletingTarget === currentProfile) {
         onProfileChange?.('default');
       }
-      cancelDelete();
+      setDeletingTarget(null);
+      setDeleteConfirmName('');
       void load();
     } catch (err: unknown) {
       notifyError(err, `删除 ${deletingTarget} 失败`);
     } finally {
       setDeletingBusy(false);
     }
-  }, [deletingTarget, deleteConfirmName, deletingBusy, cancelDelete, load, currentProfile, onProfileChange]);
+  }, [deletingTarget, deleteConfirmName, deletingBusy, load, currentProfile, onProfileChange]);
 
   return (
-    <div className="flex flex-col h-full min-h-0">
-      {/* ── 区块头：AGENTS + 计数 + 刷新/新建 ── */}
-      <div className="flex items-center gap-1.5 px-3 pt-2.5 pb-1.5 shrink-0">
+    <div className="relative flex flex-col h-full min-h-0">
+      {/* ── 区块头：AGENTS + 计数 + 刷新/新建（relative = 新建浮层锚点） ── */}
+      <div className="relative flex items-center gap-1.5 px-3 pt-2.5 pb-1.5 shrink-0">
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/60 select-none">Agents</span>
         {!loading && profiles.length > 0 && (
           <span className="text-[10px] tabular-nums text-muted-foreground/40">{profiles.length}</span>
         )}
-        <div className="ml-auto flex items-center gap-0.5">
+        <div className="ml-auto flex items-center gap-1">
           <button
             onClick={() => void load()}
             disabled={loading}
-            className="p-1 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-accent/40 transition-colors disabled:opacity-40"
+            className="flex items-center justify-center w-6 h-6 rounded-[7px] text-muted-foreground/50 hover:text-foreground hover:bg-accent/40 transition-colors disabled:opacity-40"
             title="刷新列表"
           >
             <RefreshCw size={12} strokeWidth={1.5} className={loading ? 'animate-spin' : ''} />
           </button>
           <button
-            onClick={() => { setDeletingTarget(null); setCreating(v => !v); }}
-            className={cn(
-              'inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all active:scale-[0.98]',
-              creating
-                ? 'bg-accent text-accent-foreground'
-                : 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90'
-            )}
+            onClick={() => { setDeletingTarget(null); setCreateOpen(true); }}
+            className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_1px_3px_rgba(0,0,0,0.18)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_8px_rgba(0,0,0,0.22)] hover:brightness-[1.06] hover:-translate-y-px"
             title="新建 Agent"
           >
-            <Plus size={13} strokeWidth={2.5} />
+            <span className="flex items-center justify-center w-[18px] h-[18px] rounded-full shrink-0 bg-white/25 text-primary-foreground">
+              <Plus size={11} strokeWidth={3} />
+            </span>
             新建 Agent
           </button>
+          {/* ── 新建 Agent 弹出卡片（锚定按钮下方，高度自适应不裁剪） ── */}
+          {createOpen && (
+            <CreateAgentDialog
+              onClose={() => setCreateOpen(false)}
+              onCreated={() => void load()}
+              onProfileChange={onProfileChange}
+              profiles={profiles}
+            />
+          )}
         </div>
       </div>
 
@@ -289,114 +270,58 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
               active={p.name === activeName}
               switching={switching === p.name}
               onSelect={handleSelect}
-              onDelete={(name) => { resetCreateForm(); setDeletingTarget(name); setDeleteConfirmName(''); }}
+              onDelete={(name) => { setDeletingTarget(name); setDeleteConfirmName(''); }}
             />
           ))
         )}
       </div>
 
-      {/* ── 内联表单区（新建 / 删除确认，展开时占卡片下方） ── */}
-      {creating && !deletingTarget && (
-          /* 新建表单 */
-          <div className="shrink-0 px-3 pb-2 space-y-1.5 panel-enter">
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') { void handleCreate(); }
-                if (e.key === 'Escape') { resetCreateForm(); }
-              }}
-              placeholder="Agent ID（英文小写，如 coder）"
-              autoFocus
-              disabled={creatingBusy}
-              className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
-            />
-            <input
-              type="text"
-              value={newDisplayName}
-              onChange={(e) => setNewDisplayName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') { void handleCreate(); }
-                if (e.key === 'Escape') { resetCreateForm(); }
-              }}
-              placeholder="显示名称（可选，支持中文，如「小老虎」）"
-              disabled={creatingBusy}
-              className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
-            />
-            <select
-              value={cloneSource}
-              onChange={(e) => setCloneSource(e.target.value)}
-              disabled={creatingBusy}
-              className="w-full px-2 py-1.5 text-xs rounded-md border border-border bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
-            >
-              <option value="">空白配置（不克隆）</option>
-              {profiles.map(p => (
-                <option key={p.name} value={p.name}>克隆自 {p.name}</option>
-              ))}
-            </select>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => void handleCreate()}
-                disabled={!newName.trim() || creatingBusy}
-                className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {creatingBusy ? <Loader size={13} strokeWidth={2} className="animate-spin" /> : <Plus size={13} strokeWidth={2.5} />}
-                创建
-              </button>
-              <button
-                onClick={resetCreateForm}
-                disabled={creatingBusy}
-                className="px-2.5 py-1.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors disabled:opacity-40"
-              >
-                取消
-              </button>
-            </div>
-          </div>
-      )}
-      {deletingTarget && (
-          /* 删除强确认（输名字） */
-          <div className="shrink-0 px-3 pb-2 space-y-1.5 panel-enter">
-            <div className="inline-flex items-center gap-1 text-xs font-semibold text-destructive">
-              <Trash2 size={12} strokeWidth={2} />
+      {/* ── 新建 Agent 弹出卡片（渲染于区块头内 = 锚点） ── */}
+
+      {/* ── 删除确认对话框（输名字强确认，可恢复） ── */}
+      <Dialog open={!!deletingTarget} onOpenChange={(v) => { if (!v && !deletingBusy) { setDeletingTarget(null); setDeleteConfirmName(''); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-1.5 text-destructive">
+              <Trash2 size={15} strokeWidth={2} />
               删除 Agent「{deletingTarget}」
-            </div>
-            <p className="text-[10px] text-muted-foreground leading-relaxed">
-              将移入回收站（可恢复）。该 Agent 自己的配置、凭证、会话、记忆一并移走，
-              <span className="text-foreground/70">不影响其它 Agent</span>。
-            </p>
-            <input
-              type="text"
-              value={deleteConfirmName}
-              onChange={(e) => setDeleteConfirmName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') { void handleDelete(); }
-                if (e.key === 'Escape') { cancelDelete(); }
-              }}
-              placeholder={`输入「${deletingTarget}」确认删除`}
-              autoFocus
+            </DialogTitle>
+            <DialogDescription>
+              将移入回收站（可恢复）。该 Agent 自己的配置、凭证、会话、记忆一并移走，不影响其它 Agent。
+            </DialogDescription>
+          </DialogHeader>
+          <input
+            type="text"
+            value={deleteConfirmName}
+            onChange={(e) => setDeleteConfirmName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { void handleDelete(); }
+              if (e.key === 'Escape') { setDeletingTarget(null); setDeleteConfirmName(''); }
+            }}
+            placeholder={`输入「${deletingTarget}」确认删除`}
+            autoFocus
+            disabled={deletingBusy}
+            className="w-full px-2.5 py-1.5 text-xs rounded-md border border-destructive/40 bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-destructive/50 disabled:opacity-50"
+          />
+          <DialogFooter className="mt-1">
+            <button
+              onClick={() => { setDeletingTarget(null); setDeleteConfirmName(''); }}
               disabled={deletingBusy}
-              className="w-full px-2.5 py-1.5 text-xs rounded-md border border-destructive/40 bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-destructive/50 disabled:opacity-50"
-            />
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => void handleDelete()}
-                disabled={deleteConfirmName !== deletingTarget || deletingBusy}
-                className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {deletingBusy ? <Loader size={13} strokeWidth={2} className="animate-spin" /> : <Trash2 size={13} strokeWidth={2} />}
-                删除
-              </button>
-              <button
-                onClick={cancelDelete}
-                disabled={deletingBusy}
-                className="px-2.5 py-1.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors disabled:opacity-40"
-              >
-                取消
-              </button>
-            </div>
-          </div>
-      )}
+              className="px-3 py-1.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors disabled:opacity-40"
+            >
+              取消
+            </button>
+            <button
+              onClick={() => void handleDelete()}
+              disabled={deleteConfirmName !== deletingTarget || deletingBusy}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {deletingBusy ? <Loader size={13} strokeWidth={2} className="animate-spin" /> : <Trash2 size={13} strokeWidth={2} />}
+              删除
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

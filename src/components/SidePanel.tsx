@@ -31,8 +31,12 @@ interface SidePanelProps {
   gatewayOnline?: boolean;
   // ── Agent / Profile ──
   currentProfile?: string;
+  /** 🔴 昵称全局生效：当前 Agent 的显示名（display_name），由 App 从 ProfilePanel 上抛映射解析 */
+  currentProfileLabel?: string;
   onProfileChange?: (name: string) => void;
   onProfilesChange?: (count: number) => void;
+  /** 🔴 昵称映射上抛（name → display_name），App 驱动状态栏/会话列表 */
+  onDisplayNamesChange?: (map: Record<string, string>) => void;
   onOpenSettings?: () => void;
   onRestart?: () => void;
   // ── 会话 ──

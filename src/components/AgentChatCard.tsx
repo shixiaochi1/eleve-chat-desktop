@@ -15,8 +15,9 @@
  */
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, memo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Bot, Maximize2, Loader2 } from 'lucide-react';
+import { Maximize2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useModelContext } from '../contexts/ModelContext';
 import { call } from '../utils/bridge';
 import { getWsClient } from '../services/ws-client';
 import MessageRow from './MessageRow';
@@ -120,6 +121,10 @@ export const AgentChatCard = memo(function AgentChatCard({
   const composerRef = useRef<{ getValue: () => string; setValue: (text: string) => void } | null>(null);
 
   const name = profile.name;
+
+  // 🔴 宫格欢迎态对齐单视图：模型是否已配置（ModelContext 全局下发，无 prop drilling）
+  const { grouped } = useModelContext();
+  const hasModels = !!grouped && Object.values(grouped).some((g) => g.models.length > 0);
 
   // ── 排队编辑（对齐 Hermes use-composer-queue：per-agent queueEdit 状态）──
   const queueEntries = useQueue(name);
@@ -325,9 +330,23 @@ export const AgentChatCard = memo(function AgentChatCard({
         )}
 
         {state.messages.length === 0 && !state.streamParts?.length ? (
-          <div className="flex flex-col items-center justify-center gap-1.5 h-full py-8">
-            <Bot size={22} strokeWidth={1} className="text-muted-foreground/20" />
-            <span className="text-[10px] text-muted-foreground/30">暂无对话 · 下方输入开始</span>
+          <div className="flex flex-col items-center justify-center gap-1.5 h-full px-4 py-4 text-center">
+            <div className="w-11 h-11 opacity-90">
+              <img src="/Elogo.svg" alt="Eleve" className="w-full h-full object-contain" />
+            </div>
+            <span className="text-[11px] font-semibold text-foreground/80">Eleve Agent</span>
+            {!portReady ? (
+              <span className="text-[10px] font-medium text-destructive">网关未连接</span>
+            ) : !hasModels ? (
+              <span className="text-[10px] text-muted-foreground">尚未配置模型 · 请到设置中配置</span>
+            ) : (
+              <span className="text-[10px] text-muted-foreground">你的 AI 智能助手 · 开始对话吧</span>
+            )}
+            <div className="flex gap-2 text-[9px] text-muted-foreground/50">
+              <span>Ctrl+N 新建</span>
+              <span>Enter 发送</span>
+              <span>Shift+Enter 换行</span>
+            </div>
           </div>
         ) : (
           <div style={{ paddingBottom: `${paddingBottom}px`, paddingTop: `${paddingTop}px` }}>

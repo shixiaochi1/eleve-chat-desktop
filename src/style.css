@@ -892,7 +892,7 @@ canvas {
   background: transparent;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding: 0 8px 0 12px;
   flex-shrink: 0;
   -webkit-app-region: drag;
@@ -901,23 +901,6 @@ canvas {
 /* 标题栏内部按钮不可拖拽 */
 .titlebar button { -webkit-app-region: no-drag; }
 
-.titlebar-logo {
-  font-size: 12px;
-  font-weight: 600;
-  color: #e0f2fe;
-  letter-spacing: 0.3px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.titlebar-logo svg,
-.titlebar-logo-img {
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
-  flex-shrink: 0;
-  object-fit: contain;
-}
 .titlebar-actions { display: flex; gap: 2px; }
 
 .tb-btn {
@@ -925,14 +908,13 @@ canvas {
   border: none; border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ui-text-tertiary);
-  font-size: 18px; line-height: 1;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  transition: background 180ms ease;
+  transition: background 180ms ease, color 180ms ease;
   -webkit-app-region: no-drag;
 }
+.tb-btn svg { width: 14px; height: 14px; }
 .tb-btn:hover { background: var(--ui-control-hover-background); color: var(--ui-text-primary); }
-.tb-btn-close { font-size: 14px; }
 .tb-btn-close:hover { background: var(--dt-destructive); color: #fff; }
 
 /* ── 分割线 ── */

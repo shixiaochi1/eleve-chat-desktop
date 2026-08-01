@@ -25,6 +25,7 @@ import { getActiveProfile, fetchProfiles } from './utils/api';
 import { getWsClient, setWsActiveProfile } from './services/ws-client';
 import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer, loadProfilePointers, saveProfilePointer, removeProfilePointer } from './utils/session';
 import type { ChatMessage } from './types';
+import { Minus, Square, X } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 import CredentialCard from './components/CredentialCard';
 import { ThemeProvider } from './themes/index';
@@ -157,6 +158,11 @@ export default function App() {
   }, [portReady]);
   // 🔴 宫格按钮修复：运行期建/删 Agent 由 ProfilePanel 回调驱动（消灭一次性快照平行源）。
   const handleProfilesChange = useCallback((count: number) => setAgentCount(count), []);
+
+  // 🔴 昵称全局生效：ProfilePanel 上抛 name → display_name 映射，
+  // 状态栏/会话列表显示昵称而非英文 ID（display_name 唯一持有者 = ProfilePanel，App 不重复拉取）。
+  const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
+  const currentProfileLabel = displayNames[currentProfile] || currentProfile;
 
   // ── 多 Agent UI：Ctrl+G 切换单视图/宫格 ──
   // 🔴 P1-3: grid→single 必须走 handleExitGrid（persistPointers + restoreProfileSession）
@@ -902,11 +908,10 @@ export default function App() {
   // ── titlebar element ──
   const titlebarEl = (
     <div className="titlebar" data-tauri-drag-region onDoubleClick={winMax}>
-      <span className="titlebar-logo"><img src="/Elogo.svg" alt="Eleve" className="titlebar-logo-img" /> Eleve Chat</span>
       <div className="titlebar-actions">
-        <button className="tb-btn" id="btn-min" title="最小化" onClick={winMin}>─</button>
-        <button className="tb-btn" id="btn-max" title="最大化" onClick={winMax}>□</button>
-        <button className="tb-btn tb-btn-close" id="btn-close" title="关闭" onClick={winClose}>✕</button>
+        <button className="tb-btn" id="btn-min" title="最小化" onClick={winMin}><Minus size={14} strokeWidth={1.5} /></button>
+        <button className="tb-btn" id="btn-max" title="最大化" onClick={winMax}><Square size={12} strokeWidth={1.5} /></button>
+        <button className="tb-btn tb-btn-close" id="btn-close" title="关闭" onClick={winClose}><X size={14} strokeWidth={1.5} /></button>
       </div>
     </div>
   );
@@ -931,7 +936,7 @@ export default function App() {
         gatewayChecking={gatewayHealth.checking}
         sessionId={sess.sessionId}
         modelName={modelDiscovery.selectedModel || modelName || undefined}
-        profileName={currentProfile}
+        profileName={currentProfileLabel}
         tokensIn={tokens.tokensIn}
         tokensOut={tokens.tokensOut}
         onOpenSettings={handleOpenSettings}
@@ -962,8 +967,10 @@ export default function App() {
                   activePanel={activePanel}
                   onPanelChange={setActivePanel}
                   currentProfile={currentProfile}
+                  currentProfileLabel={currentProfileLabel}
                   onProfileChange={handleProfileChange}
                   onProfilesChange={handleProfilesChange}
+                  onDisplayNamesChange={setDisplayNames}
                   onOpenSettings={handleOpenSettings}
                   onRestart={handleRestartService}
                   sessionId={viewMode === 'grid' ? (focusedGridSessionId ?? sess.sessionId) : sess.sessionId}

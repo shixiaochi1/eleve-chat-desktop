@@ -50,6 +50,14 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
 
   const logoActive = activePanel === 'gateway';
 
+  // ── 统一导航按钮样式（渐变激活态 + 精致指示条 + hover 微动效） ──
+  const navBtnBase =
+    'group flex items-center justify-center w-10 h-10 rounded-[10px] text-muted-foreground transition-all duration-150 hover:bg-accent/50 hover:text-accent-foreground hover:scale-[1.04] active:scale-[0.97] relative focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+  const navBtnActive =
+    'bg-gradient-to-b from-accent to-accent/70 text-accent-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.08)]';
+  const indicator =
+    'absolute -right-0.5 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-accent-foreground/90 shadow-[0_0_5px_rgba(0,0,0,0.15)]';
+
   const renderButton = (item: NavItem) => {
     const isActive = activePanel === item.id;
     const Icon = item.icon;
@@ -58,10 +66,7 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
         key={item.id}
         role="tab"
         aria-selected={isActive}
-        className={cn(
-          'flex items-center justify-center w-10 h-10 rounded-lg text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground transition-colors relative',
-          isActive && 'bg-accent text-accent-foreground'
-        )}
+        className={cn(navBtnBase, isActive && navBtnActive)}
         title={item.label}
         aria-label={item.label}
         onClick={() => {
@@ -74,8 +79,8 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
           }
         }}
       >
-        <Icon className="w-5 h-5" />
-        {isActive && <span className="absolute -right-0.5 top-1/2 -translate-y-1/2 w-1 h-4 bg-accent-foreground rounded-full" />}
+        <Icon className={cn('w-5 h-5 transition-transform duration-150', isActive ? 'scale-105' : 'group-hover:scale-105')} />
+        {isActive && <span className={indicator} />}
       </button>
     );
   };
@@ -85,19 +90,15 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
       {/* 顶部品牌 Logo 按钮 — 和工具栏一样切换面板 */}
       <button
         className={cn(
-          'flex items-center justify-center w-10 h-10 rounded-lg relative transition-colors',
-          logoActive && 'bg-accent'
+          'group flex items-center justify-center w-10 h-10 rounded-[10px] relative transition-all duration-150 hover:scale-[1.04] active:scale-[0.97]',
+          logoActive && navBtnActive
         )}
         title={`Eleve Agent · ${gatewayOnline ? '在线' : '离线'}`}
         aria-label="网关状态"
         onClick={() => onPanelChange?.(logoActive ? null : 'gateway')}
       >
-        <img src="/Elogo.svg" alt="Eleve" className="w-6 h-6 rounded" />
-        <span className={cn(
-          'absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-sidebar',
-          gatewayOnline ? 'bg-success' : 'bg-danger'
-        )} />
-        {logoActive && <span className="absolute -right-0.5 top-1/2 -translate-y-1/2 w-1 h-4 bg-accent-foreground rounded-full" />}
+        <img src="/Elogo.svg" alt="Eleve" className="w-6 h-6 rounded transition-transform duration-150 group-hover:scale-105" />
+        {logoActive && <span className={indicator} />}
       </button>
 
       {/* 导航图标 */}
@@ -109,30 +110,28 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
       <div className="flex flex-col items-center gap-0.5 py-2 border-t border-border">
         {bottomItems.map(renderButton)}
         <button
-          className="flex items-center justify-center w-10 h-10 rounded-lg text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground transition-colors"
+          className={cn(navBtnBase)}
           title="文件浏览器"
           aria-label="文件浏览器"
           onClick={onToggleFiles}
         >
-          <FileIcon className="w-5 h-5" />
+          <FileIcon className="w-5 h-5 transition-transform duration-150 group-hover:scale-105" />
         </button>
         <button
-          className={cn(
-            'flex items-center justify-center w-10 h-10 rounded-lg text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground transition-colors'
-          )}
+          className={cn(navBtnBase)}
           title="主题"
           aria-label="切换主题"
           onClick={() => onOpenOverlay?.('theme')}
         >
-          <PaletteIcon className="w-5 h-5" />
+          <PaletteIcon className="w-5 h-5 transition-transform duration-150 group-hover:scale-105" />
         </button>
         <button
-          className="flex items-center justify-center w-10 h-10 rounded-lg text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground transition-colors"
+          className={cn(navBtnBase)}
           title="关于"
           aria-label="关于"
           onClick={() => onOpenOverlay?.('about')}
         >
-          <AboutIcon className="w-5 h-5" />
+          <AboutIcon className="w-5 h-5 transition-transform duration-150 group-hover:scale-105" />
         </button>
       </div>
     </nav>

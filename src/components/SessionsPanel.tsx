@@ -507,7 +507,7 @@ export default function SessionsPanel({
         <div className="ml-auto flex items-center gap-0.5">
           <button
             className={cn(
-              'p-1 rounded-md transition-colors',
+              'flex items-center justify-center w-6 h-6 rounded-[7px] transition-colors',
               activeTab === 'outline'
                 ? 'bg-accent text-accent-foreground'
                 : 'text-muted-foreground/50 hover:text-foreground hover:bg-accent/40'
@@ -520,7 +520,7 @@ export default function SessionsPanel({
           {activeTab === 'sessions' && (
             <button
               className={cn(
-                'p-1 rounded-md transition-colors',
+                'flex items-center justify-center w-6 h-6 rounded-[7px] transition-colors',
                 batchMode
                   ? 'bg-accent text-accent-foreground'
                   : 'text-muted-foreground/50 hover:text-foreground hover:bg-accent/40'

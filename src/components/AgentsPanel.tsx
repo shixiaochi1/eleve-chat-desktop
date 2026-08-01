@@ -15,6 +15,7 @@ import SessionsPanel from './SessionsPanel';
 
 interface AgentsPanelProps {
   currentProfile?: string;
+  currentProfileLabel?: string;
   [key: string]: unknown;
 }
 
@@ -31,7 +32,7 @@ export default function AgentsPanel(props: AgentsPanelProps) {
 
       {/* ── 下部：当前 Agent 的会话列表 ── */}
       <div className="flex-1 min-h-0 flex flex-col">
-        <SessionsPanel {...props} agentName={props.currentProfile} />
+        <SessionsPanel {...props} agentName={props.currentProfileLabel ?? props.currentProfile} />
       </div>
     </div>
   );
