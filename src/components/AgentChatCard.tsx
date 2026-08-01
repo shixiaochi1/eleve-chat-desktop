@@ -14,6 +14,7 @@
  * - memo 化：父级按 profile patch 状态，未变 profile 的卡片 props 引用不变 → 跳过重渲染
  */
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, memo } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Bot, Maximize2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
@@ -29,6 +30,10 @@ import QueuePanel from './QueuePanel';
 import { useImageAttachments } from '@/hooks/useImageAttachments';
 import { useQueue, updateEntry, type QueuedMessage } from '@/lib/message-queue';
 import type { AgentChatState } from '../hooks/useGridChat';
+
+// 消息虚拟化估算高度/过扫（宫格卡片窄小，估算低于单视图 MessageContainer 的 220）
+const ESTIMATED_ITEM_HEIGHT = 160;
+const OVERSCAN = 4;
 
 export interface AgentProfileInfo {
   name: string;
@@ -159,6 +164,21 @@ export const AgentChatCard = memo(function AgentChatCard({
   const {
     attachedImages, uploading: imageUploading, addImage, removeImage, clearImages, uploadUnuploaded,
   } = useImageAttachments({ getSessionId: () => stateRef.current.sessionId });
+
+  // ── 消息虚拟化（对齐单视图 MessageContainer natural-flow 模式）──
+  // 上翻加载按钮/空态/流式气泡在虚拟列表外渲染；padding spacers 撑起滚动高度
+  // → prepend 补偿（scrollHeight 差值）与贴底跟随（scrollTop=scrollHeight）天然保持正确
+  const virtualizer = useVirtualizer({
+    count: state.messages.length,
+    estimateSize: () => ESTIMATED_ITEM_HEIGHT,
+    getItemKey: (index) => state.messages[index]?.id ?? index,
+    getScrollElement: () => scrollRef.current,
+    overscan: OVERSCAN,
+  });
+  const virtualItems = virtualizer.getVirtualItems();
+  const totalSize = virtualizer.getTotalSize();
+  const paddingTop = virtualItems[0]?.start ?? 0;
+  const paddingBottom = Math.max(0, totalSize - (virtualItems.at(-1)?.end ?? 0));
 
   // ── 滚动：到顶触发上翻 + 跟踪是否贴底 ──
   const handleScroll = useCallback(() => {
@@ -308,7 +328,22 @@ export const AgentChatCard = memo(function AgentChatCard({
             <span className="text-[10px] text-muted-foreground/30">暂无对话 · 下方输入开始</span>
           </div>
         ) : (
-          state.messages.map((m) => <MessageRow key={m.id} message={m} />)
+          <div style={{ paddingBottom: `${paddingBottom}px`, paddingTop: `${paddingTop}px` }}>
+            {virtualItems.map((virtualItem) => {
+              const m = state.messages[virtualItem.index];
+              if (!m) return null;
+              return (
+                <div
+                  key={virtualItem.key}
+                  data-index={virtualItem.index}
+                  ref={virtualizer.measureElement}
+                  className="min-w-0"
+                >
+                  <MessageRow message={m} />
+                </div>
+              );
+            })}
+          </div>
         )}
 
         {/* ── 流式气泡 — 经 MessageRow 渲染 = 与单视图 100% 一致（不重复造轮子）──
