@@ -21,25 +21,31 @@ interface CardContextGaugeProps {
   sessionId?: string | null;
   /** 卡片是否聚焦（仅聚焦卡片轮询，避免宫格 N 卡片并发 RPC 堵 WS 串行循环） */
   active?: boolean;
-  /** 轮询间隔 ms（默认 5000） */
+  /** 轮询间隔 ms（默认 3000 — 与单视图 ContextBar 持平；active 门控后仅聚焦卡片轮询） */
   intervalMs?: number;
 }
 
-export const CardContextGauge = memo(function CardContextGauge({ sessionId, active = true, intervalMs = 5000 }: CardContextGaugeProps) {
+export const CardContextGauge = memo(function CardContextGauge({ sessionId, active = true, intervalMs = 3000 }: CardContextGaugeProps) {
   const [ctx, setCtx] = useState<{ total_tokens?: number; context_limit?: number; percentage?: number } | null>(null);
 
   // 每 intervalMs 轮询上下文；sessionId/active 变化或卸载自动重启/停止
+  // 🔴 响应序号守卫：并发请求乱序时只接受最新请求的响应（旧响应覆盖新值 = 竞态）
   useEffect(() => {
     if (!sessionId || !active) return;
     let cancelled = false;
-    const poll = () => {
-      fetchSessionContext(sessionId).then((data: Record<string, unknown>) => {
-        if (!cancelled && data) setCtx(data as { total_tokens?: number; context_limit?: number; percentage?: number });
-      }).catch(() => {});
+    let seq = 0;
+    const poll = async () => {
+      const mySeq = ++seq;
+      try {
+        const data = await fetchSessionContext(sessionId);
+        if (!cancelled && mySeq === seq && data) {
+          setCtx(data as { total_tokens?: number; context_limit?: number; percentage?: number });
+        }
+      } catch { /* 静默 */ }
     };
     poll();
     const i = setInterval(poll, intervalMs);
-    return () => { cancelled = true; clearInterval(i); };
+    return () => { cancelled = true; seq++; clearInterval(i); };
   }, [sessionId, active, intervalMs]);
 
   // 未建会话：显示空环 + 占位（环始终可见，会话建立后自动填充）
