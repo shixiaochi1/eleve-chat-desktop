@@ -98,6 +98,18 @@ export default function useTerminal({ lazy = false, id }: UseTerminalOptions = {
     })();
   }, []);
 
+  // 4-2 修复：id 变化时重新注册 reader（原实现捕获首渲染 id 陈旧闭包，
+  // 切 tab 后 readActiveTerminal 查新 id 得 null）。
+  // 未初始化时跳过——init 完成后首次 id 已由 init 内注册。
+  useEffect(() => {
+    if (!initializedRef.current || !terminalRef.current || !id) return;
+    if (unregisterReaderRef.current) {
+      unregisterReaderRef.current();
+      unregisterReaderRef.current = null;
+    }
+    unregisterReaderRef.current = registerTerminalReader(id, makeTerminalReader(terminalRef.current));
+  }, [id]);
+
   // Lazy init: only init when explicitly called or on mount if not lazy
   useEffect(() => {
     if (!lazy) {
