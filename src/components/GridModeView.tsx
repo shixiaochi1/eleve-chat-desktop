@@ -119,6 +119,8 @@ interface GridModeViewProps {
   /** 新建会话的全局副作用（清 localStorage 指针 + 刷新会话列表），由 App 注入，
    *  复用 handleNewSession 同一套工具链，不重复造轮子 */
   onNewSessionEffects?: (profile: string) => void;
+  /** 双击 Agent 卡片 → 打开编辑面板（App 层渲染 EditAgentDialog） */
+  onEditAgent?: (profile: string) => void;
 }
 
 /** 拖拽运行时状态（存 ref，拖拽期间零 setState） */
@@ -155,7 +157,7 @@ function slotPos(index: number, cols: number, cellW: number, cellH: number) {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, onFocusedSessionChange, portReady, onNewSessionEffects }, ref) {
+const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, onFocusedSessionChange, portReady, onNewSessionEffects, onEditAgent }, ref) {
   // 🔴 模型系统经 Context 消费（消除 App→GridModeView→AgentChatCard 三层 prop drilling）
   const { currentModel } = useModelContext();
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
@@ -466,6 +468,7 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
                 ref={(el) => registerRef(profile.name, el)}
                 data-agent-name={profile.name}
                 onClick={() => { if (!justDraggedRef.current) onFocusChange?.(profile.name); }}
+                onDoubleClick={() => { if (!justDraggedRef.current) onEditAgent?.(profile.name); }}
                 className="absolute top-0 left-0"
                 style={{ width: layout.cellW, height: layout.cellH }}
               >

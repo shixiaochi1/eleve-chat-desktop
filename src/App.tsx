@@ -52,6 +52,7 @@ import RightSidebarTabs from './components/RightSidebarTabs';
 import CommandCenter from './components/CommandCenter';
 import Toast from './components/Toast';
 import GridModeView, { type GridModeViewHandle } from './components/GridModeView';
+import EditAgentDialog from './components/EditAgentDialog';
 import { ModelProvider } from './contexts/ModelContext';
 import { toggleDeepSeek, hideDeepSeek } from './utils/deepseek-webview';
 import type { Window } from '@tauri-apps/api/window';
@@ -163,6 +164,9 @@ export default function App() {
   // 状态栏/会话列表显示昵称而非英文 ID（display_name 唯一持有者 = ProfilePanel，App 不重复拉取）。
   const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
   const currentProfileLabel = displayNames[currentProfile] || currentProfile;
+
+  // ── Agent 编辑面板（双击宫格卡片弹出）──
+  const [editTarget, setEditTarget] = useState<string | null>(null);
 
   // ── 多 Agent UI：Ctrl+G 切换单视图/宫格 ──
   // 🔴 P1-3: grid→single 必须走 handleExitGrid（persistPointers + restoreProfileSession）
@@ -1001,6 +1005,7 @@ export default function App() {
                   onFocusedSessionChange={setFocusedGridSessionId}
                   portReady={portReady}
                   onNewSessionEffects={handleGridNewSessionEffects}
+                  onEditAgent={setEditTarget}
                 />
               </div>
             ) : (
@@ -1175,6 +1180,20 @@ export default function App() {
 
       {/* Toast 通知栈 — 顶部居中浮动 */}
       <Toast />
+
+      {/* Agent 编辑面板（双击宫格卡片打开） */}
+      {editTarget && (
+        <EditAgentDialog
+          profile={{ name: editTarget, display_name: displayNames[editTarget] || null, color: undefined }}
+          onClose={() => setEditTarget(null)}
+          onSaved={(nick) => {
+            // 昵称保存 → App 即时更新 displayNames（状态栏/会话列表立即生效）
+            if (nick && nick.trim()) {
+              setDisplayNames((prev) => ({ ...prev, [editTarget]: nick.trim() }));
+            }
+          }}
+        />
+      )}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </ModelProvider>

@@ -1,29 +1,18 @@
 /**
  * CreateAgentPopover — 新建 Agent 弹出卡片（锚定在侧边栏「新建 Agent」按钮下方）
  *
- * 对齐 Hermes CreateProfileDialog 的表单语义（昵称 + 人物性格 SOUL.md + 克隆来源）：
- *   - 从侧边栏按钮下方弹出（不居中、无全屏遮罩，不遮挡正在运行的聊天区）
- *   - 昵称主输入（支持中文），ID 自动生成（拼音懒加载）——不展示 ID 输入框
- *   - 人物性格文本域（可选，写入 SOUL.md 身份块下方；留空用默认模板）
- *   - 高级选项（默认折叠）：克隆来源（默认克隆 default，空白 = no_skills）
- *   - 创建成功 → 自动切换新 Agent
+ * 精简表单（老大 2026-08-02 定稿）：只两个功能
+ *   - 昵称（主输入，支持中文），ID 自动生成（拼音懒加载，不展示）
+ *   - 克隆来源下拉（默认克隆 default，空白 = no_skills）
+ * 颜色 / 改昵称 / SOUL.md / MEMORY.md 等丰富编辑能力 → Agent 卡片双击编辑面板（EditAgentDialog）
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, Loader, Plus, X } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Loader, Plus, X } from 'lucide-react';
 import { createProfile } from '../utils/api';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { generateProfileId, ensureUniqueId } from '../lib/profile-id';
 
 export const CLONE_BLANK = '__none__';
-
-/** Agent 主题色板（对齐 Hermes PROFILE_COLORS 22 色） */
-export const AGENT_PALETTE = [
-  '#3498DB', '#1ABC9C', '#2ECC71', '#9B59B6', '#E67E22', '#E74C3C',
-  '#16A085', '#2980B9', '#8E44AD', '#27AE60', '#D35400', '#C0392B',
-  '#F39C12', '#34495E', '#E84393', '#00B894', '#0984E3', '#6C5CE7',
-  '#FD79A8', '#00CEC9', '#FDCB6E', '#636E72',
-];
 
 interface CreateAgentPopoverProps {
   onClose: () => void;
@@ -36,10 +25,7 @@ interface CreateAgentPopoverProps {
 
 export default function CreateAgentPopover({ onClose, onCreated, onProfileChange, profiles }: CreateAgentPopoverProps) {
   const [nickname, setNickname] = useState('');
-  const [persona, setPersona] = useState('');
-  const [color, setColor] = useState<string>(AGENT_PALETTE[0]);
   const [cloneSource, setCloneSource] = useState<string>('default');
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -82,7 +68,6 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
   const handleCreate = useCallback(async () => {
     if (!canSubmit) return;
     const nick = nickname.trim();
-    const soul = persona.trim();
     setBusy(true);
     setError(null);
     try {
@@ -96,7 +81,7 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
         id,
         nick,
         blank ? undefined : cloneSource,
-        { noSkills: blank, ...(soul ? { soul } : {}), color },
+        { noSkills: blank },
       );
       notifySuccess(`Agent「${nick}」已创建并切换`);
       onProfileChange?.(id);
@@ -108,7 +93,7 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
     } finally {
       setBusy(false);
     }
-  }, [canSubmit, nickname, persona, color, cloneSource, onProfileChange, onCreated, onClose]);
+  }, [canSubmit, nickname, cloneSource, onProfileChange, onCreated, onClose]);
 
   return (
     <div
@@ -128,7 +113,7 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
           <X size={13} strokeWidth={2} />
         </button>
       </div>
-      <p className="px-3.5 pb-2 -mt-0.5 text-[11px] text-muted-foreground/60">填昵称和人物性格，ID 自动生成</p>
+      <p className="px-3.5 pb-2 -mt-0.5 text-[11px] text-muted-foreground/60">只填昵称即可，ID 自动生成</p>
 
       <div className="grid gap-3.5 px-3.5 pb-3.5">
           {/* ── 昵称（主输入） ── */}
@@ -150,82 +135,25 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
             {nickError && <p className="text-[11px] text-destructive">{nickError}</p>}
           </div>
 
-          {/* ── 主题色（对齐 Hermes profile 色板 22 色） ── */}
+          {/* ── 克隆来源（对齐 Hermes：默认克隆 default，空白 = 不克隆） ── */}
           <div className="grid gap-1.5">
-            <label className="text-xs font-medium text-foreground" htmlFor="new-agent-color">
-              主题色
+            <label className="text-xs font-medium text-foreground" htmlFor="new-agent-clone">
+              克隆来源
             </label>
-            <div id="new-agent-color" className="flex flex-wrap gap-1.5">
-              {AGENT_PALETTE.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setColor(c)}
-                  disabled={busy}
-                  title={c}
-                  aria-label={c}
-                  className={cn(
-                    'w-5 h-5 rounded-full transition-all disabled:opacity-50',
-                    color.toLowerCase() === c.toLowerCase()
-                      ? 'ring-2 ring-offset-1 ring-offset-popover ring-foreground/70 scale-110'
-                      : 'hover:scale-110 opacity-80 hover:opacity-100'
-                  )}
-                  style={{ background: c }}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* ── 人物性格（SOUL.md，对齐 Hermes 创建弹窗文本框） ── */}
-          <div className="grid gap-1.5">
-            <label className="text-xs font-medium text-foreground" htmlFor="new-agent-persona">
-              人物性格 <span className="font-normal text-muted-foreground/60">- 可选</span>
-            </label>
-            <textarea
-              id="new-agent-persona"
-              value={persona}
-              onChange={(e) => setPersona(e.target.value)}
-              placeholder={'这个 Agent 的身份与性格描述，例如：\n你是「小老虎」，说话干脆利落，喜欢用表情符号，擅长 Rust 架构设计。'}
+            <select
+              id="new-agent-clone"
+              value={cloneSource}
+              onChange={(e) => setCloneSource(e.target.value)}
               disabled={busy}
-              rows={4}
-              className="w-full px-2.5 py-1.5 text-xs leading-5 rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50 resize-none"
-            />
-            <p className="text-[11px] text-muted-foreground/60">留空使用默认人设；填写后会写入该 Agent 的 SOUL.md，后续可随时修改</p>
+              className="w-full px-2 py-1.5 text-xs rounded-md border border-border bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
+            >
+              <option value={CLONE_BLANK}>空白配置（不克隆）</option>
+              {profiles.map((p) => (
+                <option key={p.name} value={p.name}>克隆自 {p.display_name || p.name}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-muted-foreground/60">空白 = 全新配置；克隆会继承该 Agent 的配置与技能</p>
           </div>
-
-          {/* ── 高级选项（默认折叠） ── */}
-          <button
-            type="button"
-            onClick={() => setShowAdvanced(v => !v)}
-            className="flex items-center gap-1 text-[11px] text-muted-foreground/70 hover:text-foreground transition-colors select-none"
-          >
-            <ChevronDown size={12} strokeWidth={2} className={cn('transition-transform duration-150', showAdvanced && 'rotate-180')} />
-            高级选项
-          </button>
-
-          {showAdvanced && (
-            <div className="grid gap-3.5 pt-0.5 panel-enter">
-              {/* 克隆来源（对齐 Hermes：默认克隆 default，空白 = 不克隆） */}
-              <div className="grid gap-1.5">
-                <label className="text-xs font-medium text-foreground" htmlFor="new-agent-clone">
-                  克隆来源
-                </label>
-                <select
-                  id="new-agent-clone"
-                  value={cloneSource}
-                  onChange={(e) => setCloneSource(e.target.value)}
-                  disabled={busy}
-                  className="w-full px-2 py-1.5 text-xs rounded-md border border-border bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
-                >
-                  <option value={CLONE_BLANK}>空白配置（不克隆）</option>
-                  {profiles.map((p) => (
-                    <option key={p.name} value={p.name}>克隆自 {p.display_name || p.name}</option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-muted-foreground/60">空白 = 全新配置；克隆会继承该 Agent 的配置与技能</p>
-              </div>
-            </div>
-          )}
         </div>
 
         {error && (

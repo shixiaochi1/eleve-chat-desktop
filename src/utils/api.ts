@@ -279,6 +279,31 @@ export async function setProfileColor(name: string, color: string): Promise<any>
   return call('set_color', { name, color });
 }
 
+/** profiles.set_display_name — 设置 Agent 昵称（同步 SOUL.md 身份块） */
+export async function setDisplayName(name: string, displayName: string): Promise<any> {
+  return call('set_display_name', { name, display_name: displayName });
+}
+
+/** profiles.get_soul — 读取 Agent SOUL.md */
+export async function getProfileSoul(name: string): Promise<{ content: string; exists: boolean }> {
+  return call('get_soul', { name });
+}
+
+/** profiles.set_soul — 写入 Agent SOUL.md */
+export async function setProfileSoul(name: string, content: string): Promise<any> {
+  return call('set_soul', { name, content });
+}
+
+/** profiles.get_memory — 读取 Agent MEMORY.md */
+export async function getProfileMemory(name: string): Promise<{ content: string; exists: boolean }> {
+  return call('get_memory', { name });
+}
+
+/** profiles.set_memory — 写入 Agent MEMORY.md */
+export async function setProfileMemory(name: string, content: string): Promise<any> {
+  return call('set_memory', { name, content });
+}
+
 /** profiles.delete — 删除 Agent（移入回收站，可恢复；per-profile 凭证隔离不影响其它 Agent） */
 export async function deleteProfile(name: string): Promise<any> {
   return call('delete_profile', { name });
