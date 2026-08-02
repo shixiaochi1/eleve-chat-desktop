@@ -10,7 +10,7 @@
  * 交互：点击会话行切换会话；点击项目行钻取；chevron 展开/收起预览。
  */
 import { useState, useEffect, useCallback } from 'react';
-import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare } from 'lucide-react';
+import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
 import { getWsClient } from '../services/ws-client';
@@ -202,9 +202,9 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession }: Project
   const [drillLoading, setDrillLoading] = useState(false);
   const [drillError, setDrillError] = useState<string | null>(null);
 
-  const fetchTree = useCallback(async () => {
+  const fetchTree = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError(null);
       const result = await call('projects_tree', { preview_limit: 3, include_discovered: true });
       setTree(result);
@@ -239,7 +239,8 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession }: Project
     setDrill(null);
     setDrillProject(null);
     setDrillError(null);
-  }, []);
+    void fetchTree(true); // 静默刷新总览（钻取期间会话数据可能已变化）
+  }, [fetchTree]);
 
   // 🔴 冷启动竞态修复（同 ProfilePanel）：mount 时 WS 可能未连，等连接后再加载。
   useEffect(() => {
@@ -268,6 +269,14 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession }: Project
             {drill.sessionCount > 0 && (
               <span className="text-[10px] text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">{drill.sessionCount}</span>
             )}
+            <button
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+              onClick={() => handleDrill(drill)}
+              disabled={drillLoading}
+              title="刷新"
+            >
+              <RefreshCw size={12} className={drillLoading ? 'animate-spin' : ''} />
+            </button>
           </div>
           {drillLoading && (
             <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">加载中...</div>
@@ -299,19 +308,33 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession }: Project
           {error && (
             <div className="flex-1 flex flex-col items-center justify-center gap-2 p-4">
               <p className="text-xs text-destructive">{error}</p>
-              <button className="text-xs text-primary hover:underline" onClick={fetchTree}>重试</button>
+              <button className="text-xs text-primary hover:underline" onClick={() => fetchTree()}>重试</button>
             </div>
           )}
           {tree && (
-            <div className="flex-1 overflow-y-auto">
-              {tree.projects.length === 0 ? (
-                <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground p-4">暂无项目</div>
-              ) : (
-                tree.projects.map(p => (
-                  <ProjectItem key={p.id} project={p} sessionId={sessionId} onSwitchSession={onSwitchSession} onDrill={handleDrill} />
-                ))
-              )}
-            </div>
+            <>
+              {/* 总览工具栏：项目数 + 刷新 */}
+              <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/30 shrink-0">
+                <span className="text-[10px] text-muted-foreground/70">{tree.projects.length} 个项目 · 点击项目名钻取完整会话树</span>
+                <button
+                  className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+                  onClick={() => fetchTree()}
+                  disabled={loading}
+                  title="刷新"
+                >
+                  <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {tree.projects.length === 0 ? (
+                  <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground p-4">暂无项目</div>
+                ) : (
+                  tree.projects.map(p => (
+                    <ProjectItem key={p.id} project={p} sessionId={sessionId} onSwitchSession={onSwitchSession} onDrill={handleDrill} />
+                  ))
+                )}
+              </div>
+            </>
           )}
         </>
       )}

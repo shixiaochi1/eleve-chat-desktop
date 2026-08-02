@@ -1120,7 +1120,7 @@ export default function App() {
           <Pane side="right" className="pane-right-column">
             {rightOpen && <RightSidebarTabs activeTab={rightTab} onTabChange={setRightTab} />}
             {rightOpen && (rightTab === 'files' ? (
-              <FileBrowserPanel onFileAttach={(path: string) => handleSend(`/file ${path}`)} />
+              <FileBrowserPanel onFileAttach={(path: string) => handleSend(`@file:"${path}"`)} />
             ) : rightTab === 'preview' ? (
               <PreviewPanel sessionId={sess.sessionId} />
             ) : (
