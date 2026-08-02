@@ -85,8 +85,8 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
 
   return (
     <aside role="tabpanel" aria-label={cfg.title} className="h-full flex flex-col overflow-hidden flex-1 min-w-0">
-      {/* 面板头部 — gateway/agents 面板自带标题，隐藏 */}
-      {activePanel !== 'gateway' && activePanel !== 'agents' && (
+      {/* 面板头部 — gateway/agents/tools 面板自带标题或 Tab 栏，隐藏 */}
+      {activePanel !== 'gateway' && activePanel !== 'agents' && activePanel !== 'tools' && (
         <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0">
           <HeaderIcon size={16} strokeWidth={1.5} className="text-muted-foreground" />
           <span className="text-sm font-medium text-foreground">{cfg.title}</span>

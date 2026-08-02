@@ -1,23 +1,16 @@
 /**
- * ToolsPanel — Eleve 内置 Rust 工具列表 + 技能管理
- * 顶部 Tab 切换：工具 | 技能管理
- * 按工具集分组展示，每个工具显示名称 + 描述
+ * ToolsPanel — Eleve 工具集管理 + 技能管理
+ * 顶部 Tab 切换：工具集 | 技能管理
+ * 工具集按开关列表展示，技能管理内嵌 SkillsPanel
  */
 import { useState, useEffect, useCallback } from 'react';
-import { fetchTools, fetchToolsets, toggleToolset } from '../utils/api';
+import { fetchToolsets, toggleToolset } from '../utils/api';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { getWsClient } from '../services/ws-client';
-import { SmallToolIcon, SearchIcon, ToolIcon } from './Icons';
 import { cn } from '@/lib/utils';
 import { Switch } from './ui/switch';
 import SkillsPanel from './SkillsPanel';
-import { Wrench, Package, Layers } from 'lucide-react';
-
-interface ToolItem {
-  name: string;
-  description: string;
-  toolset?: string;
-}
+import { Package, Layers } from 'lucide-react';
 
 const TOOLSET_LABELS: Record<string, string> = {
   web: 'Web 工具',
@@ -67,7 +60,6 @@ function ToolsetsTab({ currentProfile }: { currentProfile?: string }) {
   const [toolsets, setToolsets] = useState<ToolsetInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
   const [saving, setSaving] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -108,31 +100,10 @@ function ToolsetsTab({ currentProfile }: { currentProfile?: string }) {
     }
   }, [currentProfile]);
 
-  const q = search.trim().toLowerCase();
-  const filtered = q
-    ? toolsets.filter(t =>
-        t.name.toLowerCase().includes(q) ||
-        (TOOLSET_LABELS[t.name] || '').toLowerCase().includes(q) ||
-        t.description.toLowerCase().includes(q) ||
-        t.tools.some(tool => tool.toLowerCase().includes(q))
-      )
-    : toolsets;
   const enabledCount = toolsets.filter(t => t.enabled).length;
 
   return (
     <div className="flex flex-col h-full p-3 gap-2">
-      {/* 搜索 */}
-      <div className="relative">
-        <SearchIcon size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <input
-          className="w-full h-7 pl-7 pr-2 text-xs bg-muted/50 rounded border border-border focus:border-primary focus:outline-none placeholder:text-muted-foreground/50"
-          type="text"
-          placeholder="搜索工具集..."
-          value={search}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-        />
-      </div>
-
       {/* 统计 */}
       <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60">
         <Layers size={11} />
@@ -150,17 +121,22 @@ function ToolsetsTab({ currentProfile }: { currentProfile?: string }) {
       {/* 工具集列表 */}
       {!loading && !error && (
         <div className="flex-1 overflow-y-auto space-y-0.5">
-          {filtered.length === 0 ? (
+          {toolsets.length === 0 ? (
             <div className="flex items-center justify-center py-8 text-xs text-muted-foreground/50">
-              {search ? '无匹配工具集' : '暂无工具集数据'}
+              暂无工具集数据
             </div>
           ) : (
-            filtered.map(ts => {
+            toolsets.map(ts => {
               const label = TOOLSET_LABELS[ts.name] || ts.label || ts.name;
               return (
                 <div key={ts.name} className="px-1 py-2 rounded hover:bg-accent/20 transition-colors">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium text-foreground truncate">{label}</span>
+                    <span className="flex items-center gap-1 min-w-0">
+                      <span className="text-xs font-medium text-foreground truncate">{label}</span>
+                      {!ts.configured && (
+                        <span className="px-1 py-0.5 text-[9px] rounded bg-warning/10 text-warning shrink-0">未配置</span>
+                      )}
+                    </span>
                     <Switch
                       checked={ts.enabled}
                       disabled={saving === ts.name}
@@ -188,61 +164,12 @@ function ToolsetsTab({ currentProfile }: { currentProfile?: string }) {
 }
 
 export default function ToolsPanel({ currentProfile }: { currentProfile?: string }) {
-  const [tools, setTools] = useState<ToolItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [activeTab, setActiveTab] = useState<'tools' | 'toolsets' | 'skills'>('tools');
-
-  useEffect(() => {
-    setLoading(true);
-    fetchTools()
-      .then((data: ToolItem[]) => setTools(Array.isArray(data) ? data : []))
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setLoading(false));
-  }, []);
-
-  // 按 toolset 分组
-  const grouped = tools.reduce<Record<string, ToolItem[]>>((acc, tool) => {
-    const ts = tool.toolset || 'other';
-    if (!acc[ts]) acc[ts] = [];
-    acc[ts].push(tool);
-    return acc;
-  }, {});
-
-  const filteredToolsets: Record<string, ToolItem[]> = search.trim()
-    ? Object.fromEntries(
-        Object.entries(grouped).map(([ts, items]) => [
-          ts,
-          items.filter((t) =>
-            t.name.toLowerCase().includes(search.toLowerCase()) ||
-            t.description.toLowerCase().includes(search.toLowerCase())
-          ),
-        ]).filter(([, items]) => items.length > 0)
-      )
-    : grouped;
-
-  const toggleExpand = (ts: string) => {
-    setExpanded((prev) => ({ ...prev, [ts]: !prev[ts] }));
-  };
+  const [activeTab, setActiveTab] = useState<'toolsets' | 'skills'>('toolsets');
 
   return (
     <div className="flex flex-col h-full">
-      {/* Tab 切换：工具 | 工具集 | 技能管理 */}
+      {/* Tab 切换：工具集 | 技能管理 */}
       <div className="flex items-center border-b border-border shrink-0">
-        <button
-          className={cn(
-            'flex items-center gap-1.5 flex-1 justify-center px-3 py-2 text-xs font-medium transition-colors',
-            activeTab === 'tools'
-              ? 'text-foreground border-b-2 border-primary'
-              : 'text-muted-foreground hover:text-foreground'
-          )}
-          onClick={() => setActiveTab('tools')}
-        >
-          <Wrench size={13} />
-          工具
-        </button>
         <button
           className={cn(
             'flex items-center gap-1.5 flex-1 justify-center px-3 py-2 text-xs font-medium transition-colors',
@@ -268,83 +195,6 @@ export default function ToolsPanel({ currentProfile }: { currentProfile?: string
           技能管理
         </button>
       </div>
-
-      {/* ── 工具 Tab 内容 ── */}
-      {activeTab === 'tools' && (
-        <div className="flex flex-col h-full p-3 gap-2">
-          {/* 搜索 */}
-          <div className="relative">
-            <SearchIcon size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input
-              className="w-full h-7 pl-7 pr-2 text-xs bg-muted/50 rounded border border-border focus:border-primary focus:outline-none placeholder:text-muted-foreground/50"
-              type="text"
-              placeholder="搜索工具..."
-              value={search}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-            />
-          </div>
-
-          {/* 统计 */}
-          <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60">
-            <ToolIcon size={11} />
-            {tools.length} 个工具 · {Object.keys(grouped).length} 个工具集
-          </div>
-
-          {/* 加载/错误状态 */}
-          {loading && (
-            <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">加载中...</div>
-          )}
-          {error && (
-            <div className="px-2 py-1 text-xs text-destructive bg-destructive/5 rounded border border-destructive/20">{error}</div>
-          )}
-
-          {/* 工具列表 */}
-          {!loading && !error && (
-            <div className="flex-1 overflow-y-auto space-y-0.5">
-              {Object.keys(filteredToolsets).length === 0 ? (
-                <div className="flex items-center justify-center py-8 text-xs text-muted-foreground/50">
-                  {search ? '无匹配工具' : '暂无工具数据'}
-                </div>
-              ) : (
-                Object.entries(filteredToolsets).map(([toolset, items]) => {
-                  const label = TOOLSET_LABELS[toolset] || toolset;
-                  const isExpanded = expanded[toolset] !== false;
-                  return (
-                    <div key={toolset}>
-                      <button
-                        className="flex items-center gap-1 w-full px-1 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                        onClick={() => toggleExpand(toolset)}
-                      >
-                        <span className="flex-1 text-left font-medium">{label}</span>
-                        <span className="text-[10px] text-muted-foreground/50">{(items as any[]).length}</span>
-                        <span className={cn(
-                          'text-muted-foreground/40 transition-transform',
-                          isExpanded && 'rotate-90'
-                        )}>
-                          &#8250;
-                        </span>
-                      </button>
-                      {isExpanded && (
-                        <div className="space-y-0.5 ml-1">
-                          {(items as any[]).map((tool: ToolItem) => (
-                            <div key={tool.name} className="px-2 py-1 rounded hover:bg-accent/30 transition-colors">
-                              <div className="flex items-center gap-1 text-xs text-foreground">
-                                <SmallToolIcon size={10} className="text-muted-foreground shrink-0" />
-                                <span>{tool.name}</span>
-                              </div>
-                              <div className="text-[10px] text-muted-foreground/70 mt-0.5 line-clamp-2">{tool.description}</div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* ── 工具集 Tab 内容（对齐 Hermes SkillsView → Toolsets）── */}
       {activeTab === 'toolsets' && <ToolsetsTab currentProfile={currentProfile} />}

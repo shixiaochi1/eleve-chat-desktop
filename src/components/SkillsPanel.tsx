@@ -3,6 +3,7 @@
  * Apple 风格，lucide 图标，适配 260px 面板
  * 
  * v2: 所有 API 调用走 bridge.call()，不再直接 fetch
+ * v3: 已安装 Tab 只显示已安装技能（Hub 安装 + 本地合并）；自定义源管理移到 Hub Tab
  */
 import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
@@ -10,7 +11,7 @@ import { call } from '../utils/bridge';
 import { SkillInfo } from '@/types/eleve';
 import {
   PackageIcon, SearchIcon, GlobeIcon,
-  FolderIcon, DeleteIcon, NewIcon,
+  DeleteIcon, NewIcon,
 } from './Icons';
 
 interface SkillItem extends SkillInfo {
@@ -37,40 +38,6 @@ function trustBadge(level: string | undefined, source: string | undefined) {
   return t.label ? <span className={cn('px-1.5 py-0.5 text-[10px] rounded', t.cls)}>{t.label}</span> : null;
 }
 
-/** 本地已安装技能列表 */
-function LocalSkillsList() {
-  const [skills, setSkills] = useState<SkillItem[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    setLoading(true);
-    call('list_skills', {})
-      .then((data: SkillItem[]) => setSkills(Array.isArray(data) ? data : []))
-      .catch(() => setSkills([]))
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) return <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70"><FolderIcon size={12} /> 本地技能 — 加载中...</div>;
-  if (skills.length === 0) return null;
-
-  return (
-    <div className="space-y-1 pt-1 border-t border-border/50">
-      <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70"><FolderIcon size={12} /> 本地技能 ({skills.length})</div>
-      <div className="space-y-1">
-        {skills.map((s, i) => (
-          <div key={i} className="p-2 rounded border border-border bg-muted/10">
-            <div className="flex items-center gap-1 mb-0.5">
-              <span className="text-xs text-foreground truncate flex-1">{s.name || '?'}</span>
-              {s.category && <span className="px-1 py-0.5 text-[10px] bg-muted/30 text-muted-foreground rounded">{s.category}</span>}
-            </div>
-            {s.description && <div className="text-[10px] text-muted-foreground/60">{s.description}</div>}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export default function SkillsPanel() {
   const [tab, setTab] = useState('installed');
   const [query, setQuery] = useState('');
@@ -80,12 +47,14 @@ export default function SkillsPanel() {
   const [installing, setInstalling] = useState<Record<string, boolean>>({});
   const [installMsg, setInstallMsg] = useState<Record<string, string>>({});
   const [installed, setInstalled] = useState<SkillItem[]>([]);
+  const [localSkills, setLocalSkills] = useState<SkillItem[]>([]);
   const [instLoading, setInstLoading] = useState(false);
+  const [localLoading, setLocalLoading] = useState(false);
   const [taps, setTaps] = useState<TapItem[]>([]);
   const [tapRepo, setTapRepo] = useState('');
   const [tapMsg, setTapMsg] = useState('');
 
-  useEffect(() => { refreshInstalled(); refreshTaps(); }, []);
+  useEffect(() => { refreshInstalled(); refreshLocal(); refreshTaps(); }, []);
 
   const refreshInstalled = useCallback(async () => {
     setInstLoading(true);
@@ -94,6 +63,15 @@ export default function SkillsPanel() {
       setInstalled(Array.isArray(data) ? data : []);
     } catch { setInstalled([]); }
     setInstLoading(false);
+  }, []);
+
+  const refreshLocal = useCallback(async () => {
+    setLocalLoading(true);
+    try {
+      const data: SkillItem[] = await call('list_skills', {});
+      setLocalSkills(Array.isArray(data) ? data : []);
+    } catch { setLocalSkills([]); }
+    setLocalLoading(false);
   }, []);
 
   const refreshTaps = useCallback(async () => {
@@ -154,6 +132,8 @@ export default function SkillsPanel() {
 
   const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === 'Enter') doSearch(); };
 
+  const allSkills = [...installed, ...localSkills];
+
   return (
     <div className="p-2 space-y-2">
       {/* Tabs */}
@@ -168,10 +148,50 @@ export default function SkillsPanel() {
         </button>
       </div>
 
-      {/* Tab: Installed */}
+      {/* Tab: Installed — 已安装技能（Hub 安装 + 本地技能合并展示） */}
       {tab === 'installed' && (
         <div className="space-y-2">
-          {/* Taps */}
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
+            <PackageIcon size={12} /> 已安装技能 ({allSkills.length})
+          </div>
+          {instLoading || localLoading ? (
+            <div className="flex flex-col items-center py-4 text-xs text-muted-foreground gap-1">加载中...</div>
+          ) : allSkills.length === 0 ? (
+            <div className="flex flex-col items-center py-4 text-xs text-muted-foreground gap-1">
+              <span>暂无已安装技能</span>
+              <span className="text-[10px] text-muted-foreground/50">切换到 Hub 标签搜索安装</span>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {allSkills.map((s, i) => (
+                <div key={i} className="p-2 rounded border border-border">
+                  <div className="flex items-center gap-1 mb-0.5">
+                    <span className="text-xs text-foreground truncate flex-1">{s.name || '?'}</span>
+                    {s.category && <span className="px-1 py-0.5 text-[10px] bg-muted/30 text-muted-foreground rounded">{s.category}</span>}
+                    {trustBadge(s.trust_level, s.source)}
+                  </div>
+                  {s.description && <div className="text-[10px] text-muted-foreground/60">{s.description}</div>}
+                  {(s.source || s.install_path) && (
+                    <div className="text-[10px] text-muted-foreground/50">
+                      {s.source && <span>source: {s.source}</span>}
+                      {s.install_path && (
+                        <span className="ml-1"> | {typeof s.install_path === 'object'
+                          ? (s.install_path as unknown as { get: (k: string) => string })?.get('install_path')
+                          : s.install_path}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab: Hub */}
+      {tab === 'hub' && (
+        <div className="space-y-2">
+          {/* 自定义源 */}
           <div className="space-y-1">
             <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70"><GlobeIcon size={12} /> 自定义源</div>
             <div className="flex items-center gap-1">
@@ -198,43 +218,7 @@ export default function SkillsPanel() {
             )}
           </div>
 
-          {/* Installed list */}
-          <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70"><PackageIcon size={12} /> Hub 已安装 ({installed.length})</div>
-          {instLoading ? (
-            <div className="flex flex-col items-center py-4 text-xs text-muted-foreground gap-1">加载中...</div>
-          ) : installed.length === 0 ? (
-            <div className="flex flex-col items-center py-4 text-xs text-muted-foreground gap-1">
-              <span>暂无 Hub 安装的技能</span>
-              <span className="text-[10px] text-muted-foreground/50">切换到 Hub 标签搜索安装</span>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {installed.map((s, i) => (
-                <div key={i} className="p-2 rounded border border-border">
-                  <div className="flex items-center gap-1 mb-0.5">
-                    <span className="text-xs text-foreground truncate flex-1">{s.name || '?'}</span>
-                    {trustBadge(s.trust_level, s.source)}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground/50">
-                    source: {s.source || '?'}
-                    {s.install_path && <span className="ml-1"> | {s.install_path}</span>}
-                    {typeof s.install_path === 'object' && (s.install_path as unknown as { get: (k: string) => string })?.get && (
-                      <span className="ml-1"> | {(s.install_path as unknown as { get: (k: string) => string })?.get('install_path')}</span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Local skills list */}
-          <LocalSkillsList />
-        </div>
-      )}
-
-      {/* Tab: Hub */}
-      {tab === 'hub' && (
-        <div className="space-y-2">
+          {/* 搜索 */}
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70"><SearchIcon size={12} /> 搜索 Skills Hub</div>
           <div className="flex items-center gap-1">
             <input className="flex-1 px-2 py-1 text-xs bg-background border border-input rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring" placeholder="搜索技能..."
