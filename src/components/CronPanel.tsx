@@ -337,7 +337,7 @@ export default function CronPanel() {
             <textarea className="w-full px-2 py-1 text-xs bg-background border border-input rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring resize-none" rows={3}
               placeholder="定时交给 Agent 执行的任务，例如：检查今天的待办并生成摘要"
               value={form.prompt} onChange={(e) => setForm((f) => ({ ...f, prompt: e.target.value }))} />
-            <p className="text-[10px] text-muted-foreground/50 m-0">触发时以独立会话运行此提示词（对齐 Hermes cronjob 语义）</p>
+            <p className="text-[10px] text-muted-foreground/50 m-0">到达执行时间后，会自动开启一个独立会话来运行这段提示词</p>
           </div>
           <div className="pt-1">
             <button className="w-full px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
