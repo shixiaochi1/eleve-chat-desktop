@@ -279,6 +279,21 @@ export async function setProfileColor(name: string, color: string): Promise<any>
   return call('set_color', { name, color });
 }
 
+/** profiles.set_avatar — 上传 Agent 头像（base64 data URL → 后端 avatar.png） */
+export async function setProfileAvatar(name: string, dataUrl: string): Promise<any> {
+  return call('set_avatar', { name, data: dataUrl });
+}
+
+/** profiles.set_avatar_key — 设置 Agent 默认头像（预设头像库 key，写 profile.yaml） */
+export async function setProfileAvatarKey(name: string, avatarKey: string | null): Promise<any> {
+  return call('set_avatar_key', { name, avatar_key: avatarKey });
+}
+
+/** profiles.get_avatar — 读取 Agent 头像（返回 { exists, data?: dataURL }） */
+export async function getProfileAvatar(name: string): Promise<{ exists: boolean; data?: string; mime?: string }> {
+  return call('get_avatar', { name });
+}
+
 /** profiles.set_display_name — 设置 Agent 昵称（同步 SOUL.md 身份块） */
 export async function setDisplayName(name: string, displayName: string): Promise<any> {
   return call('set_display_name', { name, display_name: displayName });

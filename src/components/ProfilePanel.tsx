@@ -7,7 +7,7 @@
  * 删除：非 default 卡片 hover 显示垃圾桶 → 输名字强确认 → 移入回收站（可恢复）。
  */
 import { useState, useEffect, useCallback } from 'react';
-import { fetchProfiles, deleteProfile } from '../utils/api';
+import { fetchProfiles, deleteProfile, getProfileAvatar } from '../utils/api';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { getWsClient } from '../services/ws-client';
 import { cn } from '@/lib/utils';
@@ -16,6 +16,7 @@ import {
   RefreshCw, Plus, Trash2,
 } from 'lucide-react';
 import CreateAgentDialog from './CreateAgentDialog';
+import { AgentAvatarSvg } from '../lib/agent-avatars';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from './ui/dialog';
@@ -23,6 +24,12 @@ import {
 interface ProfileCardData {
   name: string;
   display_name?: string | null;
+  /** Agent 主题色（#RRGGBB，来自后端 profile.yaml color，仅 UI） */
+  color?: string | null;
+  /** 是否有头像（有图显示图，无图显示首字母 glyph） */
+  avatar?: boolean;
+  /** 默认头像 key（预设头像库，随主题色渲染 SVG） */
+  avatar_key?: string | null;
   path: string;
   is_default: boolean;
   is_active: boolean;
@@ -39,12 +46,47 @@ interface ProfilePanelProps {
   onProfilesChange?: (count: number) => void;
   /** 🔴 昵称全局生效：上抛 name → display_name 映射，App 据此让状态栏/会话列表显示昵称而非 ID */
   onDisplayNamesChange?: (map: Record<string, string>) => void;
+  /** 🔴 颜色全局生效：上抛 name → color 映射，App 据此让编辑面板/宫格卡片显示主题色 */
+  onColorsChange?: (map: Record<string, string>) => void;
+  /** 🔴 默认头像 key 上抛：name → avatar_key（App 传给编辑面板初始值） */
+  onAvatarKeysChange?: (map: Record<string, string>) => void;
   /** 双击 Agent 卡片 → 打开编辑面板（App 层渲染 EditAgentDialog） */
   onEditAgent?: (name: string) => void;
+  /** 🔴 编辑保存后自增：触发重新拉取列表（昵称/颜色热更新，不依赖重启） */
+  refreshSignal?: number;
   [key: string]: unknown;
 }
 
 // ── 单个 Agent 卡片 ──
+/** 🔴 2026-08-02 头像：默认头像 key → 主题色 SVG；有上传图 → 懒加载 img；无 → 首字母 glyph */
+function ProfileAvatar({ name, hasAvatar, color, avatarKey }: { name: string; hasAvatar?: boolean; color?: string | null; avatarKey?: string | null }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!hasAvatar || avatarKey) { setSrc(null); return; }
+    let cancelled = false;
+    getProfileAvatar(name)
+      .then((res) => { if (!cancelled && res?.exists && res.data) setSrc(res.data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [name, hasAvatar, avatarKey]);
+
+  if (avatarKey) {
+    return (
+      <span className="block w-full h-full p-[3px]" style={{ color: color || undefined }}>
+        <AgentAvatarSvg avatarKey={avatarKey} color={color || 'currentColor'} />
+      </span>
+    );
+  }
+  if (src) {
+    return <img src={src} alt="" className="w-full h-full object-cover" />;
+  }
+  return (
+    <span className="flex items-center justify-center w-full h-full text-xs font-semibold uppercase" style={{ color: color || undefined }}>
+      {name.replace(/[^\p{L}\p{N}]/gu, '').charAt(0).toUpperCase() || '?'}
+    </span>
+  );
+}
+
 function ProfileCard({
   profile, active, switching, onSelect, onDelete, onEdit,
 }: {
@@ -55,6 +97,9 @@ function ProfileCard({
   onDelete?: (name: string) => void;
   onEdit?: (name: string) => void;
 }) {
+  // 🔴 2026-08-02 卡片主题色联动：选中/未选中/头像全链路应用 Agent 主题色。
+  // 无主题色（color 为 null）时回退原样式（primary 边框 + accent 背景）。
+  const color = profile.color || null;
   return (
     <div
       role="button"
@@ -63,20 +108,53 @@ function ProfileCard({
       onDoubleClick={() => onEdit?.(profile.name)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(profile.name); } }}
       className={cn(
-        'group w-full text-left px-2.5 py-2 rounded-lg border transition-colors space-y-1.5 cursor-pointer',
-        active
-          ? 'border-primary/50 bg-accent/5'
-          : 'border-border bg-card hover:bg-accent/30',
+        'group relative w-full text-left px-2.5 py-2 pl-3 rounded-lg border bg-card transition-all duration-150 cursor-pointer overflow-hidden space-y-1.5 hover:bg-accent/30',
+        // 无主题色：回退原样式（描边 border-border，选中态 primary 边框 + accent 底）
+        !color && 'border-border',
+        !color && active && 'border-primary/50 bg-accent/5',
         switching && 'opacity-60'
       )}
+      style={
+        color ? {
+          '--agent-color': color,
+          // 🔴 卡片描边 = Agent 主题色（30% 透明混合，选中/未选中一致）
+          borderColor: `color-mix(in srgb, ${color} 30%, transparent)`,
+          // 🔴 选中态背景 = AGENT 色 10% 透明混合（未选中保持 bg-card）
+          background: active ? `color-mix(in srgb, ${color} 10%, var(--ui-card-bg))` : undefined,
+        } as React.CSSProperties : undefined
+      }
     >
+      {/* 左侧主题色强调条：仅选中态渲染（实色+发光）；未选中无竖条 */}
+      {color && active && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
+          style={{
+            background: color,
+            boxShadow: `0 0 8px color-mix(in srgb, ${color} 65%, transparent)`,
+          }}
+        />
+      )}
       {/* 名称行 */}
       <div className="flex items-center gap-1.5">
-        <div className={cn(
-          'flex items-center justify-center w-6 h-6 rounded-md shrink-0',
-          active ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
-        )}>
-          <Bot size={13} strokeWidth={1.5} />
+        {/* 头像容器：选中 = 主题色实底渐变（白色内容）；未选中 = 20% 淡底 */}
+        <div
+          className="flex items-center justify-center w-6 h-6 rounded-md shrink-0 overflow-hidden transition-all duration-150"
+          style={
+            color
+              ? {
+                  background: active
+                    ? `linear-gradient(135deg, ${color}, color-mix(in srgb, ${color} 82%, #000 18%))`
+                    : `color-mix(in srgb, ${color} 20%, transparent)`,
+                }
+              : undefined
+          }
+        >
+          {profile.avatar || profile.avatar_key ? (
+            <ProfileAvatar name={profile.display_name || profile.name} hasAvatar={profile.avatar} color={active && color ? '#ffffff' : color} avatarKey={profile.avatar_key} />
+          ) : (
+            <Bot size={13} strokeWidth={1.5} style={{ color: active && color ? '#fff' : (color || undefined) }} />
+          )}
         </div>
         <span className="text-xs font-medium text-foreground truncate flex-1">
           {profile.display_name || profile.name}
@@ -93,7 +171,17 @@ function ProfileCard({
         {switching ? (
           <Loader size={12} strokeWidth={1.5} className="animate-spin text-primary" />
         ) : active ? (
-          <Check size={13} strokeWidth={2} className="text-primary" />
+          color ? (
+            /* 选中对勾：主题色实底小圆 + 白色勾（比裸勾更醒目） */
+            <span
+              className="flex items-center justify-center w-4 h-4 rounded-full shrink-0"
+              style={{ background: color }}
+            >
+              <Check size={10} strokeWidth={3} className="text-white" />
+            </span>
+          ) : (
+            <Check size={13} strokeWidth={2} className="text-primary" />
+          )
         ) : null}
         {/* 删除按钮（非 default，hover 显示） */}
         {!profile.is_default && onDelete && (
@@ -133,7 +221,7 @@ function ProfileCard({
 }
 
 // ── 主面板 ──
-export default function ProfilePanel({ currentProfile, onProfileChange, onProfilesChange, onDisplayNamesChange, onEditAgent }: ProfilePanelProps) {
+export default function ProfilePanel({ currentProfile, onProfileChange, onProfilesChange, onDisplayNamesChange, onColorsChange, onAvatarKeysChange, onEditAgent, refreshSignal }: ProfilePanelProps) {
   const [profiles, setProfiles] = useState<ProfileCardData[]>([]);
   // 🔴 高亮唯一权威源 = App 的 currentProfile（UI 焦点 ①），经 prop 下发，不读后端 active_profile（③）。
   // 决策④：UI 切换不写 ③，故 ③ 恒为系统默认（CLI 权威）；若拿 ③ 当高亮源，点选后 load() 会把高亮弹回 default。
@@ -185,6 +273,31 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
     for (const p of profiles) map[p.name] = p.display_name || p.name;
     onDisplayNamesChange?.(map);
   }, [profiles, onDisplayNamesChange]);
+
+  // 🔴 颜色全局生效：上抛 name → color 映射（App 驱动编辑面板初始色/宫格卡片主题色）
+  useEffect(() => {
+    const map: Record<string, string> = {};
+    for (const p of profiles) {
+      if (p.color) map[p.name] = p.color;
+    }
+    onColorsChange?.(map);
+  }, [profiles, onColorsChange]);
+
+  // 🔴 默认头像 key 上抛（App 驱动编辑面板初始头像）
+  useEffect(() => {
+    const map: Record<string, string> = {};
+    for (const p of profiles) {
+      if (p.avatar_key) map[p.name] = p.avatar_key;
+    }
+    onAvatarKeysChange?.(map);
+  }, [profiles, onAvatarKeysChange]);
+
+  // 🔴 编辑面板保存后热更新：refreshSignal 自增 → 重新拉取列表（昵称/颜色即时生效）
+  useEffect(() => {
+    if (refreshSignal === undefined || refreshSignal === 0) return;
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshSignal]);
 
   const handleSelect = useCallback((name: string) => {
     if (name === activeName) return;

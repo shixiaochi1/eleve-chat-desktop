@@ -5,7 +5,6 @@ import {
   setDebugToolCalls,
   setMonitor,
   useMonitorModelName,
-  useMonitorTokens,
   useMonitorSessionStartedAt,
 } from './store/debug';
 import { textPart } from '@/lib/chat-messages';
@@ -165,7 +164,16 @@ export default function App() {
   const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
   const currentProfileLabel = displayNames[currentProfile] || currentProfile;
 
-  // ── Agent 编辑面板（双击宫格卡片弹出）──
+  // 🔴 颜色全局生效：ProfilePanel 上抛 name → color 映射，
+  // 编辑面板初始色/宫格卡片主题色（后端 profile.yaml color 唯一权威源）。
+  const [agentColors, setAgentColors] = useState<Record<string, string>>({});
+  // 🔴 默认头像 key 全局生效：ProfilePanel 上抛 name → avatar_key（编辑面板初始头像）
+  const [agentAvatarKeys, setAgentAvatarKeys] = useState<Record<string, string>>({});
+  // 🔴 编辑面板保存后自增 → ProfilePanel/GridModeView 重拉列表（昵称/颜色热更新，不依赖重启）
+  const [profileRefreshSignal, setProfileRefreshSignal] = useState(0);
+  const bumpProfileRefresh = useCallback(() => setProfileRefreshSignal((t) => t + 1), []);
+
+  // ── Agent 编辑面板（双击宫格卡片打开）──
   const [editTarget, setEditTarget] = useState<string | null>(null);
 
   // ── 多 Agent UI：Ctrl+G 切换单视图/宫格 ──
@@ -272,7 +280,6 @@ export default function App() {
   // ── debug / monitoring state（下沉到 store/debug.ts：App 根不再持有调试状态，
   //     DebugPanel/AppShell/ModelContext 自订阅，事件不再触发整树重渲染）──
   const modelName = useMonitorModelName();
-  const tokens = useMonitorTokens();
   const sessionStartedAt = useMonitorSessionStartedAt();
 
   // ── drain queue ref (wired after usePromptActions) ──
@@ -911,7 +918,7 @@ export default function App() {
 
   // ── titlebar element ──
   const titlebarEl = (
-    <div className="titlebar" data-tauri-drag-region onDoubleClick={winMax}>
+    <div className="titlebar" data-tauri-drag-region onDoubleClick={viewMode === 'grid' ? handleExitGrid : winMax}>
       <div className="titlebar-actions">
         <button className="tb-btn" id="btn-min" title="最小化" onClick={winMin}><Minus size={14} strokeWidth={1.5} /></button>
         <button className="tb-btn" id="btn-max" title="最大化" onClick={winMax}><Square size={12} strokeWidth={1.5} /></button>
@@ -939,10 +946,7 @@ export default function App() {
         gatewayOnline={gatewayHealth.online}
         gatewayChecking={gatewayHealth.checking}
         sessionId={sess.sessionId}
-        modelName={modelDiscovery.selectedModel || modelName || undefined}
         profileName={currentProfileLabel}
-        tokensIn={tokens.tokensIn}
-        tokensOut={tokens.tokensOut}
         onOpenSettings={handleOpenSettings}
       >
         {/* ===== PaneShell 三栏布局：图标栏 + 侧边面板 + 聊天区 ===== */}
@@ -975,6 +979,9 @@ export default function App() {
                   onProfileChange={handleProfileChange}
                   onProfilesChange={handleProfilesChange}
                   onDisplayNamesChange={setDisplayNames}
+                  onColorsChange={setAgentColors}
+                  onAvatarKeysChange={setAgentAvatarKeys}
+                  refreshSignal={profileRefreshSignal}
                   onEditAgent={setEditTarget}
                   onOpenSettings={handleOpenSettings}
                   onRestart={handleRestartService}
@@ -1023,7 +1030,7 @@ export default function App() {
               </button>
             )}
             <main className="chat-area" id="page-chat">
-              <ToolStatusBar sessionId={sess.sessionId} isStreaming={isStreaming} />
+              <ToolStatusBar sessionId={sess.sessionId} isStreaming={isStreaming} onToggleViewMode={toggleViewMode} />
               {!portReady && messageCount === 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', opacity: 0.6 }}>
                   <div className="spinner" style={{ width: 32, height: 32, border: '3px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
@@ -1184,13 +1191,21 @@ export default function App() {
       {/* Agent 编辑面板（双击宫格卡片打开） */}
       {editTarget && (
         <EditAgentDialog
-          profile={{ name: editTarget, display_name: displayNames[editTarget] || null, color: undefined }}
+          profile={{
+            name: editTarget,
+            display_name: displayNames[editTarget] || null,
+            color: agentColors[editTarget] || null,
+            avatar_key: agentAvatarKeys[editTarget] || null,
+          }}
           onClose={() => setEditTarget(null)}
           onSaved={(nick) => {
             // 昵称保存 → App 即时更新 displayNames（状态栏/会话列表立即生效）
             if (nick && nick.trim()) {
               setDisplayNames((prev) => ({ ...prev, [editTarget]: nick.trim() }));
             }
+            // 🔴 热更新：重拉 Agent 列表（宫格卡片昵称/颜色即时生效，不依赖重启）
+            bumpProfileRefresh();
+            void gridRef.current?.refreshProfiles();
           }}
         />
       )}

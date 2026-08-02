@@ -71,16 +71,28 @@ export interface GridModeViewHandle {
   newSession: (profile: string) => void;
   /** 宫格内执行 slash 命令（CommandCenter CMD+K 路由用） */
   execCommand: (profile: string, cmdName: string, args: string) => void;
+  /** 🔴 编辑面板保存后热刷新：重新拉 Agent 列表（昵称/颜色即时生效，不依赖重启） */
+  refreshProfiles: () => Promise<void>;
 }
 
 // ── Agent 颜色调色板（对齐 --ui-* 设计 token）──
 // ring/bg 用 color-mix 从主题 dot 变量派生，深色/浅色主题自动适配（B5 光晕主题化）
+// 🔴 仅作为“未设置 color 的 profile”回退色：已设色的 profile 直接用 profile.color（#RRGGBB）
 const AGENT_COLORS: AgentCardColor[] = [
   { dot: 'var(--ui-blue)',   ring: 'color-mix(in srgb, var(--ui-blue) 35%, transparent)',   bg: 'color-mix(in srgb, var(--ui-blue) 6%, transparent)' },
   { dot: 'var(--ui-green)',  ring: 'color-mix(in srgb, var(--ui-green) 35%, transparent)',  bg: 'color-mix(in srgb, var(--ui-green) 6%, transparent)' },
   { dot: 'var(--ui-purple)', ring: 'color-mix(in srgb, var(--ui-purple) 35%, transparent)', bg: 'color-mix(in srgb, var(--ui-purple) 6%, transparent)' },
   { dot: 'var(--ui-orange)', ring: 'color-mix(in srgb, var(--ui-orange) 35%, transparent)', bg: 'color-mix(in srgb, var(--ui-orange) 6%, transparent)' },
 ];
+
+/** 从 #RRGGBB hex 派生卡片色（dot=hex，ring/bg 用 color-mix 同 AGENT_COLORS 派生规则） */
+function cardColorFromHex(hex: string): AgentCardColor {
+  return {
+    dot: hex,
+    ring: `color-mix(in srgb, ${hex} 35%, transparent)`,
+    bg: `color-mix(in srgb, ${hex} 6%, transparent)`,
+  };
+}
 
 // 尚未加载的 profile 的空状态（模块级常量 = 稳定引用，保证 AgentChatCard memo 生效）
 const EMPTY_AGENT_STATE: AgentChatState = {
@@ -160,7 +172,7 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   const { currentModel } = useModelContext();
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [order, setOrder] = useState<string[]>([]);
-  const [colorMap, setColorMap] = useState<Record<string, number>>({});
+  const [colorMap, setColorMap] = useState<Record<string, string>>({});
   // 🔴 焦点 = App.currentProfile（单一权威源，与侧栏 ProfilePanel 同模式）。
   // 删本地 focusedName 状态：宫格点选 → onFocusChange → App.currentProfile → prop 回流驱动高亮。
   const [width, setWidth] = useState(0);
@@ -222,29 +234,36 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
     return () => ro.disconnect();
   }, []);
 
-  // ── 拉取 Agent 列表（挂载时一次，运行期由 onProfilesChange 事件驱动） ──
+  // ── 拉取 Agent 列表（挂载时一次 + 编辑面板热更新时刷新） ──
   // 🔴 P1 修复：依赖从 [currentProfile] 改 []，消灭“点卡片切焦点 → 重拉列表 → setOrder 重置拖拽排序”
+  // 🔴 2026-08-02 热更新修复：抽成可复用 refreshProfiles，编辑面板保存后调用（不再依赖重启）
+  const refreshProfiles = useCallback(async () => {
+    try {
+      const data = await fetchProfiles();
+      const list = data.profiles as ProfileInfo[];
+      setProfiles(list);
+      // 🔴 保留已有拖拽排序：仅初始化时赋值，后续只增删不重排
+      setOrder((prev) => {
+        if (prev.length === 0) return list.map((p) => p.name);
+        const names = new Set(list.map((p) => p.name));
+        const kept = prev.filter((n) => names.has(n));
+        const added = list.map((p) => p.name).filter((n) => !prev.includes(n));
+        return [...kept, ...added];
+      });
+      // 🔴 颜色权威源 = 后端 profile.color（#RRGGBB）；未设置时回退按序索引色
+      const map: Record<string, string> = {};
+      list.forEach((p, i) => { map[p.name] = p.color || AGENT_COLORS[i % AGENT_COLORS.length].dot; });
+      setColorMap(map);
+    } catch { /* 静默：下次刷新/重启自愈 */ }
+  }, []);
+
+  // 挂载时拉一次（mountedRef 防卸载后 setState）
+  const mountedRef = useRef(true);
   useEffect(() => {
-    let cancelled = false;
-    fetchProfiles()
-      .then((data) => {
-        if (cancelled) return;
-        const list = data.profiles as ProfileInfo[];
-        setProfiles(list);
-        // 🔴 保留已有拖拽排序：仅初始化时赋值，后续只增删不重排
-        setOrder((prev) => {
-          if (prev.length === 0) return list.map((p) => p.name);
-          const names = new Set(list.map((p) => p.name));
-          const kept = prev.filter((n) => names.has(n));
-          const added = list.map((p) => p.name).filter((n) => !prev.includes(n));
-          return [...kept, ...added];
-        });
-        const map: Record<string, number> = {};
-        list.forEach((p, i) => { map[p.name] = i % AGENT_COLORS.length; });
-        setColorMap(map);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
+    mountedRef.current = true;
+    void refreshProfiles();
+    return () => { mountedRef.current = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── 进入宫格：为每个有历史 session 的 profile 加载最新 N 条（后端权威源） ──
@@ -280,7 +299,7 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   }, [loadLatest, onFocusChange]);
 
   // 🔴 命令式句柄：App 经 gridRef 调度宫格（switchToSession / persistPointers / newSession）
-  useImperativeHandle(ref, () => ({ switchToSession, persistPointers, newSession: handleGridNewSession, execCommand }), [switchToSession, persistPointers, handleGridNewSession, execCommand]);
+  useImperativeHandle(ref, () => ({ switchToSession, persistPointers, newSession: handleGridNewSession, execCommand, refreshProfiles }), [switchToSession, persistPointers, handleGridNewSession, execCommand, refreshProfiles]);
 
   // 🔴 退出/展开：持久化权威收敛到 App（handleExitGrid/handleExpandAgent 经 gridRef.persistPointers）。
   // 此处只回调 App，不再本地 persist，消灭“按钮退出持久化 / Ctrl+G 退出不持久化”的双路径不一致。
@@ -402,7 +421,7 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
     try { (handle as HTMLElement).setPointerCapture(e.pointerId); } catch { /* ignore */ }
 
     const rect = card.getBoundingClientRect();
-    const colorIdx = colorMapRef.current[name] ?? 0;
+    const dot = colorMapRef.current[name] ?? AGENT_COLORS[0].dot;
 
     dragRef.current = {
       name,
@@ -412,7 +431,8 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
       grabOffsetX: e.clientX - rect.left,
       grabOffsetY: e.clientY - rect.top,
       active: false,
-      ring: AGENT_COLORS[colorIdx % AGENT_COLORS.length].ring,
+      // colorMap 存 dot 值（#RRGGBB 或 var(--ui-*)），统一经 cardColorFromHex 派生 ring
+      ring: cardColorFromHex(dot).ring,
     };
     projectedOrderRef.current = [...orderRef.current];
 
@@ -435,7 +455,11 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* ── 顶部控制条 ── */}
-      <div className="flex items-center gap-2 px-3 py-1.5 shrink-0 border-b border-border/30">
+      <div
+        className="flex items-center gap-2 px-3 py-1.5 shrink-0 border-b border-border/30"
+        title="双击空白处返回单视图"
+        onDoubleClick={handleExit}
+      >
         <button
           className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground bg-secondary/60 hover:bg-accent/50 rounded transition-colors"
           title="返回单视图 (Ctrl+G)"
@@ -448,7 +472,7 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
           {orderedProfiles.length} 个 Agent
         </span>
         <span className="text-[10px] text-muted-foreground/30 ml-auto">
-          拖拽标题栏换位 · 点击卡片聚焦 · 展开按钮切单视图
+          拖拽标题栏换位 · 点击卡片聚焦 · 双击空白处/展开按钮切单视图
         </span>
       </div>
 
@@ -472,7 +496,7 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
                 <AgentChatCard
                   profile={profile}
                   state={states[profile.name] ?? EMPTY_AGENT_STATE}
-                  color={AGENT_COLORS[colorMap[profile.name] ?? 0]}
+                  color={cardColorFromHex(colorMap[profile.name] ?? AGENT_COLORS[0].dot)}
                   focused={currentProfile === profile.name}
                   portReady={portReady}
                   onSend={handleSendTo}

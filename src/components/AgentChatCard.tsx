@@ -19,6 +19,8 @@ import { Maximize2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useModelContext } from '../contexts/ModelContext';
 import { call } from '../utils/bridge';
+import { getProfileAvatar } from '../utils/api';
+import { AgentAvatarSvg } from '../lib/agent-avatars';
 import { getWsClient } from '../services/ws-client';
 import MessageRow from './MessageRow';
 import ApprovalCard from './ApprovalCard';
@@ -40,6 +42,12 @@ const OVERSCAN = 4;
 export interface AgentProfileInfo {
   name: string;
   display_name?: string | null;
+  /** Agent 主题色（#RRGGBB，来自后端 profile.yaml color，仅 UI） */
+  color?: string | null;
+  /** 是否有头像（有图显示图，无图显示机器人 glyph） */
+  avatar?: boolean;
+  /** 默认头像 key（预设头像库，随主题色渲染 SVG） */
+  avatar_key?: string | null;
   model: string | null;
   provider: string | null;
 }
@@ -80,8 +88,35 @@ interface SudoPayload { request_id?: string; prompt?: string }
 interface SecretPayload { request_id?: string; prompt?: string; env_var?: string }
 
 // ── 机器人头像 — 静态小机器人（纯身份展示，无状态/无动画，简单）──
-// 头壳/耳朵/天线/眼睧/嘴巴全部 Agent 身份色，巩膜用卡片底色对比
-function RobotAvatar({ agentColor }: { agentColor: string }) {
+// 有头像（avatar=true）时懒加载显示图片，无头像时显示主题色机器人 SVG
+function RobotAvatar({ agentColor, profile }: { agentColor: string; profile?: AgentProfileInfo }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!profile?.avatar || profile?.avatar_key) { setSrc(null); return; }
+    let cancelled = false;
+    getProfileAvatar(profile.name)
+      .then((res) => { if (!cancelled && res?.exists && res.data) setSrc(res.data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [profile?.avatar, profile?.avatar_key, profile?.name]);
+
+  // 默认头像 key → 主题色 SVG
+  if (profile?.avatar_key) {
+    return (
+      <div className="flex items-center justify-center w-6 h-6 rounded-lg shrink-0 overflow-hidden">
+        <span className="block w-full h-full p-1" style={{ color: agentColor }}>
+          <AgentAvatarSvg avatarKey={profile.avatar_key} color={agentColor} />
+        </span>
+      </div>
+    );
+  }
+  if (src) {
+    return (
+      <div className="flex items-center justify-center w-6 h-6 rounded-lg shrink-0 overflow-hidden">
+        <img src={src} alt="" className="w-full h-full object-cover" />
+      </div>
+    );
+  }
   return (
     <div
       className="flex items-center justify-center w-6 h-6 rounded-lg shrink-0"
@@ -269,7 +304,7 @@ export const AgentChatCard = memo(function AgentChatCard({
     <div
       className={cn(
         'w-full h-full flex flex-col rounded-xl border overflow-hidden min-h-0 transition-shadow duration-200',
-        focused ? 'border-transparent shadow-lg' : 'border-border/60 opacity-90 hover:opacity-100'
+        focused ? 'border-transparent shadow-lg' : 'border-border/60 opacity-90 hover:opacity-100 shadow-sm'
       )}
       style={{
         background: 'var(--ui-card-bg)',
@@ -279,14 +314,17 @@ export const AgentChatCard = memo(function AgentChatCard({
       }}
     >
       {/* ── 工具状态栏（整条可拖拽换位 · data-drag-handle · 按钮经 closest('button') 排除）──
-          布局：[机器人头像] [名称]  …  [模型选择] [展开] */}
+          布局：[机器人头像] [名称]  …  [模型选择] [展开]
+          🔴 2026-08-02 老大需求：双击工具状态栏任意处 → 展开为单视图（与右侧展开按钮同一出口 onExpand）*/}
       <div
         data-drag-handle
         className="flex items-center gap-2 h-11 px-3 shrink-0 border-b border-border/40 select-none cursor-grab active:cursor-grabbing touch-none"
         style={{ background: color.bg }}
+        onDoubleClick={() => onExpand(name)}
+        title="双击展开为单视图"
       >
-        {/* Agent 身份 — 静态小机器人（简单，不显示状态） */}
-        <RobotAvatar agentColor={color.dot} />
+        {/* Agent 身份 — 有头像显示头像，无头像显示机器人 */}
+        <RobotAvatar agentColor={color.dot} profile={profile} />
         <span className="text-[13px] font-semibold tracking-tight text-foreground truncate min-w-0">
           {profile.display_name || profile.name}
         </span>

@@ -38,8 +38,14 @@ function formatTime(ts: string | undefined | null): string {
   }
 }
 
-export default function MemoryPanel() {
-  const { memories, loading, error, refresh, deleteEntry } = useMemory();
+interface MemoryPanelProps {
+  sessionId?: string | null;
+  [key: string]: unknown;
+}
+
+export default function MemoryPanel({ sessionId }: MemoryPanelProps) {
+  // 🔴 2026-08-02 断线修复：透传 sessionId → useMemory 显式带参调用后端
+  const { memories, loading, error, refresh, deleteEntry } = useMemory(sessionId);
   const [searchQuery, setSearchQuery] = useState('');
   const [deletingIds, setDeletingIds] = useState<Record<string, boolean>>({});
 

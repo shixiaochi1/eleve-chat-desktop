@@ -12,10 +12,7 @@ interface StatusBarProps {
   gatewayOnline?: boolean;
   gatewayChecking?: boolean;
   sessionId?: string;
-  modelName?: string;
   profileName?: string;
-  tokensIn?: number;
-  tokensOut?: number;
   onOpenSettings?: () => void;
 }
 
@@ -24,10 +21,7 @@ export default function StatusBar({
   gatewayOnline = false,
   gatewayChecking = false,
   sessionId = '',
-  modelName,
   profileName,
-  tokensIn = 0,
-  tokensOut = 0,
   onOpenSettings,
 }: StatusBarProps) {
   const [copied, setCopied] = useState(false);
@@ -56,7 +50,6 @@ export default function StatusBar({
 
   const shortSessionId = sessionId ? `${sessionId.slice(0, 8)}…` : '';
   const hasSessionInfo = !!sessionId;
-  const hasTokens = tokensIn > 0 || tokensOut > 0;
 
   return (
     <div className="h-[15px] flex items-center justify-between px-3 text-[11px] select-none shrink-0 text-accent-cyan/80">
@@ -72,22 +65,8 @@ export default function StatusBar({
         )}
       </div>
 
-      {/* 右侧：模型 + Token + Session ID */}
+      {/* 右侧：Session ID — clickable to copy（🔴 2026-08-02：模型名/token 已由 ContextBar（输入框上方）统一展示，此处删除防重复） */}
       <div className="flex items-center gap-3">
-        {/* 当前模型 */}
-        {modelName && (
-          <span className="text-muted-foreground" title={`模型: ${modelName}`}>
-            🧠 {modelName.length > 24 ? modelName.slice(0, 22) + '…' : modelName}
-          </span>
-        )}
-
-        {/* Token 用量 */}
-        {hasTokens && (
-          <span className="text-muted-foreground" title={`输入 ${tokensIn.toLocaleString()} / 输出 ${tokensOut.toLocaleString()} tokens`}>
-            ↑{tokensIn >= 1000 ? `${(tokensIn / 1000).toFixed(1)}k` : tokensIn} ↓{tokensOut >= 1000 ? `${(tokensOut / 1000).toFixed(1)}k` : tokensOut}
-          </span>
-        )}
-
         {/* Session ID — clickable to copy */}
         {hasSessionInfo && (
           <span

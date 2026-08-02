@@ -14,9 +14,11 @@ import { Pause, Play, Square, Bot } from 'lucide-react';
 interface ToolStatusBarProps {
   sessionId?: string | null;
   isStreaming?: boolean;
+  /** 🔴 2026-08-02 老大需求：双击空白处 → 切宫格模式 */
+  onToggleViewMode?: () => void;
 }
 
-export default function ToolStatusBar({ sessionId, isStreaming }: ToolStatusBarProps) {
+export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode }: ToolStatusBarProps) {
   const [paused, setPaused] = useState(false);
   const [hasSubagents, setHasSubagents] = useState(false);
   const [running, setRunning] = useState(false);
@@ -71,7 +73,15 @@ export default function ToolStatusBar({ sessionId, isStreaming }: ToolStatusBarP
   const showControls = hasSubagents || (isStreaming && running);
 
   return (
-    <div className="flex items-center h-10 px-4 border-b border-border gap-2">
+    <div
+      className="flex items-center h-10 px-4 border-b border-border gap-2"
+      title={onToggleViewMode ? '双击空白处切换宫格模式' : undefined}
+      onDoubleClick={(e) => {
+        // 🔴 2026-08-02 老大需求：双击顶部工具状态栏空白处 → 切宫格（排除按钮区）
+        if ((e.target as HTMLElement).closest('button')) return;
+        onToggleViewMode?.();
+      }}
+    >
       <Bot size={14} className={cn('shrink-0', hasSubagents ? 'text-primary' : 'text-muted-foreground/40')} />
       <span className="text-xs text-muted-foreground/60">
         {hasSubagents

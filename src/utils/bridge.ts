@@ -117,6 +117,19 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   get_active_profile:     'profiles.get_active',
   create_profile:         'profiles.create',
   delete_profile:         'profiles.delete',
+  // 🔴 2026-08-02 断线修复：Agent 编辑卡（EditAgentDialog）读/写 SOUL/MEMORY/USER + 主题色/昵称
+  // 缺映射 → bridge 抛 "No WS/HTTP mapping" → 用户档案空白、保存失败
+  get_soul:               'profiles.get_soul',
+  set_soul:               'profiles.set_soul',
+  get_memory:             'profiles.get_memory',
+  set_memory:             'profiles.set_memory',
+  get_user:               'profiles.get_user',
+  set_user:               'profiles.set_user',
+  set_color:              'profiles.set_color',
+  set_avatar:             'profiles.set_avatar',
+  set_avatar_key:         'profiles.set_avatar_key',
+  get_avatar:             'profiles.get_avatar',
+  set_display_name:       'profiles.set_display_name',
   // Phase P5: 全局 Provider 池 CRUD（WS RPC，对齐 P3 后端端点）
   provider_list:          'provider.list',
   provider_upsert:        'provider.upsert',

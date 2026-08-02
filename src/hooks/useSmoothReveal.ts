@@ -17,6 +17,11 @@ import { useEffect, useRef, useState } from 'react';
  *   继续把尾部排完而不是直接快照跳变
  * - 非延续变化（重新生成/切换消息）：text 不以 shown 开头时，
  *   isRunning 中从空重启，否则直接快照替换
+ *
+ * 🔴 段落边界回退（对齐 Hermes 无残段揭示）：揭示是字符截断，若截断点恰在
+ *   空行分隔的新段落开头（\n\n 后本帧只揭示了 <add 个字符），则回退到段落
+ *   边界 —— 新段落要么不出现，要么一次性出现足够内容。消除"第二段 1-3 个
+ *   字"的短段瞬态（Hermes 直接渲染完整累积文本，段落结构即时完整，无此问题）。
  */
 const REVEAL_DRAIN_MS = 500;
 const REVEAL_MAX_CHARS_PER_FRAME = 30;
@@ -67,8 +72,24 @@ export function useSmoothReveal(text: string, isRunning: boolean): string {
         Math.max(1, Math.ceil((remaining * dt) / REVEAL_DRAIN_MS))
       );
 
-      shownRef.current = targetRef.current.slice(0, shownRef.current.length + add);
-      setDisplayed(shownRef.current);
+      // 进度推进到本帧终点（不回退，保证收敛）；显示文本可按段落边界回退
+      const progressEnd = shownRef.current.length + add;
+      let displayEnd = progressEnd;
+
+      // 🔴 段落边界回退：截断点之后若紧跟空行分隔的新段落，且本帧只揭示了
+      // 新段落开头的一小段（< add 字符），回退到 \n\n 之前 —— 新段落整段
+      // 揭示（或本帧不显示），避免"接"这种 1-3 字残段单独成段的视觉劈开。
+      // 仅流式未结束时生效；最后帧（progressEnd 达末尾）始终显示完整文本。
+      if (progressEnd < targetRef.current.length) {
+        const tail = targetRef.current.slice(0, progressEnd);
+        const m = tail.match(/\n\n([^\n]*)$/);
+        if (m && m[1].length > 0 && m[1].length < add) {
+          displayEnd = progressEnd - m[1].length;
+        }
+      }
+
+      shownRef.current = targetRef.current.slice(0, progressEnd);
+      setDisplayed(targetRef.current.slice(0, displayEnd));
 
       frameRef.current = shownRef.current.length < targetRef.current.length ? requestAnimationFrame(tick) : null;
     };

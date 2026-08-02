@@ -37,6 +37,12 @@ interface SidePanelProps {
   onProfilesChange?: (count: number) => void;
   /** 🔴 昵称映射上抛（name → display_name），App 驱动状态栏/会话列表 */
   onDisplayNamesChange?: (map: Record<string, string>) => void;
+  /** 🔴 颜色映射上抛（name → color），App 驱动编辑面板初始色/宫格卡片主题色 */
+  onColorsChange?: (map: Record<string, string>) => void;
+  /** 🔴 默认头像 key 映射上抛（name → avatar_key），App 驱动编辑面板初始头像 */
+  onAvatarKeysChange?: (map: Record<string, string>) => void;
+  /** 🔴 编辑保存后自增：触发 Agent 列表重拉（昵称/颜色热更新） */
+  refreshSignal?: number;
   /** 双击 Agent 卡片 → 打开编辑面板（App 层渲染 EditAgentDialog） */
   onEditAgent?: (name: string) => void;
   onOpenSettings?: () => void;

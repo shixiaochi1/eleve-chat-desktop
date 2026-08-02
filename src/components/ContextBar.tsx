@@ -73,7 +73,9 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
   }, [sessionStartedAt]);
 
   const total_tokens = ctx?.total_tokens ?? 0;
-  const context_limit = ctx?.context_limit || 0;
+  // 🔴 2026-08-02 热更新修复：无会话（sessionId 为空 → 不轮询 → ctx=null）时用后端默认上限
+  // 256k 占位显示 “0 / 256k 0.0%”，不显示 0/0；发消息建立会话后由后端返回真实值覆盖。
+  const context_limit = ctx?.context_limit || (sessionId ? 0 : 256_000);
   const percentage = ctx?.percentage ?? 0;
   const pct = Math.min(percentage, 100);
   const over80 = pct >= 80;
@@ -82,8 +84,16 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
 
   return (
     <div>
-      {/* 信息行：按钮左 + 监控数据右 */}
-      <div className="flex items-center justify-between px-3 py-1.5">
+      {/* 信息行：按钮左 + 监控数据右
+          🔴 2026-08-02 老大需求：双击空白处 → 切宫格模式（排除按钮，按钮有自己的点击语义）*/}
+      <div
+        className="flex items-center justify-between px-3 py-1.5"
+        title="双击空白处切换宫格模式"
+        onDoubleClick={(e) => {
+          if ((e.target as HTMLElement).closest('button')) return;
+          onToggleViewMode?.();
+        }}
+      >
         <div className="flex items-center gap-1">
           <button
             className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground bg-secondary/60 hover:bg-accent/50 rounded transition-colors"

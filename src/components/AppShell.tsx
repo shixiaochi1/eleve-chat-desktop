@@ -18,10 +18,7 @@ interface AppShellProps {
   gatewayOnline?: boolean;
   gatewayChecking?: boolean;
   sessionId?: string | null;
-  modelName?: string;
   profileName?: string;
-  tokensIn?: number;
-  tokensOut?: number;
   onOpenSettings?: () => void;
 }
 
@@ -32,10 +29,7 @@ export default function AppShell({
   gatewayOnline,
   gatewayChecking,
   sessionId,
-  modelName,
   profileName,
-  tokensIn,
-  tokensOut,
   onOpenSettings,
 }: AppShellProps) {
   return (
@@ -47,10 +41,7 @@ export default function AppShell({
         gatewayOnline={gatewayOnline}
         gatewayChecking={gatewayChecking}
         sessionId={sessionId ?? undefined}
-        modelName={modelName}
         profileName={profileName}
-        tokensIn={tokensIn}
-        tokensOut={tokensOut}
         onOpenSettings={onOpenSettings}
       />
     </>

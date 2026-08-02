@@ -35,7 +35,7 @@ const TARGET_LABELS: Record<string, string> = {
   user: '用户偏好',
 };
 
-export default function useMemory() {
+export default function useMemory(sessionId?: string | null) {
   const [memories, setMemories] = useState<MemoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +45,8 @@ export default function useMemory() {
     setError(null);
     try {
       // 不传 target → 后端返回 memory_entries + user_entries
-      const data: MemoryEntriesResponse = await call('list_memories', {});
+      // 🔴 2026-08-02 断线修复：显式传 session_id（后端 params 优先 → 连接级回退）
+      const data: MemoryEntriesResponse = await call('list_memories', sessionId ? { session_id: sessionId } : {});
       const entries: MemoryEntry[] = [];
 
       // memory 条目
@@ -85,16 +86,21 @@ export default function useMemory() {
   const deleteEntry = useCallback(async (entry: MemoryEntry): Promise<boolean> => {
     try {
       // 后端 DELETE /api/memory 接收 { target, old_text }，模糊匹配删除
-      await call('delete_memory', { target: entry.target, old_text: entry.content });
+      // 🔴 2026-08-02 断线修复：显式传 session_id（后端 params 优先 → 连接级回退）
+      await call('delete_memory', {
+        target: entry.target,
+        old_text: entry.content,
+        ...(sessionId ? { session_id: sessionId } : {}),
+      });
       setMemories((prev) => prev.filter((m) => m.id !== entry.id));
       return true;
     } catch (err: unknown) {
       setError((err as Error).message || '删除记忆失败');
       return false;
     }
-  }, []);
+  }, [sessionId]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh, sessionId]);
 
   return { memories, loading, error, refresh, deleteEntry };
 }
