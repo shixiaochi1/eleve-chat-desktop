@@ -226,9 +226,9 @@ export default function CronPanel() {
             <div key={job.id} className="p-2 rounded border border-border hover:bg-accent/10 transition-colors">
               {/* 名称 + 状态 */}
               <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-xs text-foreground truncate flex-1" title={job.name || job.id}>{job.name || job.id.slice(0, 8)}</span>
+                <span className="text-xs text-foreground truncate flex-1" title={job.name || job.id}>{job.name || (job.id || '').slice(0, 8)}</span>
                 {renderState(job)}
-                {job.last_status === 'failed' && (
+                {job.last_status === 'error' && (
                   <span className="px-1.5 py-0.5 text-[10px] rounded-full text-danger bg-danger/10" title={job.last_error || undefined}>上次失败</span>
                 )}
               </div>

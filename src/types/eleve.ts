@@ -321,7 +321,7 @@ export interface CronJob {
   id: string
   last_error?: null | string
   last_run_at?: null | string
-  /** 上次执行状态（success/failed 等，对齐 Hermes Job.last_status） */
+  /** 上次执行状态（后端写 "ok"/"error"，对齐 Hermes Job.last_status） */
   last_status?: null | string
   name?: null | string
   next_run_at?: null | string
