@@ -2,7 +2,7 @@
  * MemoryPanel — 记忆数据区块（对齐 Hermes 桌面端「记忆数据」语义）
  *
  * 定位：嵌入「设置 > 记忆」页顶部的记忆内容总览（原侧边栏记忆面板已合并至此）。
- * 与 EditAgentDialog 的分工：本组件 = 当前 Agent 记忆的快速总览（用量/搜索/删除/重置）；
+ * 与 EditAgentDialog 的分工：本组件 = 当前 Agent 记忆的快速总览（用量/删除/重置）；
  * EditAgentDialog 记忆 Tab = 指定 Agent 的 MEMORY.md 原文深度编辑。
  *
  * 设计基线（Hermes command-center/maintenance 记忆区）：
@@ -10,7 +10,7 @@
  *   - 两个目标文件卡：MEMORY.md（智能体记忆）/ USER.md（用户画像）
  *   - 每卡：字符用量（used/limit）+ 用量条 + 重置按钮（对齐 Hermes resetMemory）
  *
- * ELEVE 扩展（Hermes 无，保留价值）：条目浏览 + 搜索 + 逐条删除。
+ * ELEVE 扩展（Hermes 无，保留价值）：条目浏览 + 逐条删除。
  * 作用域：per-profile（对齐 Hermes per-agent），无会话也能查看。
  *
  * 布局：作为设置页内嵌区块（随设置页滚动，不自持滚动容器），双卡响应式横排。
@@ -18,8 +18,8 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import useMemory, { type MemoryEntry } from '../hooks/useMemory';
 import {
-  SearchIcon, TrashIcon, UserIcon, BookOpenIcon,
-  DeleteIcon, RegenerateIcon,
+  TrashIcon, UserIcon, BookOpenIcon,
+  RegenerateIcon,
 } from './Icons';
 import { cn } from '@/lib/utils';
 import { Skeleton } from './ui/skeleton';
@@ -49,7 +49,6 @@ const TARGETS = [
 
 export default function MemoryPanel({ currentProfile }: MemoryPanelProps) {
   const { memories, limits, active, loading, error, refresh, deleteEntry, resetTarget } = useMemory(currentProfile);
-  const [searchQuery, setSearchQuery] = useState('');
   const [deletingIds, setDeletingIds] = useState<Record<string, boolean>>({});
   const [confirmReset, setConfirmReset] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
@@ -61,21 +60,15 @@ export default function MemoryPanel({ currentProfile }: MemoryPanelProps) {
     return () => clearTimeout(t);
   }, [confirmReset]);
 
-  const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return memories;
-    const q = searchQuery.toLowerCase();
-    return memories.filter((m) => (m.content || '').toLowerCase().includes(q));
-  }, [memories, searchQuery]);
-
   const grouped = useMemo(() => {
     const g: Record<string, MemoryEntry[]> = { memory: [], user: [] };
-    filtered.forEach((m) => {
+    memories.forEach((m) => {
       (g[m.target] ?? (g[m.target] = [])).push(m);
     });
     return g;
-  }, [filtered]);
+  }, [memories]);
 
-  // 字符用量（基于全量条目，不受搜索过滤影响）
+  // 字符用量
   const usage = useMemo(() => {
     const u: Record<string, number> = { memory: 0, user: 0 };
     memories.forEach((m) => {
@@ -126,28 +119,6 @@ export default function MemoryPanel({ currentProfile }: MemoryPanelProps) {
             <RegenerateIcon size={13} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
-      </div>
-
-      {/* 搜索 */}
-      <div className="relative mb-3 max-w-xs">
-        <SearchIcon size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-        <input
-          className="w-full h-7 pl-7 pr-6 text-xs bg-muted/50 rounded border border-border focus:border-primary focus:outline-none placeholder:text-muted-foreground/50"
-          type="text"
-          placeholder="搜索记忆..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onKeyDown={(e) => e.key === 'Escape' && setSearchQuery('')}
-        />
-        {searchQuery && (
-          <button
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => setSearchQuery('')}
-            title="清除"
-          >
-            <DeleteIcon size={12} />
-          </button>
-        )}
       </div>
 
       {/* 错误 */}
@@ -214,7 +185,7 @@ export default function MemoryPanel({ currentProfile }: MemoryPanelProps) {
                 <div className="px-2 pb-2 space-y-1">
                   {entries.length === 0 ? (
                     <div className="py-3 text-center text-[10px] text-muted-foreground/50">
-                      {searchQuery ? '无匹配记忆' : '暂无记忆'}
+                      暂无记忆
                     </div>
                   ) : (
                     entries.map((mem) => (
