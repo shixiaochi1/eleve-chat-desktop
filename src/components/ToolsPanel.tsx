@@ -103,7 +103,7 @@ function ToolsetsTab({ currentProfile }: { currentProfile?: string }) {
   const enabledCount = toolsets.filter(t => t.enabled).length;
 
   return (
-    <div className="flex flex-col h-full p-3 gap-2">
+    <div className="flex flex-col h-full min-h-0 p-3 gap-2">
       {/* 统计 */}
       <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60">
         <Layers size={11} />
@@ -120,7 +120,7 @@ function ToolsetsTab({ currentProfile }: { currentProfile?: string }) {
 
       {/* 工具集列表 */}
       {!loading && !error && (
-        <div className="flex-1 overflow-y-auto space-y-0.5">
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-1 pb-1.5">
           {toolsets.length === 0 ? (
             <div className="flex items-center justify-center py-8 text-xs text-muted-foreground/50">
               暂无工具集数据
@@ -129,9 +129,9 @@ function ToolsetsTab({ currentProfile }: { currentProfile?: string }) {
             toolsets.map(ts => {
               const label = TOOLSET_LABELS[ts.name] || ts.label || ts.name;
               return (
-                <div key={ts.name} className="px-1 py-2 rounded hover:bg-accent/20 transition-colors">
+                <div key={ts.name} className="p-2.5 rounded-lg border border-border bg-muted/10 hover:border-primary/30 hover:shadow-sm transition-all">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-1 min-w-0">
+                    <span className="flex items-center gap-1.5 min-w-0">
                       <span className="text-xs font-medium text-foreground truncate">{label}</span>
                       {!ts.configured && (
                         <span className="px-1 py-0.5 text-[9px] rounded bg-warning/10 text-warning shrink-0">未配置</span>
@@ -143,11 +143,11 @@ function ToolsetsTab({ currentProfile }: { currentProfile?: string }) {
                       onCheckedChange={(checked: boolean) => void handleToggle(ts, checked)}
                     />
                   </div>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground/70 line-clamp-2">{ts.description}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground/70 line-clamp-2 leading-relaxed">{ts.description}</p>
                   {ts.tools.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-0.5">
+                    <div className="mt-1.5 flex flex-wrap gap-1">
                       {ts.tools.map(tool => (
-                        <span key={tool} className="px-1 py-0.5 rounded bg-muted/30 text-[9px] font-mono text-muted-foreground/60">
+                        <span key={tool} className="px-1.5 py-0.5 rounded-md bg-muted/30 border border-border/50 text-[9px] font-mono text-muted-foreground/60">
                           {tool}
                         </span>
                       ))}
