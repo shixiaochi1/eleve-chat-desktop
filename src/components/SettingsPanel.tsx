@@ -64,6 +64,8 @@ interface DeleteConfirm {
 
 interface SettingsPanelProps {
   onBack?: () => void;
+  /** 当前活动 Agent（记忆数据总览按 per-profile 展示） */
+  currentProfile?: string;
 }
 
 // ====== 常量 ======
@@ -88,7 +90,7 @@ function redactSensitive(obj: unknown): unknown {
   return obj;
 }
 
-export default function SettingsPanel({ onBack }: SettingsPanelProps) {
+export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelProps) {
   // ── 核心数据 ──
   const [providers, setProviders] = useState<Provider[]>([]);
   const [fallbackList, setFallbackList] = useState<FallbackEntry[]>([]);
@@ -636,7 +638,7 @@ export default function SettingsPanel({ onBack }: SettingsPanelProps) {
       case 'workspace':
         return <WorkspaceSettings onSaved={() => {}} />;
       case 'memory':
-        return <MemorySettings onSaved={() => {}} />;
+        return <MemorySettings onSaved={() => {}} currentProfile={currentProfile} />;
       case 'chat':
         return <ChatSettings onSaved={() => {}} />;
       case 'safety':

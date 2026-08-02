@@ -139,6 +139,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   provider_switch:        'provider.switch',
   list_memories:          'memory.list',
   delete_memory:          'memory.delete',
+  reset_memory:           'memory.reset',
   reload_mcp:             'reload.mcp',
   get_app_data:           'app_data.get',
   set_app_data:           'app_data.set',

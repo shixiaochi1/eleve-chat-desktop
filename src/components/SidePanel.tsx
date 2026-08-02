@@ -10,7 +10,6 @@ import CronPanel from './CronPanel';
 import DebugPanel from './DebugPanel';
 import ToolsPanel from './ToolsPanel';
 import GatewayPanel from './GatewayPanel';
-import MemoryPanel from './MemoryPanel';
 import UsagePanel from './UsagePanel';
 import ProcessPanel from './ProcessPanel';
 import RollbackPanel from './RollbackPanel';
@@ -19,7 +18,7 @@ import ChannelsPanel from './ChannelsPanel';
 // kanban 移至 OverlayView 弹出（需要更大空间展示5列看板）
 import {
   CronIcon,
-  DebugIcon, ToolIcon, MemoryIcon,
+  DebugIcon, ToolIcon,
   UsageIcon, ChannelsIcon, AgentIcon,
 } from './Icons';
 import { Radio, FolderGit, Activity, GitCommit, BookOpen } from 'lucide-react';
@@ -68,7 +67,6 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
     projects: { title: '项目',     Icon: FolderGit,  component: ProjectTreePanel },
     channels: { title: '频道',     Icon: ChannelsIcon, component: ChannelsPanel },
     cron:     { title: '定时任务', Icon: CronIcon,    component: CronPanel },
-    memory:   { title: '记忆',     Icon: MemoryIcon,  component: MemoryPanel },
     tools:    { title: '工具',     Icon: ToolIcon,    component: ToolsPanel },
     processes: { title: '进程',     Icon: Activity,    component: ProcessPanel },
     learning: { title: '学习',     Icon: BookOpen,   component: LearningPanel },

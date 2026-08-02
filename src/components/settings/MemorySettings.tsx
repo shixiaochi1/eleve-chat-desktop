@@ -4,18 +4,21 @@ import { notifySuccess, notifyError } from '../../utils/notifications';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
+import MemoryPanel from '../MemoryPanel';
 
 /**
  * MemorySettings — 记忆与上下文设置
  *
- * 持久化记忆、用户画像、记忆预算、提供商、上下文引擎、自动压缩
+ * 顶部：记忆数据总览（当前 Agent 的 MEMORY.md/USER.md 用量/条目/重置，对齐 Hermes）
+ * 下方：持久化记忆、用户画像、记忆预算、提供商、上下文引擎、自动压缩
  */
-export default function MemorySettings({ onSaved }: { onSaved?: () => void }) {
+export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: () => void; currentProfile?: string }) {
+  // 字符上限初始为占位 0：loadConfig 从配置覆盖（config.get 恒返后端默认值），loaded 门控保证加载前不渲染
   const [config, setConfig] = useState({
     memory_enabled: true,
     user_profile_enabled: true,
-    memory_char_limit: 50000,
-    user_char_limit: 10000,
+    memory_char_limit: 0,
+    user_char_limit: 0,
     memory_provider: 'builtin',
     context_engine: 'compressor',
     compression_enabled: true,
@@ -41,8 +44,9 @@ export default function MemorySettings({ onSaved }: { onSaved?: () => void }) {
       setConfig({
         memory_enabled: memory.memory_enabled ?? true,
         user_profile_enabled: memory.user_profile_enabled ?? true,
-        memory_char_limit: memory.memory_char_limit ?? 50000,
-        user_char_limit: memory.user_char_limit ?? 10000,
+        // 跟随配置走：config.get 返回后端已应用默认值（default_memory_char_limit=2200 / default_user_char_limit=1375）的完整配置，前端不硬编码兜底
+        memory_char_limit: memory.memory_char_limit,
+        user_char_limit: memory.user_char_limit,
         memory_provider: memory.memory_provider || 'builtin',
         context_engine: bc.context_engine || 'compressor',
         compression_enabled: compression.enabled ?? true,
@@ -95,6 +99,11 @@ export default function MemorySettings({ onSaved }: { onSaved?: () => void }) {
 
   return (
     <div>
+      {/* 记忆数据 — 侧边栏记忆面板合并至此（当前 Agent 的记忆内容总览） */}
+      <MemoryPanel currentProfile={currentProfile} />
+
+      <div className="border-t border-border my-4" />
+
       {/* 持久化记忆 */}
       <div className="flex items-center justify-between mb-3">
         <div>
@@ -130,7 +139,7 @@ export default function MemorySettings({ onSaved }: { onSaved?: () => void }) {
           max={500000}
           step={1000}
           value={config.memory_char_limit}
-          onChange={e => update('memory_char_limit', parseInt(e.target.value) || 50000)}
+          onChange={e => update('memory_char_limit', parseInt(e.target.value) || config.memory_char_limit)}
           className="w-40"
         />
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
@@ -147,7 +156,7 @@ export default function MemorySettings({ onSaved }: { onSaved?: () => void }) {
           max={100000}
           step={500}
           value={config.user_char_limit}
-          onChange={e => update('user_char_limit', parseInt(e.target.value) || 10000)}
+          onChange={e => update('user_char_limit', parseInt(e.target.value) || config.user_char_limit)}
           className="w-40"
         />
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">

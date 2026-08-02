@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import {
   ChatIcon, CronIcon,
   DebugIcon, SettingsIcon, AboutIcon,
-  PaletteIcon, ToolIcon, FileIcon, MemoryIcon,
+  PaletteIcon, ToolIcon, FileIcon,
   UsageIcon, ChannelsIcon, KanbanIcon, AgentIcon,
 } from './Icons';
 import { FolderGit, Activity, GitCommit, BookOpen } from 'lucide-react';
@@ -34,7 +34,6 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
     { id: 'projects', icon: FolderGit,  label: '项目' },
     { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true },
     { id: 'channels', icon: ChannelsIcon, label: '频道' },
-    { id: 'memory',   icon: MemoryIcon,  label: '记忆' },
     { id: 'cron',     icon: CronIcon,     label: '定时任务' },
     { id: 'tools',    icon: ToolIcon,     label: '工具' },
     { id: 'processes', icon: Activity,    label: '进程' },

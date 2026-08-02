@@ -1133,7 +1133,7 @@ export default function App() {
         {overlayPanel === 'settings' && (
           <ErrorBoundary>
             <OverlayView onClose={handleCloseOverlay} title="设置">
-              <SettingsPanel onBack={handleCloseOverlay} />
+              <SettingsPanel onBack={handleCloseOverlay} currentProfile={currentProfile} />
             </OverlayView>
           </ErrorBoundary>
         )}
