@@ -190,6 +190,12 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   files_list:             'files.list',
   projects_tree:          'projects.tree',
   projects_project_sessions: 'projects.project_sessions',
+  projects_create:        'projects.create',
+  projects_update:        'projects.update',
+  projects_add_folder:    'projects.add_folder',
+  projects_remove_folder: 'projects.remove_folder',
+  projects_set_primary:   'projects.set_primary',
+  projects_archive:       'projects.archive',
 };
 
 /**
