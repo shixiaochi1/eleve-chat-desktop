@@ -1,8 +1,13 @@
 /**
- * ProjectTreePanel — Hermes 对齐 Project → Repo → Lane → Session 三级分组树
+ * ProjectTreePanel — Hermes 对齐两阶段项目树
  *
- * 调用后端 projects.tree / projects.project_sessions WS 方法
- * 展示权威项目分组树：Project → Repo → Lane → Session
+ * 阶段一·总览（projects.tree，hydrate=false）：项目行 + previewSessions（每项目 Top3 最近会话）。
+ *   🔴 总览模式后端 lane.sessions 恒为空（hydrate=false → sessions.clear()），
+ *   previewSessions 是唯一会话数据——对齐 Hermes sidebar 总览（PROJECT_PREVIEW_COUNT=3）。
+ * 阶段二·钻取（projects.project_sessions，hydrate=true）：点击项目行 → 全量水合
+ *   Repo → Lane → Session 树——对齐 Hermes drill-in。
+ *
+ * 交互：点击会话行切换会话；点击项目行钻取；chevron 展开/收起预览。
  */
 import { useState, useEffect, useCallback } from 'react';
 import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare } from 'lucide-react';
@@ -82,7 +87,10 @@ function fmtTime(ts: number): string {
 
 function TreeToggle({ expanded, onClick }: { expanded: boolean; onClick: () => void }) {
   return (
-    <span className="shrink-0 text-muted-foreground cursor-pointer hover:text-foreground" onClick={onClick}>
+    <span
+      className="shrink-0 text-muted-foreground cursor-pointer hover:text-foreground"
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+    >
       {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
     </span>
   );
@@ -126,8 +134,8 @@ function LaneNode({ lane, sessionId, onSwitchSession }: { lane: LaneGroup; sessi
   );
 }
 
-function RepoNodeItem({ repo, sessionId, onSwitchSession }: { repo: RepoNode; sessionId?: string; onSwitchSession?: (id: string) => void }) {
-  const [expanded, setExpanded] = useState(false);
+function RepoNodeItem({ repo, sessionId, onSwitchSession, defaultExpanded = false }: { repo: RepoNode; sessionId?: string; onSwitchSession?: (id: string) => void; defaultExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
     <div>
@@ -147,14 +155,17 @@ function RepoNodeItem({ repo, sessionId, onSwitchSession }: { repo: RepoNode; se
   );
 }
 
-function ProjectItem({ project, sessionId, onSwitchSession }: { project: ProjectNode; sessionId?: string; onSwitchSession?: (id: string) => void }) {
+function ProjectItem({ project, sessionId, onSwitchSession, onDrill }: { project: ProjectNode; sessionId?: string; onSwitchSession?: (id: string) => void; onDrill: (p: ProjectNode) => void }) {
   const [expanded, setExpanded] = useState(true);
+  const previews = project.previewSessions ?? [];
 
   return (
     <div className="border-b border-border/50">
+      {/* 项目行：点击钻取（全量 lane 树）；chevron 展开/收起预览 */}
       <div
         className="flex items-center gap-1.5 pl-3 pr-3 py-2 cursor-pointer hover:bg-accent/20 text-sm"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => onDrill(project)}
+        title="点击进入项目（完整 Repo/Lane 树）"
       >
         <TreeToggle expanded={expanded} onClick={() => setExpanded(!expanded)} />
         {project.isAuto
@@ -167,8 +178,13 @@ function ProjectItem({ project, sessionId, onSwitchSession }: { project: Project
         )}
         <span className="text-[10px] text-muted-foreground/50">{fmtTime(project.lastActive)}</span>
       </div>
-      {expanded && project.repos.map(r => (
-        <RepoNodeItem key={r.id} repo={r} sessionId={sessionId} onSwitchSession={onSwitchSession} />
+      {/* 总览预览：previewSessions（每项目 Top3 最近会话，对齐 Hermes PROJECT_PREVIEW_COUNT） */}
+      {expanded && (previews.length > 0 ? (
+        previews.map(s => (
+          <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => onSwitchSession?.(s.id)} />
+        ))
+      ) : (
+        <div className="pl-8 pr-3 pb-1.5 text-[10px] text-muted-foreground/50">暂无会话</div>
       ))}
     </div>
   );
@@ -180,6 +196,11 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession }: Project
   const [tree, setTree] = useState<TreeResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 阶段二·钻取状态（projects.project_sessions，hydrate=true 全量水合）
+  const [drill, setDrill] = useState<ProjectNode | null>(null);
+  const [drillProject, setDrillProject] = useState<ProjectNode | null>(null);
+  const [drillLoading, setDrillLoading] = useState(false);
+  const [drillError, setDrillError] = useState<string | null>(null);
 
   const fetchTree = useCallback(async () => {
     try {
@@ -194,6 +215,32 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession }: Project
     }
   }, []);
 
+  // 钻取：点击项目行 → 全量水合的 Repo/Lane/Session 树
+  const handleDrill = useCallback(async (project: ProjectNode) => {
+    setDrill(project);
+    setDrillProject(null);
+    setDrillError(null);
+    setDrillLoading(true);
+    try {
+      const res: any = await call('projects_project_sessions', { project_id: project.id });
+      if (!res?.project) {
+        setDrillError('项目不存在或无会话');
+      } else {
+        setDrillProject(res.project);
+      }
+    } catch (e: any) {
+      setDrillError(e?.message || '加载项目会话失败');
+    } finally {
+      setDrillLoading(false);
+    }
+  }, []);
+
+  const handleBack = useCallback(() => {
+    setDrill(null);
+    setDrillProject(null);
+    setDrillError(null);
+  }, []);
+
   // 🔴 冷启动竞态修复（同 ProfilePanel）：mount 时 WS 可能未连，等连接后再加载。
   useEffect(() => {
     let cancelled = false;
@@ -206,25 +253,67 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession }: Project
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {loading && (
-        <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">加载中...</div>
-      )}
-      {error && (
-        <div className="flex-1 flex flex-col items-center justify-center gap-2 p-4">
-          <p className="text-xs text-destructive">{error}</p>
-          <button className="text-xs text-primary hover:underline" onClick={fetchTree}>重试</button>
-        </div>
-      )}
-      {tree && (
-        <div className="flex-1 overflow-y-auto">
-          {tree.projects.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground p-4">暂无项目</div>
-          ) : (
-            tree.projects.map(p => (
-              <ProjectItem key={p.id} project={p} sessionId={sessionId} onSwitchSession={onSwitchSession} />
-            ))
+      {drill ? (
+        // ── 阶段二：钻取视图（全量水合 Repo → Lane → Session）──
+        <>
+          <div className="flex items-center gap-1.5 px-2 py-2 border-b border-border/50 shrink-0">
+            <button
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+              onClick={handleBack}
+              title="返回项目列表"
+            >
+              <ChevronRight size={14} className="rotate-180" />
+            </button>
+            <span className="text-xs font-medium truncate flex-1">{drill.label}</span>
+            {drill.sessionCount > 0 && (
+              <span className="text-[10px] text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">{drill.sessionCount}</span>
+            )}
+          </div>
+          {drillLoading && (
+            <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">加载中...</div>
           )}
-        </div>
+          {drillError && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-2 p-4">
+              <p className="text-xs text-destructive">{drillError}</p>
+              <button className="text-xs text-primary hover:underline" onClick={() => handleDrill(drill)}>重试</button>
+            </div>
+          )}
+          {drillProject && (
+            <div className="flex-1 overflow-y-auto">
+              {drillProject.repos.length === 0 ? (
+                <div className="p-4 text-xs text-muted-foreground">无 Repo 分组</div>
+              ) : (
+                drillProject.repos.map(r => (
+                  <RepoNodeItem key={r.id} repo={r} sessionId={sessionId} onSwitchSession={onSwitchSession} defaultExpanded />
+                ))
+              )}
+            </div>
+          )}
+        </>
+      ) : (
+        // ── 阶段一：总览（项目行 + previewSessions 预览）──
+        <>
+          {loading && (
+            <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">加载中...</div>
+          )}
+          {error && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-2 p-4">
+              <p className="text-xs text-destructive">{error}</p>
+              <button className="text-xs text-primary hover:underline" onClick={fetchTree}>重试</button>
+            </div>
+          )}
+          {tree && (
+            <div className="flex-1 overflow-y-auto">
+              {tree.projects.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground p-4">暂无项目</div>
+              ) : (
+                tree.projects.map(p => (
+                  <ProjectItem key={p.id} project={p} sessionId={sessionId} onSwitchSession={onSwitchSession} onDrill={handleDrill} />
+                ))
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
