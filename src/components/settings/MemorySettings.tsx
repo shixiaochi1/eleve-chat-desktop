@@ -10,7 +10,7 @@ import MemoryPanel from '../MemoryPanel';
  * MemorySettings — 记忆与上下文设置
  *
  * 顶部：记忆数据总览（当前 Agent 的 MEMORY.md/USER.md 用量/条目/重置，对齐 Hermes）
- * 下方：持久化记忆、用户画像、记忆预算、提供商、上下文引擎、自动压缩
+ * 下方：持久化记忆、用户画像、记忆预算、提供商、自动压缩（对齐 Hermes compression 配置语义）
  */
 export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: () => void; currentProfile?: string }) {
   // 字符上限初始为占位 0：loadConfig 从配置覆盖（config.get 恒返后端默认值），loaded 门控保证加载前不渲染
@@ -20,11 +20,10 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
     memory_char_limit: 0,
     user_char_limit: 0,
     memory_provider: 'builtin',
-    context_engine: 'compressor',
     compression_enabled: true,
-    compression_threshold: 3000,
-    compression_target_ratio: 0.3,
-    compression_protect_last_n: 4,
+    compression_threshold: 0.5,
+    compression_target_ratio: 0.2,
+    compression_protect_last_n: 20,
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -47,8 +46,8 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
         // 跟随配置走：config.get 返回后端已应用默认值（default_memory_char_limit=2200 / default_user_char_limit=1375）的完整配置，前端不硬编码兜底
         memory_char_limit: memory.memory_char_limit,
         user_char_limit: memory.user_char_limit,
-        memory_provider: memory.memory_provider || 'builtin',
-        context_engine: bc.context_engine || 'compressor',
+        // 后端键名 provider（空串 = builtin，对齐 Hermes memory.provider 语义）
+        memory_provider: memory.provider || 'builtin',
         compression_enabled: compression.enabled ?? true,
         compression_threshold: compression.threshold ?? 3000,
         compression_target_ratio: compression.target_ratio ?? 0.3,
@@ -75,9 +74,9 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
             user_profile_enabled: config.user_profile_enabled,
             memory_char_limit: config.memory_char_limit,
             user_char_limit: config.user_char_limit,
-            memory_provider: config.memory_provider,
+            // builtin → 空串（后端语义：非空 = 外部插件名，空 = 仅内置）
+            provider: config.memory_provider === 'builtin' ? '' : config.memory_provider,
           },
-          context_engine: config.context_engine,
           compression: {
             enabled: config.compression_enabled,
             threshold: config.compression_threshold,
@@ -173,27 +172,10 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
           onChange={e => update('memory_provider', e.target.value)}
         >
           <option value="builtin">builtin — 内置本地存储</option>
-          <option value="honcho">honcho — Honcho API</option>
+          <option value="honcho" disabled>honcho — Honcho API（待实现）</option>
         </select>
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
           选择记忆存储的后端服务提供商。
-        </p>
-      </div>
-
-      {/* 上下文引擎 */}
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">上下文引擎</label>
-        <select
-          className="flex h-8 w-full items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-          value={config.context_engine}
-          onChange={e => update('context_engine', e.target.value)}
-        >
-          <option value="compressor">compressor — 智能压缩</option>
-          <option value="default">default — 原始上下文</option>
-          <option value="custom">custom — 自定义策略</option>
-        </select>
-        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          控制上下文窗口的管理策略。
         </p>
       </div>
 
@@ -211,20 +193,20 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
         />
       </div>
 
-      {/* 压缩阈值 */}
+      {/* 压缩阈值（上下文比率，对齐 Hermes compression.threshold） */}
       <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">压缩阈值（字符数）</label>
+        <label className="block text-xs text-muted-foreground mb-1">压缩阈值（上下文比率）</label>
         <Input
           type="number"
-          min={500}
-          max={100000}
-          step={500}
+          min={0.05}
+          max={0.95}
+          step={0.05}
           value={config.compression_threshold}
-          onChange={e => update('compression_threshold', parseInt(e.target.value) || 3000)}
+          onChange={e => update('compression_threshold', parseFloat(e.target.value) || 0.5)}
           className="w-40"
         />
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          上下文达到此字符数时触发自动压缩。
+          上下文占用超过此比率时触发自动压缩（默认 0.50，即上下文窗口的 50%）。
         </p>
       </div>
 
@@ -241,7 +223,7 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
           className="w-32"
         />
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          压缩后保留原始上下文的比例（默认 0.3，即保留 30%）。
+          尾部预算占阈值的比例，越大保留越多近期消息（默认 0.20，对齐 Hermes）。
         </p>
       </div>
 
@@ -258,7 +240,7 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
           className="w-32"
         />
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          压缩时始终保留最近 N 条完整消息不被压缩（默认 4）。
+          压缩时始终保留最近 N 条完整消息不被压缩（默认 20，对齐 Hermes）。
         </p>
       </div>
 
