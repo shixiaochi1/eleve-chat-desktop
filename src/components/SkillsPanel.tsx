@@ -9,6 +9,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
 import { SkillInfo } from '@/types/eleve';
+import { Switch } from './ui/switch';
+import { notifyError } from '../utils/notifications';
 import {
   PackageIcon, SearchIcon, GlobeIcon,
   DeleteIcon, NewIcon,
@@ -38,7 +40,7 @@ function trustBadge(level: string | undefined, source: string | undefined) {
   return t.label ? <span className={cn('px-1.5 py-0.5 text-[10px] rounded', t.cls)}>{t.label}</span> : null;
 }
 
-export default function SkillsPanel() {
+export default function SkillsPanel({ currentProfile }: { currentProfile?: string }) {
   const [tab, setTab] = useState('installed');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SkillItem[]>([]);
@@ -130,6 +132,21 @@ export default function SkillsPanel() {
     }
   }, [refreshTaps]);
 
+  const handleToggleSkill = useCallback(async (skill: SkillItem, enabled: boolean) => {
+    // 🔴 乐观更新（对齐 Hermes handleToggleSkill 模式）
+    setInstalled(prev => prev.map(s => s.name === skill.name ? { ...s, enabled } : s));
+    setLocalSkills(prev => prev.map(s => s.name === skill.name ? { ...s, enabled } : s));
+    
+    try {
+      await call('skills.toggle', { name: skill.name, enabled, profile: currentProfile });
+    } catch (err: unknown) {
+      // 错误回滚
+      setInstalled(prev => prev.map(s => s.name === skill.name ? { ...s, enabled: !enabled } : s));
+      setLocalSkills(prev => prev.map(s => s.name === skill.name ? { ...s, enabled: !enabled } : s));
+      notifyError(err, `切换 ${skill.name} 失败`);
+    }
+  }, [currentProfile]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === 'Enter') doSearch(); };
 
   const allSkills = [...installed, ...localSkills];
@@ -169,6 +186,10 @@ export default function SkillsPanel() {
                     <span className="text-xs text-foreground truncate flex-1">{s.name || '?'}</span>
                     {s.category && <span className="px-1 py-0.5 text-[10px] bg-muted/30 text-muted-foreground rounded">{s.category}</span>}
                     {trustBadge(s.trust_level, s.source)}
+                    <Switch
+                      checked={s.enabled}
+                      onCheckedChange={(checked: boolean) => void handleToggleSkill(s, checked)}
+                    />
                   </div>
                   {s.description && <div className="text-[10px] text-muted-foreground/60">{s.description}</div>}
                   {(s.source || s.install_path) && (

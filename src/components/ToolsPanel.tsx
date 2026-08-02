@@ -202,7 +202,7 @@ export default function ToolsPanel({ currentProfile }: { currentProfile?: string
       {/* ── 技能管理 Tab 内容 ── */}
       {activeTab === 'skills' && (
         <div className="flex-1 overflow-y-auto">
-          <SkillsPanel />
+          <SkillsPanel currentProfile={currentProfile} />
         </div>
       )}
     </div>
