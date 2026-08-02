@@ -135,11 +135,30 @@ export function processAccumulatorEvent(
  * serverContent 兜底仅限“本轮无 step.complete 边界且累加文本为空”（丢 delta/重连场景）；
  * 有 step 边界的轮次禁止兜底（serverContent 是整轮终稿，步骤重置后兜底会重复前文，审查 P1-8）。
  * 累加文本非空时保留累加结果（含 runtime footer，后端 content 不含 footer，覆盖会丢）。
+ *
+ * 🔴 2026-08-02 修复（qwen 重复回复 BUG #3）：后端权威终稿去重。
+ * 流式 delta 可能被 conversation_loop 重试流污染——同一次提问触发多次 LLM 调用，
+ * 每次调用的完整回复都被实时推送，累加器把多条流拼接成重复文本。
+ * 无 step 边界且拼接文本远长于后端终稿（>2 倍，重复流特征）时，
+ * 用后端 message.complete 的权威 content（已剥离 think 块、最终成功响应的唯一文本）
+ * 替换全部文本 parts。正常场景（拼接 ≈ 终稿 + footer）比值 < 2 不触发，零回归。
  */
 export function finalizeAccumulator(acc: StreamAccumulator): ChatMessagePart[] {
   // 丢弃空 reasoning 占位（reasoning.available 种占但无后续 delta）
   const parts = acc.parts.filter((p) => !(p.type === 'reasoning' && !p.text));
-  const hasText = parts.some((p) => p.type === 'text' && p.text.trim());
+  const textParts = parts.filter((p) => p.type === 'text' && p.text);
+  const fullText = textParts.map((p) => (p as { text?: string }).text ?? '').join('');
+  const hasText = fullText.trim().length > 0;
+
+  // 🔴 重复流去重：终稿非空、无 step 边界、拼接文本远长于终稿 → 替换
+  if (acc.serverContent && !acc.sawStepComplete && hasText) {
+    const serverLen = acc.serverContent.trim().length;
+    if (serverLen > 0 && fullText.trim().length > serverLen * 2) {
+      const nonTextParts = parts.filter((p) => p.type !== 'text');
+      return [...nonTextParts, textPart(acc.serverContent)];
+    }
+  }
+
   if (!hasText && acc.serverContent && !acc.sawStepComplete) {
     return [...parts, textPart(acc.serverContent)];
   }
