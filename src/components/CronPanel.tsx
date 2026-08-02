@@ -376,12 +376,9 @@ export default function CronPanel() {
               <p className="text-[10px] text-muted-foreground/50 m-0">5 段：分 时 日 月 周</p>
             </div>
           ) : (
-            <div className="flex items-center justify-between gap-2 rounded-md bg-primary/8 border border-primary/15 px-2.5 py-1.5">
-              <span className="text-[11px] font-medium text-foreground flex items-center gap-1">
-                <ClockIcon size={11} className="text-primary/70" />
-                {liveSummary}
-              </span>
-              <span className="font-mono text-[10px] text-muted-foreground/50">{form.schedule}</span>
+            <div className="flex items-center gap-1.5 rounded-md bg-primary/8 border border-primary/15 px-2.5 py-1.5">
+              <ClockIcon size={11} className="text-primary/70 shrink-0" />
+              <span className="text-[11px] font-medium text-foreground">{liveSummary}</span>
             </div>
           )}
 
@@ -473,7 +470,6 @@ export default function CronPanel() {
                   <span className="flex items-center gap-1 rounded bg-muted/50 px-1.5 py-0.5">
                     <ClockIcon size={10} className="text-muted-foreground/60" />
                     <span className="font-medium text-foreground/80">{summary || job.schedule_display || expr || '—'}</span>
-                    {summary && expr && <span className="font-mono text-muted-foreground/40">{expr}</span>}
                   </span>
                   <span className="flex items-center gap-1 text-muted-foreground/60">
                     <SendIcon size={10} />
