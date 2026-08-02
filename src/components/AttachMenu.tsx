@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
+import { isTauri } from '@tauri-apps/api/core';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -22,23 +23,45 @@ interface AttachMenuProps {
   onPickImage?: () => void;
   /** 添加链接 — 纯前端，URL 插入输入框（立即可用） */
   onAddUrl?: (url: string) => void;
+  /** 选择文件/文件夹 — Tauri 原生对话框（对齐 Hermes composer selectDesktopPaths），路径插入输入框 */
+  onAddPaths?: (paths: string[]) => void;
 }
 
 /**
  * 附件 "+" 菜单 — Hermes 式附件入口（对齐 Hermes composer ContextMenu）
  *
  * 替换原单一 📎 按钮，统一为 Hermes 的 "+" 心智模型。
- * 如实标注能力边界：
+ * 能力边界：
  * - 「选择图片」接通后端（image.attach_bytes 真实落盘）
- * - 「添加链接」纯前端（URL 插入输入框，随消息发送，立即可用）
- * - 「选择文件 / 文件夹」需原生文件对话框（Tauri dialog 插件未装），如实标注"待原生支持"
+ * - 「添加链接」纯前端（URL 插入输入框，随消息发送）
+ * - 「选择文件 / 文件夹」接通 Tauri 原生对话框（tauri-plugin-dialog，对齐 Hermes
+ *   selectDesktopPaths）；浏览器开发模式（非 Tauri）禁用并标注“仅桌面端”
  *
  * 微交互：菜单展开时 "+" 旋转 45° 呈关闭态。
  */
-export default function AttachMenu({ onPickImage, onAddUrl }: AttachMenuProps) {
+export default function AttachMenu({ onPickImage, onAddUrl, onAddPaths }: AttachMenuProps) {
   const [urlOpen, setUrlOpen] = useState(false);
   const [urlValue, setUrlValue] = useState('');
   const urlInputRef = useRef<HTMLInputElement | null>(null);
+  const desktop = isTauri();
+
+  // 原生文件/文件夹选择（对齐 Hermes selectDesktopPaths）— 动态 import 避免浏览器模式加载插件
+  const pickPaths = useCallback(async (directory: boolean) => {
+    if (!desktop) return;
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open(
+        directory
+          ? { directory: true, multiple: false, title: '选择文件夹' }
+          : { multiple: true, title: '选择文件' }
+      );
+      if (!selected) return;
+      const paths = Array.isArray(selected) ? selected : [selected];
+      if (paths.length) onAddPaths?.(paths);
+    } catch (err) {
+      console.error('[AttachMenu] native dialog failed:', err);
+    }
+  }, [desktop, onAddPaths]);
 
   const submitUrl = () => {
     const url = urlValue.trim();
@@ -86,15 +109,15 @@ export default function AttachMenu({ onPickImage, onAddUrl }: AttachMenuProps) {
             <span className="flex-1">添加链接</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem disabled>
+          <DropdownMenuItem disabled={!desktop} onSelect={() => void pickPaths(false)}>
             <FileIcon className="shrink-0" />
             <span className="flex-1">选择文件</span>
-            <span className="text-[10px] text-muted-foreground/50">待原生支持</span>
+            <span className="text-[10px] text-muted-foreground/50">{desktop ? '原生对话框' : '仅桌面端'}</span>
           </DropdownMenuItem>
-          <DropdownMenuItem disabled>
+          <DropdownMenuItem disabled={!desktop} onSelect={() => void pickPaths(true)}>
             <FolderIcon className="shrink-0" />
             <span className="flex-1">选择文件夹</span>
-            <span className="text-[10px] text-muted-foreground/50">待原生支持</span>
+            <span className="text-[10px] text-muted-foreground/50">{desktop ? '原生对话框' : '仅桌面端'}</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

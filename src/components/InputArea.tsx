@@ -6,11 +6,10 @@ import AttachMenu from './AttachMenu';
 import VoiceActivityBar from './VoiceActivityBar';
 import ThinkingButton from './ThinkingButton';
 import FastModeButton from './FastModeButton';
-import ComingSoonButton from './ComingSoonButton';
 import WebWindowButton from './WebWindowButton';
 import SlashCommandPopup from './SlashCommandPopup';
 import QueuePanel from './QueuePanel';
-import { SendIcon, MicIcon, LoadingIcon, ContextFileIcon } from './Icons';
+import { SendIcon, MicIcon, LoadingIcon } from './Icons';
 import { cn } from '@/lib/utils';
 import type { AttachedImage } from '@/hooks/useImageAttachments';
 import { useVoice } from '@/hooks/useVoice';
@@ -323,6 +322,11 @@ function InputArea({
     insertTextAtCursor(url + ' ');
   }, [insertTextAtCursor]);
 
+  // 原生对话框选中的文件/文件夹路径 — 插入输入框（对齐 Hermes 附件路径入输入区语义）
+  const handleAddPaths = useCallback((paths: string[]) => {
+    insertTextAtCursor(paths.join(' ') + ' ');
+  }, [insertTextAtCursor]);
+
   // ── 图片附件：粘贴 / 拖拽 / 文件选择 ──
 
   const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
@@ -544,8 +548,8 @@ function InputArea({
           {/* 控制行 — 对齐 Hermes：命令/附件/语音/模型/思考深度/快速模式/上下文文件/网页窗口 在左，发送在右 */}
           <div className="flex items-center gap-(--composer-control-gap)">
             <CommandMenu commands={slash.commands} onCommand={handleCommandExec} />
-            {/* 附件 "+" 菜单 — Hermes 式附件入口（图片接通后端、链接纯前端、文件/文件夹待原生对话框） */}
-            {onAddImage && <AttachMenu onPickImage={handleFileSelect} onAddUrl={handleAddUrl} />}
+            {/* 附件 "+" 菜单 — Hermes 式附件入口（图片接通后端、链接纯前端、文件/文件夹接通 Tauri 原生对话框） */}
+            {onAddImage && <AttachMenu onPickImage={handleFileSelect} onAddUrl={handleAddUrl} onAddPaths={handleAddPaths} />}
             {/* 麦克风 — 🔴 T0.4: 后端 voice.record 是 TODO stub（返回假状态），禁用入口防假录音 */}
             <button
               disabled
@@ -561,8 +565,6 @@ function InputArea({
             <ThinkingButton />
             {/* 快速模式 — 开关（对齐 Hermes fastMode，后端配置键待确认） */}
             <FastModeButton />
-            {/* 上下文文件 — 占位，待后端支持 */}
-            <ComingSoonButton icon={<ContextFileIcon className="shrink-0" />} label="文件" title="上下文文件" />
             {/* 网页窗口 — 已接通后端 browser.manage（连接/断开浏览器） */}
             <WebWindowButton />
             <div className="ml-auto flex items-center gap-(--composer-control-gap)">
