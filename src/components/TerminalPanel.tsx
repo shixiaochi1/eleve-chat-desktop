@@ -16,7 +16,6 @@ import { useEffect, useRef, useCallback, useState, useMemo, useSyncExternalStore
 import { Terminal as TerminalIcon, Trash2, Send, X, Plus } from 'lucide-react';
 import useTerminal from '../hooks/useTerminal';
 import type { ChatMessage, ChatMessagePart } from '@/types';
-import { call } from '../utils/bridge';
 import { listProcesses } from '../utils/api';
 import {
   subscribeTerminals,
@@ -259,29 +258,17 @@ function UserTerminalView({ entry, onSend, isStreaming = false, sessionId }: {
     setInputValue('');
     setExecuting(true);
     if (term.write) term.write(`\r\n\x1b[1;33m$ ${cmd}\x1b[0m\r\n`);
-    if (sessionId) {
-      try {
-        const isSlash = cmd.startsWith('/');
-        const commandName = isSlash ? cmd.slice(1).split(/\s+/)[0] : 'terminal';
-        const commandArgs = isSlash ? cmd.slice(1).substring(commandName.length).trim() : cmd;
-        const resp = await call('execute_command', {
-          command: commandName, args: commandArgs, session_id: sessionId,
-        }) as { result?: string; session_id?: string };
-        if (term.write && resp.result) {
-          const output = resp.result.length > 5000 ? resp.result.slice(0, 5000) + '\n... (truncated)' : resp.result;
-          term.write(`\x1b[90m${output}\x1b[0m\r\n`);
-        }
-      } catch (err: unknown) {
-        if (term.write) term.write(`\x1b[31m执行失败: ${(err as Error).message}\x1b[0m\r\n`);
-      } finally { setExecuting(false); }
-    } else {
+    // 🔴 修复（右侧抽屉断线2）：旧逻辑有 sessionId 时走 command.dispatch name='terminal'，
+    // 后端无 /terminal 斜杠命令 → 实测恒报 "Unknown command /terminal" → 终端永远执行不了命令。
+    // 统一走 onSend(cmd)：handleSend 自带斜杠命令拦截（/new 等 → handleCommand），
+    // 普通命令作为用户消息发给 Agent，由 Agent 用 terminal 工具执行，结果经 tool-call 回放写回本终端。
+    try {
+      onSend?.(cmd);
+    } finally {
       setExecuting(false);
-      if (term.write) term.write('\x1b[90m等待 Agent 执行...\x1b[0m\r\n');
-      const fullCmd = cmd.startsWith('/') ? cmd : `/terminal ${cmd}`;
-      onSend?.(fullCmd);
     }
     setTimeout(() => inputRef.current?.focus(), 50);
-  }, [inputValue, isStreaming, executing, onSend, term, sessionId]);
+  }, [inputValue, isStreaming, executing, onSend, term]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
