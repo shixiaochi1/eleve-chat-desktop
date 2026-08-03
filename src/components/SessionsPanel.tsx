@@ -226,6 +226,23 @@ export default function SessionsPanel({
   const [ctxMenu, setCtxMenu] = useState<CtxMenuState | null>(null);
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
 
+  // ── F2 重命名快捷键（对齐右键菜单 shortcut 提示）──
+  // 作用于当前激活会话；输入框/编辑态不触发，避免误抢输入
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F2') return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+      if (!sessionId) return;
+      const cur = sessions.find((s) => (s.id || s as any) === sessionId);
+      const curTitle = cur ? ((sessionTitles?.[sessionId] || (cur as any).title) as string) : (sessionTitles?.[sessionId] || '');
+      setRenameTarget({ id: sessionId, title: curTitle });
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [sessionId, sessions, sessionTitles]);
+
   // ── 虚拟列表（替代分页）──
 
   // 持久化置顶/归档
@@ -447,7 +464,9 @@ export default function SessionsPanel({
   // ── 渲染会话项 ──
   const renderSession = (s: Session, extra?: string) => {
     const id = s.id || s as any;
-    const title = (typeof s === 'object' ? s.title : sessionTitles?.[id]) || id?.slice(0, 8) || '—';
+    // 🔴 2026-08-03 修复：本地重命名结果（sessionTitles）优先于后端快照 s.title——
+    // 之前对象分支只读 s.title，重命名后 UI 不刷新（后端 DB 已存，需手动刷新列表才显示）
+    const title = (typeof s === 'object' ? (sessionTitles?.[id] || s.title) : sessionTitles?.[id]) || id?.slice(0, 8) || '—';
     const preview = typeof s === 'object' ? s.preview : null;
     const isCurrent = id === sessionId;
     const timeStr = fmtTime(s.last_active || s.started_at);
