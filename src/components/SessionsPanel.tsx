@@ -75,7 +75,9 @@ interface RenameTarget {
 const PINNED_KEY = 'eleve.pinned-sessions';
 
 // ── 系统会话来源（对齐后端 exclude_sources + Eleve _HIDDEN_SESSION_SOURCES）──
-const HIDDEN_SOURCES = new Set(['tool', 'cron', 'api']);
+// 🔴 2026-08-03 修复：加 'cli' —— CLI 后台 review 会话（"Reviewing Conversation..."）无内存
+// SessionActor，右键 undo/compress/branch/usage 全部 Session not found（后端 session.list 已同步排除）
+const HIDDEN_SOURCES = new Set(['tool', 'cron', 'api', 'cli']);
 
 // ── 虚拟列表行类型 ──
 type VirtualRow =
