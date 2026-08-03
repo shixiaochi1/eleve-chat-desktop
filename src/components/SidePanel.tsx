@@ -28,6 +28,10 @@ interface SidePanelProps {
   activePanel?: string | null;
   onPanelChange?: (panel: string | null) => void;
   gatewayOnline?: boolean;
+  /** 网关检测中（GatewayPanel 透传） */
+  gatewayChecking?: boolean;
+  /** 网关重连（GatewayPanel 透传，pool/port 重新探测） */
+  onGatewayRetry?: () => void;
   // ── Agent / Profile ──
   currentProfile?: string;
   /** 🔴 昵称全局生效：当前 Agent 的显示名（display_name），由 App 从 ProfilePanel 上抛映射解析 */

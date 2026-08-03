@@ -974,6 +974,11 @@ export default function App() {
                 <SidePanel
                   activePanel={activePanel}
                   onPanelChange={setActivePanel}
+                  // 🔴 网关状态透传（GatewayPanel 需要）：SidePanel 未传 gatewayOnline →
+                  // GatewayPanel 的 gatewayOnline=undefined → 恒显示"网关未连接"且无重连按钮
+                  gatewayOnline={gatewayHealth.online}
+                  gatewayChecking={gatewayHealth.checking}
+                  onGatewayRetry={gatewayHealth.checkNow}
                   currentProfile={currentProfile}
                   currentProfileLabel={currentProfileLabel}
                   onProfileChange={handleProfileChange}
