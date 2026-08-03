@@ -61,10 +61,13 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
     setSaving(true);
     try {
       // 🔴 按后端真实路径分组写入（加性通道 config.set.raw，合并保留各 section 其它键）
+      // 🔴 清空 cwd 必须写 null 而非 undefined：js-yaml dump 丢弃 undefined 值 →
+      // 后端 flatten 收不到键 → 加性更新不清旧值（同 timezone 88357e2 教训）。
+      // null → yaml.dump 输出 `cwd: null` → flatten 收集叶节点 → update_value 置 None。
       await call('update_config', {
         config: {
           terminal: {
-            cwd: config.cwd || undefined,
+            cwd: config.cwd || null,
             persistent_shell: config.persistent_shell,
           },
           code_execution: {
