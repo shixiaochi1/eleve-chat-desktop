@@ -11,7 +11,6 @@ import SettingsNav from './settings/SettingsNav';
 import SettingsLayout from './settings/SettingsLayout';
 import ProviderSettings from './settings/ProviderSettings';
 import ModelSettings from './settings/ModelSettings';
-import AppearanceSettings from './settings/AppearanceSettings';
 import WorkspaceSettings from './settings/WorkspaceSettings';
 import MemorySettings from './settings/MemorySettings';
 import SecuritySettings from './settings/SecuritySettings';
@@ -633,8 +632,6 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
             setExpanded={setModelSectionExpanded}
           />
         );
-      case 'appearance':
-        return <AppearanceSettings onSaved={() => {}} />;
       case 'workspace':
         return <WorkspaceSettings onSaved={() => {}} />;
       case 'memory':

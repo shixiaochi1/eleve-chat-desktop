@@ -1,10 +1,9 @@
-import { Shield, Zap, Lock, Power, Palette, FolderOpen, Brain, Wrench, Globe, Plug, MessageCircle, ShieldCheck, Mic, type LucideIcon } from 'lucide-react';
+import { Shield, Zap, Lock, Power, FolderOpen, Brain, Wrench, Globe, Plug, MessageCircle, ShieldCheck, Mic, type LucideIcon } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 const SETTINGS_SECTIONS: Array<{ id: string; label: string; icon: LucideIcon }> = [
   { id: 'providers', label: '服务商', icon: Shield },
   { id: 'models', label: '模型', icon: Zap },
-  { id: 'appearance', label: '外观', icon: Palette },
   { id: 'workspace', label: '工作区', icon: FolderOpen },
   { id: 'memory', label: '记忆', icon: Brain },
   { id: 'chat', label: '聊天', icon: MessageCircle },
