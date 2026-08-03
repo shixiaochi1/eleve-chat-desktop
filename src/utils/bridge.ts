@@ -195,6 +195,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   projects_add_folder:    'projects.add_folder',
   projects_remove_folder: 'projects.remove_folder',
   projects_set_primary:   'projects.set_primary',
+  projects_set_active:    'projects.set_active',
   projects_archive:       'projects.archive',
 };
 

@@ -12,7 +12,7 @@
  *   projects.create/update/add_folder/set_primary/archive CRUD（对齐 Hermes 桌面端项目管理）。
  */
 import { useState, useEffect, useCallback } from 'react';
-import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, RefreshCw, Plus, MoreVertical, Pencil, FolderPlus } from 'lucide-react';
+import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, RefreshCw, Plus, MoreVertical, Pencil, FolderPlus, CheckCircle2 } from 'lucide-react';
 import { isTauri } from '@tauri-apps/api/core';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
@@ -70,6 +70,8 @@ interface ProjectNode {
 interface TreeResult {
   projects: ProjectNode[];
   scoped_session_ids: string[];
+  /** 激活项目 id（projects.tree 返回，对齐 Hermes active_id） */
+  active_id?: string | null;
 }
 
 // ── Props ──
@@ -77,6 +79,9 @@ interface TreeResult {
 interface ProjectTreePanelProps {
   sessionId?: string;
   onSwitchSession?: (id: string) => void;
+  /** 当前活动 Agent（SidePanel 透传）——🔴 所有 projects.* RPC 显式携带，
+   *  不依赖 sendRpc 全局盖章（宫格焦点冒泡时序坑，对齐 ClarifyCard 显式归属模式） */
+  currentProfile?: string;
 }
 
 // ── 辅助 ──
@@ -178,7 +183,7 @@ function RepoNodeItem({ repo, sessionId, onSwitchSession, defaultExpanded = fals
   );
 }
 
-function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onAddFolder, desktop }: { project: ProjectNode; sessionId?: string; onSwitchSession?: (id: string) => void; onDrill: (p: ProjectNode) => void; onEdit: (p: ProjectNode) => void; onAddFolder: (p: ProjectNode) => void; desktop: boolean }) {
+function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onAddFolder, onSetActive, isActiveProject, desktop }: { project: ProjectNode; sessionId?: string; onSwitchSession?: (id: string) => void; onDrill: (p: ProjectNode) => void; onEdit: (p: ProjectNode) => void; onAddFolder: (p: ProjectNode) => void; onSetActive: (p: ProjectNode) => void; isActiveProject: boolean; desktop: boolean }) {
   const [expanded, setExpanded] = useState(true);
   const previews = project.previewSessions ?? [];
 
@@ -196,6 +201,10 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onA
           : <div className="w-3 h-3 rounded-full shrink-0" style={{ background: project.color || 'var(--ui-blue, #6366f1)' }} />
         }
         <span className="truncate flex-1 font-medium">{project.label}</span>
+        {/* 激活项目标记（对齐 Hermes overview-row isActive 高亮） */}
+        {isActiveProject && (
+          <span className="text-[9px] px-1 py-0.5 rounded bg-primary/15 text-primary shrink-0" title="当前激活项目">激活</span>
+        )}
         {project.sessionCount > 0 && (
           <span className="text-[10px] text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">{project.sessionCount}</span>
         )}
@@ -213,6 +222,11 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onA
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
+              {/* 对齐 Hermes project-menu：设为激活项目（已激活时禁用） */}
+              <DropdownMenuItem disabled={isActiveProject} onSelect={() => onSetActive(project)}>
+                <CheckCircle2 size={12} className="shrink-0" />
+                <span className="flex-1">{isActiveProject ? '当前激活项目' : '设为激活项目'}</span>
+              </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onEdit(project)}>
                 <Pencil size={12} className="shrink-0" />
                 <span className="flex-1">编辑名称/颜色</span>
@@ -240,11 +254,13 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onA
 
 // ── 项目新建/编辑对话框（显式项目管理，接线后端 projects CRUD）──
 
-function ProjectDialog({ open, initial, onClose, onSaved }: {
+function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
   open: boolean;
   initial: ProjectNode | null; // null = 新建
   onClose: () => void;
   onSaved: () => void;
+  /** 显式 profile：防多 Profile 串台 */
+  profile?: string;
 }) {
   const [name, setName] = useState('');
   const [color, setColor] = useState(AGENT_PALETTE[0]);
@@ -269,7 +285,7 @@ function ProjectDialog({ open, initial, onClose, onSaved }: {
     if (initial) {
       // 编辑模式：立即设为主文件夹（projects.set_primary）
       try {
-        await call('projects_set_primary', { id: initial.id, path });
+        await call('projects_set_primary', { id: initial.id, path, profile });
         setFolder(path);
         notifySuccess('主文件夹已更新');
         onSaved();
@@ -277,20 +293,21 @@ function ProjectDialog({ open, initial, onClose, onSaved }: {
     } else {
       setFolder(path);
     }
-  }, [desktop, initial, onSaved]);
+  }, [desktop, initial, onSaved, profile]);
 
   const save = useCallback(async () => {
     if (!name.trim()) { notifyError(null, '请输入项目名称'); return; }
     setSaving(true);
     try {
       if (initial) {
-        await call('projects_update', { id: initial.id, name: name.trim(), color });
+        await call('projects_update', { id: initial.id, name: name.trim(), color, profile });
         notifySuccess('项目已更新');
       } else {
         await call('projects_create', {
           name: name.trim(),
           color,
           ...(folder ? { folders: [folder], primary_path: folder } : {}),
+          profile,
         });
         notifySuccess('项目已创建');
       }
@@ -301,7 +318,7 @@ function ProjectDialog({ open, initial, onClose, onSaved }: {
     } finally {
       setSaving(false);
     }
-  }, [name, color, folder, initial, onSaved, onClose]);
+  }, [name, color, folder, initial, onSaved, onClose, profile]);
 
   // 归档两步确认（防误触）
   const archive = useCallback(async () => {
@@ -309,7 +326,7 @@ function ProjectDialog({ open, initial, onClose, onSaved }: {
     if (!confirmArchive) { setConfirmArchive(true); return; }
     setSaving(true);
     try {
-      await call('projects_archive', { id: initial.id });
+      await call('projects_archive', { id: initial.id, profile });
       notifySuccess('项目已归档');
       onSaved();
       onClose();
@@ -318,7 +335,7 @@ function ProjectDialog({ open, initial, onClose, onSaved }: {
     } finally {
       setSaving(false);
     }
-  }, [initial, confirmArchive, onSaved, onClose]);
+  }, [initial, confirmArchive, onSaved, onClose, profile]);
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -420,7 +437,7 @@ function ProjectDialog({ open, initial, onClose, onSaved }: {
 
 // ── Panel ──
 
-export default function ProjectTreePanel({ sessionId, onSwitchSession }: ProjectTreePanelProps) {
+export default function ProjectTreePanel({ sessionId, onSwitchSession, currentProfile }: ProjectTreePanelProps) {
   const [tree, setTree] = useState<TreeResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -438,14 +455,15 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession }: Project
     try {
       if (!silent) setLoading(true);
       setError(null);
-      const result = await call('projects_tree', { preview_limit: 3, include_discovered: true });
+      // 🔴 显式 profile：per-profile projects.db 路由，切 Agent 自动重拉（依赖 currentProfile）
+      const result = await call('projects_tree', { preview_limit: 3, include_discovered: true, profile: currentProfile });
       setTree(result);
     } catch (e: any) {
       setError(e?.message || '加载失败');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentProfile]);
 
   // 钻取：点击项目行 → 全量水合的 Repo/Lane/Session 树
   const handleDrill = useCallback(async (project: ProjectNode) => {
@@ -454,7 +472,7 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession }: Project
     setDrillError(null);
     setDrillLoading(true);
     try {
-      const res: any = await call('projects_project_sessions', { project_id: project.id });
+      const res: any = await call('projects_project_sessions', { project_id: project.id, profile: currentProfile });
       if (!res?.project) {
         setDrillError('项目不存在或无会话');
       } else {
@@ -465,7 +483,7 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession }: Project
     } finally {
       setDrillLoading(false);
     }
-  }, []);
+  }, [currentProfile]);
 
   const handleBack = useCallback(() => {
     setDrill(null);
@@ -482,13 +500,24 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession }: Project
     if (!path) return;
     try {
       // 无主文件夹的项目：首个添加的文件夹自动设为主文件夹
-      await call('projects_add_folder', { id: project.id, path, is_primary: !project.path });
+      await call('projects_add_folder', { id: project.id, path, is_primary: !project.path, profile: currentProfile });
       notifySuccess('文件夹已添加');
       void fetchTree(true);
     } catch (e) {
       notifyError(e, '添加文件夹失败');
     }
-  }, [desktop, fetchTree]);
+  }, [desktop, fetchTree, currentProfile]);
+
+  // 设为激活项目（对齐 Hermes setActiveProject → projects.set_active，per-profile 路由）
+  const handleSetActive = useCallback(async (project: ProjectNode) => {
+    try {
+      await call('projects_set_active', { id: project.id, profile: currentProfile });
+      notifySuccess(`已将「${project.label}」设为激活项目`);
+      void fetchTree(true);
+    } catch (e) {
+      notifyError(e, '激活项目失败');
+    }
+  }, [currentProfile, fetchTree]);
 
   // 🔴 冷启动竞态修复（同 ProfilePanel）：mount 时 WS 可能未连，等连接后再加载。
   useEffect(() => {
@@ -595,6 +624,8 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession }: Project
                       onDrill={handleDrill}
                       onEdit={handleEdit}
                       onAddFolder={handleAddFolder}
+                      onSetActive={handleSetActive}
+                      isActiveProject={tree.active_id === p.id}
                       desktop={desktop}
                     />
                   ))
@@ -611,6 +642,7 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession }: Project
         initial={editing}
         onClose={() => setDialogOpen(false)}
         onSaved={() => fetchTree(true)}
+        profile={currentProfile}
       />
     </div>
   );
