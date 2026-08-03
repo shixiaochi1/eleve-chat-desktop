@@ -54,6 +54,7 @@ import GridModeView, { type GridModeViewHandle } from './components/GridModeView
 import EditAgentDialog from './components/EditAgentDialog';
 import { ModelProvider } from './contexts/ModelContext';
 import { toggleDeepSeek, hideDeepSeek } from './utils/deepseek-webview';
+import { loadDisplaySettings } from './store/display-settings';
 import type { Window } from '@tauri-apps/api/window';
 
 // ── Tauri window API (lazy) ──
@@ -158,6 +159,13 @@ export default function App() {
   }, [portReady]);
   // 🔴 宫格按钮修复：运行期建/删 Agent 由 ProfilePanel 回调驱动（消灭一次性快照平行源）。
   const handleProfilesChange = useCallback((count: number) => setAgentCount(count), []);
+
+  // ── Display 设置：display.show_reasoning（config.yaml per-profile 权威源）──
+  // portReady / 切 Agent 时重拉，防止多 Profile 显示设置串台（加载失败回落默认 true）。
+  useEffect(() => {
+    if (!portReady) return;
+    void loadDisplaySettings();
+  }, [portReady, currentProfile]);
 
   // 🔴 昵称全局生效：ProfilePanel 上抛 name → display_name 映射，
   // 状态栏/会话列表显示昵称而非英文 ID（display_name 唯一持有者 = ProfilePanel，App 不重复拉取）。

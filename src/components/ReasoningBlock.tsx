@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { ThinkingIcon, CopyIcon, CheckIcon } from './Icons';
 import ActivityTimerText from './ActivityTimerText';
 import { useElapsedSeconds } from '@/hooks/useActivityTimer';
+import { useShowReasoning } from '@/store/display-settings';
 import { cn } from '@/lib/utils';
 
 interface ReasoningBlockProps {
@@ -26,6 +27,9 @@ interface ReasoningBlockProps {
  *   - 思考气泡内 ResizeObserver 自动滚底（仅 preview 模式）
  */
 export default function ReasoningBlock({ text, visible, messageId, blockIndex, pending }: ReasoningBlockProps) {
+  // 显示推理过程开关（config.yaml display.show_reasoning，设置>聊天）。
+  // 关闭时整个推理块不渲染；数据层 parts 保留，重新打开后历史推理块恢复显示。
+  const showReasoning = useShowReasoning();
   // 🔴 Phase 3: 三态默认策略（对齐 Hermes message-parts: open = userOpen ?? pending）：
   // userOpen=null 时流式自动展开、完成自动折叠；用户首次手动 toggle 后永久生效。
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
@@ -58,7 +62,7 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
     }).catch(() => {});
   }, [text]);
 
-  if (!visible || !text) return null;
+  if (!showReasoning || !visible || !text) return null;
 
   const lines = text.split('\n');
   const isLong = lines.length > 4 || text.length > 200;

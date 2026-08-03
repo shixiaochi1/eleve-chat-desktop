@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { call } from '../../utils/bridge';
 import { notifySuccess, notifyError } from '../../utils/notifications';
+import { setShowReasoning } from '../../store/display-settings';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
@@ -12,7 +13,7 @@ import { Switch } from '../ui/switch';
  */
 export default function ChatSettings({ onSaved }: { onSaved?: () => void }) {
   const [config, setConfig] = useState({
-    personality: 'helpful',
+    personality: '',
     timezone: '',
     show_reasoning: false,
     image_input_mode: 'auto',
@@ -33,11 +34,13 @@ export default function ChatSettings({ onSaved }: { onSaved?: () => void }) {
       const agent = bc.agent || {};
 
       setConfig({
-        personality: display.personality || 'helpful',
+        personality: display.personality || '',
         timezone: bc.timezone || '',
-        show_reasoning: display.show_reasoning ?? false,
+        show_reasoning: display.show_reasoning ?? true,
         image_input_mode: agent.image_input_mode || 'auto',
       });
+      // 同步全局 store（读侧与渲染侧同源，防面板内外状态漂移）
+      setShowReasoning(display.show_reasoning ?? true);
       setLoaded(true);
     } catch {
       setLoaded(true);
@@ -68,6 +71,8 @@ export default function ChatSettings({ onSaved }: { onSaved?: () => void }) {
           },
         },
       });
+      // 写侧即时同步 store：推理块显示开关立即生效（无需刷新/重进会话）
+      setShowReasoning(config.show_reasoning);
       notifySuccess('聊天配置已保存');
       onSaved?.();
     } catch (e) {
@@ -89,6 +94,7 @@ export default function ChatSettings({ onSaved }: { onSaved?: () => void }) {
           value={config.personality}
           onChange={e => update('personality', e.target.value)}
         >
+          <option value="">无 — 不使用人格覆盖（默认）</option>
           <option value="helpful">helpful — 乐于助人</option>
           <option value="concise">concise — 简洁精炼</option>
           <option value="technical">technical — 技术专业</option>
