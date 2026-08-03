@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { ThinkingIcon, CopyIcon, CheckIcon } from './Icons';
 import ActivityTimerText from './ActivityTimerText';
 import { useElapsedSeconds } from '@/hooks/useActivityTimer';
 import { useShowReasoning } from '@/store/display-settings';
+import { cleanThinkingText } from '@/lib/thinking-text';
 import { cn } from '@/lib/utils';
 
 interface ReasoningBlockProps {
@@ -54,18 +55,22 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
     return () => observer.disconnect();
   }, [isPreview]);
 
+  // 显示层清洗（对齐 Hermes coerceThinkingText 定位：只动显示不动数据）：
+  // 剥混入的 think 标签 + 状态前缀 + 纯垃圾推理流（"..."/":"）视为空隐藏。
+  const cleanText = useMemo(() => cleanThinkingText(text ?? ''), [text]);
+
   const handleCopy = useCallback(() => {
-    if (!text) return;
-    navigator.clipboard.writeText(text).then(() => {
+    if (!cleanText) return;
+    navigator.clipboard.writeText(cleanText).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     }).catch(() => {});
-  }, [text]);
+  }, [cleanText]);
 
-  if (!showReasoning || !visible || !text) return null;
+  if (!showReasoning || !visible || !cleanText) return null;
 
-  const lines = text.split('\n');
-  const isLong = lines.length > 4 || text.length > 200;
+  const lines = cleanText.split('\n');
+  const isLong = lines.length > 4 || cleanText.length > 200;
 
   return (
     <div className="border-l-2 border-muted-foreground/30 pl-3 my-2 max-w-[85%]">
@@ -114,7 +119,7 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
           isLong && !open && setUserOpen(true);
         }}
       >
-        {text}
+        {cleanText}
       </div>
     </div>
   );
