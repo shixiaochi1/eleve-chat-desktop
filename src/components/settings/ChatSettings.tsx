@@ -58,7 +58,11 @@ export default function ChatSettings({ onSaved }: { onSaved?: () => void }) {
             personality: config.personality,
             show_reasoning: config.show_reasoning,
           },
-          timezone: config.timezone || undefined,
+          // 🔴 清空时区必须写 null 而非 undefined：js-yaml dump 会丢弃 undefined 值 →
+          // 后端 config.set.raw 收不到 timezone 键 → 旧值残留清不掉（加性更新语义）。
+          // null → yaml.dump 输出 `timezone: null` → 后端 flatten 收集叶节点 →
+          // update_value 置 None → 内存+磁盘同步清空。
+          timezone: config.timezone || null,
           agent: {
             image_input_mode: config.image_input_mode,
           },

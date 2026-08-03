@@ -73,6 +73,17 @@ server:
 shell:
   active: ""  # 空 = 自动发现
 
+# === Agent Configuration ===
+agent:
+  max_turns: 90
+  streaming: true
+
+# === Timezone Configuration ===
+# IANA 时区字符串（如 Asia/Shanghai、America/New_York）。
+# 影响 execute_code 沙箱内 datetime.now() 的墙钟时间（注入 TZ 环境变量）。
+# 留空/注释 = 使用系统时区。也可在 设置 → 聊天 → 时区 中修改（per-profile 生效）。
+# timezone: "Asia/Shanghai"
+
 # === Memory Configuration ===
 memory:
   enabled: true
