@@ -602,12 +602,21 @@ export class GatewayWsClient {
 
   /**
    * 语音录制 — 对齐 Hermes voice.record
-   * action: start（开始 VAD 录音）/ stop（停止并转录）/ status（查询状态）
+   * action: start（开始 VAD 录音）/ stop（停止并转录）/ cancel（丢弃不转录）/ status（查询状态）
    * 转录结果由后端通过 voice.transcript 事件推送回前端（见 useVoice 钩子）
    */
-  async voiceRecord(action: 'start' | 'stop' | 'status' = 'status'): Promise<VoiceRecordResponse> {
+  async voiceRecord(action: 'start' | 'stop' | 'cancel' | 'status' = 'status'): Promise<VoiceRecordResponse> {
     const result = await this.sendRpc('voice.record', { action })
     return result as VoiceRecordResponse
+  }
+
+  /**
+   * F5: 打断当前 TTS 播放（barge-in）— 对齐后端 voice.tts.stop →
+   * Hermes _tts_stream_stop(user_barge=True)。用户发消息时调用，立即停止朗读。
+   */
+  async voiceTtsStop(): Promise<{ ok?: boolean; status?: string }> {
+    const result = await this.sendRpc('voice.tts.stop', {})
+    return result as { ok?: boolean; status?: string }
   }
 
   // ── 配置读写 RPC（对齐后端 ws/mod.rs config.get / config.set）──

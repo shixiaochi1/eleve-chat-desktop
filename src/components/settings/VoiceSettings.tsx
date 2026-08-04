@@ -107,9 +107,10 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
 
   return (
     <div>
-      {/* 开发中提示 */}
+      {/* 能力现状提示（F6: 原文案"后端尚未实现"已过时 — P3/审计修复后录音+转录+TTS 已接线） */}
       <div className="mb-4 rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-600 dark:text-yellow-400">
-        ⚠️ 语音功能（STT / TTS）后端尚未实现，以下配置可保存但暂不生效。
+        ⚠️ 语音输入已可用（麦克风录音 + 云端转录，需 OpenAI API Key）。
+        本地 STT 模型、回复后自动朗读（auto_tts）暂未接入。
       </div>
 
       {/* ══════════ 语音转文字 (STT) ══════════ */}

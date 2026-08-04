@@ -624,6 +624,10 @@ export default function App() {
   // 包装 handleSend — 附件排队归属 + 发送后清空预览
   // 🔴 对齐 Hermes entry 级附件归属：busy 时排队附件 base64 暂存内存 + 从 session 分离
   const handleSend = useCallback(async (text: string) => {
+    // F5: barge-in — 用户发消息即打断正在播放的 TTS（对齐 Hermes
+    // server.py L12842: 新 turn 开始 → _tts_stream_stop(user_barge=True)）。
+    // fire-and-forget：打断失败不影响发送主流程。
+    getWsClient().voiceTtsStop().catch(() => {});
     const wasBusy = isSendingRef.current;
     const images = [...attachedImages];
 
