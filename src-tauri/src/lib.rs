@@ -1058,16 +1058,24 @@ pub fn run() {
 
             // 确保目录结构存在
             std::fs::create_dir_all(&eleve_home).ok();
-            // 🔴 对齐后端 ensure_directories() (bootstrap/mod.rs:623-645)
-            // 确保所有子目录都存在，与后端保持一致
-            let subdirs = [
-                "cron", "sessions", "logs", "skills", "memories", "boards",
-                "cache",  // 🔴 显式创建 cache 根目录（对齐后端）
+            // 🔴 对齐后端 bootstrap/mod.rs 目录布局（2026-08-05 审计修复）：
+            // default 归位（2026-08-02）后目录拆两层——
+            //   全局根（ensure_global_directories）: logs/pairing/runtime/app-data/cache/*/boards
+            //   profiles/default/（ensure_profile_directories）: cron/sessions/skills/memories/hooks/credentials/mcp-tokens
+            // 旧实现在根下创建 per-profile 目录 → 幽灵空目录（后端从不读写它们）。
+            let global_subdirs = [
+                "logs", "pairing", "runtime", "app-data", "boards",
+                "cache",
                 "cache/images", "cache/audio", "cache/terminal", "cache/sandbox",
                 "cache/vision", "cache/voice", "cache/results",
-                "credentials", "mcp-tokens", "hooks", "pairing", "runtime", "app-data"
             ];
-            for sub in &subdirs { std::fs::create_dir_all(eleve_home.join(sub)).ok(); }
+            for sub in &global_subdirs { std::fs::create_dir_all(eleve_home.join(sub)).ok(); }
+            let profile_subdirs = [
+                "cron", "sessions", "skills", "memories", "hooks", "credentials", "mcp-tokens",
+            ];
+            for sub in &profile_subdirs {
+                std::fs::create_dir_all(eleve_home.join("profiles").join("default").join(sub)).ok();
+            }
 
             // 初始化 tracing — 对齐 CLI main.rs 的日志基础设施
             // Tauri 壳的日志写到 logs/tauri.log，与 eleved 子进程的 logs/eleved.log 分离
