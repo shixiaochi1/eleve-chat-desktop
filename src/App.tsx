@@ -1120,6 +1120,7 @@ export default function App() {
                 onAbort={handleAbort}
                 isStreaming={isStreaming}
                 portReady={portReady}
+                sessionCwd={sessionCwd}
                 attachedImages={attachedImages}
                 imageUploading={imageUploading}
                 imageError={imageError}

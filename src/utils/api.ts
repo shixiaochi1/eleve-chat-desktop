@@ -135,9 +135,9 @@ export interface CompletionItem {
   meta: string;
 }
 
-/** 路径/@引用补全 */
-export async function completePath(word: string): Promise<{ items: CompletionItem[]; replace_from: number }> {
-  return call('complete_path', { word });
+/** 路径/@引用补全（W-6：透传会话 cwd，后端对齐 Hermes _completion_cwd 回退链） */
+export async function completePath(word: string, cwd?: string): Promise<{ items: CompletionItem[]; replace_from: number }> {
+  return call('complete_path', { word, ...(cwd ? { cwd } : {}) });
 }
 
 // F4: 信息面板

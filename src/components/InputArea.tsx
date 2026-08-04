@@ -37,6 +37,8 @@ interface InputAreaProps {
   onClearImageError?: () => void;
   /** 队列键控 profile（对齐 Hermes activeQueueSessionKey） */
   queueProfile?: string;
+  /** 🔴 W-6：会话 cwd（session.info 推送）— 透传给 complete.path 作补全基准目录 */
+  sessionCwd?: string;
   /** 立即发送排队条目（对齐 Hermes sendQueuedNow） */
   onQueueSendNow?: (id: string) => void;
   /** 删除排队条目 */
@@ -80,6 +82,7 @@ function InputArea({
   onRemoveImage,
   onClearImageError,
   queueProfile,
+  sessionCwd,
   onQueueSendNow,
   onQueueDelete,
 }: InputAreaProps) {
@@ -289,7 +292,7 @@ function InputArea({
       if (pathDebounceRef.current) clearTimeout(pathDebounceRef.current);
       pathDebounceRef.current = setTimeout(async () => {
         try {
-          const res = await completePath(currentWord);
+          const res = await completePath(currentWord, sessionCwd);
           setPathItems(res.items || []);
           setPathSelectedIndex(0);
           setShowPathPopup((res.items || []).length > 0);
@@ -300,7 +303,9 @@ function InputArea({
     } else {
       setShowPathPopup(false);
     }
-  }, [slash]);
+    // 🔴 W-6：sessionCwd 必须在依赖里——补全闭包捕获会话 cwd，
+    // 会话切换/session.info 到达后要用新值（漏了 = 捕获过期 cwd）
+  }, [slash, sessionCwd]);
 
   // ── 语音输入 + 链接插入：向光标处写入文本 ──
 
