@@ -157,19 +157,25 @@ export async function deleteLearning(id: string): Promise<{ ok: boolean; id: str
   return call('learning_delete', { id });
 }
 
-/** 回滚点列表 */
-export async function listRollbacks(cwd: string): Promise<{ rollbacks: Array<{ hash: string; message: string }> }> {
-  return call('rollback_list', { cwd });
+/** Checkpoint 列表（对齐 Hermes rollback.list：{enabled, checkpoints}）。
+ * cwd 由后端从会话派生（_session_cwd 语义），前端只传 session_id。 */
+export async function listCheckpoints(sessionId: string): Promise<{
+  enabled: boolean;
+  checkpoints: Array<{ hash: string; short_hash?: string; timestamp?: string; message: string; files_changed?: number }>;
+}> {
+  return call('rollback_list', { session_id: sessionId });
 }
 
-/** 回滚差异 */
-export async function getRollbackDiff(hash: string, cwd: string): Promise<{ diff: string }> {
-  return call('rollback_diff', { hash, cwd });
+/** Checkpoint 差异（对齐 Hermes rollback.diff：{stat, diff≤4000字}） */
+export async function getCheckpointDiff(sessionId: string, hash: string): Promise<{ stat?: string; diff?: string; error?: string }> {
+  return call('rollback_diff', { session_id: sessionId, hash });
 }
 
-/** 执行回滚 */
-export async function restoreRollback(hash: string, cwd: string): Promise<{ status: string; output: string }> {
-  return call('rollback_restore', { hash, cwd });
+/** 恢复 checkpoint（对齐 Hermes rollback.restore；busy 时后端返 4009） */
+export async function restoreCheckpoint(sessionId: string, hash: string): Promise<{
+  success: boolean; restored_to?: string; reason?: string; file?: string; error?: string; history_truncated?: boolean;
+}> {
+  return call('rollback_restore', { session_id: sessionId, hash });
 }
 
 // ====== 命令 ======

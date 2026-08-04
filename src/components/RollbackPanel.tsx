@@ -1,83 +1,107 @@
 /**
- * RollbackPanel — Git 回滚面板（F4 T4.4）
+ * RollbackPanel — 文件快照回滚面板
  *
- * 对齐 Hermes rollback.list/diff/restore：
- * - 列出最近 20 个 commit（hash + message）
- * - 点击查看 diff
- * - 一键 revert（git revert --no-edit）
+ * 对齐 Hermes methods_tools.py rollback.list/diff/restore（checkpoint 系统）：
+ * - 工作目录在 Agent 修改文件前自动创建快照（checkpoints）
+ * - 列出快照 → 查看差异 → 一键恢复（全量恢复会同时回退对话到那一轮）
+ * - 🔴 BP-3 修复：工作目录由后端从当前会话派生（Hermes _session_cwd 语义），
+ *   前端只传 session_id；旧版手输 cwd + raw git revert 已移除。
  */
 import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import { listRollbacks, getRollbackDiff, restoreRollback } from '../utils/api';
+import { listCheckpoints, getCheckpointDiff, restoreCheckpoint } from '../utils/api';
 import { notifyError, notifySuccess } from '../utils/notifications';
 import { getWsClient } from '../services/ws-client';
-import { GitCommit, RefreshCw, Eye, Undo2 } from 'lucide-react';
+import { History, RefreshCw, Eye, Undo2 } from 'lucide-react';
 
-interface RollbackEntry {
+interface CheckpointEntry {
   hash: string;
+  short_hash?: string;
+  timestamp?: string;
   message: string;
+  files_changed?: number;
 }
 
 interface RollbackPanelProps {
-  sessionId?: string;
+  sessionId?: string | null;
   [key: string]: unknown;
 }
 
 export default function RollbackPanel({ sessionId }: RollbackPanelProps) {
-  const [entries, setEntries] = useState<RollbackEntry[]>([]);
+  const [enabled, setEnabled] = useState(true);
+  const [entries, setEntries] = useState<CheckpointEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
   const [diff, setDiff] = useState<string | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
-  // 用 sessionStorage 缓存 cwd（从 session.info 获取）
-  const [cwd, setCwd] = useState<string>(() => sessionStorage.getItem('rollback_cwd') || '.');
+  const [restoring, setRestoring] = useState(false);
 
   const refresh = useCallback(async () => {
+    if (!sessionId) return;
     setLoading(true);
     try {
-      const res = await listRollbacks(cwd);
-      setEntries(res.rollbacks || []);
+      const res = await listCheckpoints(sessionId);
+      setEnabled(res.enabled !== false);
+      setEntries(res.checkpoints || []);
     } catch (e) {
-      notifyError(e, '获取回滚列表失败');
+      notifyError(e, '获取快照列表失败');
     } finally {
       setLoading(false);
     }
-  }, [cwd]);
+  }, [sessionId]);
 
   // 🔴 冷启动竞态修复（同 ProfilePanel）：mount 时 WS 可能未连，等连接后再加载。
+  // sessionId 变化（切会话）自动重拉——快照列表跟随会话工作目录。
   useEffect(() => {
     let cancelled = false;
     getWsClient()
       .whenConnected()
       .then(() => { if (!cancelled) refresh(); })
-      .catch(() => { if (!cancelled) notifyError('无法连接网关，请检查后端服务', '获取回滚列表失败'); });
+      .catch(() => { if (!cancelled) notifyError('无法连接网关，请检查后端服务', '获取快照列表失败'); });
     return () => { cancelled = true; };
   }, [refresh]);
 
   const handleViewDiff = useCallback(async (hash: string) => {
+    if (!sessionId) return;
     setSelectedHash(hash);
     setDiffLoading(true);
     setDiff(null);
     try {
-      const res = await getRollbackDiff(hash, cwd);
-      setDiff(res.diff || '(无差异)');
+      const res = await getCheckpointDiff(sessionId, hash);
+      if (res.error) {
+        setDiff(`获取差异失败: ${res.error}`);
+      } else {
+        const parts = [res.stat || '', res.diff || ''].filter(Boolean);
+        setDiff(parts.length > 0 ? parts.join('\n\n') : '(无差异)');
+      }
     } catch (e) {
-      setDiff(`获取 diff 失败: ${(e as Error).message}`);
+      setDiff(`获取差异失败: ${(e as Error).message}`);
     } finally {
       setDiffLoading(false);
     }
-  }, [cwd]);
+  }, [sessionId]);
 
-  const handleRestore = useCallback(async (hash: string) => {
-    if (!window.confirm(`确认 revert commit ${hash.slice(0, 7)}？`)) return;
+  const handleRestore = useCallback(async (entry: CheckpointEntry) => {
+    if (!sessionId || restoring) return;
+    const label = entry.short_hash || entry.hash.slice(0, 7);
+    if (!window.confirm(`恢复到快照 ${label}（${entry.message}）？\n工作目录文件将回退，对话也会回退到那一轮。`)) return;
+    setRestoring(true);
     try {
-      await restoreRollback(hash, cwd);
-      notifySuccess(`已 revert ${hash.slice(0, 7)}`);
-      refresh();
+      const res = await restoreCheckpoint(sessionId, entry.hash);
+      if (res.success) {
+        notifySuccess(`已恢复到快照 ${label}`);
+        setDiff(null);
+        setSelectedHash(null);
+        refresh();
+      } else {
+        notifyError(res.error || '恢复失败', '恢复失败');
+      }
     } catch (e) {
-      notifyError(e, 'Revert 失败');
+      notifyError(e, '恢复失败');
+    } finally {
+      setRestoring(false);
     }
-  }, [cwd, refresh]);
+  }, [sessionId, restoring, refresh]);
 
   return (
     <div className="flex flex-col h-full p-3 gap-2">
@@ -86,56 +110,71 @@ export default function RollbackPanel({ sessionId }: RollbackPanelProps) {
         <button
           className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
           onClick={refresh}
-          disabled={loading}
+          disabled={loading || !sessionId}
         >
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
           {loading ? '加载中…' : '刷新'}
         </button>
-        <span className="text-xs text-muted-foreground/60">Git 回滚点</span>
-        <input
-          className="w-28 px-1.5 py-0.5 text-[10px] font-mono border border-border rounded bg-background text-muted-foreground"
-          value={cwd}
-          onChange={(e) => { setCwd(e.target.value); sessionStorage.setItem('rollback_cwd', e.target.value); }}
-          placeholder="工作目录"
-        />
+        <span className="text-xs text-muted-foreground/60">文件快照</span>
       </div>
 
-      {/* commit 列表 */}
+      {/* 未启用提示（对齐 Hermes：checkpoints.enabled=false） */}
+      {!enabled && !loading && (
+        <div className="flex flex-col items-center py-8 text-muted-foreground gap-2">
+          <History size={24} strokeWidth={1} className="text-muted-foreground/30" />
+          <span className="text-xs">快照功能未启用</span>
+          <span className="text-[10px] text-muted-foreground/60 text-center leading-relaxed px-4">
+            在设置中开启 checkpoints 后，Agent 修改文件前会自动创建快照
+          </span>
+        </div>
+      )}
+
+      {/* 快照列表 */}
       <div className="flex-1 overflow-auto space-y-0.5 min-h-0">
-        {entries.length === 0 && !loading && (
+        {enabled && entries.length === 0 && !loading && (
           <div className="flex flex-col items-center py-8 text-muted-foreground gap-2">
-            <GitCommit size={24} strokeWidth={1} className="text-muted-foreground/30" />
-            <span className="text-xs">暂无 commit</span>
+            <History size={24} strokeWidth={1} className="text-muted-foreground/30" />
+            <span className="text-xs">暂无快照</span>
+            <span className="text-[10px] text-muted-foreground/60 text-center leading-relaxed px-4">
+              Agent 修改文件时会自动创建快照
+            </span>
           </div>
         )}
-        {entries.map((e) => (
-          <div
-            key={e.hash}
-            className={cn(
-              'flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer transition-colors',
-              selectedHash === e.hash ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/5'
-            )}
-            onClick={() => handleViewDiff(e.hash)}
-          >
-            <GitCommit size={12} className="shrink-0 text-muted-foreground/50" />
-            <span className="font-mono text-primary shrink-0">{e.hash.slice(0, 7)}</span>
-            <span className="flex-1 truncate text-foreground" title={e.message}>{e.message}</span>
-            <button
-              className="shrink-0 p-0.5 rounded text-muted-foreground/50 hover:text-foreground transition-colors"
-              onClick={(ev) => { ev.stopPropagation(); handleViewDiff(e.hash); }}
-              title="查看 diff"
+        {entries.map((e) => {
+          const label = e.short_hash || e.hash.slice(0, 7);
+          return (
+            <div
+              key={e.hash}
+              className={cn(
+                'flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer transition-colors',
+                selectedHash === e.hash ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/5'
+              )}
+              onClick={() => handleViewDiff(e.hash)}
             >
-              <Eye size={12} />
-            </button>
-            <button
-              className="shrink-0 p-0.5 rounded text-destructive/50 hover:text-destructive transition-colors"
-              onClick={(ev) => { ev.stopPropagation(); handleRestore(e.hash); }}
-              title="Revert"
-            >
-              <Undo2 size={12} />
-            </button>
-          </div>
-        ))}
+              <History size={12} className="shrink-0 text-muted-foreground/50" />
+              <span className="font-mono text-primary shrink-0">{label}</span>
+              <span className="flex-1 truncate text-foreground" title={e.message}>{e.message}</span>
+              {typeof e.files_changed === 'number' && e.files_changed > 0 && (
+                <span className="shrink-0 text-[10px] text-muted-foreground/60">{e.files_changed} 文件</span>
+              )}
+              <button
+                className="shrink-0 p-0.5 rounded text-muted-foreground/50 hover:text-foreground transition-colors"
+                onClick={(ev) => { ev.stopPropagation(); handleViewDiff(e.hash); }}
+                title="查看差异"
+              >
+                <Eye size={12} />
+              </button>
+              <button
+                className="shrink-0 p-0.5 rounded text-destructive/50 hover:text-destructive transition-colors"
+                onClick={(ev) => { ev.stopPropagation(); handleRestore(e); }}
+                title="恢复到此快照"
+                disabled={restoring}
+              >
+                <Undo2 size={12} />
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       {/* diff 预览 */}
