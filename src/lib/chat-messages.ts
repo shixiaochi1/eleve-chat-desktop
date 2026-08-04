@@ -432,6 +432,12 @@ export interface SessionMessage {
   tool_calls?: unknown[]
   tool_call_id?: string
   tool_name?: string
+  /** 展示分类（对标 Hermes messages.display_kind）：
+   *  async_delegation_complete / model_switch / auto_continue / hidden。
+   *  role=user 的系统注入 bookkeeping 行，展示层降级/丢弃，不作为用户气泡。 */
+  display_kind?: string
+  /** 展示元数据（对标 Hermes display_metadata，如委派 task_count） */
+  display_metadata?: unknown
 }
 
 function textFromUnknown(value: unknown, depth = 0): string {
@@ -467,6 +473,52 @@ function displayContentForMessage(role: string, content: unknown): string {
 
   const visibleText = textContent.slice(0, marker.index).replace(CONTEXT_WARNINGS_RE, '').trim()
   return visibleText || textContent.replace(CONTEXT_WARNINGS_RE, '').trim()
+}
+
+// ── display_kind timeline 处理（1:1 对标 Hermes desktop chat-messages.ts
+// L341-396：hidden 丢弃，三类 bookkeeping 行降级为事件行）──
+
+/** hidden 行仍 replay 给模型，但一切展示面丢弃（对标 transcriptContent） */
+function transcriptContent(displayKind: string | undefined, content: string): string | null {
+  return displayKind === 'hidden' ? null : content
+}
+
+/** 远端旧后端可能把 display_metadata 存为 JSON 文本，`in` 对原始值会抛——
+ *  解析失败不能弄坏整个会话恢复（对标 Hermes parseDisplayMetadata） */
+function parseDisplayMetadata(metadata: unknown): null | Record<string, unknown> {
+  let parsed: unknown = metadata
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed)
+    } catch {
+      return null
+    }
+  }
+  return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+}
+
+function timelineTaskCount(metadata: unknown): number | undefined {
+  const count = parseDisplayMetadata(metadata)?.task_count
+  return typeof count === 'number' ? count : undefined
+}
+
+/** timeline 事件行的人类可读文案（对标 Hermes timelineDisplayContent，中文化） */
+function timelineDisplayContent(message: SessionMessage, content: string): string {
+  if (message.display_kind === 'model_switch') {
+    return '模型已切换'
+  }
+  if (message.display_kind === 'auto_continue') {
+    return '已继续中断的回复'
+  }
+  if (message.display_kind === 'async_delegation_complete') {
+    const count = timelineTaskCount(message.display_metadata)
+    return count === undefined
+      ? '后台任务已完成'
+      : count === 1
+        ? '1 个后台任务已完成'
+        : `${count} 个后台任务已完成`
+  }
+  return content
 }
 
 function toolPartFromStoredCall(call: unknown, fallbackIndex: number): ToolCallMessagePart {
@@ -641,7 +693,20 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
     }
 
     const content = message.content || message.text || message.context || message.name
-    const displayContent = displayContentForMessage(message.role, content)
+    // 🔴 display_kind 管线（1:1 对标 Hermes desktop toChatMessages L982-989）：
+    // hidden → 内容丢弃（行仍 replay 给模型）；model_switch / auto_continue /
+    // async_delegation_complete → 降级为 system 事件行 + 人类可读摘要，
+    // 绝不把系统注入的委派任务块重绘成用户气泡。
+    const displayRole: MessageRole =
+      message.display_kind === 'model_switch' ||
+      message.display_kind === 'async_delegation_complete' ||
+      message.display_kind === 'auto_continue'
+        ? 'system'
+        : (message.role as MessageRole)
+    const displayContent = transcriptContent(
+      message.display_kind,
+      timelineDisplayContent(message, displayContentForMessage(message.role, content)),
+    )
     const parts: ChatMessagePart[] = []
 
     const reasoning =
@@ -662,7 +727,7 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
     }
 
     if (!parts.length) {
-      if (message.role !== 'assistant') {
+      if (displayRole !== 'assistant') {
         flushPendingTools(index)
         activeAssistantIndex = null
       }
@@ -678,7 +743,7 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
       return
     }
 
-    if (message.role === 'assistant') {
+    if (displayRole === 'assistant') {
       if (pendingToolParts.length) {
         if (!appendPartsToActiveAssistant(pendingToolParts, message.timestamp ?? pendingToolTimestamp)) {
           parts.unshift(...pendingToolParts)
@@ -708,13 +773,13 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
     }
 
     result.push({
-      id: `${message.timestamp || Date.now()}-${index}-${message.role}`,
-      role: message.role as 'user' | 'assistant',
+      id: `${message.timestamp || Date.now()}-${index}-${displayRole}`,
+      role: displayRole,
       parts,
       timestamp: message.timestamp ?? Date.now(),
     })
 
-    activeAssistantIndex = message.role === 'assistant' ? result.length - 1 : null
+    activeAssistantIndex = displayRole === 'assistant' ? result.length - 1 : null
   })
 
   flushPendingTools(messages.length)
