@@ -1,22 +1,28 @@
 ; NSIS uninstall hook - 对齐 Hermes Windows 桌面端架构
-; 数据目录: 跟随程序安装位置 $INSTDIR\data\
+; 数据目录: %LOCALAPPDATA%\Eleve（对齐 Hermes %LOCALAPPDATA%\hermes）
 ; 环境变量: ELEVE_HOME 写入注册表 HKCU\Environment（不广播）
 ;
 ; 对齐 Hermes 设计原则：
-; 1. 数据目录跟随程序位置（程序装哪，数据存哪）
+; 1. 数据目录放 %LOCALAPPDATA%\Eleve（位于 $INSTDIR 之外，卸载 RmDir $INSTDIR 不波及数据）
 ; 2. 安装时只创建根目录，子目录由应用运行时按需创建
 ; 3. 不用 SendMessage 广播（环境变量重启后生效即可）
 ; 4. 不用长 Sleep（500ms 足够）
+;
+; 🔴 Phase 3 修复：旧版曾把数据放 $INSTDIR\data，导致卸载末尾 RmDir /r "$INSTDIR"
+; 无条件删除用户数据，使"删除应用数据"复选框门控失效。现改用 LOCALAPPDATA。
 
 Var ELEVE_HOME_PATH
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; 数据目录跟随程序安装位置（对齐 Hermes: 程序装哪，数据存哪）
-  StrCpy $ELEVE_HOME_PATH "$INSTDIR\data"
-  
+  ; 🔴 Phase 3：数据目录默认 %LOCALAPPDATA%\Eleve（不在 $INSTDIR 内，卸载不误删）
+  StrCpy $ELEVE_HOME_PATH "$LOCALAPPDATA\Eleve"
+  ; 兼容：若旧版已在 $INSTDIR\data 存有数据（升级场景），沿用旧目录避免数据分裂
+  IfFileExists "$INSTDIR\data\*.*" 0 +2
+    StrCpy $ELEVE_HOME_PATH "$INSTDIR\data"
+
   ; 只创建根目录，子目录由应用运行时按需创建（对齐 Hermes）
   CreateDirectory "$ELEVE_HOME_PATH"
-  
+
   ; 设置 ELEVE_HOME 环境变量到注册表（不广播，重启后生效）
   WriteRegStr HKCU "Environment" "ELEVE_HOME" "$ELEVE_HOME_PATH"
 !macroend
@@ -46,7 +52,7 @@ Var ELEVE_HOME_PATH
   ; 覆盖安装（$UpdateMode=1）时绝不清理数据（升级保留 providers.yaml/state.db）
   ${If} $DeleteAppDataCheckboxState = 1
   ${AndIf} $UpdateMode <> 1
-    ; 删除数据目录（跟随程序位置）
+    ; 删除数据目录（新版为 %LOCALAPPDATA%\Eleve，旧版存量为 $INSTDIR\data）
     ${If} $ELEVE_HOME_PATH != ""
       RmDir /r "$ELEVE_HOME_PATH"
     ${EndIf}
@@ -72,6 +78,9 @@ Var ELEVE_HOME_PATH
   DeleteRegKey HKCU "Software\Eleve Chat"
   DeleteRegKey HKCU "Software\com.eleve.chat.desktop"
   
-  ; 删除安装目录（始终执行，Tauri 预期行为）
+  ; 删除安装目录（始终执行，Tauri 预期行为）。
+  ; 🔴 Phase 3：数据目录已迁至 %LOCALAPPDATA%\Eleve（不在 $INSTDIR 内），故此处仅移除
+  ;    应用程序文件，不再波及用户数据——数据删除仅由上面"删除应用数据"复选框门控。
+  ;    （旧版 $INSTDIR\data 安装的存量用户除外，其数据随 $INSTDIR 移除，属历史遗留。）
   RmDir /r "$INSTDIR"
 !macroend
