@@ -147,33 +147,29 @@ fn resolve_eleve_home() -> PathBuf {
         }
     }
 
-    // 3. %LOCALAPPDATA%\Eleve\（Windows 默认，对齐 Hermes %LOCALAPPDATA%\hermes）
+    // 3. 平台标准目录 + legacy 透明迁移（对齐 Hermes resolveHermesHome main.ts L563-574）
+    //    🔴 与后端 eleve-core::bootstrap::resolve_platform_default_home 语义必须保持一致：
+    //    新位置为空且 legacy ~/.eleve 已有数据 → 沿用 legacy（不丢状态）；否则用 LOCALAPPDATA。
     #[cfg(target_os = "windows")]
     {
         if let Some(local_appdata) = dirs::data_local_dir() {
             let eleve_home = local_appdata.join("Eleve");
-            if eleve_home.is_dir() {
-                eprintln!("[TAURI] ELEVE_HOME from LOCALAPPDATA: {:?}", eleve_home);
-                return eleve_home;
+            // honour an existing legacy setup when the new location is empty
+            if !eleve_home.is_dir() {
+                if let Some(legacy) = dirs::home_dir().map(|h| h.join(".eleve")) {
+                    if legacy.is_dir() {
+                        eprintln!("[TAURI] ELEVE_HOME from legacy ~/.eleve (migration honour): {:?}", legacy);
+                        return legacy;
+                    }
+                }
             }
-            // 首次安装：创建目录
-            if std::fs::create_dir_all(&eleve_home).is_ok() {
-                eprintln!("[TAURI] Created ELEVE_HOME: {:?}", eleve_home);
-                return eleve_home;
-            }
+            std::fs::create_dir_all(&eleve_home).ok();
+            eprintln!("[TAURI] ELEVE_HOME from LOCALAPPDATA: {:?}", eleve_home);
+            return eleve_home;
         }
     }
 
-    // 4. Legacy 兼容: ~/.eleve/
-    if let Some(home_dir) = dirs::home_dir() {
-        let legacy = home_dir.join(".eleve");
-        if legacy.is_dir() {
-            eprintln!("[TAURI] ELEVE_HOME from legacy ~/.eleve: {:?}", legacy);
-            return legacy;
-        }
-    }
-
-    // 5. 最终 fallback: ~/.eleve/（创建）
+    // 4. POSIX / Windows LOCALAPPDATA 缺失：平台默认即 ~/.eleve（存在则用，否则创建）
     let fallback = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".eleve");
