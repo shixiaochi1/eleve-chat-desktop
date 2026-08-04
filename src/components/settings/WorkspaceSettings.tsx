@@ -94,7 +94,7 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
         <label className="block text-xs text-muted-foreground mb-1">工作目录 (CWD)</label>
         <Input
           type="text"
-          placeholder="/home/user/projects"
+          placeholder="C:\Users\你的用户名\Projects"
           value={config.cwd}
           onChange={e => update('cwd', e.target.value)}
         />
