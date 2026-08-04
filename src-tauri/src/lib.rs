@@ -640,22 +640,12 @@ fn is_packaged_install_path(path: &std::path::Path) -> bool {
 /// 从 {ELEVE_HOME}/app-data/settings.json 读取 default_project_dir 字段。
 /// 如果目录存在则返回 Some(path)，否则 None（让候选链继续 fallback）。
 ///
-/// 注意：Tauri 前端 crate 不依赖 eleve_core，所以直接通过环境变量或
-/// 平台标准路径定位 settings.json。
+/// 🔴 2026-08-04 审计修复：旧实现手写了一套 ELEVE_HOME 定位链，且用
+/// dirs::data_dir()（%APPDATA% Roaming）——与本文件 resolve_eleve_home()
+/// 和后端 resolve_platform_default_home（均 %LOCALAPPDATA% Local）分叉，
+/// 导致用户配的 default_project_dir 永远读不到。直接复用唯一权威链。
 fn read_default_project_dir() -> Option<String> {
-    // 定位 ELEVE_HOME: 优先 ELEVE_HOME 环境变量，其次平台标准目录
-    let eleve_home = std::env::var("ELEVE_HOME")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| {
-            // Windows: %APPDATA%/Eleve, Linux: ~/.local/share/eleve
-            dirs::data_dir().map(|d| d.join("Eleve"))
-        })
-        .or_else(|| {
-            // Legacy fallback: ~/.eleve
-            dirs::home_dir().map(|h| h.join(".eleve"))
-        })?;
+    let eleve_home = resolve_eleve_home();
 
     let settings_path = eleve_home.join("app-data").join("settings.json");
     let content = std::fs::read_to_string(&settings_path).ok()?;
