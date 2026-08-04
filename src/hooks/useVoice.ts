@@ -20,7 +20,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { getWsClient } from '@/services/ws-client';
+import { getWsClient, RpcError } from '@/services/ws-client';
 import { notify } from '@/utils/notifications';
 
 export type VoiceStatus = 'idle' | 'recording' | 'transcribing';
@@ -143,13 +143,31 @@ export function useVoice({ onTranscript }: UseVoiceOptions = {}) {
     }
 
     if (status === 'idle') {
-      // 开始录音
+      // 开始录音 — N1: 语音模式未开时隐式启用（对齐 Hermes：录音需 voice mode on）
       setStatus('recording');
       startTimer();
       try {
         await ws.voiceRecord('start');
       } catch (err) {
-        console.warn('[useVoice] start recording failed:', err);
+        // N1: 4015 = voice mode off → 隐式 voice.toggle on + 重试一次。
+        // 原断链：后端 voice.toggle handler 存在但前端零调用点，
+        // 用户点麦克风永远 4015 无 UI 出路（唯一入口是聊天框手打 /voice）。
+        if (err instanceof RpcError && err.code === 4015) {
+          try {
+            await ws.voiceToggle('on');
+            await ws.voiceRecord('start');
+            return;
+          } catch (retryErr) {
+            console.warn('[useVoice] implicit voice.toggle on + retry failed:', retryErr);
+            notify({
+              kind: 'error',
+              title: '语音模式启用失败',
+              message: retryErr instanceof Error ? retryErr.message : String(retryErr),
+            });
+          }
+        } else {
+          console.warn('[useVoice] start recording failed:', err);
+        }
         setStatus('idle');
         stopTimer();
       }

@@ -13,6 +13,7 @@ import { SendIcon, MicIcon, LoadingIcon } from './Icons';
 import { cn } from '@/lib/utils';
 import type { AttachedImage } from '@/hooks/useImageAttachments';
 import { useVoice } from '@/hooks/useVoice';
+import { getWsClient } from '@/services/ws-client';
 import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
 import { useQueue, updateEntry, type QueuedMessage } from '@/lib/message-queue';
 
@@ -407,6 +408,51 @@ function InputArea({
   useEffect(() => {
     if (!isStreaming) inputRef.current?.focus();
   }, [isStreaming]);
+
+  // N6: 录音快捷键全局监听（对齐 Hermes _voice_record_key → Ctrl+B）。
+  // record_key 从后端 voice.toggle status 读取（走 CONFIG，不硬编码），
+  // 挂载时读一次；解析 "ctrl+b" / "ctrl+shift+x" 形式的组合键。
+  const voiceToggleRef = useRef(voice.toggle);
+  voiceToggleRef.current = voice.toggle;
+  useEffect(() => {
+    let combo = 'ctrl+b'; // 默认对齐 Hermes
+    let cancelled = false;
+    const ws = getWsClient();
+    ws.voiceToggle('status')
+      .then((r) => {
+        if (!cancelled && r.record_key) combo = r.record_key;
+      })
+      .catch(() => {});
+
+    const parse = (spec: string) => {
+      const parts = spec.toLowerCase().split('+').map((s) => s.trim());
+      const key = parts.pop() || '';
+      return {
+        key,
+        ctrl: parts.includes('ctrl') || parts.includes('control'),
+        shift: parts.includes('shift'),
+        alt: parts.includes('alt'),
+      };
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      const cur = parse(combo);
+      const keyNorm = e.key.toLowerCase();
+      const hit =
+        keyNorm === cur.key &&
+        e.ctrlKey === cur.ctrl &&
+        e.shiftKey === cur.shift &&
+        e.altKey === cur.alt;
+      if (!hit) return;
+      e.preventDefault();
+      void voiceToggleRef.current();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
 
   return (
     <div className="p-3">

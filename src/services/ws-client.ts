@@ -611,6 +611,15 @@ export class GatewayWsClient {
   }
 
   /**
+   * N1: 语音模式开关 — 对齐后端 ws/mod.rs voice.toggle（on/off/status）。
+   * 后端 handler 已存在，本方法补齐前端调用入口（麦克风隐式启用）。
+   */
+  async voiceToggle(action: 'on' | 'off' | 'status'): Promise<VoiceToggleResponse> {
+    const result = await this.sendRpc('voice.toggle', { action })
+    return result as VoiceToggleResponse
+  }
+
+  /**
    * F5: 打断当前 TTS 播放（barge-in）— 对齐后端 voice.tts.stop →
    * Hermes _tts_stream_stop(user_barge=True)。用户发消息时调用，立即停止朗读。
    */
@@ -674,6 +683,14 @@ export interface SessionCreateResponse {
 export interface VoiceRecordResponse {
   ok?: boolean
   status?: 'recording' | 'transcribing' | 'idle' | string
+}
+
+/** N1: voice.toggle 响应（对齐后端 ws/mod.rs voice.toggle 返回 {enabled, record_key, tts}） */
+export interface VoiceToggleResponse {
+  ok?: boolean
+  enabled?: boolean
+  record_key?: string
+  tts?: boolean
 }
 
 // ── 配置 RPC 响应类型（对齐后端 ws/mod.rs config.get / config.set）──

@@ -119,8 +119,8 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
       {/* STT 开关 */}
       <div className="flex items-center justify-between mb-3">
         <div>
-          <label className="block text-xs text-muted-foreground mb-0.5">启用语音转文字</label>
-          <p className="text-xs text-muted-foreground/70 leading-relaxed m-0">开启后可通过语音输入与 Agent 对话。</p>
+          <label className="block text-xs text-muted-foreground mb-0.5">平台语音消息自动转录</label>
+          <p className="text-xs text-muted-foreground/70 leading-relaxed m-0">收到聊天平台（Telegram 等）的语音消息时自动转录。桌面麦克风录音不受此开关影响。</p>
         </div>
         <Switch
           checked={config.stt_enabled}
