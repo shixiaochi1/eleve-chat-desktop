@@ -9,7 +9,8 @@
  * - `/` 命令补全 — 与单视图 InputArea 共用 useSlashAutocomplete + SlashCommandPopup（零重复）
  * - 模型选择不在这里 — 放卡片顶部工具状态栏（ModelPill）
  * - 不要 DeepSeek（宫格场景用不上）
- * - 语音按钮保留但禁用（后端 voice.record 是 TODO stub，与单视图一致防假录音）
+ * - 语音按钮 P4 解禁（后端 voice.record 已真实接线）；宫格紧凑场景按钮自身传达状态
+ *   （录音=红、转录=spinner），不渲染 VoiceActivityBar（严禁两行布局）
  * - 图片附件 per-agent：useImageAttachments 经 getSessionId 绑到本 Agent 的 session
  *
  * 与 InputArea 的关系：共享 slash 补全权威源；布局/场景不同（宫格紧凑、无 @路径），
@@ -22,6 +23,7 @@ import AttachMenu from './AttachMenu';
 import SlashCommandPopup from './SlashCommandPopup';
 import { SendIcon, MicIcon } from './Icons';
 import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
+import { useVoice } from '@/hooks/useVoice';
 import type { AttachedImage } from '@/hooks/useImageAttachments';
 
 /** 输入框向上撑大的最大高度（px），超出内部滚动 */
@@ -73,6 +75,26 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [value, setValue] = useState('');
   const slash = useSlashAutocomplete({ enabled: portReady });
+
+  // ── 语音输入 — P4 解禁：后端 voice.record 已真实接线（VAD + 静音自动停止 + 转录回推） ──
+  // 转录文本插入光标处（与 handleAddUrl 同语义）；useVoice 内 ref 持有最新回调，闭包不过期
+  const voice = useVoice({
+    onTranscript: (text) => {
+      const el = inputRef.current;
+      if (!el) {
+        setValue((v) => v + text);
+        return;
+      }
+      const start = el.selectionStart ?? value.length;
+      const end = el.selectionEnd ?? value.length;
+      const next = value.slice(0, start) + text + value.slice(end);
+      setValue(next);
+      requestAnimationFrame(() => {
+        el.selectionStart = el.selectionEnd = start + text.length;
+        el.focus();
+      });
+    },
+  });
 
   // 命令式句柄（队列编辑时父级读/写草稿）
   // 🔴 稳定化：getValue 读 DOM 值（受控组件 DOM 与 state 同步），避免 deps 含 value 导致每次按键重建句柄
@@ -337,12 +359,20 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
         {/* 附件 + 菜单（图片接通后端、链接插入光标） */}
         <AttachMenu onPickImage={handleFileSelect} onAddUrl={handleAddUrl} />
 
-        {/* 语音 — 后端 voice.record 是 TODO stub，禁用入口防假录音（与单视图一致） */}
+        {/* 语音 — P4 解禁：按钮自身传达状态（录音红 / 转录脉冲），严守单行布局 */}
         <button
-          disabled
-          className="inline-flex size-7 shrink-0 cursor-not-allowed items-center justify-center rounded-md text-muted-foreground/40 opacity-50"
-          title="语音功能开发中"
-          aria-label="语音输入（开发中）"
+          type="button"
+          onClick={() => { void voice.toggle(); }}
+          className={cn(
+            'inline-flex size-7 shrink-0 items-center justify-center rounded-md transition-colors duration-150',
+            voice.status === 'recording'
+              ? 'bg-destructive/15 text-destructive'
+              : voice.status === 'transcribing'
+                ? 'text-primary animate-pulse'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+          )}
+          title={voice.status === 'recording' ? '点击停止录音' : voice.status === 'transcribing' ? '转录中…' : '语音输入'}
+          aria-label={voice.status === 'recording' ? '停止录音' : '语音输入'}
         >
           <MicIcon size={14} />
         </button>
