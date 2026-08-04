@@ -230,6 +230,11 @@ export default function App() {
   // ── session management（必须在 handleProfileChange 之前，切换 Agent 需要重置 session） ──
   const sess = useSessions();
 
+  // 🔴 W-7: 会话 cwd（session.info 推送）— 传 PreviewPanel 供重启预览使用
+  // 会话切换时清空，等新会话的 session.info 重新推送
+  const [sessionCwd, setSessionCwd] = useState('');
+  useEffect(() => { setSessionCwd(''); }, [sess.sessionId]);
+
   // 🔴 D1 修复：切换 profile 时刷新会话列表（session.list 后端按 params.profile 过滤）
   useEffect(() => {
     sess.refresh();
@@ -312,6 +317,7 @@ export default function App() {
     setActiveSudo,
     setActiveSecret,
     setActiveSlashConfirm,
+    setSessionCwd,
     sess,
     drainQueueRef,
     setSessionListVersion,
@@ -1135,7 +1141,7 @@ export default function App() {
             {rightOpen && (rightTab === 'files' ? (
               <FileBrowserPanel onFileAttach={(path: string) => handleSend(`@file:"${path}"`)} />
             ) : rightTab === 'preview' ? (
-              <PreviewPanel sessionId={sess.sessionId} />
+              <PreviewPanel sessionId={sess.sessionId} cwd={sessionCwd} />
             ) : (
               <TerminalPanel onSend={handleSend} isStreaming={isStreaming} sessionId={sess.sessionId ?? undefined} />
             ))}

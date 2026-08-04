@@ -59,6 +59,8 @@ export interface UseMessageStreamProps {
   setActiveSudo?: React.Dispatch<React.SetStateAction<{ request_id: string; prompt?: string } | null>>
   setActiveSecret?: React.Dispatch<React.SetStateAction<{ request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> } | null>>
   setActiveSlashConfirm?: React.Dispatch<React.SetStateAction<{ confirmId: string; command: string; description: string } | null>>
+  /** 🔴 W-7: 会话 cwd 同步（session.info 推送）— 供 PreviewPanel 重启预览等消费 */
+  setSessionCwd?: React.Dispatch<React.SetStateAction<string>>
   sess: SessionManagerHandle
   drainQueueRef: MutableRefObject<(() => void) | null>
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
@@ -111,6 +113,7 @@ export function useMessageStream({
   setActiveSudo,
   setActiveSecret,
   setActiveSlashConfirm,
+  setSessionCwd,
   sess,
   drainQueueRef,
   setSessionListVersion,
@@ -552,6 +555,8 @@ export function useMessageStream({
       }
     }) => {
       addDebugEvent('session_info', `model=${data.model} running=${data.running} branch=${data.branch}`);
+      // 🔴 W-7: 同步会话 cwd（后端 session.info 携带；旧版丢弃 → preview.restart cwd 恒空）
+      setSessionCwd?.(data.cwd || '');
       // T5: 恢复 pending 交互 UI — 归一化提取（与宫格 useGridChat 同一权威源）
       const pending = extractPendingInteractions(data.pending_prompts as Record<string, Record<string, unknown>> | undefined, data.run_id);
       if (pending) {

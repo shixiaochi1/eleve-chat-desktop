@@ -6,7 +6,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { File, Folder, FolderOpen, ChevronRight, ChevronDown, RefreshCw, Loader } from 'lucide-react';
 import { useFileTree } from '../hooks/useFileTree';
-import * as storage from '../utils/storage';
 import { cn } from '@/lib/utils';
 
 declare const process: { env: Record<string, string | undefined> } | undefined;
@@ -31,18 +30,13 @@ interface FileBrowserPanelProps {
   onFileAttach?: (path: string) => void;
 }
 
-const STORAGE_KEY_ROOT_PATH = 'file_browser_root';
-
 /**
  * 尝试获取默认工作目录
  * - Tauri: home directory
- * - 浏览器: localStorage 缓存 / 空字符串
+ * - 浏览器: 空字符串
+ * （W-5：旧 file_browser_root 缓存 key 只读无人写 = 死代码，移除）
  */
 async function detectDefaultRoot(): Promise<string> {
-  // 优先从缓存加载
-  const cached = storage.load(STORAGE_KEY_ROOT_PATH, null) as string | null;
-  if (cached) return cached;
-
   // Tauri 环境：尝试获取 home 目录
   try {
     const { homeDir } = await import('@tauri-apps/api/path');
@@ -222,9 +216,11 @@ export default function FileBrowserPanel({
   }, [refresh]);
 
   // 获取当前目录名
+  // 🔴 W-4 修复：旧正则 /\\\\/ 匹配双反斜杠，Windows 单反斜杠路径不替换
+  // → dirName 显示全路径而非目录名
   const dirName = rootPath
     ? (() => {
-        const parts = rootPath.replace(/\\\\/g, '/').replace(/\/$/, '').split('/');
+        const parts = rootPath.replace(/\\/g, '/').replace(/\/+$/, '').split('/');
         return parts[parts.length - 1] || rootPath;
       })()
     : '未打开项目';
