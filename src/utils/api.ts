@@ -173,7 +173,9 @@ export async function getCheckpointDiff(sessionId: string, hash: string): Promis
 
 /** 恢复 checkpoint（对齐 Hermes rollback.restore；busy 时后端返 4009） */
 export async function restoreCheckpoint(sessionId: string, hash: string): Promise<{
-  success: boolean; restored_to?: string; reason?: string; file?: string; error?: string; history_truncated?: boolean;
+  success: boolean; restored_to?: string; reason?: string; file?: string; error?: string;
+  /** 对齐 Hermes history_removed：全量回滚后被截断的消息数（0/缺省 = 未截断） */
+  history_removed?: number;
 }> {
   return call('rollback_restore', { session_id: sessionId, hash });
 }
