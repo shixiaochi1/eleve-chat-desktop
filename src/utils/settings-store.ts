@@ -37,6 +37,14 @@ export interface SettingsV2 {
   auxiliary: Record<string, { providerId: string; model: string; timeout: number; downloadTimeout?: number }>;
   delegation: { providerId: string; model: string; maxIterations: number };
   settingsPasswordHash: string;
+  /**
+   * 桌面级默认工作目录（进程级，非 per-profile）。
+   * Tauri 壳启动 eleved 时读取（resolve_eleve_cwd → spawn cwd + TERMINAL_CWD）。
+   * snake_case = 与 Tauri read_default_project_dir / Hermes settings.json 字段契约一致。
+   * 与 per-Agent 的 config.yaml terminal.cwd（WorkspaceSettings）分层：
+   * 本字段 = 进程 cwd 种子；terminal.cwd = 会话 cwd 覆盖。
+   */
+  default_project_dir?: string;
 }
 
 // ====== 提供商注册表预设（含 Base URL 和模型，无 Key） ======

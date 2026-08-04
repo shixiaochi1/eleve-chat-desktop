@@ -644,12 +644,26 @@ fn is_packaged_install_path(path: &std::path::Path) -> bool {
 /// dirs::data_dir()（%APPDATA% Roaming）——与本文件 resolve_eleve_home()
 /// 和后端 resolve_platform_default_home（均 %LOCALAPPDATA% Local）分叉，
 /// 导致用户配的 default_project_dir 永远读不到。直接复用唯一权威链。
+/// 🔴 2026-08-05 W-2 补写入方：前端 SystemSettings 写入该字段；读取侧
+/// 兼容 app-data 信封格式（对齐后端 settings_service::unwrap_settings_content）。
 fn read_default_project_dir() -> Option<String> {
     let eleve_home = resolve_eleve_home();
 
     let settings_path = eleve_home.join("app-data").join("settings.json");
     let content = std::fs::read_to_string(&settings_path).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let mut v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    // 信封兼容（与后端 unwrap_settings_content 两格式对齐）：
+    // 1. {"key":"settings","value":"<json_string>"} — 前端 app-data 包裹写入
+    // 2. {"data": {...}} — 历史遗留格式
+    if v.get("default_project_dir").is_none() {
+        if let Some(inner) = v.get("value").and_then(|x| x.as_str()) {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(inner) {
+                v = parsed;
+            }
+        } else if let Some(data) = v.get("data").cloned() {
+            v = data;
+        }
+    }
     let dir = v.get("default_project_dir")?.as_str()?;
     if dir.trim().is_empty() {
         return None;
