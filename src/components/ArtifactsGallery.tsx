@@ -7,6 +7,7 @@
  * 打开：link → 系统浏览器（shell open）；file → 系统默认程序（opener openPath）；
  * 图片本地文件 → fs readFile → Blob URL 显示。
  *
+ * 标题与关闭按钮由外层 OverlayView 提供（本组件不自带，防双标题双关闭）。
  * 数据链路：session.list → session.history → lib/artifacts-gallery 纯函数提取。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -15,7 +16,7 @@ import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { readFile } from '@tauri-apps/plugin-fs';
 import {
-  ExternalLink, FileText, FolderOpen, Image as ImageIcon, Link2, Loader2, RefreshCw, Search, X,
+  ExternalLink, FileText, FolderOpen, Image as ImageIcon, Link2, Loader2, Maximize2, RefreshCw, Search, X,
 } from 'lucide-react';
 import { call } from '@/utils/bridge';
 import { cn } from '@/lib/utils';
@@ -25,6 +26,7 @@ import {
   type ArtifactFilter,
   type GalleryArtifact,
 } from '@/lib/artifacts-gallery';
+import { TextTab, TextTabMeta } from '@/components/ui/text-tab';
 import {
   Pagination, PaginationButton, PaginationContent, PaginationEllipsis, PaginationItem, PaginationNext, PaginationPrevious,
 } from '@/components/ui/pagination';
@@ -36,6 +38,12 @@ const KIND_LABEL: Record<GalleryArtifact['kind'], string> = {
   image: '图片',
   file: '文件',
   link: '链接',
+};
+
+const KIND_ACCENT: Record<GalleryArtifact['kind'], string> = {
+  image: 'text-violet-500',
+  file: 'text-sky-500',
+  link: 'text-emerald-500',
 };
 
 function formatArtifactTime(timestamp: number): string {
@@ -86,12 +94,11 @@ function pageRangeLabel(total: number, page: number, pageSize: number): string {
 }
 
 interface ArtifactsGalleryProps {
-  onClose?: () => void;
   /** 打开会话（Hermes openChat 语义） */
   onSwitchSession?: (sessionId: string) => void;
 }
 
-export default function ArtifactsGallery({ onClose, onSwitchSession }: ArtifactsGalleryProps) {
+export default function ArtifactsGallery({ onSwitchSession }: ArtifactsGalleryProps) {
   const [artifacts, setArtifacts] = useState<GalleryArtifact[] | null>(null);
   const [query, setQuery] = useState('');
   const [kindFilter, setKindFilter] = useState<ArtifactFilter>('all');
@@ -192,7 +199,7 @@ export default function ArtifactsGallery({ onClose, onSwitchSession }: Artifacts
       }
     } catch (err) {
       console.error('[artifacts-gallery] open failed:', err);
-      // file 打开失败降级：在资源管理器中显示（对齐 Hermes notifyError 后用户可自行处理）
+      // file 打开失败降级：在资源管理器中显示（Hermes notifyError 后用户可自行处理）
       if (artifact.kind === 'file') {
         const path = artifact.href.startsWith('file://') ? artifact.href.slice('file://'.length) : artifact.href;
         try {
@@ -209,35 +216,28 @@ export default function ArtifactsGallery({ onClose, onSwitchSession }: Artifacts
     });
   }, []);
 
+  const showEmpty = artifacts !== null && visibleArtifacts.length === 0;
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {/* 头部：标题 + 过滤 tabs + 搜索 + 刷新 + 关闭 */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
-        <h2 className="text-sm font-semibold text-foreground">产物库</h2>
-        <div className="ml-2 flex items-center gap-0.5">
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      {/* 工具栏：过滤 tabs + 搜索 + 刷新（标题/关闭由 OverlayView 提供） */}
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex items-center gap-1">
           {ARTIFACT_FILTERS.map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setKindFilter(f)}
-              className={cn(
-                'rounded-md px-2 py-1 text-xs font-medium transition-colors',
-                kindFilter === f ? 'bg-accent/15 text-accent-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-              )}
-            >
+            <TextTab key={f} active={kindFilter === f} onClick={() => setKindFilter(f)}>
               {f === 'all' ? '全部' : KIND_LABEL[f]}
-              {artifacts && <span className="ml-1 tabular-nums text-muted-foreground/70">{counts[f]}</span>}
-            </button>
+              {artifacts !== null && <TextTabMeta>{counts[f]}</TextTabMeta>}
+            </TextTab>
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex items-center gap-2">
           <div className="relative">
-            <Search size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
+            <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="搜索路径 / 标题 / 会话"
-              className="h-7 w-48 rounded-md border border-border bg-background pl-7 pr-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-accent-cyan/50 focus:outline-none"
+              className="h-8 w-56 rounded-full border border-border/80 bg-muted/30 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground/45 transition-all focus:w-64 focus:border-accent-cyan/50 focus:bg-background focus:outline-none focus:ring-2 focus:ring-accent-cyan/15"
             />
           </div>
           <button
@@ -245,41 +245,53 @@ export default function ArtifactsGallery({ onClose, onSwitchSession }: Artifacts
             onClick={() => void refreshArtifacts()}
             disabled={refreshing}
             title={refreshing ? '刷新中…' : '刷新'}
-            className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
+            className="grid size-8 place-items-center rounded-full border border-border/80 bg-muted/30 text-muted-foreground transition-all hover:border-muted-foreground/30 hover:bg-accent/10 hover:text-foreground disabled:opacity-50"
           >
             {refreshing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
           </button>
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              title="关闭 (Esc)"
-              className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-            >
-              <X size={14} />
-            </button>
-          )}
         </div>
       </div>
 
       {/* 内容区 */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto pr-0.5">
         {!artifacts ? (
-          <div className="grid h-full place-items-center text-xs text-muted-foreground">扫描会话中…</div>
-        ) : visibleArtifacts.length === 0 ? (
-          <div className="grid h-full place-items-center px-6 text-center">
-            <div>
-              <div className="text-sm font-medium text-foreground">没有产物</div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                {counts.all === 0 ? '会话里的图片 / 文件路径 / 链接会自动收集到这里' : '当前筛选条件下没有匹配项'}
+          <div className="grid h-full place-items-center">
+            <div className="flex flex-col items-center gap-2 text-muted-foreground/70">
+              <Loader2 size={22} className="animate-spin text-accent-cyan/60" />
+              <span className="text-xs">正在扫描会话中的产物…</span>
+            </div>
+          </div>
+        ) : showEmpty ? (
+          <div className="grid h-full place-items-center">
+            <div className="flex flex-col items-center gap-2 text-center">
+              <span className="grid size-14 place-items-center rounded-2xl bg-muted/40 text-muted-foreground/40">
+                <ImageIcon size={24} />
+              </span>
+              <div className="mt-1 text-sm font-medium text-foreground">
+                {counts.all === 0 ? '还没有产物' : '没有匹配项'}
               </div>
+              <div className="max-w-xs text-xs leading-relaxed text-muted-foreground/70">
+                {counts.all === 0
+                  ? '会话里的图片、文件路径、链接会自动收集到这里，供跨会话复用'
+                  : '换个关键词或筛选条件试试'}
+              </div>
+              {counts.all === 0 && (
+                <button
+                  type="button"
+                  onClick={() => void refreshArtifacts()}
+                  className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-muted-foreground/30 hover:text-foreground"
+                >
+                  <RefreshCw size={12} />
+                  重新扫描
+                </button>
+              )}
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-3 px-3 py-3">
+          <div className="flex flex-col gap-4 pb-2">
             {pagedImages.length > 0 && (
-              <section className="flex flex-col">
-                <div className="flex h-7 items-center gap-3">
+              <section className="flex flex-col gap-2">
+                <div className="flex h-6 items-center justify-end">
                   <GalleryPagination
                     page={curImagePage}
                     pageCount={imagePageCount}
@@ -287,7 +299,7 @@ export default function ArtifactsGallery({ onClose, onSwitchSession }: Artifacts
                     rangeLabel={pageRangeLabel(visibleImages.length, curImagePage, IMAGE_PAGE_SIZE)}
                   />
                 </div>
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] items-start gap-2 pt-1.5">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] items-start gap-2.5">
                   {pagedImages.map((artifact) => (
                     <ArtifactImageCard
                       key={artifact.id}
@@ -303,8 +315,8 @@ export default function ArtifactsGallery({ onClose, onSwitchSession }: Artifacts
             )}
 
             {pagedNonImages.length > 0 && (
-              <section className="flex flex-col">
-                <div className="flex h-7 items-center gap-3">
+              <section className="flex flex-col gap-2">
+                <div className="flex h-6 items-center justify-end">
                   <GalleryPagination
                     page={curFilePage}
                     pageCount={filePageCount}
@@ -312,14 +324,14 @@ export default function ArtifactsGallery({ onClose, onSwitchSession }: Artifacts
                     rangeLabel={pageRangeLabel(visibleNonImages.length, curFilePage, FILE_PAGE_SIZE)}
                   />
                 </div>
-                <div className="overflow-hidden rounded-lg border border-border bg-card">
+                <div className="overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm">
                   <table className="w-full border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                        <th className="w-[45%] px-2.5 py-1.5 font-medium">名称</th>
-                        <th className="px-2.5 py-1.5 font-medium">来源</th>
-                        <th className="w-[13rem] px-2.5 py-1.5 font-medium">会话 · 时间</th>
-                        <th className="w-[6rem] px-2.5 py-1.5 text-right font-medium">操作</th>
+                      <tr className="border-b border-border/80 bg-muted/25 text-left text-[10px] uppercase tracking-wider text-muted-foreground/60">
+                        <th className="w-[42%] px-3 py-2 font-medium">名称</th>
+                        <th className="px-3 py-2 font-medium">来源</th>
+                        <th className="w-[14rem] px-3 py-2 font-medium">会话 · 时间</th>
+                        <th className="w-[5rem] px-3 py-2 text-right font-medium">操作</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -343,16 +355,19 @@ export default function ArtifactsGallery({ onClose, onSwitchSession }: Artifacts
       {/* 图片放大预览（Hermes ZoomableImage 等价） */}
       {zoomArtifact && (
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70"
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
           onClick={() => setZoomArtifact(null)}
         >
-          <div className="max-h-[90vh] max-w-[92vw] overflow-auto rounded-lg bg-card p-2 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-1 flex items-center justify-between gap-4 px-1">
-              <span className="truncate text-xs text-muted-foreground">{zoomArtifact.label}</span>
+          <div
+            className="max-h-[90vh] max-w-[92vw] overflow-auto rounded-2xl border border-border/60 bg-card p-3 shadow-2xl animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 flex items-center justify-between gap-4 px-1">
+              <span className="truncate text-xs font-medium text-foreground">{zoomArtifact.label}</span>
               <button
                 type="button"
                 onClick={() => setZoomArtifact(null)}
-                className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                className="grid size-6 shrink-0 place-items-center rounded-full bg-muted/50 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 title="关闭 (Esc)"
               >
                 <X size={13} />
@@ -377,7 +392,7 @@ function GalleryPagination({
 }) {
   return (
     <div className="flex h-6 items-center justify-between gap-2 px-1">
-      <div className="shrink-0 text-[11px] text-muted-foreground">{rangeLabel}</div>
+      <div className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">{rangeLabel}</div>
       {pageCount > 1 && (
         <Pagination className="mx-0 w-auto min-w-0 justify-end">
           <PaginationContent className="gap-0.5">
@@ -405,7 +420,7 @@ function GalleryPagination({
   );
 }
 
-/** 图片卡片（Hermes ArtifactImageCard 等价） */
+/** 图片卡片（Hermes ArtifactImageCard 等价；hover 提升 + 缩放按钮） */
 function ArtifactImageCard({
   artifact, failed, onFailed, onZoom, onOpenChat,
 }: {
@@ -444,13 +459,9 @@ function ArtifactImageCard({
   }, [artifact.href, artifact.id, artifact.value, onFailed]);
 
   return (
-    <article className="group/artifact overflow-hidden rounded-lg border border-border bg-card">
-      <div
-        className={cn(
-          'relative flex h-40 w-full items-center justify-center overflow-hidden border-b border-border bg-muted/30 p-1.5',
-          failed && 'cursor-default',
-        )}
-      >
+    <article className="group/card overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-muted-foreground/30 hover:shadow-md">
+      {/* 缩略图区 */}
+      <div className="relative flex h-40 items-center justify-center overflow-hidden bg-gradient-to-b from-muted/40 via-muted/20 to-muted/10 p-2">
         {!failed && src && (
           <img
             src={src}
@@ -458,41 +469,56 @@ function ArtifactImageCard({
             loading="lazy"
             decoding="async"
             onClick={onZoom}
-            className="max-h-40 max-w-full cursor-zoom-in rounded-md object-contain transition-opacity hover:opacity-90"
+            className="max-h-36 max-w-full cursor-zoom-in rounded-lg object-contain shadow-sm transition-transform duration-300 group-hover/card:scale-[1.04]"
             onError={() => onFailed(artifact.id)}
           />
         )}
-        {!failed && !src && <Loader2 size={16} className="animate-spin text-muted-foreground/50" />}
-        {failed && <ImageIcon size={22} className="text-muted-foreground/30" />}
-      </div>
-      <div className="space-y-1.5 p-2">
-        <div className="min-w-0">
-          <div className="mb-0.5 flex items-center gap-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">
-            <ImageIcon className="size-3" />
-            {KIND_LABEL.image}
-          </div>
-          <div className="truncate text-xs font-medium text-foreground" title={artifact.label}>{artifact.label}</div>
-          <div className="mt-0.5 truncate text-[10px] text-muted-foreground/70" title={artifact.value}>{artifact.value}</div>
-        </div>
-        <div className="truncate text-[10px] text-muted-foreground/70">
-          {artifact.sessionTitle} · {formatArtifactTime(artifact.timestamp)}
-        </div>
-        {onOpenChat && (
+        {!failed && !src && <Loader2 size={16} className="animate-spin text-muted-foreground/40" />}
+        {failed && <ImageIcon size={22} className="text-muted-foreground/25" />}
+
+        {/* kind 徽章 */}
+        <span className="absolute left-2 top-2 rounded-full bg-background/85 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground shadow-sm backdrop-blur-sm">
+          图片
+        </span>
+        {/* 放大按钮（hover 显示） */}
+        {!failed && (
           <button
             type="button"
-            onClick={() => onOpenChat(artifact.sessionId)}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
+            onClick={onZoom}
+            title="放大预览"
+            className="absolute right-2 top-2 grid size-6 place-items-center rounded-full bg-background/85 text-muted-foreground opacity-0 shadow-sm backdrop-blur-sm transition-all hover:text-foreground group-hover/card:opacity-100 focus-visible:opacity-100"
           >
-            <FolderOpen className="size-3" />
-            打开会话
+            <Maximize2 size={11} />
           </button>
         )}
+      </div>
+
+      {/* 信息区 */}
+      <div className="space-y-1 p-2.5">
+        <div className="truncate text-xs font-medium text-foreground" title={artifact.label}>{artifact.label}</div>
+        <div className="truncate text-[10px] text-muted-foreground/60" title={artifact.value}>{artifact.value}</div>
+        <div className="flex items-center justify-between gap-2 pt-0.5">
+          <span className="min-w-0 truncate text-[10px] text-muted-foreground/55" title={`${artifact.sessionTitle} · ${formatArtifactTime(artifact.timestamp)}`}>
+            {artifact.sessionTitle} · {formatArtifactTime(artifact.timestamp)}
+          </span>
+          {onOpenChat && (
+            <button
+              type="button"
+              onClick={() => onOpenChat(artifact.sessionId)}
+              title="打开会话"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 px-2 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-all hover:border-muted-foreground/30 hover:bg-accent/10 hover:text-foreground group-hover/card:opacity-100 focus-visible:opacity-100"
+            >
+              <FolderOpen className="size-3" />
+              会话
+            </button>
+          )}
+        </div>
       </div>
     </article>
   );
 }
 
-/** 放大图片（懒加载 src，支持文件产物） */
+/** 放大图片（懒加载 src，支持文件产物；Blob URL 回收） */
 function ZoomedImage({ artifact, onClose }: { artifact: GalleryArtifact; onClose: () => void }) {
   const [src, setSrc] = useState('');
   const urlRef = useRef<string | null>(null);
@@ -528,8 +554,8 @@ function ZoomedImage({ artifact, onClose }: { artifact: GalleryArtifact; onClose
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  if (!src) return <Loader2 size={20} className="m-6 animate-spin text-muted-foreground/50" />;
-  return <img src={src} alt={artifact.label} className="max-h-[78vh] max-w-full object-contain" />;
+  if (!src) return <Loader2 size={20} className="m-6 animate-spin text-muted-foreground/40" />;
+  return <img src={src} alt={artifact.label} className="max-h-[76vh] max-w-full rounded-lg object-contain" />;
 }
 
 /** 文件/链接行（Hermes ArtifactTable 等价：整行可点击打开 + 会话跳转） */
@@ -542,46 +568,53 @@ function ArtifactRow({
 }) {
   const isLink = artifact.kind === 'link';
   const Icon = isLink ? Link2 : FileText;
+  const accent = isLink ? 'text-emerald-500' : 'text-sky-500';
   return (
-    <tr className="group/row border-b border-border/60 transition-colors last:border-b-0 hover:bg-muted/30">
-      <td className="px-2.5 py-1.5">
+    <tr className="group/row border-b border-border/50 transition-colors last:border-b-0 hover:bg-muted/30">
+      <td className="px-3 py-2">
         <button
           type="button"
           onClick={onOpen}
           title={`打开：${artifact.value}`}
           className="flex w-full min-w-0 items-center gap-2 text-left"
         >
-          <Icon className={cn('size-3.5 shrink-0', isLink ? 'text-accent-cyan' : 'text-muted-foreground')} />
-          <span className="min-w-0 flex-1 truncate text-foreground/90 hover:text-foreground">{artifact.label}</span>
+          <span className={cn('grid size-6 shrink-0 place-items-center rounded-md bg-muted/50', accent)}>
+            <Icon className="size-3.5" />
+          </span>
+          <span className="min-w-0 flex-1 truncate font-medium text-foreground/90 transition-colors group-hover/row:text-foreground">
+            {artifact.label}
+          </span>
         </button>
       </td>
-      <td className="px-2.5 py-1.5">
+      <td className="px-3 py-2">
         <button type="button" onClick={onOpen} title={artifact.value} className="block w-full min-w-0 text-left">
-          <span className="block max-w-[24rem] truncate text-muted-foreground/80">{artifact.value}</span>
+          <span className="block max-w-[26rem] truncate text-muted-foreground/70">{artifact.value}</span>
         </button>
       </td>
-      <td className="px-2.5 py-1.5">
+      <td className="px-3 py-2">
         {onOpenChat ? (
           <button
             type="button"
             onClick={() => onOpenChat(artifact.sessionId)}
-            className="block w-full min-w-0 text-left text-muted-foreground/80 transition-colors hover:text-foreground"
+            className="block w-full min-w-0 text-left text-muted-foreground/70 transition-colors hover:text-foreground"
             title="打开会话"
           >
-            <span className="block truncate">{artifact.sessionTitle} · {formatArtifactTime(artifact.timestamp)}</span>
+            <span className="block truncate">
+              {artifact.sessionTitle} <span className="text-muted-foreground/40">·</span> {formatArtifactTime(artifact.timestamp)}
+            </span>
           </button>
         ) : (
-          <span className="block truncate text-muted-foreground/80">
-            {artifact.sessionTitle} · {formatArtifactTime(artifact.timestamp)}
+          <span className="block truncate text-muted-foreground/70">
+            {artifact.sessionTitle} <span className="text-muted-foreground/40">·</span> {formatArtifactTime(artifact.timestamp)}
           </span>
         )}
       </td>
-      <td className="px-2.5 py-1.5 text-right">
+      <td className="px-3 py-2 text-right">
         <button
           type="button"
           onClick={onOpen}
           title={isLink ? '在浏览器中打开' : '用系统程序打开'}
-          className="inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
+          className="inline-flex items-center gap-1 rounded-full border border-border/80 px-2 py-1 text-[10px] text-muted-foreground opacity-0 transition-all hover:border-muted-foreground/30 hover:bg-accent/10 hover:text-foreground group-hover/row:opacity-100 focus-visible:opacity-100"
         >
           {isLink ? <ExternalLink className="size-3" /> : <FileText className="size-3" />}
           打开

@@ -1238,10 +1238,7 @@ export default function App() {
         {overlayPanel === 'artifacts' && (
           <ErrorBoundary>
             <OverlayView onClose={handleCloseOverlay} title="产物库" wide>
-              <ArtifactsGallery
-                onClose={handleCloseOverlay}
-                onSwitchSession={handleSwitchSession}
-              />
+              <ArtifactsGallery onSwitchSession={handleSwitchSession} />
             </OverlayView>
           </ErrorBoundary>
         )}
