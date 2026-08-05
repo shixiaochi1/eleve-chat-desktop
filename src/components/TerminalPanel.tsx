@@ -13,8 +13,18 @@
  * 激活时 re-fit（对齐 Hermes PersistentTerminal "shell 存活于隐藏" 语义）。
  */
 import { useEffect, useRef, useCallback, useState, useMemo, useSyncExternalStore } from 'react';
+import type { CSSProperties } from 'react';
 import { Terminal as TerminalIcon, X, Plus } from 'lucide-react';
-import { dragHasPaths, collectDroppedPaths, quoteShellPath } from '@/lib/paths-dnd';
+import { dragHasPaths, collectDroppedPaths } from '@/lib/paths-dnd';
+import { requestComposerInsert } from '@/lib/composer-events';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu';
+import {
+  isAddSelectionShortcut,
+  terminalSelectionLabel,
+  quotePathForShell,
+  parseOscCwd,
+  isMacPlatform,
+} from '@/lib/terminal-extras';
 import useTerminal from '../hooks/useTerminal';
 import { listProcesses } from '../utils/api';
 import { isDesktop } from '@/utils/bridge';
@@ -29,6 +39,9 @@ import {
   ensureAgentTerminal,
   reportTerminalShell,
   updateTerminalReviveBuffer,
+  updateTerminalRestoreCwd,
+  closeOtherTerminals,
+  closeAllTerminals,
   type TerminalEntry,
 } from '@/store/terminals';
 import {
@@ -116,32 +129,58 @@ export default function TerminalPanel({ sessionId, cwd }: TerminalPanelProps) {
     closeTerminal(id);
   }, []);
 
+  // 会话↔终端联动（对齐 Hermes $currentCwd.listen：进入 cwd 已有 user tab 指向的
+  // 会话 → 重新选中该 tab；只选中，不创建/不关闭/不显示面板）。
+  // ELEVE 的 cwd 是 React state（sessionCwd），在此 effect 消费。
+  useEffect(() => {
+    if (!cwd) return;
+    const norm = (p?: string) => {
+      const t = (p ?? '').trim();
+      return t.length > 1 ? t.replace(/[\\/]+$/, '') || t : t;
+    };
+    const target = norm(cwd);
+    const list = getTerminalsSnapshot();
+    const active = list.find((t) => t.id === getActiveTerminalIdSnapshot());
+    if (active?.kind === 'user' && norm(active.restoreCwd || active.cwd) === target) return;
+    const match = list.find((t) => t.kind === 'user' && norm(t.restoreCwd || t.cwd) === target);
+    if (match) selectTerminal(match.id);
+  }, [cwd]);
+
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-background">
-      {/* Tab bar */}
+      {/* Tab bar — 右键菜单（关闭/关闭其他/关闭全部，对齐 Hermes TerminalRail） */}
       <div className="flex items-center gap-0 px-1 py-0.5 border-b border-border bg-muted/10 shrink-0 overflow-x-auto">
         {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            className={`flex items-center gap-1 px-2 py-1 text-[11px] rounded-sm whitespace-nowrap transition-colors ${
-              tab.id === activeId
-                ? 'bg-accent/20 text-primary font-medium'
-                : 'text-muted-foreground hover:bg-muted/40'
-            }`}
-            onClick={() => selectTerminal(tab.id)}
-          >
-            <TerminalIcon size={11} className={tab.kind === 'agent' ? 'text-info' : ''} />
-            <span>{tab.title}</span>
-            {tab.kind === 'agent' && (
-              <span className="text-[9px] px-0.5 rounded bg-info/20 text-info">agent</span>
-            )}
-            <span
-              className="ml-0.5 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive cursor-pointer"
-              onClick={(e) => { e.stopPropagation(); handleCloseTab(tab.id); }}
-            >
-              <X size={10} />
-            </span>
-          </button>
+          <ContextMenu key={tab.id}>
+            <ContextMenuTrigger asChild>
+              <button
+                className={`flex items-center gap-1 px-2 py-1 text-[11px] rounded-sm whitespace-nowrap transition-colors ${
+                  tab.id === activeId
+                    ? 'bg-accent/20 text-primary font-medium'
+                    : 'text-muted-foreground hover:bg-muted/40'
+                }`}
+                onClick={() => selectTerminal(tab.id)}
+              >
+                <TerminalIcon size={11} className={tab.kind === 'agent' ? 'text-info' : ''} />
+                <span>{tab.title}</span>
+                {tab.kind === 'agent' && (
+                  <span className="text-[9px] px-0.5 rounded bg-info/20 text-info">agent</span>
+                )}
+                <span
+                  className="ml-0.5 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); handleCloseTab(tab.id); }}
+                >
+                  <X size={10} />
+                </span>
+              </button>
+            </ContextMenuTrigger>
+            <ContextMenuContent onCloseAutoFocus={(e) => e.preventDefault()}>
+              <ContextMenuItem onSelect={() => handleCloseTab(tab.id)}>关闭</ContextMenuItem>
+              <ContextMenuItem disabled={tabs.length <= 1} onSelect={() => closeOtherTerminals(tab.id)}>关闭其他</ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem onSelect={closeAllTerminals}>关闭全部</ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         ))}
         {/* New tab button */}
         <button
@@ -153,17 +192,21 @@ export default function TerminalPanel({ sessionId, cwd }: TerminalPanelProps) {
         </button>
       </div>
 
-      {/* 所有 tab 常驻挂载，非活跃 hidden — 切 tab 不销毁 xterm/PTY */}
-      {tabs.map((tab) => (
-        <div
-          key={tab.id}
-          className={cn('flex flex-col flex-1 min-h-0', tab.id !== activeId && 'hidden')}
-        >
-          {tab.kind === 'agent'
-            ? <AgentTerminalView active={tab.id === activeId} entry={tab} sessionId={sessionId} />
-            : <UserTerminalView active={tab.id === activeId} entry={tab} />}
-        </div>
-      ))}
+      {/* 所有 tab 常驻挂载，非活跃 invisible + pointer-events-none（对齐 Hermes
+          INSTANCE_CLASS absolute+visibility：display:none 会让 xterm host 0×0，
+          重显示时布局/渲染乱；absolute 堆叠保持布局尺寸，切 tab 不销毁 xterm/PTY） */}
+      <div className="relative flex-1 min-h-0">
+        {tabs.map((tab) => (
+          <div
+            key={tab.id}
+            className={cn('absolute inset-0 flex flex-col', tab.id !== activeId && 'invisible pointer-events-none')}
+          >
+            {tab.kind === 'agent'
+              ? <AgentTerminalView active={tab.id === activeId} entry={tab} sessionId={sessionId} />
+              : <UserTerminalView active={tab.id === activeId} entry={tab} />}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -178,7 +221,54 @@ const SNAPSHOT_THROTTLE_MS = 750;
 const SNAPSHOT_SCROLLBACK = 200;
 
 function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boolean }) {
-  const term = useTerminal({ lazy: true, id: entry.id });
+  // ── 选区入聊天（对齐 Hermes selection.ts）──
+  const [selection, setSelection] = useState('');
+  const [selectionAnchor, setSelectionAnchor] = useState<CSSProperties | null>(null);
+  const selectionLabelRef = useRef('');
+  const shellNameRef = useRef('shell');
+  /** 用户是否曾输入（对齐 Hermes hasSessionActivityRef：门控 revive 快照，
+   *  idle tab 永不重存 → 防每次重启多一行 prompt 的膨胀） */
+  const hasSessionActivityRef = useRef(false);
+
+  const term = useTerminal({
+    lazy: true,
+    id: entry.id,
+    // 选区变化 → 浮动按钮 + ⌘L（镜像已在 useTerminal 内部完成）
+    onSelectionChange: (text, anchor) => {
+      setSelection(text);
+      setSelectionAnchor(anchor);
+      selectionLabelRef.current = text.trim()
+        ? terminalSelectionLabel(term.terminalRef.current, shellNameRef.current, text)
+        : '';
+    },
+  });
+
+  // ⌘/Ctrl+L 选区入聊天（对齐 Hermes 全局 capture keydown：有文本才吞，
+  // 无文本放行到 shell 当清屏；TUI 重绘竞态 → 直接读 xterm 而非 state）
+  const addSelectionToChat = useCallback(() => {
+    const text = (term.terminalRef.current?.getSelection() || selection).trim();
+    if (!text) return;
+    // ELEVE 语义：code block 包裹插入输入框（对齐 PreviewConsolePanel 发送到输入区）
+    requestComposerInsert(`\`\`\`\n${text}\n\`\`\`\n`);
+    term.terminalRef.current?.clearSelection();
+    setSelection('');
+    setSelectionAnchor(null);
+    selectionLabelRef.current = '';
+  }, [term.terminalRef, selection]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const termInst = term.terminalRef.current;
+      const hasText = Boolean((termInst?.getSelection() || '').trim());
+      if (!isAddSelectionShortcut(event) || !hasText) return;
+      event.preventDefault();
+      event.stopPropagation();
+      addSelectionToChat();
+    };
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
+  }, [addSelectionToChat, term.terminalRef]);
+
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState<'starting' | 'open' | 'error'>('starting');
   const lastSizeRef = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
@@ -206,12 +296,18 @@ function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boo
     let detach: (() => void) | null = null;
     let unsubExit: (() => void) | null = null;
     let inputDisposable: { dispose: () => void } | null = null;
+    let oscCleanupFns: Array<{ dispose: () => void }> = [];
 
     (async () => {
       try {
-        const { created, shell } = await ensurePtyForTab(entry.id, entry.cwd);
+        // restoreCwd：上次会话观察到的 shell 实际 cwd（OSC 7/9;9）优先，
+        // 重开 tab 落在用户最后 cd 的目录（对齐 Hermes start({ cwd: restoreCwd || cwd })）
+        const { created, shell } = await ensurePtyForTab(entry.id, entry.cwd, entry.restoreCwd);
         if (disposed) return;
-        if (created) reportTerminalShell(entry.id, shell);
+        if (created) {
+          shellNameRef.current = shell;
+          reportTerminalShell(entry.id, shell);
+        }
 
         // revive：恢复上次快照屏幕（重启 → 新 shell 垫底，VS Code parity；
         // 重挂载 → 补齐 detach 期间不可见的屏幕状态），live 输出随后追加
@@ -220,18 +316,38 @@ function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boo
 
         // 输入绑定（每次挂载都是新 xterm 实例，无需防重复）
         const xterm = term.terminalRef.current as
-          | { onData: (cb: (data: string) => void) => { dispose: () => void }; cols: number; rows: number }
+          | {
+              onData: (cb: (data: string) => void) => { dispose: () => void };
+              parser: { registerOscHandler: (code: number, cb: (payload: string) => boolean) => { dispose: () => void } };
+              cols: number;
+              rows: number;
+            }
           | null;
         if (xterm) {
           inputDisposable = xterm.onData((data: string) => {
+            hasSessionActivityRef.current = true;
             void writePtyInput(entry.id, data);
           });
+
+          // OSC 7 / OSC 9;9 cwd 追踪（对齐 Hermes cwdOscHandlers：观察不消费，
+          // 序列继续传播；restoreCwd 供重开 tab 恢复最后 cd 目录）
+          const oscCleanups = ([7, 9] as const).map((code) =>
+            xterm.parser.registerOscHandler(code, (payload) => {
+              const parsed = parseOscCwd(code, payload);
+              if (parsed) updateTerminalRestoreCwd(entry.id, parsed);
+              return false; // let the sequence propagate; we only observe it
+            }),
+          );
+          oscCleanupFns = oscCleanups;
         }
 
         detach = attachPtyWriter(entry.id, (data) => {
           term.write?.(data);
           // 输出到达 → 节流快照（revive buffer）
-          if (snapshotTimerRef.current === null) {
+          // 🔴 activity 门控（对齐 Hermes hasSessionActivityRef）：无用户输入的
+          // idle tab 不重存——live buffer 是重放的快照 + 新 prompt，重存 = 每
+          // 次重启多一行 prompt 的膨胀（Hermes #61572）
+          if (snapshotTimerRef.current === null && hasSessionActivityRef.current) {
             snapshotTimerRef.current = window.setTimeout(async () => {
               snapshotTimerRef.current = null;
               const t = term.terminalRef.current;
@@ -266,6 +382,7 @@ function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boo
       detach?.();
       unsubExit?.();
       inputDisposable?.dispose();
+      oscCleanupFns.forEach((h) => h.dispose());
       if (snapshotTimerRef.current !== null) {
         window.clearTimeout(snapshotTimerRef.current);
         snapshotTimerRef.current = null;
@@ -337,24 +454,45 @@ function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boo
       </div>
 
       {/* Terminal container (xterm.js) — 文件树路径拖入（对齐 Hermes
-          use-terminal-session drop：路径写入 shell 输入） */}
-      <div
-        className="flex-1 min-h-0 p-1"
-        ref={term.containerRef}
-        onDragOver={(e) => {
-          if (dragHasPaths(e.dataTransfer)) e.preventDefault();
-        }}
-        onDrop={(e) => {
-          if (!dragHasPaths(e.dataTransfer)) return;
-          e.preventDefault();
-          const paths = collectDroppedPaths(e.dataTransfer);
-          if (paths.length > 0) {
-            // 含空格路径引号包裹，防 shell 拆词；末尾空格让路径直接进入输入区
-            term.write?.(paths.map((p) => quoteShellPath(p)).join(' ') + ' ');
-          }
-          term.focus();
-        }}
-      />
+          use-terminal-session drop：路径写入 shell 输入，按 shell 类型转义）+ 选区浮动按钮 */}
+      <div className="relative flex-1 min-h-0">
+        <div
+          className="flex-1 min-h-0 p-1"
+          ref={term.containerRef}
+          onDragOver={(e) => {
+            if (dragHasPaths(e.dataTransfer)) e.preventDefault();
+          }}
+          onDrop={(e) => {
+            if (!dragHasPaths(e.dataTransfer)) return;
+            e.preventDefault();
+            const paths = collectDroppedPaths(e.dataTransfer);
+            if (paths.length > 0) {
+              // 按 shell 类型转义（powershell '..'' / cmd ".."" / posix '..'\''..'），
+              // 对齐 Hermes quotePathForShell；末尾空格让路径直接进入输入区
+              hasSessionActivityRef.current = true;
+              term.write?.(paths.map((p) => quotePathForShell(p, shellNameRef.current)).join(' ') + ' ');
+            }
+            term.focus();
+          }}
+        />
+
+        {/* ⌘/Ctrl+L 选区入聊天浮动按钮（对齐 Hermes TerminalInstance selection popover） */}
+        {selection.trim() && (
+          <div
+            className="absolute z-50 flex items-center gap-1"
+            style={selectionAnchor ?? { right: 12, top: 8 }}
+          >
+            <button
+              type="button"
+              className="h-6 rounded-md px-2 text-[0.68rem] shadow-md backdrop-blur-md bg-accent text-accent-foreground border border-border/50 hover:bg-accent/90"
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); addSelectionToChat(); }}
+              title={`发送到聊天（${isMacPlatform() ? '⌘' : 'Ctrl'}+L）· ${selectionLabelRef.current || 'selection'}`}
+            >
+              发送到聊天
+            </button>
+          </div>
+        )}
+      </div>
     </>
   );
 }

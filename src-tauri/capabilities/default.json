@@ -37,6 +37,7 @@
     "core:webview:allow-webview-close",
     "dialog:default",
     "opener:allow-reveal-item-in-dir",
+    "opener:allow-open-url",
     "fs:allow-read-text-file",
     "fs:allow-read-file",
     "fs:allow-read-dir",

@@ -26,6 +26,10 @@ export interface TerminalEntry {
   auto: boolean;
   /** Working directory (user tabs only) */
   cwd: string;
+  /** Last observed working directory of the live shell (OSC 7 / 9;9 追踪，
+   *  对齐 Hermes restoreCwd）：重开 tab 时在此目录重启 PTY（用户最后 cd 的位置），
+   *  而非原始启动目录。仅 user tabs。 */
+  restoreCwd?: string;
   /** Serialized xterm scrollback from last session, replayed on relaunch.
    *  对齐 Hermes: VS Code parity — processes NOT revived, fresh shell under restored buffer.
    *  Captured live for user tabs only; agent mirrors stay runtime-only. */
@@ -46,6 +50,7 @@ interface PersistedTerminalEntry {
   auto: boolean;
   cwd: string;
   id: string;
+  restoreCwd?: string;
   reviveBuffer?: string;
   title: string;
 }
@@ -61,12 +66,14 @@ function sanitizePersistedTerminal(value: unknown): PersistedTerminalEntry | nul
   const id = typeof record.id === 'string' ? record.id.trim() : '';
   const title = typeof record.title === 'string' ? record.title.trim() : '';
   const cwd = typeof record.cwd === 'string' ? record.cwd : '';
+  const restoreCwd = typeof record.restoreCwd === 'string' && record.restoreCwd ? record.restoreCwd : undefined;
   const reviveBuffer = typeof record.reviveBuffer === 'string' ? record.reviveBuffer : undefined;
   if (!id) return null;
   return {
     auto: typeof record.auto === 'boolean' ? record.auto : true,
     cwd,
     id,
+    ...(restoreCwd ? { restoreCwd } : {}),
     ...(reviveBuffer ? { reviveBuffer } : {}),
     title: title || 'Terminal',
   };
@@ -101,6 +108,7 @@ function persistTerminals(list: readonly TerminalEntry[], activeId: string | nul
       auto: t.auto,
       cwd: t.cwd,
       id: t.id,
+      ...(t.restoreCwd ? { restoreCwd: t.restoreCwd } : {}),
       ...(t.reviveBuffer ? { reviveBuffer: t.reviveBuffer } : {}),
       title: t.title,
     }));
@@ -260,5 +268,36 @@ export function updateTerminalReviveBuffer(id: string, reviveBuffer: string): vo
     ? reviveBuffer.slice(-MAX_REVIVE_BUFFER_CHARS)
     : reviveBuffer;
   terminals = terminals.map(t => t.id === id && t.kind === 'user' ? { ...t, reviveBuffer: capped } : t);
+  emitChange();
+}
+
+/** Record the shell's latest working directory for a tab so the next launch can
+ *  restart the PTY there instead of the original launch dir. User tabs only;
+ *  no-ops when empty or unchanged to avoid redundant persistence.
+ *  对齐 Hermes updateTerminalRestoreCwd */
+export function updateTerminalRestoreCwd(id: string, restoreCwd: string): void {
+  const next = restoreCwd.trim();
+  if (!next) return;
+  terminals = terminals.map(t => {
+    if (t.id !== id || t.kind !== 'user' || t.restoreCwd === next) return t;
+    return { ...t, restoreCwd: next };
+  });
+  emitChange();
+}
+
+/** Close all other terminal tabs (keep only `id`）。对齐 Hermes closeOtherTerminals */
+export function closeOtherTerminals(id: string): void {
+  const keep = terminals.find(t => t.id === id);
+  if (!keep) return;
+  terminals = [keep];
+  activeTerminalId = keep.id;
+  emitChange();
+}
+
+/** Close all terminal tabs。对齐 Hermes closeAllTerminals */
+export function closeAllTerminals(): void {
+  if (terminals.length === 0) return;
+  terminals = [];
+  activeTerminalId = null;
   emitChange();
 }

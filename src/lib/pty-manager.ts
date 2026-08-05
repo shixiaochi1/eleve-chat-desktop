@@ -50,10 +50,13 @@ function ensureGlobalListeners(): Promise<void> {
   return listenerPromise;
 }
 
-/** 确保 tab 有存活 PTY（无则启动）。返回是否新建 + shell 名 */
+/** 确保 tab 有存活 PTY（无则启动）。返回是否新建 + shell 名。
+ *  restoreCwd：上次会话观察到的 shell 实际 cwd（OSC 7/9;9 追踪，对齐 Hermes
+ *  start({ cwd: restoreCwd || cwd })）——重开 tab 落在用户最后 cd 的目录，主进程兜底 */
 export async function ensurePtyForTab(
   tabId: string,
   cwd: string,
+  restoreCwd?: string,
 ): Promise<{ created: boolean; shell: string }> {
   await ensureGlobalListeners();
   const existing = live.get(tabId);
@@ -62,7 +65,7 @@ export async function ensurePtyForTab(
   const res = await invoke<{ id: string; shell: string }>('pty_start', {
     cols: 80,
     rows: 24,
-    cwd: cwd || null,
+    cwd: (restoreCwd || cwd) || null,
   });
   live.set(tabId, { ptyId: res.id, shell: res.shell });
   ptyToTab.set(res.id, tabId);

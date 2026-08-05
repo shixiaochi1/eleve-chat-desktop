@@ -2,24 +2,43 @@
  * useTerminal — Terminal lifecycle hook
  *
  * Creates and manages an @xterm/xterm Terminal instance
- * with FitAddon and WebLinksAddon.
+ * with FitAddon + WebLinksAddon（走 opener，非 window.open）。
+ *
+ * 对齐 Hermes use-terminal-session 的渲染/交互核心：
+ * - linkHandler（OSC 8）+ WebLinksAddon（URL）→ opener openUrl（⌘/Ctrl+click）
+ * - attachCustomKeyEventHandler：智能剪贴板（⌘C/⌘V、Ctrl+Shift+C/V、裸 Ctrl+C 有选区才复制）
+ * - onSelectionChange → mirrorSelection（canvas 选区镜像进 helper textarea，系统复制生效）
+ * - altClickMovesCursor:false + macOptionClickForcesSelection（⌥-drag 强制选择鼠标模式 TUI）
+ * - minimumContrastRatio 4.5 / convertEol / scrollback 1000（VS Code 终端视觉语义）
  */
 import { useEffect, useRef, useCallback } from 'react';
+import type { CSSProperties } from 'react';
 import { registerTerminalReader, makeTerminalReader, setActiveTerminalId } from '@/store/terminal-buffer';
+import {
+  terminalLinkHandler,
+  terminalWebLinksAddon,
+  terminalClipboardIntent,
+  mirrorSelection,
+  terminalSelectionAnchor,
+  isMacPlatform,
+} from '@/lib/terminal-extras';
 
 interface UseTerminalOptions {
   lazy?: boolean;
   /** Terminal entry id — used to register the buffer reader for read_terminal tool */
   id?: string;
+  /** 选区变化回调（镜像已内部完成；此回调供视图显示浮动按钮 + ⌘L 发送） */
+  onSelectionChange?: (text: string, anchor: CSSProperties | null) => void;
 }
 
-export default function useTerminal({ lazy = false, id }: UseTerminalOptions = {}) {
+export default function useTerminal({ lazy = false, id, onSelectionChange }: UseTerminalOptions = {}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<any>(null);
   const fitAddonRef = useRef<any>(null);
-  const weblinksAddonRef = useRef<any>(null);
   const initializedRef = useRef(false);
   const unregisterReaderRef = useRef<(() => void) | null>(null);
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  onSelectionChangeRef.current = onSelectionChange;
 
   // Create the terminal instance
   const init = useCallback(() => {
@@ -29,17 +48,28 @@ export default function useTerminal({ lazy = false, id }: UseTerminalOptions = {
       try {
         const { Terminal } = await import('@xterm/xterm');
         const { FitAddon } = await import('@xterm/addon-fit');
-        const { WebLinksAddon } = await import('@xterm/addon-web-links');
+        const { Unicode11Addon } = await import('@xterm/addon-unicode11');
 
         const fitAddon = new FitAddon();
-        const weblinksAddon = new WebLinksAddon();
 
         const term = new Terminal({
           cursorBlink: true,
           cursorStyle: 'bar',
           fontSize: 13,
           fontFamily: "'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace",
-          allowTransparency: true,
+          // 对齐 Hermes：opaque canvas（allowTransparency=false 走清晰渲染路径）
+          allowTransparency: false,
+          convertEol: true,
+          scrollback: 1000,
+          // 对齐 Hermes：VS Code 4.5:1 对比钳制（默认 1 关闭 → 饱和 ANSI 在浅底上刺眼）
+          minimumContrastRatio: 4.5,
+          // ⌥-drag 强制选择（鼠标模式 TUI 里拖不动选区）；altClickMovesCursor 抢同一手势
+          altClickMovesCursor: false,
+          macOptionClickForcesSelection: true,
+          macOptionIsMeta: true,
+          // OSC 8 hyperlink（gh/cargo/npm/ls --hyperlink）走 opener（Hermes 注释：
+          // 默认 window.open 被 Tauri 拒绝 + raw confirm() 死胡同）
+          linkHandler: terminalLinkHandler,
           theme: {
             background: '#1c1c1e',
             foreground: '#e5e5e7',
@@ -66,10 +96,47 @@ export default function useTerminal({ lazy = false, id }: UseTerminalOptions = {
         });
 
         term.loadAddon(fitAddon);
-        term.loadAddon(weblinksAddon);
+        // URL 链接走 opener（⌘/Ctrl+click），不 window.open
+        term.loadAddon(terminalWebLinksAddon());
+        // Unicode 11 宽字符（emoji 等）
+        term.loadAddon(new Unicode11Addon());
+        term.unicode.activeVersion = '11';
+
+        // 智能剪贴板（对齐 Hermes clipboard.ts）：返回 false = xterm 不再把按键发 PTY
+        term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+          const intent = terminalClipboardIntent(event, {
+            hasSelection: Boolean(term.getSelection()),
+            isMac: isMacPlatform(),
+          });
+          if (!intent) return true;
+
+          event.preventDefault();
+          if (intent === 'copy') {
+            const text = term.getSelection();
+            void navigator.clipboard.writeText(text).catch(() => {
+              // 剪贴板不可用 — 选区保留可重试（Hermes 同款）
+            });
+            term.clearSelection();
+            return false;
+          }
+          void (async () => {
+            try {
+              const text = await navigator.clipboard.readText();
+              if (text) term.paste(text);
+            } catch { /* 读剪贴板被拒（无焦点/权限）静默 */ }
+          })();
+          return false;
+        });
+
+        // 选区变化 → 镜像进 helper textarea（系统 ⌘C/右键复制生效）+ 通知视图
+        term.onSelectionChange(() => {
+          const host = containerRef.current;
+          const text = term.getSelection();
+          if (host) mirrorSelection(host, text);
+          onSelectionChangeRef.current?.(text, host && text.trim() ? terminalSelectionAnchor(host) : null);
+        });
 
         fitAddonRef.current = fitAddon;
-        weblinksAddonRef.current = weblinksAddon;
         terminalRef.current = term;
 
         // Attach to container if available
