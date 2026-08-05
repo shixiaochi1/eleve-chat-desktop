@@ -145,6 +145,12 @@ export default function PaneShell({
   //   b) resize 事件里**同步写 CSS 变量**（setProperty，零 React 参与）→
   //      右抽屉在同一帧跟随窗口宽度，无异步滞后。
   //   c) React 渲染只做"纠正/确认"（anchor 变化、手动拖拽结束）。
+  // 🔴🔴 v5.2 双修复（老大 2026-08-06 05:06 反馈）：
+  //   ① 往大拖消息区跟着变宽 = resize 事件滞后于浏览器 reflow → 中间态
+  //      用旧 CSS 变量布局（calc 恒等失效一帧）。改 rAF 循环：每帧在 paint
+  //      前检查窗口宽并同步写 var → 单次 reflow 用新 var → 零中间态。
+  //   ② 右缘间距变宽 = calc 多减了 padding 16（grid 的 100% 已是 content-box，
+  //      padding 不计入轨道）→ 轨道总宽少 16 → 右侧留 16px 空隙（间距 8→24px）
   const anchorRef = useRef(rightAnchor);
   anchorRef.current = rightAnchor;
   const rightOpenRef = useRef(rightOpen);
@@ -152,21 +158,29 @@ export default function PaneShell({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const syncRight = () => {
-      // 拖拽中不写（applyDrag 实时写）；右抽屉未开不写
-      if (draggingRef.current || !rightOpenRef.current) return;
-      const a = anchorRef.current;
-      if (!a) return;
-      const right = Math.max(
-        limitsRef.current.minR,
-        Math.min(limitsRef.current.maxR, a.rightW + (window.innerWidth - a.winW)),
-      );
-      widthRef.current.right = right;
-      el.style.setProperty('--pane-right-width', `${right}px`);
+    let raf = 0;
+    let lastW = window.innerWidth;
+    const tick = () => {
+      raf = 0;
+      const w = window.innerWidth;
+      if (w !== lastW) {
+        lastW = w;
+        if (!draggingRef.current && rightOpenRef.current) {
+          const a = anchorRef.current;
+          if (a) {
+            const right = Math.max(
+              limitsRef.current.minR,
+              Math.min(limitsRef.current.maxR, a.rightW + (w - a.winW)),
+            );
+            widthRef.current.right = right;
+            el.style.setProperty('--pane-right-width', `${right}px`);
+          }
+        }
+      }
+      raf = requestAnimationFrame(tick);
     };
-    window.addEventListener('resize', syncRight);
-    syncRight();
-    return () => window.removeEventListener('resize', syncRight);
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, []);
   const derivedRight = rightOpen
     ? rightAnchor
@@ -268,14 +282,16 @@ export default function PaneShell({
   }, [handlePointerMove, endDrag]);
 
   // CSS Grid template: 3 columns (left | main | right)
-  // 🔴 v5 三列全显式（无 1fr）：聊天区 = calc(100% - left - right - 32px)
-  //   32px = 容器 padding 16（pl-2/pr-2）+ grid gap 16（gap-2 ×2）。
+  // 🔴 v5 三列全显式（无 1fr）：聊天区 = calc(100% - left - right - 16px)
+  //   🔴 v5.2：只减 16（grid gap-2 ×2）。grid 的 100% 已是 content-box
+  //   （padding pl-2/pr-2 已排除），旧版误减 32 导致轨道总宽少 16 →
+  //   右侧留空隙（右缘间距 8px 变 24px）。
   //   浏览器每次 reflow 都同步重算 calc → 聊天区列宽数学恒等，窗口缩放
   //   零中间态（旧 1fr 会在 CSS 变量更新前吸收窗口变化 → 弹簧抖动根因）。
   const gridTemplate = useMemo(() => {
     const left = leftOpen ? 'var(--pane-left-width)' : '0px';
     const right = rightOpen ? 'var(--pane-right-width)' : '0px';
-    return `${left} calc(100% - ${left} - ${right} - 32px) ${right}`;
+    return `${left} calc(100% - ${left} - ${right} - 16px) ${right}`;
   }, [leftOpen, rightOpen]);
 
   // Emit pane widths as CSS variables for animation
