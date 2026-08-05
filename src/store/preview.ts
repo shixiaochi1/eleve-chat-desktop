@@ -53,9 +53,66 @@ interface PreviewState {
   restart: PreviewRestartState | null
 }
 
+// ── 持久化（对齐 Hermes $previewTabs persistentAtom + $rightRailActiveTabId）──
+// 重启后恢复打开过的 file/url tab 与激活项；无 localStorage 环境静默降级为纯运行时
+
+const PREVIEW_STORAGE_KEY = 'eleve.previewTabs.v1'
+
+function isPersistableTab(value: unknown): value is PreviewTab {
+  if (!value || typeof value !== 'object') return false
+  const r = value as Record<string, unknown>
+  const target = r.target as Record<string, unknown> | undefined
+  return (
+    typeof r.id === 'string' &&
+    !!target &&
+    (target.kind === 'url' || target.kind === 'file') &&
+    typeof target.url === 'string'
+  )
+}
+
+function loadPersistedTabs(): { tabs: PreviewTab[]; activeId: string | null } {
+  const fallback = { tabs: [] as PreviewTab[], activeId: null }
+  try {
+    const raw = localStorage.getItem(PREVIEW_STORAGE_KEY)
+    if (!raw) return fallback
+    const parsed = JSON.parse(raw) as { tabs?: unknown; activeId?: unknown }
+    const tabs = Array.isArray(parsed.tabs)
+      ? parsed.tabs.filter(isPersistableTab).map((t) => ({
+          id: t.id,
+          target: t.target,
+          label: typeof t.label === 'string' && t.label ? t.label : labelFor(t.target),
+        }))
+      : []
+    const activeId =
+      typeof parsed.activeId === 'string' && tabs.some((t) => t.id === parsed.activeId)
+        ? parsed.activeId
+        : (tabs[0]?.id ?? null)
+    return { tabs, activeId }
+  } catch {
+    return fallback
+  }
+}
+
+function persistTabs(): void {
+  try {
+    if (state.tabs.length === 0) {
+      localStorage.removeItem(PREVIEW_STORAGE_KEY)
+      return
+    }
+    localStorage.setItem(
+      PREVIEW_STORAGE_KEY,
+      JSON.stringify({ tabs: state.tabs, activeId: state.activeId }),
+    )
+  } catch {
+    /* 存储不可用（隐私模式等），静默降级为纯运行时 */
+  }
+}
+
+const restoredTabs = loadPersistedTabs()
+
 let state: PreviewState = {
-  tabs: [],
-  activeId: null,
+  tabs: restoredTabs.tabs,
+  activeId: restoredTabs.activeId,
   reloadRequest: 0,
   restart: null,
 }
@@ -83,6 +140,8 @@ export function usePreviewStore(): PreviewState {
 
 function update(patch: Partial<PreviewState>): void {
   state = { ...state, ...patch }
+  // 仅 tab 组成变化时落盘（reloadRequest/restart 是运行时态）
+  if ('tabs' in patch || 'activeId' in patch) persistTabs()
   notify()
 }
 

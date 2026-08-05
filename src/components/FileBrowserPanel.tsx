@@ -10,8 +10,6 @@ import { useWorkspaceTick } from '../lib/workspace-events';
 import { openPreview } from '@/store/preview';
 import { cn } from '@/lib/utils';
 
-declare const process: { env: Record<string, string | undefined> } | undefined;
-
 interface FileEntry {
   name: string;
   path: string;
@@ -33,6 +31,10 @@ interface TreeNodeProps {
 
 interface FileBrowserPanelProps {
   onFileAttach?: (path: string) => void;
+  /** 当前会话工作目录 — 权威根目录来源（对齐 Hermes RightSidebarPane：
+   *  文件树 = 会话 cwd）。手动切换目录/上级只是临时 override，
+   *  会话切换（cwd 变化）→ 重新跟随。 */
+  cwd?: string;
 }
 
 // 每层缩进（对齐 Hermes react-arborist INDENT=10）：16px/层在窄面板里
@@ -69,41 +71,6 @@ function parentOf(path: string): string | null {
   if (!parent) return null;
   // Windows 盘符根：C: → C:\（保持可再次进入根目录）
   return /^[A-Za-z]:$/.test(parent) ? `${parent}\\` : parent;
-}
-
-/**
- * 尝试获取默认工作目录
- * - Tauri: home directory
- * - 浏览器: 空字符串
- * （W-5：旧 file_browser_root 缓存 key 只读无人写 = 死代码，移除）
- */
-async function detectDefaultRoot(): Promise<string> {
-  // Tauri 环境：尝试获取 home 目录
-  try {
-    const { homeDir } = await import('@tauri-apps/api/path');
-    if (homeDir) {
-      const home = await homeDir();
-      return home;
-    }
-  } catch {
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      const home = await invoke('plugin:path|resolve_home_dir');
-      if (home) return home as string;
-    } catch { /* 继续 fallback */ }
-  }
-
-  // 跨平台 fallback
-  try {
-    if (typeof process !== 'undefined' && process.env?.HOME) {
-      return process.env.HOME;
-    }
-    if (typeof process !== 'undefined' && process.env?.USERPROFILE) {
-      return process.env.USERPROFILE;
-    }
-  } catch { /* ignore */ }
-
-  return '/home'; // 兜底
 }
 
 /**
@@ -248,6 +215,7 @@ function TreeNode({
  */
 export default function FileBrowserPanel({
   onFileAttach,
+  cwd,
 }: FileBrowserPanelProps) {
   const {
     data,
@@ -263,8 +231,6 @@ export default function FileBrowserPanel({
     rootPath,
   } = useFileTree();
 
-  const [initDone, setInitDone] = useState(false);
-
   // 工作区自动刷新（对齐 Hermes use-project-tree workspaceTick 消费）：
   // Agent 写文件 / spot editor 保存 → 非破坏刷新（保留展开状态）
   const workspaceTick = useWorkspaceTick();
@@ -274,18 +240,12 @@ export default function FileBrowserPanel({
     }
   }, [workspaceTick, invalidate]);
 
-  // 初始化：检测默认目录
+  // 根目录跟随会话 cwd（对齐 Hermes RightSidebarPane：hasWorkspace ? cwd : ''）。
+  // 会话切换（cwd 变化）→ 重置手动 override 重新跟随；无 cwd 的 detached
+  // 会话不动当前树（保留用户上次浏览位置，不闪空）。
   useEffect(() => {
-    (async () => {
-      try {
-        const root = await detectDefaultRoot();
-        await setRoot(root);
-      } catch {
-        // 保持无目录状态
-      }
-      setInitDone(true);
-    })();
-  }, [setRoot]);
+    if (cwd) void setRoot(cwd);
+  }, [cwd, setRoot]);
 
   // 处理文件点击 — 附加文件路径（250ms 延迟：双击会先触发两次 click，双击语义=打开预览，
   // 延迟让双击有机会取消 attach，避免误发两条 @file）
@@ -343,22 +303,7 @@ export default function FileBrowserPanel({
       })()
     : '未打开项目';
 
-  // ── 空状态（未初始化时）──
-  if (!initDone && !loading) {
-    return (
-      <div className="flex flex-col flex-1 min-h-0 p-3">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-foreground">文件</span>
-        </div>
-        <div className="flex flex-col items-center py-8 text-muted-foreground gap-2">
-          <Folder size={32} className="text-muted-foreground/30" />
-          <p className="text-xs">正在初始化...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // ── 无根目录状态 ──
+  // ── 无根目录状态（会话无 cwd 且未手动选目录；对齐 Hermes noProjectOpen）──
   if (!rootPath && !loading) {
     return (
       <div className="flex flex-col flex-1 min-h-0 p-3">
@@ -368,7 +313,14 @@ export default function FileBrowserPanel({
         <div className="flex flex-col items-center py-8 text-muted-foreground gap-2">
           <Folder size={32} className="text-muted-foreground/30" />
           <p className="text-xs">未打开项目</p>
-          <span className="text-[10px] text-muted-foreground/50 text-center">连接到后端后自动加载工作目录</span>
+          <span className="text-[10px] text-muted-foreground/50 text-center">当前会话无工作目录，打开会话后自动跟随</span>
+          <button
+            className="mt-1 flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            onClick={handlePickRoot}
+          >
+            <FolderInput size={12} />
+            手动选择目录
+          </button>
         </div>
       </div>
     );

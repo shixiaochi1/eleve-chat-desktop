@@ -29,6 +29,7 @@ import { notifyWorkspaceChanged } from '@/lib/workspace-events';
 import { requestComposerInsert, fileLineRef, LINE_REF_MIME } from '@/lib/composer-events';
 import { CodeEditor } from '@/components/chat/code-editor';
 import DiffLines from '@/components/DiffLines';
+import ModeSwitcher from '@/components/preview/ModeSwitcher';
 import { isDesktop, call } from '@/utils/bridge';
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']);
@@ -588,21 +589,12 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
             {/* 模式切换行（对齐 Hermes PreviewModeSwitcher：仅多模式时显示；
                 渲染/源码/变更——有 git diff 时出现「变更」） */}
             {modes.length > 1 && (
-              <div className="flex h-7 shrink-0 items-center justify-end gap-3 border-b border-[var(--ui-stroke-secondary)] px-3">
-                {modes.map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setUserMode(m)}
-                    className={cn(
-                      'text-[10px] font-bold underline-offset-4 transition-colors',
-                      m === mode
-                        ? 'text-[var(--ui-text-primary)] underline'
-                        : 'text-[var(--ui-text-tertiary)] hover:text-[var(--ui-text-secondary)]',
-                    )}
-                  >
-                    {m === 'rendered' ? '渲染' : m === 'diff' ? '变更' : '源码'}
-                  </button>
-                ))}
+              <div className="flex h-7 shrink-0 items-center justify-end border-b border-[var(--ui-stroke-secondary)] px-3">
+                <ModeSwitcher
+                  modes={modes.map((m) => ({ key: m, label: m === 'rendered' ? '渲染' : m === 'diff' ? '变更' : '源码' }))}
+                  active={mode}
+                  onSelect={setUserMode}
+                />
               </div>
             )}
             <div className="flex-1 min-h-0 overflow-auto">

@@ -89,10 +89,30 @@ export default function App() {
     }
   }, [isNarrow, activePanel, responsiveCollapsed]);
 
-  // ── 右侧文件浏览器 state ──
-  const [rightOpen, setRightOpen] = useState<boolean>(false);
+  // ── 右侧抽屉 state（持久化，对齐 Hermes $paneStates/$rightRailActiveTabId）──
+  const [rightOpen, setRightOpen] = useState<boolean>(() => {
+    try {
+      const raw = localStorage.getItem('eleve.rightPane.v1');
+      return raw ? (JSON.parse(raw) as { open?: boolean }).open === true : false;
+    } catch {
+      return false;
+    }
+  });
   const [rightWidth, setRightWidth] = useState<number>(280);
-  const [rightTab, setRightTab] = useState<string>('files'); // 'files' | 'terminal' | 'preview' | 'artifacts'
+  const [rightTab, setRightTab] = useState<string>(() => {
+    try {
+      const raw = localStorage.getItem('eleve.rightPane.v1');
+      const tab = raw ? (JSON.parse(raw) as { tab?: string }).tab : undefined;
+      return tab === 'files' || tab === 'terminal' || tab === 'preview' || tab === 'artifacts' ? tab : 'files';
+    } catch {
+      return 'files';
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('eleve.rightPane.v1', JSON.stringify({ open: rightOpen, tab: rightTab }));
+    } catch { /* 存储不可用静默降级 */ }
+  }, [rightOpen, rightTab]);
   const handleToggleFiles = useCallback(() => setRightOpen(prev => !prev), []);
 
   // 🔴 Artifact 右栏化（对齐 Hermes openArtifact → 打开右栏 tab）：
@@ -1191,7 +1211,7 @@ export default function App() {
           <Pane side="right" className="pane-right-column">
             {rightOpen && <RightSidebarTabs activeTab={rightTab} onTabChange={setRightTab} />}
             {rightOpen && (rightTab === 'files' ? (
-              <FileBrowserPanel onFileAttach={(path: string) => handleSend(`@file:"${path}"`)} />
+              <FileBrowserPanel cwd={sessionCwd} onFileAttach={(path: string) => handleSend(`@file:"${path}"`)} />
             ) : rightTab === 'preview' ? (
               <PreviewCenter sessionId={sess.sessionId} cwd={sessionCwd} />
             ) : rightTab === 'artifacts' ? (

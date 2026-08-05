@@ -335,18 +335,34 @@ function UserTerminalView({ entry, onSend, isStreaming = false, sessionId }: {
 
 // ────────────────────────────────────────────────────────────────
 // Agent tab — 后台进程只读镜像（4-5 链路补全）
-//   process.list 轮询 → output_tail 增量写入独立 xterm
+//   process.list 轮询 → 按绝对字节偏移增量写 output_tail
 // ────────────────────────────────────────────────────────────────
+
+const byteEncoder = new TextEncoder();
+const byteDecoder = new TextDecoder();
+
+/** 取 UTF-8 字符串尾部 byteCount 字节（切片起点由调用方保证落在字符边界） */
+function tailSuffixByBytes(s: string, byteCount: number): string {
+  const bytes = byteEncoder.encode(s);
+  if (bytes.length <= byteCount) return s;
+  return byteDecoder.decode(bytes.subarray(bytes.length - byteCount));
+}
 
 function AgentTerminalView({ entry, sessionId }: { entry: TerminalEntry; sessionId?: string }) {
   const term = useTerminal({ lazy: true, id: entry.id });
   const [ready, setReady] = useState(false);
-  // 已写入的 output_tail 长度（增量写入）
-  const writtenTailLenRef = useRef(0);
-  // 命令标题/状态头已 seed
+  // 已写入 xterm 的绝对字节偏移（对应后端 output_buffer 总长）。
+  // 🔴 旧实现按 output_tail 长度记账：尾窗定长 4000B，输出超限后窗口平移、
+  // tail 长度不再增长 → 镜像永久冻结。改按 output_len 绝对偏移：
+  // 尾窗起点 = output_len - tailBytes，起点不落后于已写位置 → 缺失切片完整可取；
+  // 落后（轮询间隙输出超过一个窗口）→ 省略标记 + 全量 tail。
+  const writtenBytesRef = useRef(0);
+  // 命令标题已 seed
   const seededRef = useRef(false);
   // 退出状态行已写（防每轮轮询重复）
   const exitedWrittenRef = useRef(false);
+  // 清屏后下一轮强制全量重写（不带省略标记）
+  const forceFullRef = useRef(false);
 
   // Initialize terminal on mount
   useEffect(() => {
@@ -354,7 +370,7 @@ function AgentTerminalView({ entry, sessionId }: { entry: TerminalEntry; session
     setTimeout(() => setReady(true), 50);
   }, [term]);
 
-  // 4-5：镜像内容 — 轮询 process.list，增量写 output_tail
+  // 4-5：镜像内容 — 轮询 process.list，按绝对字节偏移增量写 output_tail
   useEffect(() => {
     if (!ready || !entry.procId || !sessionId) return;
     let cancelled = false;
@@ -366,13 +382,31 @@ function AgentTerminalView({ entry, sessionId }: { entry: TerminalEntry; session
         if (!proc) return;
         if (!seededRef.current) {
           seededRef.current = true;
-          writtenTailLenRef.current = 0;
           term.write(`\r\n\x1b[1;33m$ ${entry.title}\x1b[0m\r\n`);
         }
         const tail = String(proc.output_tail || '');
-        if (tail.length > writtenTailLenRef.current) {
-          term.write(tail.slice(writtenTailLenRef.current));
-          writtenTailLenRef.current = tail.length;
+        const tailBytes = byteEncoder.encode(tail).length;
+        if (typeof proc.output_len === 'number') {
+          // 新后端：绝对偏移增量写（窗口平移不冻结、不重复）
+          const total = proc.output_len;
+          if (forceFullRef.current || total > writtenBytesRef.current) {
+            const tailStart = total - tailBytes;
+            if (forceFullRef.current || tailStart >= writtenBytesRef.current) {
+              const need = forceFullRef.current ? tailBytes : total - writtenBytesRef.current;
+              if (need > 0) term.write(tailSuffixByBytes(tail, need));
+            } else {
+              // 间隙超过尾窗：中间输出不可得 → 省略标记 + 全量 tail
+              const dropped = total - writtenBytesRef.current - tailBytes;
+              term.write(`\r\n\x1b[90m[… 已省略 ${dropped} 字节输出 …]\x1b[0m\r\n`);
+              if (tail) term.write(tail);
+            }
+            writtenBytesRef.current = total;
+            forceFullRef.current = false;
+          }
+        } else if (tail.length > writtenBytesRef.current) {
+          // 旧后端降级：按 tail 长度增量（保留 >4000B 冻结缺陷，仅兼容期）
+          term.write(tail.slice(writtenBytesRef.current));
+          writtenBytesRef.current = tail.length;
         }
         if (proc.status === 'exited' && !exitedWrittenRef.current) {
           exitedWrittenRef.current = true;
@@ -388,9 +422,9 @@ function AgentTerminalView({ entry, sessionId }: { entry: TerminalEntry; session
   const handleClear = useCallback(() => {
     term.clear();
     seededRef.current = false;
-    writtenTailLenRef.current = 0;
     exitedWrittenRef.current = false;
-    // 清屏后下一次轮询会重新 seed 命令标题 + 全量 tail
+    forceFullRef.current = true;
+    // 清屏后下一次轮询重新 seed 命令标题 + 全量 tail（不带省略标记）
   }, [term]);
 
   return (

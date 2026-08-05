@@ -13,6 +13,7 @@ import {
   type ArtifactRecord,
 } from '@/store/artifacts';
 import { renderMarkdown } from '@/utils/markdown';
+import ModeSwitcher, { type ModeOption } from '@/components/preview/ModeSwitcher';
 import DOMPurify from 'dompurify';
 
 const KIND_ICON = {
@@ -46,6 +47,9 @@ function artifactDownloadName(kind: string, language: string, title: string): st
   return `${base}.${ext}`;
 }
 
+/** 预览视图模式（对齐 Hermes ArtifactPreview：html/svg = rendered/source，code = 仅 source） */
+type ArtifactViewMode = 'rendered' | 'source';
+
 /**
  * 右栏 Artifact 预览面板（对齐 Hermes right-rail preview-artifact）：
  * - 左侧：当前会话 artifact 列表（图标 + 标题 + 版本数），点击切换
@@ -59,6 +63,9 @@ const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: { sessionId: st
   const [copied, setCopied] = useState(false);
   // 🔴 全屏预览（老大 2026-08-05 要求）
   const [fullscreen, setFullscreen] = useState(false);
+  // 视图模式：渲染/源码（对齐 Hermes ArtifactPreview userMode；切换 artifact 重置）
+  const [userMode, setUserMode] = useState<ArtifactViewMode | null>(null);
+  useEffect(() => { setUserMode(null); }, [openState?.id]);
   // 🔴 面板内缩放适配：量容器实际宽，HTML iframe 固定设计宽后 transform scale 缩放到容器宽
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [containerW, setContainerW] = useState(0);
@@ -133,6 +140,16 @@ const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: { sessionId: st
 
   const activeForRender = active && openState?.id && sessionRecords.some((r) => r.id === openState.id) ? active : null;
 
+  // 视图模式决策（对齐 Hermes ArtifactPreview：可渲染 = html/svg，code 只有源码）
+  const renderable = activeForRender
+    ? activeForRender.record.kind === 'html' || activeForRender.record.kind === 'svg'
+    : false;
+  const viewModes: ModeOption<ArtifactViewMode>[] = renderable
+    ? [{ key: 'rendered', label: '渲染' }, { key: 'source', label: '源码' }]
+    : [{ key: 'source', label: '源码' }];
+  const viewMode: ArtifactViewMode =
+    userMode && viewModes.some((m) => m.key === userMode) ? userMode : viewModes[0].key;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* 列表头 */}
@@ -165,12 +182,16 @@ const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: { sessionId: st
             {activeForRender ? (
               <>
                 <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
-                  <VersionStepper
-                    current={openState!.versionIndex}
-                    total={activeForRender.record.versions.length}
-                    onSelect={(i) => selectArtifactVersion(activeForRender.record.id, i)}
-                  />
+                  {/* 渲染/源码切换（对齐 Hermes PreviewModeSwitcher；仅多模式时显示） */}
+                  {viewModes.length > 1 && (
+                    <ModeSwitcher modes={viewModes} active={viewMode} onSelect={setUserMode} />
+                  )}
                   <span className="ml-auto flex items-center gap-0.5">
+                    <VersionStepper
+                      current={openState!.versionIndex}
+                      total={activeForRender.record.versions.length}
+                      onSelect={(i) => selectArtifactVersion(activeForRender.record.id, i)}
+                    />
                     <button
                       type="button"
                       onClick={handleCopy}
@@ -219,11 +240,19 @@ const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: { sessionId: st
                   </span>
                 </div>
                 <div ref={viewportRef} className="min-h-0 flex-1 overflow-auto">
-                  <ArtifactContentView
-                    record={activeForRender.record}
-                    content={activeForRender.version.content}
-                    containerW={containerW}
-                  />
+                  {viewMode === 'rendered' && renderable ? (
+                    <ArtifactContentView
+                      record={activeForRender.record}
+                      content={activeForRender.version.content}
+                      containerW={containerW}
+                    />
+                  ) : (
+                    /* 源码视图（对齐 Hermes ArtifactPreview SourceView）：原始文本，
+                       React 自动转义，无 dangerouslySetInnerHTML */
+                    <div className="wrap-anywhere whitespace-pre-wrap p-3 font-mono text-xs leading-relaxed text-[var(--ui-text-primary)]">
+                      {activeForRender.version.content}
+                    </div>
+                  )}
                 </div>
               </>
             ) : (

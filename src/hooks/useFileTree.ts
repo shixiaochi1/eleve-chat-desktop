@@ -1,8 +1,8 @@
 /**
  * useFileTree — 文件树 Hook
  *
- * 统一通过后端 HTTP API `/api/files/list` 列出目录内容
- * 支持缓存、排序（目录优先，按字母序）、展开/折叠
+ * 统一通过后端 WS `files.list` 列出目录内容（唯一数据源）
+ * 支持缓存、排序（后端目录优先+字母序）、展开/折叠
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { call } from '../utils/bridge';
@@ -23,7 +23,9 @@ interface OpenStateMap {
 }
 
 /**
- * 通过后端 HTTP API 读取目录
+ * 通过后端读取目录（WS files.list）
+ * 过滤全部在后端完成（gitignore + ALWAYS_EXCLUDED，对齐 Hermes ipc.ts）：
+ * 前端不再无条件清点文件——点文件是否显示由 gitignore 语义决定
  */
 async function fetchDir(dirPath: string): Promise<FileEntry[]> {
   const data = await call('files_list', { path: dirPath });
@@ -31,7 +33,7 @@ async function fetchDir(dirPath: string): Promise<FileEntry[]> {
   const entries = (data as { files?: unknown[] }).files ?? [];
   if (!Array.isArray(entries)) return [];
 
-  return (entries as FileEntry[]).filter(e => e.name && !e.name.startsWith('.'));
+  return (entries as FileEntry[]).filter(e => !!e.name);
 }
 
 /**

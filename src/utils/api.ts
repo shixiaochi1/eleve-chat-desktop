@@ -91,6 +91,9 @@ export interface ProcessInfo {
   status: 'running' | 'exited';
   output_preview: string;
   output_tail: string;
+  /** 输出缓冲区总字节数（后端 output_buffer.len()）— 镜像按绝对偏移增量写，
+   *  解决定长尾窗 >4000B 后窗口平移导致的冻结（旧后端无此字段 → 降级旧逻辑） */
+  output_len?: number;
   exit_code?: number;
   completion_reason?: string;
   session_scoped?: boolean;
