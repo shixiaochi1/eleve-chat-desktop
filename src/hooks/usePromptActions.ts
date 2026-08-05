@@ -191,6 +191,11 @@ export function usePromptActions({
   }, [currentProfile]);
 
   // ── slash command handler ──
+  // 🔴 对齐 Hermes slashStatusText：system 消息用 `slash:/cmd\noutput` 格式，
+  // SystemMessage 组件据此渲染 mono 命令 + 输出（单行居中/多行左对齐）
+  const slashStatusText = (command: string, output: string) =>
+    [`slash:/${command.replace(/^\//, '')}`, output.trim()].filter(Boolean).join('\n');
+
   const handleCommand = useCallback(async (cmdName: string, args?: string) => {
     const display = args ? `/${cmdName} ${args}` : `/${cmdName}`;
     storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(display)], timestamp: Date.now() } as ChatMessage]);
@@ -206,7 +211,7 @@ export function usePromptActions({
           return;
         case 'send': {
           if (action.output) {
-            storeSetMessages((prev) => [...prev, { id: genId(), role: 'system', parts: [textPart(action.output!)] } as ChatMessage]);
+            storeSetMessages((prev) => [...prev, { id: genId(), role: 'system', parts: [textPart(slashStatusText(cmdName, action.output!))] } as ChatMessage]);
           }
           storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(action.kickoff)] } as ChatMessage]);
           isSendingRef.current = true;
@@ -222,11 +227,11 @@ export function usePromptActions({
           persistSessionPointer(action.newSessionId);
           sess.refresh();
           setMonitor((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, sessionStartedAt: Date.now() }));
-          storeSetMessages([{ id: genId(), role: 'system', parts: [textPart(action.output)] } as ChatMessage]);
+          storeSetMessages([{ id: genId(), role: 'system', parts: [textPart(slashStatusText(cmdName, action.output))] } as ChatMessage]);
           if (setSessionListVersion) setSessionListVersion(v => v + 1);
           return;
         case 'output':
-          storeSetMessages((prev) => [...prev, { id: genId(), role: 'system', parts: [textPart(action.output)] } as ChatMessage]);
+          storeSetMessages((prev) => [...prev, { id: genId(), role: 'system', parts: [textPart(slashStatusText(cmdName, action.output))] } as ChatMessage]);
           return;
       }
     } catch (err) {

@@ -12,6 +12,7 @@
  */
 import { memo } from 'react'
 import MessageBubble from './MessageBubble'
+import SystemMessage from './SystemMessage'
 import ReasoningBlock from './ReasoningBlock'
 import ToolEntry, { type ToolCallItem } from './ToolEntry'
 import HoistedTodoPanel, { todosFromMessageParts } from './HoistedTodoPanel'
@@ -116,7 +117,9 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
 
     if (m.role === 'system') {
       const text = m.parts.filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text').map(p => p.text).join('')
-      return <div className="px-4 py-0.5"><MessageBubble type="system" content={text} /></div>
+      // 对齐 Hermes SystemMessage 三形态（steer: / slash: / 普通居中）—
+      // 斜杠命令状态回显用 mono 命令 + 输出布局，不再走 MessageBubble 纯文本居中
+      return <div className="px-4 py-0.5"><SystemMessage text={text} /></div>
     }
   }
 

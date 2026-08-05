@@ -384,6 +384,10 @@ export function useGridChat(active: boolean): {
     const s = statesRef.current[profile];
     const sessionId = sessionIdMatchesProfile(s?.sessionId, profile) ? (s?.sessionId ?? undefined) : undefined;
     const display = args ? `/${cmdName} ${args}` : `/${cmdName}`;
+    // 🔴 对齐 Hermes slashStatusText：system 消息用 `slash:/cmd\noutput` 格式，
+    // SystemMessage 组件据此渲染 mono 命令 + 输出（单行居中/多行左对齐）
+    const slashStatusText = (command: string, output: string) =>
+      [`slash:/${command.replace(/^\//, '')}`, output.trim()].filter(Boolean).join('\n');
     // 乐观追加用户命令消息
     patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(display)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX) }));
     try {
@@ -401,7 +405,7 @@ export function useGridChat(active: boolean): {
           return;
         case 'send':
           if (action.output) {
-            patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'system', parts: [textPart(action.output!)] } as ChatMessage].slice(-WINDOW_MAX) }));
+            patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'system', parts: [textPart(slashStatusText(cmdName, action.output!))] } as ChatMessage].slice(-WINDOW_MAX) }));
           }
           await sendTo(profile, action.kickoff);
           return;
@@ -409,12 +413,12 @@ export function useGridChat(active: boolean): {
           patch(profile, (st) => ({
             ...st,
             sessionId: action.newSessionId,
-            messages: [{ id: gridMsgId(), role: 'system', parts: [textPart(action.output)] } as ChatMessage],
+            messages: [{ id: gridMsgId(), role: 'system', parts: [textPart(slashStatusText(cmdName, action.output))] } as ChatMessage],
           }));
           persistSessionPointer(action.newSessionId);
           return;
         case 'output':
-          patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'system', parts: [textPart(action.output)] } as ChatMessage].slice(-WINDOW_MAX) }));
+          patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'system', parts: [textPart(slashStatusText(cmdName, action.output))] } as ChatMessage].slice(-WINDOW_MAX) }));
           return;
       }
     } catch (err) {
