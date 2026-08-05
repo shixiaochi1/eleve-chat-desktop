@@ -263,7 +263,7 @@ export default forwardRef<HTMLDivElement, StreamBlocksProps>(function StreamBloc
       }
     >
       {plan.blocks.map((block, index) => (
-        <Block key={index} text={block.text} highlight={block.highlight} />
+        <Block key={index} text={block.text} highlight={block.highlight} artifact={block.artifact} sessionId={block.sessionId} />
       ))}
     </div>
   );
