@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { File, Folder, FolderOpen, ChevronRight, ChevronDown, RefreshCw, Loader, ArrowUp, FolderInput } from 'lucide-react';
 import { useFileTree } from '../hooks/useFileTree';
+import { useWorkspaceTick } from '../lib/workspace-events';
 import { openPreview } from '@/store/preview';
 import { cn } from '@/lib/utils';
 
@@ -26,6 +27,8 @@ interface TreeNodeProps {
   onFileClick: (entry: FileEntry) => void;
   onFileDoubleClick: (entry: FileEntry) => void;
   loadChildren: (dirPath: string) => Promise<FileEntry[]>;
+  /** 非破坏刷新信号：workspace tick 递增 → 已展开目录重新加载（对齐 Hermes revalidateTree） */
+  refreshNonce: number;
 }
 
 interface FileBrowserPanelProps {
@@ -114,12 +117,32 @@ function TreeNode({
   onFileClick,
   onFileDoubleClick,
   loadChildren,
+  refreshNonce,
 }: TreeNodeProps) {
   const [children, setChildren] = useState<FileEntry[] | null>(null);
   const [loadingChildren, setLoadingChildren] = useState(false);
   const childrenLoadedRef = useRef(false);
 
   const isOpen = !!openState[entry.path];
+
+  // 非破坏刷新：workspace 变化（Agent 写文件/保存）→ 已展开目录重新拉取
+  // （缓存已被 invalidate 清空 → loadChildren 重新 fetch；未展开/未加载过的不动）
+  useEffect(() => {
+    if (!isOpen || !childrenLoadedRef.current) return;
+    let cancelled = false;
+    setLoadingChildren(true);
+    loadChildren(entry.path)
+      .then((result) => {
+        if (!cancelled) setChildren(result);
+      })
+      .catch(() => { /* 静默 */ })
+      .finally(() => {
+        if (!cancelled) setLoadingChildren(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshNonce, entry.path, isOpen, loadChildren]);
 
   const handleToggle = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -204,6 +227,7 @@ function TreeNode({
               onFileClick={onFileClick}
               onFileDoubleClick={onFileDoubleClick}
               loadChildren={loadChildren}
+              refreshNonce={refreshNonce}
             />
           ))}
         </div>
@@ -230,6 +254,8 @@ export default function FileBrowserPanel({
     loading,
     error,
     refresh,
+    invalidate,
+    refreshNonce,
     setRoot,
     loadChildren,
     openState,
@@ -238,6 +264,15 @@ export default function FileBrowserPanel({
   } = useFileTree();
 
   const [initDone, setInitDone] = useState(false);
+
+  // 工作区自动刷新（对齐 Hermes use-project-tree workspaceTick 消费）：
+  // Agent 写文件 / spot editor 保存 → 非破坏刷新（保留展开状态）
+  const workspaceTick = useWorkspaceTick();
+  useEffect(() => {
+    if (workspaceTick > 0) {
+      void invalidate();
+    }
+  }, [workspaceTick, invalidate]);
 
   // 初始化：检测默认目录
   useEffect(() => {
@@ -415,6 +450,7 @@ export default function FileBrowserPanel({
                 onFileClick={handleFileClick}
                 onFileDoubleClick={handleFileDoubleClick}
                 loadChildren={loadChildren}
+                refreshNonce={refreshNonce}
               />
             ))
           )}

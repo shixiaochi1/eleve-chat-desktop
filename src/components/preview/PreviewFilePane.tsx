@@ -25,6 +25,7 @@ import type { PreviewTab } from '@/store/preview';
 import { renderMarkdown } from '@/utils/markdown';
 import { cn } from '@/lib/utils';
 import { setPreviewDirty } from '@/lib/preview-edit';
+import { notifyWorkspaceChanged } from '@/lib/workspace-events';
 import { CodeEditor } from '@/components/chat/code-editor';
 import { isDesktop } from '@/utils/bridge';
 
@@ -306,6 +307,9 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
       setDirty(false);
       setConflict(false);
       setEditing(false);
+      // 工作区变化信号（对齐 Hermes preview-file saveEdit → notifyWorkspaceChanged）：
+      // 文件树等消费方刷新
+      notifyWorkspaceChanged();
       setSelfReload((n) => n + 1);
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e));

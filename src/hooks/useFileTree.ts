@@ -43,6 +43,9 @@ export function useFileTree(initialPath: string | null = null) {
   const [error, setError] = useState<string | null>(null);
   const [openState, setOpenState] = useState<OpenStateMap>({});
   const [rootPath, setRootPath] = useState<string | null>(initialPath);
+  // 非破坏刷新信号：workspace tick 递增 → TreeNode 重载已展开目录（对齐 Hermes
+  // revalidateTree 非破坏语义——保留展开状态，只更新数据）
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const cacheRef = useRef<CacheMap>({});
   const mountedRef = useRef(true);
 
@@ -115,6 +118,34 @@ export function useFileTree(initialPath: string | null = null) {
   }, [rootPath, setRoot]);
 
   /**
+   * 非破坏刷新（对齐 Hermes revalidateTree）：失效全部缓存 + 重拉根数据，
+   * 保留展开状态（openState 不动）；已展开目录由 TreeNode 消费 refreshNonce
+   * 重新加载。workspace tick 自动刷新用；手动刷新按钮仍走 refresh()（含重置）。
+   */
+  const invalidate = useCallback(async () => {
+    if (!rootPath) return;
+    cacheRef.current = {};
+    setError(null);
+    setLoading(true);
+    try {
+      const entries = await listDir(rootPath);
+      if (mountedRef.current) {
+        setData(entries);
+      }
+    } catch (err: unknown) {
+      if (mountedRef.current) {
+        setError((err as Error).message || '读取目录失败');
+        setData([]);
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+      setRefreshNonce((n) => n + 1);
+    }
+  }, [rootPath, listDir]);
+
+  /**
    * 展开/折叠目录
    */
   const toggleOpen = useCallback(async (dirPath: string) => {
@@ -155,6 +186,8 @@ export function useFileTree(initialPath: string | null = null) {
     loading,
     error,
     refresh,
+    invalidate,
+    refreshNonce,
     setRoot,
     loadChildren,
     openState,

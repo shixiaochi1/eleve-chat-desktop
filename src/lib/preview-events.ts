@@ -12,6 +12,7 @@
 
 import { getWsClient } from '@/services/ws-client'
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
+import { notifyWorkspaceChanged, toolMayMutateFiles } from '@/lib/workspace-events'
 import {
   beginPreviewRestart,
   completePreviewRestart,
@@ -77,6 +78,11 @@ export function initPreviewEvents(options: PreviewEventsOptions): () => void {
         const diff = payload.inline_diff
         if (typeof diff === 'string' && diff.trim().length > 0) {
           requestPreviewReload()
+        }
+        // 工作区变化信号 → 文件树等消费方自动刷新（对齐 Hermes
+        // notifyWorkspaceChanged：inline_diff 或写文件类工具名命中）
+        if (toolMayMutateFiles(payload)) {
+          notifyWorkspaceChanged()
         }
         return
       }
