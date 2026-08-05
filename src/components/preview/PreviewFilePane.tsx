@@ -27,7 +27,8 @@ import { cn } from '@/lib/utils';
 import { setPreviewDirty } from '@/lib/preview-edit';
 import { notifyWorkspaceChanged } from '@/lib/workspace-events';
 import { CodeEditor } from '@/components/chat/code-editor';
-import { isDesktop } from '@/utils/bridge';
+import DiffLines from '@/components/DiffLines';
+import { isDesktop, call } from '@/utils/bridge';
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']);
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown', '.mdown']);
@@ -77,6 +78,11 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   // 用户点「仍要预览」才读全量，防大文件全量读入内存卡死）
   const [largeBlocked, setLargeBlocked] = useState(false);
   const [forcePreview, setForcePreview] = useState(false);
+  // ── git diff 视图（对齐 Hermes state.diff：工作树 vs HEAD 未提交变更）──
+  const [diff, setDiff] = useState<string | null>(null);
+  // 用户选择的视图；null = auto（有 diff → diff；markdown → rendered；否则 source，
+  // 对齐 Hermes autoMode）。文件切换/重读时重置。
+  const [userMode, setUserMode] = useState<'source' | 'rendered' | 'diff' | null>(null);
 
   // ── spot editor 状态（对齐 Hermes L585-597：draft/baseline 走 ref，
   //    打字不触发重渲染——dirty 是唯一 render-worthy 信号；selfReload 保存后重读）──
@@ -130,8 +136,21 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
         } else {
           const value = await readTextFile(path);
           if (cancelled) return;
+          const bin = isLikelyBinary(value);
           setText(value);
-          setBinary(isLikelyBinary(value));
+          setBinary(bin);
+          // diff 拉取（对齐 Hermes L670-684：best-effort；非 git 仓库/无变更 → 空 →
+          // diff 模式不显示；二进制无 diff）
+          if (!bin) {
+            try {
+              const data = (await call('files_diff', { path })) as { diff?: string };
+              if (!cancelled) setDiff((data?.diff ?? '').trim() || null);
+            } catch {
+              if (!cancelled) setDiff(null);
+            }
+          } else {
+            if (!cancelled) setDiff(null);
+          }
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -152,6 +171,8 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     setSaving(false);
     setSaveError(null);
     setConflict(false);
+    setUserMode(null);
+    setDiff(null);
     draftRef.current = '';
     baselineRef.current = '';
   }, [path, reloadKey]);
@@ -328,6 +349,8 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     const display = isLarge ? text.slice(0, MAX_RENDER_CHARS) : text;
     if (isMarkdown) {
       bodyHtml = renderMarkdown(display, { highlight: true });
+      // source 视图显示 markdown 原文（Hermes SourceView 语义）；rendered 走 bodyHtml
+      plainText = display;
     } else {
       const hasFence = display.split('\n').some((l) => l.trim().startsWith('```'));
       if (hasFence) {
@@ -337,6 +360,20 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
       }
     }
   }
+
+  // ── 视图模式决策（对齐 Hermes L925-940：modes 顺序 rendered→source→diff；
+  //    auto 落点 = 有 diff 优先，其次 markdown 渲染，否则源码）──
+  const hasDiff = Boolean(diff && diff.trim());
+  const modes: ('source' | 'rendered' | 'diff')[] = [];
+  if (isMarkdown) modes.push('rendered');
+  modes.push('source');
+  if (hasDiff) modes.push('diff');
+  const autoMode: 'source' | 'rendered' | 'diff' = hasDiff
+    ? 'diff'
+    : isMarkdown
+      ? 'rendered'
+      : 'source';
+  const mode = userMode && modes.includes(userMode) ? userMode : autoMode;
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-[var(--ui-bg-editor)]">
@@ -435,8 +472,8 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
         </div>
       )}
 
-      {/* ── 内容区（编辑态 → CodeEditor，同容器同头部高度，切换零位移）── */}
-      <div className="flex-1 min-h-0 overflow-auto">
+      {/* ── 内容区（编辑态 → CodeEditor；文本视图 → 模式切换行 + 三视图滚动区）── */}
+      <div className="flex-1 min-h-0 flex flex-col">
         {editing ? (
           <CodeEditor
             filePath={path}
@@ -448,54 +485,102 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
             disabled={saving}
           />
         ) : loading ? (
-          <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
-            <Loader2 size={20} className="animate-spin" />
-            <span className="text-xs">读取中...</span>
+          <div className="flex-1 min-h-0 overflow-auto">
+            <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
+              <Loader2 size={20} className="animate-spin" />
+              <span className="text-xs">读取中...</span>
+            </div>
           </div>
         ) : error ? (
-          <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
-            <AlertCircle size={32} strokeWidth={1} className="text-[var(--ui-status-error)]" />
-            <span className="text-xs text-[var(--ui-text-secondary)]">读取失败</span>
-            <span className="text-[10px] text-[var(--ui-text-tertiary)]">{error}</span>
+          <div className="flex-1 min-h-0 overflow-auto">
+            <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
+              <AlertCircle size={32} strokeWidth={1} className="text-[var(--ui-status-error)]" />
+              <span className="text-xs text-[var(--ui-text-secondary)]">读取失败</span>
+              <span className="text-[10px] text-[var(--ui-text-tertiary)]">{error}</span>
+            </div>
           </div>
         ) : binary ? (
-          <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
-            <File size={32} strokeWidth={1} />
-            <span className="text-xs text-[var(--ui-text-secondary)]">二进制文件，无法预览</span>
+          <div className="flex-1 min-h-0 overflow-auto">
+            <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
+              <File size={32} strokeWidth={1} />
+              <span className="text-xs text-[var(--ui-text-secondary)]">二进制文件，无法预览</span>
+            </div>
           </div>
         ) : largeBlocked ? (
-          <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-3">
-            <File size={32} strokeWidth={1} />
-            <span className="text-xs text-[var(--ui-text-secondary)]">文件较大，未加载内容</span>
-            <span className="text-[10px] text-[var(--ui-text-tertiary)]">
-              {(byteSize / 1024 / 1024).toFixed(1)} MB（超过 {(LARGE_FILE_THRESHOLD / 1024 / 1024).toFixed(0)} MB）
-            </span>
-            <button
-              onClick={handleForcePreview}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-            >
-              <Download size={12} />
-              仍要预览
-            </button>
+          <div className="flex-1 min-h-0 overflow-auto">
+            <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-3">
+              <File size={32} strokeWidth={1} />
+              <span className="text-xs text-[var(--ui-text-secondary)]">文件较大，未加载内容</span>
+              <span className="text-[10px] text-[var(--ui-text-tertiary)]">
+                {(byteSize / 1024 / 1024).toFixed(1)} MB（超过 {(LARGE_FILE_THRESHOLD / 1024 / 1024).toFixed(0)} MB）
+              </span>
+              <button
+                onClick={handleForcePreview}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                <Download size={12} />
+                仍要预览
+              </button>
+            </div>
           </div>
         ) : isImage && imageUrl ? (
-          <div className="flex items-center justify-center h-full p-2">
-            <img src={imageUrl} alt={basename(path)} className="max-w-full max-h-full object-contain" />
+          <div className="flex-1 min-h-0 overflow-auto">
+            <div className="flex items-center justify-center h-full p-2">
+              <img src={imageUrl} alt={basename(path)} className="max-w-full max-h-full object-contain" />
+            </div>
           </div>
         ) : (
-          <div className="p-3">
-            {bodyHtml ? (
-              <div
-                className="prose-preview text-xs leading-relaxed text-[var(--ui-text-primary)]"
-                // renderMarkdown 输出已过 DOMPurify sanitize（对齐消息区安全边界）
-                dangerouslySetInnerHTML={{ __html: bodyHtml }}
-              />
-            ) : plainText !== null ? (
-              <pre className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-[var(--ui-text-primary)]">
-                {escapeHtml(plainText)}
-              </pre>
-            ) : null}
-          </div>
+          <>
+            {/* 模式切换行（对齐 Hermes PreviewModeSwitcher：仅多模式时显示；
+                渲染/源码/变更——有 git diff 时出现「变更」） */}
+            {modes.length > 1 && (
+              <div className="flex h-7 shrink-0 items-center justify-end gap-3 border-b border-[var(--ui-stroke-secondary)] px-3">
+                {modes.map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setUserMode(m)}
+                    className={cn(
+                      'text-[10px] font-bold underline-offset-4 transition-colors',
+                      m === mode
+                        ? 'text-[var(--ui-text-primary)] underline'
+                        : 'text-[var(--ui-text-tertiary)] hover:text-[var(--ui-text-secondary)]',
+                    )}
+                  >
+                    {m === 'rendered' ? '渲染' : m === 'diff' ? '变更' : '源码'}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex-1 min-h-0 overflow-auto">
+              {mode === 'diff' ? (
+                <div className="p-3">
+                  <DiffLines text={diff ?? ''} maxHeight="none" />
+                </div>
+              ) : mode === 'rendered' && bodyHtml ? (
+                <div className="p-3">
+                  <div
+                    className="prose-preview text-xs leading-relaxed text-[var(--ui-text-primary)]"
+                    // renderMarkdown 输出已过 DOMPurify sanitize（对齐消息区安全边界）
+                    dangerouslySetInnerHTML={{ __html: bodyHtml }}
+                  />
+                </div>
+              ) : (
+                <div className="p-3">
+                  {plainText !== null ? (
+                    <pre className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-[var(--ui-text-primary)]">
+                      {escapeHtml(plainText)}
+                    </pre>
+                  ) : bodyHtml ? (
+                    <div
+                      className="prose-preview text-xs leading-relaxed text-[var(--ui-text-primary)]"
+                      // renderMarkdown 输出已过 DOMPurify sanitize（对齐消息区安全边界）
+                      dangerouslySetInnerHTML={{ __html: bodyHtml }}
+                    />
+                  ) : null}
+                </div>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>
