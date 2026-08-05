@@ -1,22 +1,23 @@
 /**
  * TerminalPanel — 多 tab 终端面板
  *
- * 对齐 Hermes apps/desktop/src/app/right-sidebar/terminal/workspace.tsx + rail.tsx
- * - Tab 栏：显示所有 TerminalEntry（user + agent）
- * - User tab：Agent 终端活动日志（terminal tool-call 回放 + 本地命令交互）
- * - Agent tab：后台进程只读镜像（process.list 轮询增量写 output_tail）
- * - 关闭 tab → closeTerminal() → 焦点滑到邻居
+ * 对齐 Hermes apps/desktop/src/app/right-sidebar/terminal/（workspace + rail + persistent）
+ * - Tab 栏：所有 TerminalEntry（user + agent），关闭 → dispose PTY + 焦点滑邻居
+ * - User tab：真实交互式 PTY（src-tauri portable-pty，对齐 Hermes Electron 主进程 PTY）
+ *   · 生命周期与视图解耦（pty-manager 模块级权威源）：切 tab/切面板 shell 不死
+ *   · reviveBuffer：xterm 序列化快照（VS Code parity，重挂载恢复屏幕 + 重启后新 shell 垫底）
+ *   · shell 退出 → 关 tab（Hermes onExit 语义）
+ * - Agent tab：后台进程只读镜像（agent.terminal.output 事件流 + 快照对账兜底）
  *
- * Tier 3 修复：
- * - 4-1：每 tab 独立 xterm 实例（key=tab.id 重建），agent 镜像与 user 日志互不串扰
- * - 4-5：ensureAgentTerminal surface 接线 + 进程镜像内容链路（listProcesses 轮询）
- * - 4-3：流式 tool 结果补写（writtenPrompt/writtenResult 双标记）
+ * 渲染策略：所有 tab 常驻挂载（非活跃 CSS hidden）— 切 tab 不销毁 xterm/PTY，
+ * 激活时 re-fit（对齐 Hermes PersistentTerminal "shell 存活于隐藏" 语义）。
  */
 import { useEffect, useRef, useCallback, useState, useMemo, useSyncExternalStore } from 'react';
-import { Terminal as TerminalIcon, Trash2, Send, X, Plus } from 'lucide-react';
+import { Terminal as TerminalIcon, X, Plus } from 'lucide-react';
 import useTerminal from '../hooks/useTerminal';
-import type { ChatMessage, ChatMessagePart } from '@/types';
 import { listProcesses } from '../utils/api';
+import { isDesktop } from '@/utils/bridge';
+import { cn } from '@/lib/utils';
 import {
   subscribeTerminals,
   getTerminalsSnapshot,
@@ -24,35 +25,71 @@ import {
   selectTerminal,
   closeTerminal,
   createTerminal,
-  ensureTerminal,
   ensureAgentTerminal,
+  reportTerminalShell,
+  updateTerminalReviveBuffer,
   type TerminalEntry,
 } from '@/store/terminals';
+import {
+  ensurePtyForTab,
+  attachPtyWriter,
+  writePtyInput,
+  resizePty,
+  disposePtyForTab,
+  onPtyExit,
+} from '@/lib/pty-manager';
+import {
+  registerAgentTerminalWriter,
+  seedAgentTerminalCommand,
+  syncAgentTerminalSnapshot,
+} from '@/lib/agent-terminal-stream';
 
 // Import xterm CSS
 import '@xterm/xterm/css/xterm.css';
 
-import { useMessages } from '@/store/messages';
 import { setActiveTerminalId } from '@/store/terminal-buffer';
 
-interface TerminalPanelProps {
-  onSend?: (text: string) => void;
-  isStreaming?: boolean;
-  sessionId?: string;
+// ── SerializeAddon（revive 快照）：模块级懒加载 + WeakMap 按 xterm 实例挂一份 ──
+const serializeAddons = new WeakMap<object, { serialize: (opts?: { scrollback?: number }) => string }>();
+let serializeCtorPromise: Promise<new () => { serialize: (opts?: { scrollback?: number }) => string }> | null = null;
+
+async function getSerializeAddon(term: object): Promise<{ serialize: (opts?: { scrollback?: number }) => string } | null> {
+  const existing = serializeAddons.get(term);
+  if (existing) return existing;
+  try {
+    if (!serializeCtorPromise) {
+      serializeCtorPromise = import('@xterm/addon-serialize').then((m) => m.SerializeAddon as never);
+    }
+    const Ctor = await serializeCtorPromise;
+    const addon = new Ctor();
+    (term as { loadAddon: (a: unknown) => void }).loadAddon(addon);
+    serializeAddons.set(term, addon);
+    return addon;
+  } catch {
+    return null;
+  }
 }
 
-export default function TerminalPanel({ onSend, isStreaming = false, sessionId }: TerminalPanelProps) {
+interface TerminalPanelProps {
+  sessionId?: string;
+  /** 当前会话工作目录 — 新建终端 tab 的初始 cwd（对齐 Hermes createTerminal($currentCwd)） */
+  cwd?: string;
+}
+
+export default function TerminalPanel({ sessionId, cwd }: TerminalPanelProps) {
   const tabs = useSyncExternalStore(subscribeTerminals, getTerminalsSnapshot);
   const activeId = useSyncExternalStore(subscribeTerminals, getActiveTerminalIdSnapshot);
-  const activeTab = useMemo(() => tabs.find(t => t.id === activeId) ?? null, [tabs, activeId]);
 
-  // Ensure at least one tab on mount
-  useEffect(() => { ensureTerminal(); }, []);
+  // 确保至少一个 tab（携带会话 cwd — Hermes: 终端只继承创建时的 cwd）
+  useEffect(() => {
+    if (getTerminalsSnapshot().length === 0) createTerminal(cwd ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 对齐 Hermes: tab 切换时同步 setActiveTerminalId → read_terminal 工具读取当前活跃 tab
   useEffect(() => { setActiveTerminalId(activeId); }, [activeId]);
 
-  // 4-5：把 Agent 后台进程 surface 为只读 tab（对齐 Hermes workspace.tsx 的
+  // Agent 后台进程 surface 为只读 tab（对齐 Hermes workspace.tsx 的
   // $backgroundStatusBySession effect；surfacedProcs 去重，关闭后不复活）
   useEffect(() => {
     if (!sessionId) return;
@@ -71,6 +108,12 @@ export default function TerminalPanel({ onSend, isStreaming = false, sessionId }
     const i = setInterval(surface, 5000);
     return () => { cancelled = true; clearInterval(i); };
   }, [sessionId]);
+
+  // 关闭 tab：先 dispose PTY（agent tab 无 PTY 则 no-op），再走 store 焦点滑动
+  const handleCloseTab = useCallback((id: string) => {
+    void disposePtyForTab(id);
+    closeTerminal(id);
+  }, []);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-background">
@@ -93,7 +136,7 @@ export default function TerminalPanel({ onSend, isStreaming = false, sessionId }
             )}
             <span
               className="ml-0.5 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive cursor-pointer"
-              onClick={(e) => { e.stopPropagation(); closeTerminal(tab.id); }}
+              onClick={(e) => { e.stopPropagation(); handleCloseTab(tab.id); }}
             >
               <X size={10} />
             </span>
@@ -102,180 +145,182 @@ export default function TerminalPanel({ onSend, isStreaming = false, sessionId }
         {/* New tab button */}
         <button
           className="p-1 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors shrink-0"
-          onClick={() => createTerminal()}
+          onClick={() => createTerminal(cwd ?? '')}
           title="新建终端"
         >
           <Plus size={12} />
         </button>
       </div>
 
-      {/* 4-1：每 tab 独立 xterm 实例（key=tab.id 强制重建） */}
-      {activeTab?.kind === 'agent'
-        ? <AgentTerminalView key={activeTab.id} entry={activeTab} sessionId={sessionId} />
-        : activeTab
-          ? <UserTerminalView key={activeTab.id} entry={activeTab} onSend={onSend} isStreaming={isStreaming} sessionId={sessionId} />
-          : null}
+      {/* 所有 tab 常驻挂载，非活跃 hidden — 切 tab 不销毁 xterm/PTY */}
+      {tabs.map((tab) => (
+        <div
+          key={tab.id}
+          className={cn('flex flex-col flex-1 min-h-0', tab.id !== activeId && 'hidden')}
+        >
+          {tab.kind === 'agent'
+            ? <AgentTerminalView active={tab.id === activeId} entry={tab} sessionId={sessionId} />
+            : <UserTerminalView active={tab.id === activeId} entry={tab} />}
+        </div>
+      ))}
     </div>
   );
 }
 
 // ────────────────────────────────────────────────────────────────
-// User tab — Agent 终端活动日志 + 本地命令交互
+// User tab — 真实交互式 PTY（对齐 Hermes useTerminalSession）
 // ────────────────────────────────────────────────────────────────
 
-function UserTerminalView({ entry, onSend, isStreaming = false, sessionId }: {
-  entry: TerminalEntry;
-  onSend?: (text: string) => void;
-  isStreaming?: boolean;
-  sessionId?: string;
-}) {
-  const messages = useMessages();
+/** revive 快照节流（对齐 Hermes SNAPSHOT_THROTTLE_MS=750） */
+const SNAPSHOT_THROTTLE_MS = 750;
+/** 持久化的 scrollback 行数（对齐 Hermes PERSISTENT_SESSION_SCROLLBACK=200） */
+const SNAPSHOT_SCROLLBACK = 200;
+
+function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boolean }) {
   const term = useTerminal({ lazy: true, id: entry.id });
   const [ready, setReady] = useState(false);
-  const [inputValue, setInputValue] = useState('');
-  const [executing, setExecuting] = useState(false);
+  const [status, setStatus] = useState<'starting' | 'open' | 'error'>('starting');
+  const lastSizeRef = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
+  const snapshotTimerRef = useRef<number | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  // 4-3：拆分标记 — 命令提示符与结果分开记账，流式结果到达后可补写
-  const writtenPromptIdsRef = useRef(new Set<string>());
-  const writtenResultIdsRef = useRef(new Set<string>());
-  const initWrittenRef = useRef(false);
 
-  // Extract terminal tool-call parts from assistant messages
-  const terminalEntries = useMemo(() => {
-    const entries: Array<{ callId: string; argsStr: string; resultStr?: string }> = [];
-    messages.forEach((m: ChatMessage) => {
-      if (m.role !== 'assistant' || !m.parts) return;
-      m.parts.forEach((part: ChatMessagePart) => {
-        if (part.type === 'tool-call' && part.toolName === 'terminal' && part.argsText) {
-          entries.push({
-            callId: part.toolCallId,
-            argsStr: part.argsText,
-            resultStr: part.result != null
-              ? (typeof part.result === 'string' ? part.result : JSON.stringify(part.result))
-              : undefined,
-          });
-        }
-      });
-    });
-    return entries;
-  }, [messages]);
-
-  const responseMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    messages.forEach((m: ChatMessage) => {
-      if (m.role !== 'assistant' || !m.parts) return;
-      const hasTerminal = m.parts.some(p => p.type === 'tool-call' && p.toolName === 'terminal');
-      if (!hasTerminal) return;
-      const textParts = m.parts
-        .filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text')
-        .map(p => p.text).join('');
-      if (!textParts) return;
-      m.parts.forEach((part: ChatMessagePart) => {
-        if (part.type === 'tool-call' && part.toolName === 'terminal') {
-          map[part.toolCallId] = textParts;
-        }
-      });
-    });
-    return map;
-  }, [messages]);
-
-  // Initialize terminal on mount
+  // init xterm
   useEffect(() => {
     term.init();
-    initWrittenRef.current = true;
-    setTimeout(() => setReady(true), 50);
+    const t = setTimeout(() => setReady(true), 50);
     return () => {
-      if (resizeObserverRef.current) {
-        resizeObserverRef.current.disconnect();
-        resizeObserverRef.current = null;
+      clearTimeout(t);
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+    };
+  }, [term.init]);
+
+  // PTY 生命周期：挂载 → ensure（无则启动新 shell）→ attach 输出流；
+  // 卸载 = detach（shell 继续跑，重挂载由 reviveBuffer 恢复屏幕）。
+  // 🔴 依赖只放稳定标量（entry.id/cwd）：store 每次 revive 更新都产生新 entry
+  // 对象，放进依赖 = effect 循环重挂。
+  useEffect(() => {
+    if (!ready || !isDesktop()) return;
+    let disposed = false;
+    let detach: (() => void) | null = null;
+    let unsubExit: (() => void) | null = null;
+    let inputDisposable: { dispose: () => void } | null = null;
+
+    (async () => {
+      try {
+        const { created, shell } = await ensurePtyForTab(entry.id, entry.cwd);
+        if (disposed) return;
+        if (created) reportTerminalShell(entry.id, shell);
+
+        // revive：恢复上次快照屏幕（重启 → 新 shell 垫底，VS Code parity；
+        // 重挂载 → 补齐 detach 期间不可见的屏幕状态），live 输出随后追加
+        const reviveBuffer = getTerminalsSnapshot().find((t) => t.id === entry.id)?.reviveBuffer;
+        if (reviveBuffer) term.write?.(reviveBuffer);
+
+        // 输入绑定（每次挂载都是新 xterm 实例，无需防重复）
+        const xterm = term.terminalRef.current as
+          | { onData: (cb: (data: string) => void) => { dispose: () => void }; cols: number; rows: number }
+          | null;
+        if (xterm) {
+          inputDisposable = xterm.onData((data: string) => {
+            void writePtyInput(entry.id, data);
+          });
+        }
+
+        detach = attachPtyWriter(entry.id, (data) => {
+          term.write?.(data);
+          // 输出到达 → 节流快照（revive buffer）
+          if (snapshotTimerRef.current === null) {
+            snapshotTimerRef.current = window.setTimeout(async () => {
+              snapshotTimerRef.current = null;
+              const t = term.terminalRef.current;
+              if (!t) return;
+              const addon = await getSerializeAddon(t);
+              if (addon) {
+                try {
+                  updateTerminalReviveBuffer(entry.id, addon.serialize({ scrollback: SNAPSHOT_SCROLLBACK }));
+                } catch { /* 序列化失败静默 */ }
+              }
+            }, SNAPSHOT_THROTTLE_MS);
+          }
+        });
+
+        // shell 退出 → 关 tab（对齐 Hermes onExit: drop the tab like a real terminal）
+        unsubExit = onPtyExit(entry.id, () => {
+          void disposePtyForTab(entry.id);
+          closeTerminal(entry.id);
+        });
+
+        setStatus('open');
+      } catch (err) {
+        if (!disposed) {
+          setStatus('error');
+          term.write?.(`\r\n\x1b[31m终端启动失败: ${String(err)}\x1b[0m\r\n`);
+        }
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      detach?.();
+      unsubExit?.();
+      inputDisposable?.dispose();
+      if (snapshotTimerRef.current !== null) {
+        window.clearTimeout(snapshotTimerRef.current);
+        snapshotTimerRef.current = null;
       }
     };
-  }, [term]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, entry.id, entry.cwd]);
 
-  // Fit terminal when container is visible and on resize
+  // 尺寸同步：fit 后 cols/rows 变化 → pty_resize（去重 lastSize）
+  const syncSize = useCallback(() => {
+    const t = term.terminalRef.current as { cols?: number; rows?: number } | null;
+    if (!t?.cols || !t?.rows) return;
+    if (t.cols === lastSizeRef.current.cols && t.rows === lastSizeRef.current.rows) return;
+    lastSizeRef.current = { cols: t.cols, rows: t.rows };
+    void resizePty(entry.id, t.cols, t.rows);
+  }, [entry.id, term.terminalRef]);
+
+  // 容器可见时 fit（ResizeObserver + window resize）
   useEffect(() => {
-    if (!ready || !term.containerRef.current) return;
+    if (!ready) return;
     const doFit = () => {
-      if (term.containerRef.current?.offsetParent !== null) term.fit();
+      if (term.containerRef.current?.offsetParent !== null) {
+        term.fit();
+        syncSize();
+      }
     };
-    setTimeout(doFit, 100);
-    if (term.containerRef.current) {
-      const ro = new ResizeObserver(() => doFit());
-      ro.observe(term.containerRef.current);
-      resizeObserverRef.current = ro;
-    }
+    const t = setTimeout(doFit, 60);
+    const ro = new ResizeObserver(doFit);
+    if (term.containerRef.current) ro.observe(term.containerRef.current);
+    resizeObserverRef.current = ro;
     window.addEventListener('resize', doFit);
-    return () => { window.removeEventListener('resize', doFit); };
-  }, [ready, term]);
+    return () => {
+      clearTimeout(t);
+      ro.disconnect();
+      window.removeEventListener('resize', doFit);
+    };
+  }, [ready, term.fit, term.containerRef, syncSize]);
 
-  // Write new terminal tool entries to xterm
-  // 4-3 修复：命令提示符一旦出现立即显示；结果（responseMap/part.result）到达后补写，
-  // 不再预标记 writtenCallIds 导致流式结果永不落盘
+  // 激活时 re-fit + focus（hidden 容器中的 fit 是陈旧的 — 对齐 Hermes initialActiveFit）
   useEffect(() => {
-    if (!ready || !term.write) return;
-    terminalEntries.forEach((entryItem) => {
-      const callId = entryItem.callId;
-      if (!callId) return;
-      if (!writtenPromptIdsRef.current.has(callId)) {
-        writtenPromptIdsRef.current.add(callId);
-        term.write(`\r\n\x1b[1;33m$ ${entryItem.argsStr}\x1b[0m\r\n`);
-      }
-      const resp = responseMap[callId] || entryItem.resultStr;
-      if (resp && !writtenResultIdsRef.current.has(callId)) {
-        writtenResultIdsRef.current.add(callId);
-        const truncated = resp.length > 2000 ? resp.slice(0, 2000) + '\n... (truncated)' : resp;
-        term.write(`\x1b[90m${truncated}\x1b[0m\r\n`);
-      }
-    });
-  }, [terminalEntries, responseMap, ready, term]);
+    if (!active || !ready) return;
+    const t = setTimeout(() => {
+      term.fit();
+      syncSize();
+      term.focus();
+    }, 30);
+    return () => clearTimeout(t);
+  }, [active, ready, term.fit, term.focus, syncSize]);
 
-  // Scroll to bottom on new output
-  useEffect(() => {
-    if (!ready || !term.terminalRef.current) return;
-    const termEl = term.terminalRef.current as { textarea?: HTMLTextAreaElement; scrollToBottom?: () => void; element?: HTMLElement };
-    try { termEl.scrollToBottom?.(); } catch { /* ignore */ }
-  }, [terminalEntries, ready, term]);
-
-  // Focus on mount
-  useEffect(() => {
-    if (ready) setTimeout(() => { term.focus(); inputRef.current?.focus(); }, 200);
-  }, [ready, term]);
-
-  const handleClear = useCallback(() => {
-    term.clear();
-    writtenPromptIdsRef.current = new Set();
-    writtenResultIdsRef.current = new Set();
-    term.write('\x1b[32m╔══════════════════════════════════════════╗\x1b[0m\r\n');
-    term.write('\x1b[32m║  \x1b[1;37mAgent 终端助手\x1b[0m\x1b[32m                        ║\x1b[0m\r\n');
-    term.write('\x1b[32m║  命令由 Agent 远程执行并返回结果              ║\x1b[0m\r\n');
-    term.write('\x1b[32m╚══════════════════════════════════════════╝\x1b[0m\r\n');
-  }, [term]);
-
-  const handleSendCommand = useCallback(async () => {
-    const cmd = inputValue.trim();
-    if (!cmd || isStreaming || executing) return;
-    setInputValue('');
-    setExecuting(true);
-    if (term.write) term.write(`\r\n\x1b[1;33m$ ${cmd}\x1b[0m\r\n`);
-    // 🔴 修复（右侧抽屉断线2）：旧逻辑有 sessionId 时走 command.dispatch name='terminal'，
-    // 后端无 /terminal 斜杠命令 → 实测恒报 "Unknown command /terminal" → 终端永远执行不了命令。
-    // 统一走 onSend(cmd)：handleSend 自带斜杠命令拦截（/new 等 → handleCommand），
-    // 普通命令作为用户消息发给 Agent，由 Agent 用 terminal 工具执行，结果经 tool-call 回放写回本终端。
-    try {
-      onSend?.(cmd);
-    } finally {
-      setExecuting(false);
-    }
-    setTimeout(() => inputRef.current?.focus(), 50);
-  }, [inputValue, isStreaming, executing, onSend, term]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendCommand(); }
-    },
-    [handleSendCommand]
-  );
+  if (!isDesktop()) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-4 text-center text-xs text-muted-foreground/70">
+        交互式终端需要桌面环境
+      </div>
+    );
+  }
 
   return (
     <>
@@ -284,93 +329,48 @@ function UserTerminalView({ entry, onSend, isStreaming = false, sessionId }: {
         <div className="flex items-center gap-1.5">
           <TerminalIcon size={14} className="text-muted-foreground" />
           <span className="text-xs font-medium text-foreground">{entry.title || '终端'}</span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-primary">Agent</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/20 text-success">
+            {status === 'open' ? '交互' : status === 'error' ? '错误' : '启动中'}
+          </span>
         </div>
-        <div className="flex items-center gap-0.5">
-          <button
-            className="p-1 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-            onClick={handleClear}
-            title="清屏"
-          >
-            <Trash2 size={13} />
-          </button>
-        </div>
-      </div>
-
-      {/* Agent terminal notice */}
-      <div className="px-3 py-1 text-[10px] text-muted-foreground/60 bg-muted/10 border-b border-border/50 shrink-0">
-        终端功能通过 Agent 命令使用 — 在下方输入命令，Agent 将远程执行
       </div>
 
       {/* Terminal container (xterm.js) */}
       <div className="flex-1 min-h-0 p-1" ref={term.containerRef} />
-
-      {/* Command input bar — only for user tabs */}
-      <div className="flex items-center gap-1 px-2 py-1.5 border-t border-border bg-background shrink-0">
-        <span className="text-[11px] font-mono text-primary shrink-0" title="通过 Agent 远程执行">
-          Agent $
-        </span>
-        <input
-          ref={inputRef}
-          className="flex-1 px-2 py-1 text-xs font-mono bg-muted/20 border border-input rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
-          type="text"
-          value={inputValue}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInputValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={executing ? '执行中...' : '输入命令（例如: ls -la）…'}
-          disabled={isStreaming || executing}
-        />
-        <button
-          className="p-1.5 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-40"
-          onClick={handleSendCommand}
-          disabled={!inputValue.trim() || isStreaming || executing}
-          title="发送命令给 Agent 执行"
-        >
-          <Send size={12} />
-        </button>
-      </div>
     </>
   );
 }
 
 // ────────────────────────────────────────────────────────────────
-// Agent tab — 后台进程只读镜像（4-5 链路补全）
-//   process.list 轮询 → 按绝对字节偏移增量写 output_tail
+// Agent tab — 后台进程只读镜像（对齐 Hermes AgentTerminalInstance）
+//   实时流：agent.terminal.output 事件 → agent-terminal-stream 直写 xterm
+//   快照兜底：process.list 轮询只做 syncAgentTerminalSnapshot 对账
 // ────────────────────────────────────────────────────────────────
 
-const byteEncoder = new TextEncoder();
-const byteDecoder = new TextDecoder();
-
-/** 取 UTF-8 字符串尾部 byteCount 字节（切片起点由调用方保证落在字符边界） */
-function tailSuffixByBytes(s: string, byteCount: number): string {
-  const bytes = byteEncoder.encode(s);
-  if (bytes.length <= byteCount) return s;
-  return byteDecoder.decode(bytes.subarray(bytes.length - byteCount));
-}
-
-function AgentTerminalView({ entry, sessionId }: { entry: TerminalEntry; sessionId?: string }) {
+function AgentTerminalView({ entry, sessionId, active }: { entry: TerminalEntry; sessionId?: string; active: boolean }) {
   const term = useTerminal({ lazy: true, id: entry.id });
   const [ready, setReady] = useState(false);
-  // 已写入 xterm 的绝对字节偏移（对应后端 output_buffer 总长）。
-  // 🔴 旧实现按 output_tail 长度记账：尾窗定长 4000B，输出超限后窗口平移、
-  // tail 长度不再增长 → 镜像永久冻结。改按 output_len 绝对偏移：
-  // 尾窗起点 = output_len - tailBytes，起点不落后于已写位置 → 缺失切片完整可取；
-  // 落后（轮询间隙输出超过一个窗口）→ 省略标记 + 全量 tail。
-  const writtenBytesRef = useRef(0);
-  // 命令标题已 seed
-  const seededRef = useRef(false);
   // 退出状态行已写（防每轮轮询重复）
   const exitedWrittenRef = useRef(false);
-  // 清屏后下一轮强制全量重写（不带省略标记）
-  const forceFullRef = useRef(false);
 
   // Initialize terminal on mount
   useEffect(() => {
     term.init();
-    setTimeout(() => setReady(true), 50);
-  }, [term]);
+    const t = setTimeout(() => setReady(true), 50);
+    return () => clearTimeout(t);
+  }, [term.init]);
 
-  // 4-5：镜像内容 — 轮询 process.list，按绝对字节偏移增量写 output_tail
+  // 实时流接入（对齐 Hermes registerAgentTerminalWriter）：
+  // 挂载即回放 backlog（中途打开/关闭重开的历史恢复），后续 chunk 直写
+  useEffect(() => {
+    if (!ready || !entry.procId || !term.write) return;
+    seedAgentTerminalCommand(entry.procId, entry.title);
+    const write = term.write;
+    return registerAgentTerminalWriter(entry.procId, (chunk) => write(chunk));
+  }, [ready, entry.procId, entry.title, term.write]);
+
+  // 快照兜底（对齐 Hermes syncAgentTerminalSnapshot 语义）：旧网关无事件 /
+  // 事件竞态时由尾窗前缀对账补齐；滚动尾窗滑动 → 重置重写（不再手工偏移）
   useEffect(() => {
     if (!ready || !entry.procId || !sessionId) return;
     let cancelled = false;
@@ -378,36 +378,9 @@ function AgentTerminalView({ entry, sessionId }: { entry: TerminalEntry; session
       if (cancelled) return;
       try {
         const res = await listProcesses(sessionId);
-        const proc = (res.processes || []).find(p => String(p.session_id) === entry.procId);
+        const proc = (res.processes || []).find((p) => String(p.session_id) === entry.procId);
         if (!proc) return;
-        if (!seededRef.current) {
-          seededRef.current = true;
-          term.write(`\r\n\x1b[1;33m$ ${entry.title}\x1b[0m\r\n`);
-        }
-        const tail = String(proc.output_tail || '');
-        const tailBytes = byteEncoder.encode(tail).length;
-        if (typeof proc.output_len === 'number') {
-          // 新后端：绝对偏移增量写（窗口平移不冻结、不重复）
-          const total = proc.output_len;
-          if (forceFullRef.current || total > writtenBytesRef.current) {
-            const tailStart = total - tailBytes;
-            if (forceFullRef.current || tailStart >= writtenBytesRef.current) {
-              const need = forceFullRef.current ? tailBytes : total - writtenBytesRef.current;
-              if (need > 0) term.write(tailSuffixByBytes(tail, need));
-            } else {
-              // 间隙超过尾窗：中间输出不可得 → 省略标记 + 全量 tail
-              const dropped = total - writtenBytesRef.current - tailBytes;
-              term.write(`\r\n\x1b[90m[… 已省略 ${dropped} 字节输出 …]\x1b[0m\r\n`);
-              if (tail) term.write(tail);
-            }
-            writtenBytesRef.current = total;
-            forceFullRef.current = false;
-          }
-        } else if (tail.length > writtenBytesRef.current) {
-          // 旧后端降级：按 tail 长度增量（保留 >4000B 冻结缺陷，仅兼容期）
-          term.write(tail.slice(writtenBytesRef.current));
-          writtenBytesRef.current = tail.length;
-        }
+        if (!cancelled) syncAgentTerminalSnapshot(entry.procId!, String(proc.output_tail || ''));
         if (proc.status === 'exited' && !exitedWrittenRef.current) {
           exitedWrittenRef.current = true;
           term.write(`\r\n\x1b[90m[进程已退出 exit_code=${proc.exit_code ?? '?'}${proc.completion_reason ? ` · ${proc.completion_reason}` : ''}]\x1b[0m\r\n`);
@@ -417,39 +390,29 @@ function AgentTerminalView({ entry, sessionId }: { entry: TerminalEntry; session
     sync();
     const i = setInterval(sync, 5000);
     return () => { cancelled = true; clearInterval(i); };
-  }, [ready, entry, sessionId, term]);
+  }, [ready, entry.procId, sessionId, term.write]);
 
-  const handleClear = useCallback(() => {
-    term.clear();
-    seededRef.current = false;
-    exitedWrittenRef.current = false;
-    forceFullRef.current = true;
-    // 清屏后下一次轮询重新 seed 命令标题 + 全量 tail（不带省略标记）
-  }, [term]);
+  // 激活时 re-fit（hidden 容器中 fit 陈旧）
+  useEffect(() => {
+    if (!active || !ready) return;
+    const t = setTimeout(() => term.fit(), 30);
+    return () => clearTimeout(t);
+  }, [active, ready, term.fit]);
 
   return (
     <>
-      {/* Header */}
+      {/* Header（只读镜像无清屏 — backlog 回放语义下清屏会立即被快照重写） */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-muted/10 shrink-0">
         <div className="flex items-center gap-1.5">
           <TerminalIcon size={14} className="text-muted-foreground" />
           <span className="text-xs font-medium text-foreground">{entry.title || '终端'}</span>
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-info/20 text-info">只读</span>
         </div>
-        <div className="flex items-center gap-0.5">
-          <button
-            className="p-1 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-            onClick={handleClear}
-            title="清屏"
-          >
-            <Trash2 size={13} />
-          </button>
-        </div>
       </div>
 
       {/* Agent terminal notice */}
       <div className="px-3 py-1 text-[10px] text-muted-foreground/60 bg-muted/10 border-b border-border/50 shrink-0">
-        只读终端 — Agent 后台进程输出镜像（进程不会被关闭）
+        只读终端 — Agent 后台进程输出实时镜像（进程不会被关闭）
       </div>
 
       {/* Terminal container (xterm.js) */}

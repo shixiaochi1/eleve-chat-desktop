@@ -1207,18 +1207,27 @@ export default function App() {
             )}
           </PaneMain>
 
-          {/* 右侧面板：文件浏览器 / 终端 / 预览 (靠标签切换) — 只在 rightOpen 时渲染子元素，避免 TerminalPanel 在 0 宽容器中初始化 xterm.js */}
+          {/* 右侧面板：文件浏览器 / 终端 / 预览 / 产物（靠标签切换）
+              🔴 终端常驻挂载：切 tab 只 CSS hidden，PTY shell 不死（对齐 Hermes
+              PersistentTerminal “shell 存活于隐藏”）；其余面板按需渲染 */}
           <Pane side="right" className="pane-right-column">
-            {rightOpen && <RightSidebarTabs activeTab={rightTab} onTabChange={setRightTab} />}
-            {rightOpen && (rightTab === 'files' ? (
-              <FileBrowserPanel cwd={sessionCwd} onFileAttach={(path: string) => handleSend(`@file:"${path}"`)} />
-            ) : rightTab === 'preview' ? (
-              <PreviewCenter sessionId={sess.sessionId} cwd={sessionCwd} />
-            ) : rightTab === 'artifacts' ? (
-              <ArtifactPanel sessionId={sess.sessionId} />
-            ) : (
-              <TerminalPanel onSend={handleSend} isStreaming={isStreaming} sessionId={sess.sessionId ?? undefined} />
-            ))}
+            {rightOpen && (
+              <>
+                <RightSidebarTabs activeTab={rightTab} onTabChange={setRightTab} />
+                {rightTab === 'files' && (
+                  <FileBrowserPanel cwd={sessionCwd} onFileAttach={(path: string) => handleSend(`@file:"${path}"`)} />
+                )}
+                {rightTab === 'preview' && (
+                  <PreviewCenter sessionId={sess.sessionId} cwd={sessionCwd} />
+                )}
+                {rightTab === 'artifacts' && (
+                  <ArtifactPanel sessionId={sess.sessionId} />
+                )}
+                <div className={rightTab === 'terminal' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}>
+                  <TerminalPanel cwd={sessionCwd} sessionId={sess.sessionId ?? undefined} />
+                </div>
+              </>
+            )}
           </Pane>
         </PaneShell>
         </ErrorBoundary>

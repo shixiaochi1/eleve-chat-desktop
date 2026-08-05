@@ -105,6 +105,18 @@ export async function listProcesses(sessionId: string): Promise<{ processes: Pro
   return call('process_list', { session_id: sessionId });
 }
 
+// ── 文件树操作（对齐 Hermes file-actions：重命名/删除走后端，reveal 走 Tauri opener）──
+
+/** 同目录重命名（返回新路径） */
+export async function filesRename(path: string, newName: string): Promise<{ path: string }> {
+  return call('files_rename', { path, new_name: newName });
+}
+
+/** 移入 OS 回收站（对齐 Hermes shell.trashItem；可恢复） */
+export async function filesDelete(path: string): Promise<{ deleted: string }> {
+  return call('files_delete', { path });
+}
+
 /** 杀单个进程 */
 export async function killProcess(sessionId: string, processId: string): Promise<any> {
   return call('process_kill', { session_id: sessionId, process_id: processId });

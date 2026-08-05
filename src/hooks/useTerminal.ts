@@ -78,13 +78,6 @@ export default function useTerminal({ lazy = false, id }: UseTerminalOptions = {
           setTimeout(() => fitAddon.fit(), 50);
         }
 
-        // Agent terminal: external write() only, no local echo
-        // Data source is Agent tool call results, not local PTY
-        term.write('\r\n\x1b[32m╔══════════════════════════════════════════╗\x1b[0m\r\n');
-        term.write('\x1b[32m║  \x1b[1;37mAgent 终端助手\x1b[0m\x1b[32m                        ║\x1b[0m\r\n');
-        term.write('\x1b[32m║  命令由 Agent 远程执行并返回结果              ║\x1b[0m\r\n');
-        term.write('\x1b[32m╚══════════════════════════════════════════╝\x1b[0m\r\n');
-
         initializedRef.current = true;
 
         // 对齐 Hermes: registerTerminalReader(id, makeTerminalReader(term))

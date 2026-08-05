@@ -9,12 +9,25 @@ import { useFileTree } from '../hooks/useFileTree';
 import { useWorkspaceTick } from '../lib/workspace-events';
 import { openPreview } from '@/store/preview';
 import { cn } from '@/lib/utils';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { filesRename, filesDelete } from '../utils/api';
+import { notifyError, notifySuccess } from '../utils/notifications';
+import { isDesktop } from '@/utils/bridge';
 
 interface FileEntry {
   name: string;
   path: string;
   isDirectory: boolean;
   children?: FileEntry[] | null;
+}
+
+/** 相对路径（复制相对路径用；root 归一正斜杠后前缀剥离） */
+function relativeTo(root: string, p: string): string {
+  const normRoot = root.replace(/\\/g, '/').replace(/\/+$/, '');
+  const normP = p.replace(/\\/g, '/');
+  if (normRoot && normP.startsWith(normRoot + '/')) return normP.slice(normRoot.length + 1);
+  return normP;
 }
 
 interface TreeNodeProps {
@@ -27,6 +40,16 @@ interface TreeNodeProps {
   loadChildren: (dirPath: string) => Promise<FileEntry[]>;
   /** 非破坏刷新信号：workspace tick 递增 → 已展开目录重新加载（对齐 Hermes revalidateTree） */
   refreshNonce: number;
+  /** 树根路径（复制相对路径的基准） */
+  rootPath: string;
+  /** 当前正在重命名的节点路径（null = 无） */
+  renamingPath: string | null;
+  onReveal: (path: string) => void;
+  onCopyText: (text: string) => void;
+  onRenameRequest: (path: string) => void;
+  onRenameCommit: (path: string, newName: string) => void;
+  onRenameCancel: () => void;
+  onDeleteRequest: (entry: FileEntry) => void;
 }
 
 interface FileBrowserPanelProps {
@@ -85,6 +108,14 @@ function TreeNode({
   onFileDoubleClick,
   loadChildren,
   refreshNonce,
+  rootPath,
+  renamingPath,
+  onReveal,
+  onCopyText,
+  onRenameRequest,
+  onRenameCommit,
+  onRenameCancel,
+  onDeleteRequest,
 }: TreeNodeProps) {
   const [children, setChildren] = useState<FileEntry[] | null>(null);
   const [loadingChildren, setLoadingChildren] = useState(false);
@@ -136,50 +167,89 @@ function TreeNode({
   }, [entry, handleToggle, onFileClick]);
 
   const indent = Math.min(depth, MAX_INDENT_DEPTH) * INDENT + 4;
+  const isRenaming = renamingPath === entry.path;
+
+  // 行内容（重命名中 → 输入框；对齐 Hermes InlineRenameInput：Enter 提交/Esc 取消/失焦提交）
+  const row = (
+    <div
+      className={cn(
+        'flex items-center gap-1 px-1 py-0.5 rounded text-xs cursor-pointer hover:bg-accent/30 transition-colors',
+        !entry.isDirectory && 'hover:bg-accent/20'
+      )}
+      onClick={handleClick}
+      onDoubleClick={(e) => {
+        // 双击文件 → 打开预览 tab（对齐 Hermes onPreviewFile）；文件夹双击 = 展开
+        if (!entry.isDirectory) {
+          e.stopPropagation();
+          onFileDoubleClick(entry);
+        }
+      }}
+      title={entry.path}
+    >
+      {/* 展开/折叠箭头 — 仅文件夹显示 */}
+      <span className="w-3 shrink-0 text-muted-foreground">
+        {entry.isDirectory ? (
+          isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />
+        ) : (
+          <span className="inline-block w-3" />
+        )}
+      </span>
+
+      {/* 图标 */}
+      <span className="shrink-0 text-muted-foreground">
+        {entry.isDirectory ? (
+          isOpen ? <FolderOpen size={14} className="text-warning" /> : <Folder size={14} className="text-warning" />
+        ) : (
+          <File size={14} className="text-info" />
+        )}
+      </span>
+
+      {/* 文件名 / 重命名输入框 — min-w-0 必带（flex item 默认 min-width:auto） */}
+      {isRenaming ? (
+        <input
+          autoFocus
+          className="flex-1 min-w-0 rounded border border-primary bg-background px-1 text-xs text-foreground outline-none"
+          defaultValue={entry.name}
+          onClick={(e) => e.stopPropagation()}
+          onFocus={(e) => e.currentTarget.select()}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') {
+              onRenameCommit(entry.path, e.currentTarget.value);
+            } else if (e.key === 'Escape') {
+              e.currentTarget.value = entry.name;
+              onRenameCancel();
+            }
+          }}
+          onBlur={(e) => onRenameCommit(entry.path, e.currentTarget.value)}
+        />
+      ) : (
+        <span className="truncate text-foreground/80 flex-1 min-w-0">{entry.name}</span>
+      )}
+
+      {/* 加载中指示器 */}
+      {entry.isDirectory && loadingChildren && (
+        <Loader size={10} className="animate-spin text-muted-foreground shrink-0" />
+      )}
+    </div>
+  );
 
   return (
     <div style={{ paddingLeft: indent }}>
-      <div
-        className={cn(
-          'flex items-center gap-1 px-1 py-0.5 rounded text-xs cursor-pointer hover:bg-accent/30 transition-colors',
-          !entry.isDirectory && 'hover:bg-accent/20'
-        )}
-        onClick={handleClick}
-        onDoubleClick={(e) => {
-          // 双击文件 → 打开预览 tab（对齐 Hermes onPreviewFile）；文件夹双击 = 展开
-          if (!entry.isDirectory) {
-            e.stopPropagation();
-            onFileDoubleClick(entry);
-          }
-        }}
-        title={entry.path}
-      >
-        {/* 展开/折叠箭头 — 仅文件夹显示 */}
-        <span className="w-3 shrink-0 text-muted-foreground">
-          {entry.isDirectory ? (
-            isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />
-          ) : (
-            <span className="inline-block w-3" />
+      {/* 右键菜单（对齐 Hermes file-actions：reveal/复制路径/相对路径/重命名/删除） */}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+        <ContextMenuContent>
+          {isDesktop() && (
+            <ContextMenuItem onSelect={() => onReveal(entry.path)}>在文件管理器中显示</ContextMenuItem>
           )}
-        </span>
-
-        {/* 图标 */}
-        <span className="shrink-0 text-muted-foreground">
-          {entry.isDirectory ? (
-            isOpen ? <FolderOpen size={14} className="text-warning" /> : <Folder size={14} className="text-warning" />
-          ) : (
-            <File size={14} className="text-info" />
-          )}
-        </span>
-
-        {/* 文件名 — min-w-0 必带：flex item 默认 min-width:auto，长文件名会把行撑出容器、truncate 失效 → 文件行被裁切（文件夹名短看不出，长名文件必现） */}
-        <span className="truncate text-foreground/80 flex-1 min-w-0">{entry.name}</span>
-
-        {/* 加载中指示器 */}
-        {entry.isDirectory && loadingChildren && (
-          <Loader size={10} className="animate-spin text-muted-foreground shrink-0" />
-        )}
-      </div>
+          <ContextMenuItem onSelect={() => onCopyText(entry.path)}>复制路径</ContextMenuItem>
+          <ContextMenuItem onSelect={() => onCopyText(relativeTo(rootPath, entry.path))}>复制相对路径</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem disabled={isRenaming} onSelect={() => onRenameRequest(entry.path)}>重命名</ContextMenuItem>
+          <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={() => onDeleteRequest(entry)}>删除</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
 
       {/* 递归渲染子节点 */}
       {entry.isDirectory && isOpen && children && children.length > 0 && (
@@ -195,6 +265,14 @@ function TreeNode({
               onFileDoubleClick={onFileDoubleClick}
               loadChildren={loadChildren}
               refreshNonce={refreshNonce}
+              rootPath={rootPath}
+              renamingPath={renamingPath}
+              onReveal={onReveal}
+              onCopyText={onCopyText}
+              onRenameRequest={onRenameRequest}
+              onRenameCommit={onRenameCommit}
+              onRenameCancel={onRenameCancel}
+              onDeleteRequest={onDeleteRequest}
             />
           ))}
         </div>
@@ -285,6 +363,65 @@ export default function FileBrowserPanel({
     const sel = await pickDirectory('选择工作目录');
     if (sel) await setRoot(sel);
   }, [setRoot]);
+
+  // ── 上下文菜单操作（对齐 Hermes file-actions）──
+
+  /** 在文件管理器中显示（tauri-plugin-opener；失败不阻断） */
+  const handleReveal = useCallback(async (path: string) => {
+    try {
+      const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
+      await revealItemInDir(path);
+    } catch (err) {
+      notifyError(err, '无法在文件管理器中显示');
+    }
+  }, []);
+
+  /** 复制路径/相对路径 */
+  const handleCopyText = useCallback((text: string) => {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => notifySuccess('路径已复制'))
+      .catch((err) => notifyError(err, '复制失败'));
+  }, []);
+
+  // 内联重命名（VS Code 语义：右键 → 行内输入框）
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const handleRenameRequest = useCallback((path: string) => setRenamingPath(path), []);
+  const handleRenameCancel = useCallback(() => setRenamingPath(null), []);
+  const handleRenameCommit = useCallback(
+    async (path: string, newName: string) => {
+      setRenamingPath((cur) => (cur === path ? null : cur));
+      const trimmed = newName.trim();
+      if (!trimmed) return;
+      const base = path.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? '';
+      if (trimmed === base) return; // 未变更
+      try {
+        await filesRename(path, trimmed);
+        await invalidate();
+      } catch (err) {
+        notifyError(err, '重命名失败');
+      }
+    },
+    [invalidate],
+  );
+
+  // 删除（回收站）：确认弹窗 → files.delete → 非破坏刷新
+  const [deletingEntry, setDeletingEntry] = useState<FileEntry | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const handleDeleteRequest = useCallback((entry: FileEntry) => setDeletingEntry(entry), []);
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deletingEntry || deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      await filesDelete(deletingEntry.path);
+      setDeletingEntry(null);
+      await invalidate();
+    } catch (err) {
+      notifyError(err, '删除失败');
+    } finally {
+      setDeleteBusy(false);
+    }
+  }, [deletingEntry, deleteBusy, invalidate]);
 
   // 上级目录
   const handleGoUp = useCallback(() => {
@@ -403,11 +540,47 @@ export default function FileBrowserPanel({
                 onFileDoubleClick={handleFileDoubleClick}
                 loadChildren={loadChildren}
                 refreshNonce={refreshNonce}
+                rootPath={rootPath ?? ''}
+                renamingPath={renamingPath}
+                onReveal={handleReveal}
+                onCopyText={handleCopyText}
+                onRenameRequest={handleRenameRequest}
+                onRenameCommit={handleRenameCommit}
+                onRenameCancel={handleRenameCancel}
+                onDeleteRequest={handleDeleteRequest}
               />
             ))
           )}
         </div>
       )}
+
+      {/* 删除确认弹窗（对齐 Hermes file-actions delete confirm；回收站可恢复） */}
+      <Dialog open={!!deletingEntry} onOpenChange={(open) => { if (!open && !deleteBusy) setDeletingEntry(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>删除{deletingEntry?.isDirectory ? '文件夹' : '文件'}</DialogTitle>
+            <DialogDescription>
+              将 “{deletingEntry?.name}” 移入回收站？可从系统回收站恢复。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button
+              className="rounded border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={() => setDeletingEntry(null)}
+              disabled={deleteBusy}
+            >
+              取消
+            </button>
+            <button
+              className="rounded bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:opacity-50"
+              onClick={() => void handleDeleteConfirm()}
+              disabled={deleteBusy}
+            >
+              {deleteBusy ? '删除中…' : '移入回收站'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

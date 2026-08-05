@@ -3,6 +3,7 @@ import { useSSE, type SSECallbacks } from './useSSE';
 import * as storage from '../utils/storage';
 import { profileFromSessionId, persistSessionPointer } from '../utils/session';
 import { handleGlobalEvent } from '@/lib/global-events';
+import { writeAgentTerminalChunk } from '@/lib/agent-terminal-stream';
 import {
   setMessages as storeSetMessages,
   getMessages,
@@ -812,6 +813,11 @@ export function useMessageStream({
     onTerminalClose: (data: { process_id: string }) => {
       addDebugEvent('terminal_close', `process ${data.process_id} closed`);
       handleGlobalEvent('terminal.close', data as Record<string, unknown>);
+    },
+
+    // Agent 后台进程输出流（对齐 Hermes agent.terminal.output）— 直写只读 xterm
+    onAgentTerminalOutput: (data: { process_id: string; chunk: string }) => {
+      writeAgentTerminalChunk(data.process_id, data.chunk);
     },
 
     // ── Status update — Eleve status.update (覆盖式状态，按 kind 分流) ──

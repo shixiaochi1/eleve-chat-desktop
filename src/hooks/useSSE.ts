@@ -129,6 +129,8 @@ export interface SSECallbacks {
   onSkinChanged?: (data: { skin: unknown }) => void
   // Phase 6: 终端关闭（对齐 Hermes terminal.close）
   onTerminalClose?: (data: { process_id: string }) => void
+  // Agent 后台进程输出流（对齐 Hermes agent.terminal.output）
+  onAgentTerminalOutput?: (data: { process_id: string; chunk: string }) => void
   // 对齐 Hermes pending_title: 后端应用 pending_title 后推送 session.title 事件
   onSessionTitle?: (data: { session_id: string; title: string }) => void
 }
@@ -354,6 +356,11 @@ function processEvent(
     // Phase 6: 终端关闭（对齐 Hermes terminal.close）
     case 'terminal.close':
       cbs.onTerminalClose?.({ process_id: chunk.process_id as string });
+      break;
+
+    // Agent 后台进程输出流（对齐 Hermes agent.terminal.output）
+    case 'agent.terminal.output':
+      cbs.onAgentTerminalOutput?.({ process_id: chunk.process_id as string, chunk: chunk.chunk as string });
       break;
 
     // 🔴 3.4: 统一走 global-events（消灭内联 IIFE 重复）

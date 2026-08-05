@@ -28,6 +28,7 @@ use std::time::Duration;
 mod preview_console;
 mod preview_file_watch;
 mod preview_webview;
+mod pty;
 
 pub use preview_console::PreviewConsoleState;
 pub use preview_file_watch::PreviewFileWatchManager;
@@ -870,6 +871,9 @@ fn graceful_shutdown_eleved(state: &TauriAppState) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 fn cleanup_and_exit(app: &tauri::AppHandle) {
+    // 0. 清场所有交互式 PTY（防子进程残留；隐藏窗口前先杀）
+    pty::dispose_all(app);
+
     // 1. 立即隐藏所有窗口 — 用户点击关闭后窗口瞬间消失，不卡顿
     //    必须在等 eleved 退出之前，否则窗口冻住 3s 很傻
     for win in app.webview_windows().values() {
@@ -907,6 +911,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.show();
@@ -935,7 +940,13 @@ pub fn run() {
             preview_webview::preview_webview_reload,
             preview_webview::preview_webview_visible,
             preview_webview::preview_webview_devtools,
+            // 交互式 PTY（右栏用户终端真实 shell，对齐 Hermes terminalApi）
+            pty::pty_start,
+            pty::pty_write,
+            pty::pty_resize,
+            pty::pty_dispose,
         ])
+        .manage(pty::PtyManager::default())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
             window.set_title("Eleve Chat").ok();
