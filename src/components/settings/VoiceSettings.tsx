@@ -22,7 +22,7 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
     tts_openai_model: '',
     voice_auto_tts: false,
     voice_record_key: '',
-    voice_max_recording_seconds: 30,
+    voice_max_recording_seconds: 120,
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -51,7 +51,7 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
         tts_openai_model: tts.openai?.model || '',
         voice_auto_tts: voice.auto_tts ?? false,
         voice_record_key: voice.record_key || '',
-        voice_max_recording_seconds: voice.max_recording_seconds ?? 30,
+        voice_max_recording_seconds: voice.max_recording_seconds ?? 120,
       });
       setLoaded(true);
     } catch {
@@ -288,7 +288,7 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
           max={300}
           step={5}
           value={config.voice_max_recording_seconds}
-          onChange={e => update('voice_max_recording_seconds', parseInt(e.target.value) || 30)}
+          onChange={e => update('voice_max_recording_seconds', parseInt(e.target.value) || 120)}
           className="w-32"
         />
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
