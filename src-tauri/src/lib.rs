@@ -221,6 +221,23 @@ async fn get_gateway_port(state: tauri::State<'_, TauriAppState>) -> Result<u16,
     }
 }
 
+/// 写 artifact 临时 HTML 文件（对齐 Hermes saveImageBuffer + openPreviewInBrowser）：
+/// blob/data URL 无法跨进程进入 OS 默认浏览器，磁盘文件是唯一诚实路径。
+/// 返回文件绝对路径；前端用 tauri-plugin-shell open(file://...) 交给系统默认浏览器。
+#[tauri::command]
+fn write_artifact_temp_html(content: String) -> Result<String, String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let dir = std::env::temp_dir().join("eleve-artifacts");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create temp dir failed: {e}"))?;
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    let path = dir.join(format!("artifact-{}-{}.html", std::process::id(), nanos));
+    std::fs::write(&path, content).map_err(|e| format!("write temp file failed: {e}"))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
 /// 标记用户主动重启（前端发起 restart 前调用）
 ///
 /// eleved 退出后，监控线程见 restarting=true → 自动拉起新 eleved（托管重启）。
@@ -928,6 +945,7 @@ pub fn run() {
             // （后端 misc_service 权威实现），此命令为早期 Tauri 本地处理遗留
             create_deepseek_webview,
             mark_restarting,
+            write_artifact_temp_html,
             // 预览控制台：子 Webview 生命周期 + console 缓冲治理
             preview_console::preview_console_push,
             preview_console::preview_console_snapshot,

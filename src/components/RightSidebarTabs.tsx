@@ -1,7 +1,7 @@
 /**
  * RightSidebarTabs — Tab switcher between Files / Terminal / Preview / Artifacts
  */
-import { File, Terminal, Globe, Box } from 'lucide-react';
+import { File, Terminal, Globe, Box, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const TABS = [
@@ -14,11 +14,13 @@ const TABS = [
 interface RightSidebarTabsProps {
   activeTab?: string;
   onTabChange?: (key: string) => void;
+  /** 关闭整个右栏（对齐 Hermes closeRightRail；悬停显示） */
+  onClose?: () => void;
 }
 
-export default function RightSidebarTabs({ activeTab, onTabChange }: RightSidebarTabsProps) {
+export default function RightSidebarTabs({ activeTab, onTabChange, onClose }: RightSidebarTabsProps) {
   return (
-    <div className={cn('flex border-b border-border shrink-0')}>
+    <div className={cn('group/rail-tabs flex shrink-0 items-center border-b border-border')}>
       {TABS.map(({ key, label, Icon }) => (
         <button
           key={key}
@@ -26,7 +28,7 @@ export default function RightSidebarTabs({ activeTab, onTabChange }: RightSideba
             'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-b-2 border-transparent',
             activeTab === key
               ? 'text-accent-cyan border-accent-cyan'
-              : 'text-accent-cyan/60 hover:text-accent-cyan hover:bg-accent/5'
+              : 'text-accent-cyan/60 hover:text-accent-cyan hover:bg-accent/5',
           )}
           onClick={() => onTabChange?.(key)}
           title={label}
@@ -35,6 +37,14 @@ export default function RightSidebarTabs({ activeTab, onTabChange }: RightSideba
           <span>{label}</span>
         </button>
       ))}
+      <button
+        type="button"
+        onClick={onClose}
+        title="关闭面板"
+        className="ml-auto mr-1.5 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground/60 opacity-0 transition-opacity hover:bg-muted/60 hover:text-foreground focus-visible:opacity-100 group-hover/rail-tabs:opacity-100"
+      >
+        <X size={13} />
+      </button>
     </div>
   );
 }

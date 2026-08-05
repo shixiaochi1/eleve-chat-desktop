@@ -194,3 +194,57 @@ export function artifactContentHash(content: string): string {
   }
   return (hash >>> 0).toString(36)
 }
+
+/** 语言 → 下载扩展名（对齐 Hermes DOWNLOAD_EXTENSION_BY_LANGUAGE） */
+const DOWNLOAD_EXTENSION_BY_LANGUAGE: Record<string, string> = {
+  bash: '.sh',
+  c: '.c',
+  cpp: '.cpp',
+  csharp: '.cs',
+  css: '.css',
+  go: '.go',
+  htm: '.html',
+  html: '.html',
+  java: '.java',
+  javascript: '.js',
+  js: '.js',
+  json: '.json',
+  jsx: '.jsx',
+  kotlin: '.kt',
+  php: '.php',
+  py: '.py',
+  python: '.py',
+  rb: '.rb',
+  rs: '.rs',
+  ruby: '.rb',
+  rust: '.rs',
+  sh: '.sh',
+  sql: '.sql',
+  svg: '.svg',
+  swift: '.swift',
+  ts: '.ts',
+  tsx: '.tsx',
+  typescript: '.ts',
+  xml: '.xml',
+  yaml: '.yaml',
+  yml: '.yaml',
+}
+
+/** 下载文件名（对齐 Hermes artifactDownloadName）：
+ *  title 清洗（保留字母数字/._-/空格→连字符）→ 若已带扩展名直接用，否则按 kind/language 追加。
+ *  注意：无条件追加会产出 game.html.html 这类重复扩展名。 */
+export function artifactDownloadName(kind: ArtifactDetection['kind'], language: string, title: string): string {
+  const base =
+    title
+      .replace(/[^\p{L}\p{N}._ -]+/gu, '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .slice(0, 60) || 'artifact'
+
+  if (/\.[a-z0-9]{1,8}$/i.test(base)) {
+    return base
+  }
+
+  const ext = kind === 'html' ? '.html' : kind === 'svg' ? '.svg' : DOWNLOAD_EXTENSION_BY_LANGUAGE[language] || '.txt'
+  return `${base}${ext}`
+}

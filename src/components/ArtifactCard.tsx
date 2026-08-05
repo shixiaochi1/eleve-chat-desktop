@@ -113,6 +113,11 @@ export const ArtifactCard = memo(function ArtifactCard({ detection, code, stream
           )}
         </span>
       </span>
+      {!streaming && (
+        <span className="shrink-0 text-xs font-medium text-muted-foreground opacity-0 transition-opacity group-hover/artifact:opacity-100">
+          打开
+        </span>
+      )}
     </button>
   );
 });

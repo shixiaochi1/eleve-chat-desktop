@@ -13,6 +13,9 @@ import {
   type ArtifactRecord,
 } from '@/store/artifacts';
 import { renderMarkdown } from '@/utils/markdown';
+import { artifactDownloadName } from '@/lib/artifact-detect';
+import { invoke } from '@tauri-apps/api/core';
+import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import ModeSwitcher, { type ModeOption } from '@/components/preview/ModeSwitcher';
 import DOMPurify from 'dompurify';
 
@@ -38,13 +41,6 @@ function composeArtifactHtml(content: string): string {
     content,
     '</body></html>',
   ].join('\n');
-}
-
-/** 下载文件名（对齐 Hermes artifactDownloadName） */
-function artifactDownloadName(kind: string, language: string, title: string): string {
-  const ext = kind === 'html' ? 'html' : kind === 'svg' ? 'svg' : (language || 'txt');
-  const base = title.trim().replace(/[^\w\u4e00-\u9fa5-]+/g, '-').slice(0, 60) || `artifact.${ext}`;
-  return `${base}.${ext}`;
 }
 
 /** 预览视图模式（对齐 Hermes ArtifactPreview：html/svg = rendered/source，code = 仅 source） */
@@ -105,13 +101,22 @@ const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: { sessionId: st
     URL.revokeObjectURL(url);
   }, [active]);
 
-  const openExternal = useCallback(() => {
-    if (!active) return;
-    const { record, version } = active;
-    if (record.kind !== 'html') return;
-    const url = URL.createObjectURL(new Blob([composeArtifactHtml(version.content)], { type: 'text/html' }));
-    window.open(url, '_blank', 'noopener');
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  // 🔴 浏览器打开（对齐 Hermes saveImageBuffer + openPreviewInBrowser）：
+  // window.open(blobURL) 在 Tauri webview 打不开 OS 浏览器——blob/data URL
+  // 无法跨进程进入系统默认浏览器，先写临时文件再交给系统 opener。
+  const openExternal = useCallback(async () => {
+    if (!active || active.record.kind !== 'html') return;
+    const content = composeArtifactHtml(active.version.content);
+    try {
+      const path = await invoke<string>('write_artifact_temp_html', { content });
+      const fileUrl = `file://${path.startsWith('/') ? '' : '/'}${path.replace(/\\/g, '/')}`;
+      await shellOpen(fileUrl);
+    } catch (e) {
+      // 降级：浏览器模式/开发环境（非 Tauri 运行时）
+      const url = URL.createObjectURL(new Blob([content], { type: 'text/html' }));
+      window.open(url, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }
   }, [active]);
 
   const empty = !sessionId || sessionRecords.length === 0;

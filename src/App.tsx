@@ -1213,7 +1213,7 @@ export default function App() {
           <Pane side="right" className="pane-right-column">
             {rightOpen && (
               <>
-                <RightSidebarTabs activeTab={rightTab} onTabChange={setRightTab} />
+                <RightSidebarTabs activeTab={rightTab} onTabChange={setRightTab} onClose={() => setRightOpen(false)} />
                 {rightTab === 'files' && (
                   <FileBrowserPanel cwd={sessionCwd} onFileAttach={(path: string) => handleSend(`@file:"${path}"`)} />
                 )}
