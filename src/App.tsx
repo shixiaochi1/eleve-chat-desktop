@@ -1082,6 +1082,7 @@ export default function App() {
                     onGatewayRetry={gatewayHealth.checkNow}
                     onOpenSettings={handleOpenSettings}
                     hasModels={modelDiscovery.models.length > 0}
+                    sessionKey={sess.sessionId ?? null}
                   />
                   {activeClarify && (
                     <ClarifyCard
