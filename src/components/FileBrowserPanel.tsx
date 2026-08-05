@@ -14,6 +14,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { filesRename, filesDelete } from '../utils/api';
 import { notifyError, notifySuccess } from '../utils/notifications';
 import { isDesktop } from '@/utils/bridge';
+import { setPathsDragPayload } from '@/lib/paths-dnd';
+import FolderPickerDialog from './FolderPickerDialog';
 
 interface FileEntry {
   name: string;
@@ -176,7 +178,10 @@ function TreeNode({
     }
   }, [entry.path, isOpen, onToggle, loadChildren]);
 
-  const handleClick = useCallback((e: React.MouseEvent) => {
+  const indent = Math.min(depth, MAX_INDENT_DEPTH) * INDENT + 4;
+  const isRenaming = renamingPath === entry.path;
+
+  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (entry.isDirectory) {
       handleToggle(e);
     } else if (e.shiftKey) {
@@ -184,13 +189,36 @@ function TreeNode({
       e.stopPropagation();
       onFileAttach(entry.path);
     } else {
-      // 单击 = 选中高亮（对齐 Hermes row select 语义，无发送副作用）
+      // 单击 = 选中高亮（对齐 Hermes row select 语义，无发送副作用）；
+      // focus 行 → F2/Enter 热键立即可用（对齐 Hermes arborist 选中即键盘可用）
       onSelectFile(entry.path);
+      e.currentTarget.focus();
     }
   }, [entry, handleToggle, onFileAttach, onSelectFile]);
 
-  const indent = Math.min(depth, MAX_INDENT_DEPTH) * INDENT + 4;
-  const isRenaming = renamingPath === entry.path;
+  // 选中行键盘操作（对齐 Hermes isRenameShortcut：F2 = 重命名、Enter = 激活预览）
+  const handleRowKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (entry.isDirectory) return;
+    if (e.key === 'F2') {
+      e.preventDefault();
+      e.stopPropagation();
+      onRenameRequest(entry.path);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      onFileDoubleClick(entry);
+    }
+  }, [entry, onRenameRequest, onFileDoubleClick]);
+
+  // 行拖拽 → 聊天输入框/终端（对齐 Hermes tree.tsx onDragStart：
+  // application/x-hermes-paths JSON + text/plain 双 MIME）
+  const handleDragStart = useCallback((e: React.DragEvent) => {
+    if (isRenaming) {
+      e.preventDefault();
+      return;
+    }
+    setPathsDragPayload(e.dataTransfer, entry.path, entry.isDirectory);
+  }, [entry.isDirectory, entry.path, isRenaming]);
 
   // 行内容（重命名中 → 输入框；对齐 Hermes InlineRenameInput：Enter 提交/Esc 取消/失焦提交）
   const row = (
@@ -209,6 +237,10 @@ function TreeNode({
           onFileDoubleClick(entry);
         }
       }}
+      onDragStart={handleDragStart}
+      onKeyDown={handleRowKeyDown}
+      draggable={!isRenaming}
+      tabIndex={!entry.isDirectory && selectedPath === entry.path ? 0 : -1}
       title={entry.path}
     >
       {/* 展开/折叠箭头 — 仅文件夹显示 */}
@@ -384,10 +416,16 @@ export default function FileBrowserPanel({
     refresh();
   }, [refresh]);
 
-  // 切换目录：Tauri 原生目录选择器（浏览器模式静默无操作）
+  // 切换目录：桌面 = Tauri 原生目录选择器；浏览器模式 = 自绘 FolderPickerDialog
+  // （对齐 Hermes RemoteFolderPicker——原生 dialog 不可用时自绘，不再静默无操作）
+  const [pickerOpen, setPickerOpen] = useState(false);
   const handlePickRoot = useCallback(async () => {
-    const sel = await pickDirectory('选择工作目录');
-    if (sel) await setRoot(sel);
+    if (isDesktop()) {
+      const sel = await pickDirectory('选择工作目录');
+      if (sel) await setRoot(sel);
+    } else {
+      setPickerOpen(true);
+    }
   }, [setRoot]);
 
   // ── 上下文菜单操作（对齐 Hermes file-actions）──
@@ -630,6 +668,17 @@ export default function FileBrowserPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 浏览器模式目录选择器（桌面模式用原生 dialog，不渲染本组件） */}
+      <FolderPickerDialog
+        open={pickerOpen}
+        initialPath={rootPath}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(p) => {
+          setPickerOpen(false);
+          void setRoot(p);
+        }}
+      />
     </div>
   );
 }

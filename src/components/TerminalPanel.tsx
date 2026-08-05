@@ -14,6 +14,7 @@
  */
 import { useEffect, useRef, useCallback, useState, useMemo, useSyncExternalStore } from 'react';
 import { Terminal as TerminalIcon, X, Plus } from 'lucide-react';
+import { dragHasPaths, collectDroppedPaths, quoteShellPath } from '@/lib/paths-dnd';
 import useTerminal from '../hooks/useTerminal';
 import { listProcesses } from '../utils/api';
 import { isDesktop } from '@/utils/bridge';
@@ -335,8 +336,25 @@ function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boo
         </div>
       </div>
 
-      {/* Terminal container (xterm.js) */}
-      <div className="flex-1 min-h-0 p-1" ref={term.containerRef} />
+      {/* Terminal container (xterm.js) — 文件树路径拖入（对齐 Hermes
+          use-terminal-session drop：路径写入 shell 输入） */}
+      <div
+        className="flex-1 min-h-0 p-1"
+        ref={term.containerRef}
+        onDragOver={(e) => {
+          if (dragHasPaths(e.dataTransfer)) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          if (!dragHasPaths(e.dataTransfer)) return;
+          e.preventDefault();
+          const paths = collectDroppedPaths(e.dataTransfer);
+          if (paths.length > 0) {
+            // 含空格路径引号包裹，防 shell 拆词；末尾空格让路径直接进入输入区
+            term.write?.(paths.map((p) => quoteShellPath(p)).join(' ') + ' ');
+          }
+          term.focus();
+        }}
+      />
     </>
   );
 }

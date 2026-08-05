@@ -17,6 +17,7 @@ import { getWsClient } from '@/services/ws-client';
 import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
 import { useQueue, updateEntry, type QueuedMessage } from '@/lib/message-queue';
 import { onComposerInsertRequest, LINE_REF_MIME, fileLineRef } from '@/lib/composer-events';
+import { dragHasPaths, collectDroppedPaths } from '@/lib/paths-dnd';
 
 interface InputAreaProps {
   onSend?: (text: string) => void;
@@ -375,6 +376,15 @@ function InputArea({
       } catch { /* 静默 */ }
       return;
     }
+    // 文件树路径拖入（对齐 Hermes composer use-composer-drop：in-app 路径 → 引用插入）
+    if (dragHasPaths(e.dataTransfer)) {
+      const paths = collectDroppedPaths(e.dataTransfer);
+      if (paths.length > 0) {
+        e.preventDefault();
+        insertTextAtCursor(paths.map((p) => `@file:"${p}"`).join(' ') + ' ');
+      }
+      return;
+    }
     if (!onAddImage) return;
     const files = Array.from(e.dataTransfer.files);
     const imageFiles = files.filter(f => f.type.startsWith('image/'));
@@ -391,7 +401,7 @@ function InputArea({
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     const types = Array.from(e.dataTransfer.types);
-    if (types.includes(LINE_REF_MIME) || (onAddImage && types.includes('Files'))) {
+    if (types.includes(LINE_REF_MIME) || dragHasPaths(e.dataTransfer) || (onAddImage && types.includes('Files'))) {
       e.preventDefault();
     }
   }, [onAddImage]);
