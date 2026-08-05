@@ -34,7 +34,7 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
   if (m.parts && m.parts.length > 0) {
     if (m.role === 'user') {
       const text = m.parts.filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text').map(p => p.text).join('')
-      return <div className="flex justify-end px-4 mb-1.5"><MessageBubble type="user" content={text} timestamp={m.timestamp} messageId={m.id} onDelete={onDelete} /></div>
+      return <div data-message-id={m.id} className="flex justify-end px-4 mb-1.5"><MessageBubble type="user" content={text} timestamp={m.timestamp} messageId={m.id} onDelete={onDelete} /></div>
     }
 
     if (m.role === 'assistant') {
@@ -83,7 +83,7 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
       const hoistedTodos = todosFromMessageParts(m.parts)
 
       return (
-        <div className="flex flex-col gap-2.5 px-4 mb-1.5">
+        <div data-message-id={m.id} className="flex flex-col gap-2.5 px-4 mb-1.5">
           {hoistedTodos.length > 0 && <HoistedTodoPanel todos={hoistedTodos} />}
           {renderItems.map(item => {
             switch (item.kind) {
@@ -119,7 +119,7 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
       const text = m.parts.filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text').map(p => p.text).join('')
       // 对齐 Hermes SystemMessage 三形态（steer: / slash: / 普通居中）—
       // 斜杠命令状态回显用 mono 命令 + 输出布局，不再走 MessageBubble 纯文本居中
-      return <div className="px-4 py-0.5"><SystemMessage text={text} /></div>
+      return <div data-message-id={m.id} className="px-4 py-0.5"><SystemMessage text={text} /></div>
     }
   }
 

@@ -14,6 +14,7 @@ import { setScrolledUp } from '@/store/scroll'
 import { useIsStreaming } from '@/store/messages'
 import { useMessage, useMessageSignature, setMessages } from '@/store/messages'
 import MessageRow from './MessageRow'
+import ThreadTimeline from './ThreadTimeline'
 import { isSettingsReady } from '@/utils/settings-store'
 
 const ESTIMATED_ITEM_HEIGHT = 220
@@ -22,7 +23,9 @@ const AT_BOTTOM_THRESHOLD = 4
 
 type MessageGroup = { id: string; index: number; kind: 'standalone' } | { id: string; indices: number[]; kind: 'turn' }
 
-function buildGroups(signature: string): MessageGroup[] {
+export type { MessageGroup }
+
+export function buildGroups(signature: string): MessageGroup[] {
   if (!signature) {
     return []
   }
@@ -104,6 +107,7 @@ export function VirtualizedThread({
   return (
     <div
       className="relative min-h-0 flex-1 max-w-full overflow-hidden contain-[layout_paint]"
+      data-session-anchor
     >
       <div
         className="size-full overflow-x-hidden overflow-y-auto overscroll-contain"
@@ -226,6 +230,8 @@ export function VirtualizedThread({
           </div>
         )}
       </div>
+      {/* 🔴 消息时间线（对齐 Hermes ThreadTimeline）：≥4 条用户提示时右侧刻度轨 + 悬停预览 + 点击跳转 */}
+      <ThreadTimeline />
     </div>
   )
 }
