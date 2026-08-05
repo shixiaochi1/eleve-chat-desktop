@@ -12,6 +12,17 @@
  */
 const INSERT_EVENT = 'eleve:composer-insert'
 
+/** 行级引用拖拽 MIME（source 视图 gutter 拖出 → InputArea drop 接收；
+ *  Hermes HERMES_PATHS_MIME 的 ELEVE 等价） */
+export const LINE_REF_MIME = 'application/x-eleve-line-ref'
+
+/** 生成文件行级引用（对齐 Hermes droppedFileInlineRef：@line:path:range；
+ *  ELEVE 后端 context_references 支持 @file:"path:start[-end]" 行范围展开） */
+export function fileLineRef(path: string, start: number, end?: number): string {
+  const range = end && end > start ? `${start}-${end}` : `${start}`
+  return `@file:"${path}:${range}"`
+}
+
 /** 向 composer 光标处插入文本（trim 后为空则忽略，对齐 Hermes requestComposerInsert） */
 export function requestComposerInsert(text: string): void {
   const trimmed = text.trim()

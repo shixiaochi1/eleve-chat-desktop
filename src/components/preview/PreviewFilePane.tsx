@@ -26,6 +26,7 @@ import { renderMarkdown } from '@/utils/markdown';
 import { cn } from '@/lib/utils';
 import { setPreviewDirty } from '@/lib/preview-edit';
 import { notifyWorkspaceChanged } from '@/lib/workspace-events';
+import { requestComposerInsert, fileLineRef, LINE_REF_MIME } from '@/lib/composer-events';
 import { CodeEditor } from '@/components/chat/code-editor';
 import DiffLines from '@/components/DiffLines';
 import { isDesktop, call } from '@/utils/bridge';
@@ -83,6 +84,9 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   // 用户选择的视图；null = auto（有 diff → diff；markdown → rendered；否则 source，
   // 对齐 Hermes autoMode）。文件切换/重读时重置。
   const [userMode, setUserMode] = useState<'source' | 'rendered' | 'diff' | null>(null);
+  // ── 源码视图行选择（对齐 Hermes SourceView selection：单击选行 / Shift 扩展 /
+  //    再点取消；Ctrl/⌘+L 或拖拽 → @file:path:line 引用插入输入框）──
+  const [lineSelection, setLineSelection] = useState<{ start: number; end: number } | null>(null);
 
   // ── spot editor 状态（对齐 Hermes L585-597：draft/baseline 走 ref，
   //    打字不触发重渲染——dirty 是唯一 render-worthy 信号；selfReload 保存后重读）──
@@ -173,6 +177,7 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     setConflict(false);
     setUserMode(null);
     setDiff(null);
+    setLineSelection(null);
     draftRef.current = '';
     baselineRef.current = '';
   }, [path, reloadKey]);
@@ -339,6 +344,52 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     }
   };
 
+  // ── 源码视图行选择交互（对齐 Hermes SourceView handleLineClick/handleDragStart）──
+  const handleLineClick = useCallback((e: React.MouseEvent, line: number) => {
+    if (e.shiftKey && lineSelection) {
+      setLineSelection({
+        start: Math.min(lineSelection.start, line),
+        end: Math.max(lineSelection.end, line),
+      });
+      return;
+    }
+    if (lineSelection && lineSelection.start === line && lineSelection.end === line) {
+      setLineSelection(null);
+      return;
+    }
+    setLineSelection({ start: line, end: line });
+  }, [lineSelection]);
+
+  const handleLineDragStart = useCallback((e: React.DragEvent, line: number) => {
+    const sel =
+      lineSelection && line >= lineSelection.start && line <= lineSelection.end
+        ? lineSelection
+        : { start: line, end: line };
+    e.dataTransfer.setData(
+      LINE_REF_MIME,
+      JSON.stringify({ path, start: sel.start, end: sel.end }),
+    );
+    e.dataTransfer.setData(
+      'text/plain',
+      sel.end > sel.start ? `${path}:${sel.start}-${sel.end}` : `${path}:${sel.start}`,
+    );
+    e.dataTransfer.effectAllowed = 'copy';
+  }, [path, lineSelection]);
+
+  // Ctrl/⌘+L：选中行 → 插入 @file:"path:start[-end]" 引用（对齐 Hermes isAddSelectionShortcut）；
+  // capture 阶段优先于其它全局快捷键
+  useEffect(() => {
+    if (!lineSelection) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'l') return;
+      e.preventDefault();
+      e.stopPropagation();
+      requestComposerInsert(fileLineRef(path, lineSelection.start, lineSelection.end));
+    };
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
+  }, [lineSelection, path]);
+
   // ── 渲染 ──
   const isLarge = byteSize > LARGE_FILE_THRESHOLD;
 
@@ -364,6 +415,9 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   // ── 视图模式决策（对齐 Hermes L925-940：modes 顺序 rendered→source→diff；
   //    auto 落点 = 有 diff 优先，其次 markdown 渲染，否则源码）──
   const hasDiff = Boolean(diff && diff.trim());
+  // 源码视图行号行数（与内容同源：大文件截断后两侧同截断）
+  const sourceLines =
+    text !== null && !binary ? (isLarge ? text.slice(0, MAX_RENDER_CHARS) : text).split('\n') : [];
   const modes: ('source' | 'rendered' | 'diff')[] = [];
   if (isMarkdown) modes.push('rendered');
   modes.push('source');
@@ -554,7 +608,7 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
             <div className="flex-1 min-h-0 overflow-auto">
               {mode === 'diff' ? (
                 <div className="p-3">
-                  <DiffLines text={diff ?? ''} maxHeight="none" />
+                  <DiffLines text={diff ?? ''} maxHeight="none" showLineNumbers />
                 </div>
               ) : mode === 'rendered' && bodyHtml ? (
                 <div className="p-3">
@@ -565,18 +619,49 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
                   />
                 </div>
               ) : (
-                <div className="p-3">
-                  {plainText !== null ? (
-                    <pre className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-[var(--ui-text-primary)]">
-                      {escapeHtml(plainText)}
-                    </pre>
-                  ) : bodyHtml ? (
-                    <div
-                      className="prose-preview text-xs leading-relaxed text-[var(--ui-text-primary)]"
-                      // renderMarkdown 输出已过 DOMPurify sanitize（对齐消息区安全边界）
-                      dangerouslySetInnerHTML={{ __html: bodyHtml }}
-                    />
-                  ) : null}
+                /* 源码视图（对齐 Hermes SourceView）：行号 gutter（选择/拖拽/引用）
+                   与内容并排——gutter 与内容同源文本行数，行高强制一致（leading-5/h-5）
+                   保证逐行对齐；大文件截断后两侧同截断 */
+                <div className="h-full flex min-h-0">
+                  <div className="select-none text-right text-[var(--ui-text-tertiary)] border-r border-[var(--ui-stroke-secondary)] sticky left-0 bg-[var(--ui-bg-editor)] shrink-0 overflow-y-auto">
+                    {sourceLines.map((_, i) => {
+                      const line = i + 1;
+                      const selected =
+                        lineSelection !== null &&
+                        line >= lineSelection.start &&
+                        line <= lineSelection.end;
+                      return (
+                        <div
+                          key={line}
+                          className={cn(
+                            'h-5 w-9 pr-2 leading-5 tabular-nums cursor-pointer transition-colors',
+                            selected
+                              ? 'bg-[var(--ui-yellow)]/25 text-[var(--ui-text-primary)]'
+                              : 'hover:text-[var(--ui-text-primary)]',
+                          )}
+                          draggable
+                          onClick={(e) => handleLineClick(e, line)}
+                          onDragStart={(e) => handleLineDragStart(e, line)}
+                          title="单击选行 / Shift+单击扩展 / 拖拽或 Ctrl+L 引用到输入框"
+                        >
+                          {line}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex-1 min-w-0 overflow-auto font-mono text-xs [&_pre]:my-0 [&_pre]:leading-5 [&_pre]:px-3">
+                    {plainText !== null ? (
+                      <pre className="whitespace-pre-wrap break-all leading-5 text-[var(--ui-text-primary)]">
+                        {escapeHtml(plainText)}
+                      </pre>
+                    ) : bodyHtml ? (
+                      <div
+                        className="text-[var(--ui-text-primary)]"
+                        // renderMarkdown 输出已过 DOMPurify sanitize（对齐消息区安全边界）
+                        dangerouslySetInnerHTML={{ __html: bodyHtml }}
+                      />
+                    ) : null}
+                  </div>
                 </div>
               )}
             </div>

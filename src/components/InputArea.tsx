@@ -16,7 +16,7 @@ import { useVoice } from '@/hooks/useVoice';
 import { getWsClient } from '@/services/ws-client';
 import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
 import { useQueue, updateEntry, type QueuedMessage } from '@/lib/message-queue';
-import { onComposerInsertRequest } from '@/lib/composer-events';
+import { onComposerInsertRequest, LINE_REF_MIME, fileLineRef } from '@/lib/composer-events';
 
 interface InputAreaProps {
   onSend?: (text: string) => void;
@@ -360,6 +360,21 @@ function InputArea({
   }, [onAddImage]);
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
+    // 行级引用拖拽（源码视图 gutter 拖出；对齐 Hermes HERMES_PATHS_MIME → composer ref）
+    if (Array.from(e.dataTransfer.types).includes(LINE_REF_MIME)) {
+      e.preventDefault();
+      try {
+        const parsed = JSON.parse(e.dataTransfer.getData(LINE_REF_MIME)) as {
+          path?: string;
+          start?: number;
+          end?: number;
+        };
+        if (parsed.path && typeof parsed.start === 'number') {
+          insertTextAtCursor(fileLineRef(parsed.path, parsed.start, parsed.end) + ' ');
+        }
+      } catch { /* 静默 */ }
+      return;
+    }
     if (!onAddImage) return;
     const files = Array.from(e.dataTransfer.files);
     const imageFiles = files.filter(f => f.type.startsWith('image/'));
@@ -372,10 +387,11 @@ function InputArea({
         console.error('[InputArea] Drop image failed:', err);
       }
     }
-  }, [onAddImage]);
+  }, [onAddImage, insertTextAtCursor]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
-    if (onAddImage && Array.from(e.dataTransfer.types).includes('Files')) {
+    const types = Array.from(e.dataTransfer.types);
+    if (types.includes(LINE_REF_MIME) || (onAddImage && types.includes('Files'))) {
       e.preventDefault();
     }
   }, [onAddImage]);
