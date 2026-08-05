@@ -70,6 +70,20 @@ const ToolEntry = memo(function ToolEntry({ tool }: { tool: ToolCallItem }) {
   // product 模式：结果摘要（截断预览，隐藏完整原始载荷）
   const productResultPreview = useMemo(() => {
     if (!parsedResult) return null;
+    // 🔴 delegate_task 对齐 Hermes「Only the final summary is returned」：
+    // 结果摘要取 results[].summary（模型自报，非验证事实），不展示原始 JSON
+    if (tool.name === 'delegate_task') {
+      const results = Array.isArray(parsedResult.results) ? parsedResult.results : [];
+      const summaries = (results as Record<string, unknown>[])
+        .map((r) => (typeof r?.summary === 'string' ? r.summary : ''))
+        .filter(Boolean);
+      if (summaries.length > 0) {
+        const text = summaries.join('\n\n');
+        return text.length > PRODUCT_PREVIEW_CHARS
+          ? text.slice(0, PRODUCT_PREVIEW_CHARS) + '\n…（已截断，切换技术模式查看完整输出）'
+          : text;
+      }
+    }
     const text = typeof parsedResult === 'string'
       ? parsedResult
       : JSON.stringify(parsedResult, null, 2);
@@ -77,7 +91,7 @@ const ToolEntry = memo(function ToolEntry({ tool }: { tool: ToolCallItem }) {
     return text.length > PRODUCT_PREVIEW_CHARS
       ? text.slice(0, PRODUCT_PREVIEW_CHARS) + '\n…（已截断，切换技术模式查看完整输出）'
       : text;
-  }, [parsedResult]);
+  }, [parsedResult, tool.name]);
 
   // 提取 inline_diff（对齐 Eleve：优先从 result.inline_diff 字段获取）
   const inlineDiff = useMemo(() => {
