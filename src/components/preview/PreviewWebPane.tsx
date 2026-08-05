@@ -31,9 +31,11 @@ import { PreviewConsolePanel } from './PreviewConsolePanel';
 import {
   type PreviewTab,
   beginPreviewRestart,
+  failPreviewRestart,
   failPreviewRestartRequest,
   usePreviewStore,
 } from '@/store/preview';
+import { notifySuccess, notifyError } from '@/utils/notifications';
 
 interface PreviewWebPaneProps {
   tab: PreviewTab;
@@ -417,6 +419,30 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   const currentUrl = url.trim() || tab.target.url;
   const isRestarting = restart?.status === 'running' && restart.url === currentUrl;
   const restartEntries = restart && restart.url === currentUrl ? restart.entries : [];
+
+  // ── 重启 45s 超时（对齐 Hermes SERVER_RESTART_TIMEOUT_MS → failPreviewRestart：
+  //    任务卡住时状态置 error，按钮脱离无限转圈）──
+  useEffect(() => {
+    const r = restart;
+    if (!r || r.status !== 'running' || r.url !== currentUrl) return;
+    const taskId = r.taskId;
+    const timer = window.setTimeout(() => {
+      failPreviewRestart(taskId, '仍在进行中，请稍后重试');
+    }, 45_000);
+    return () => window.clearTimeout(timer);
+  }, [restart, currentUrl]);
+
+  // ── 重启完成/失败通知（对齐 Hermes：complete → notify success；error → notify warning）──
+  useEffect(() => {
+    const r = restart;
+    if (!r || r.url !== currentUrl) return;
+    if (r.status === 'success') {
+      notifySuccess('预览服务器已重启，正在重新加载页面', '重启完成');
+    } else if (r.status === 'error') {
+      const last = r.entries[r.entries.length - 1];
+      notifyError(new Error(last?.text ?? '未知错误'), '预览服务器重启失败');
+    }
+  }, [restart, currentUrl]);
 
   const webviewActive = isTauri && webviewLabel !== null && isSafePreviewUrl(currentUrl);
 

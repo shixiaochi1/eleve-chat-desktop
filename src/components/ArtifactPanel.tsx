@@ -21,6 +21,7 @@ import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { join, tempDir } from '@tauri-apps/api/path';
 import ModeSwitcher, { type ModeOption } from '@/components/preview/ModeSwitcher';
+import WindowedSourceView from '@/components/preview/WindowedSourceView';
 import ArtifactsGallery from '@/components/ArtifactsGallery';
 import { TextTab, TextTabMeta } from '@/components/ui/text-tab';
 import { useArtifactsGallery } from '@/lib/useArtifactsGallery';
@@ -313,11 +314,13 @@ const ArtifactPanel = memo(function ArtifactPanel({
                       containerW={containerW}
                     />
                   ) : (
-                    /* 源码视图（对齐 Hermes ArtifactPreview SourceView）：原始文本，
-                       React 自动转义，无 dangerouslySetInnerHTML */
-                    <div className="wrap-anywhere whitespace-pre-wrap p-3 font-mono text-xs leading-relaxed text-[var(--ui-text-primary)]">
-                      {activeForRender.version.content}
-                    </div>
+                    /* 源码视图（对齐 Hermes ArtifactPreview SourceView：窗口化 +
+                       hljs 高亮；语言映射 Hermes SOURCE_LANGUAGE_BY_KIND 同款——
+                       html→html / svg→xml / code→检测语言。无文件路径 → 行号不可交互） */
+                    <WindowedSourceView
+                      language={activeForRender.record.kind === 'svg' ? 'xml' : activeForRender.record.kind === 'html' ? 'html' : activeForRender.record.language}
+                      text={activeForRender.version.content}
+                    />
                   )}
                 </div>
               </>

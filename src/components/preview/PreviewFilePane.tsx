@@ -26,16 +26,15 @@ import { renderMarkdown } from '@/utils/markdown';
 import { cn } from '@/lib/utils';
 import { setPreviewDirty } from '@/lib/preview-edit';
 import { notifyWorkspaceChanged } from '@/lib/workspace-events';
-import { requestComposerInsert, fileLineRef, LINE_REF_MIME } from '@/lib/composer-events';
 import { CodeEditor } from '@/components/chat/code-editor';
 import DiffLines from '@/components/DiffLines';
 import ModeSwitcher from '@/components/preview/ModeSwitcher';
+import WindowedSourceView from '@/components/preview/WindowedSourceView';
 import { isDesktop, call } from '@/utils/bridge';
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']);
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown', '.mdown']);
 const LARGE_FILE_THRESHOLD = 512 * 1024;
-const MAX_RENDER_CHARS = 200 * 1024;
 
 function extension(path: string): string {
   const clean = path.split(/[?#]/, 1)[0] || path;
@@ -52,11 +51,6 @@ function isLikelyBinary(text: string): boolean {
   if (!text) return false;
   const replacements = text.split('\uFFFD').length - 1;
   return replacements / text.length > 0.01;
-}
-
-/** escapeHtml 纯文本降级（围栏包裹不可用时的兜底渲染） */
-function escapeHtml(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 interface PreviewFilePaneProps {
@@ -85,9 +79,11 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   // 用户选择的视图；null = auto（有 diff → diff；markdown → rendered；否则 source，
   // 对齐 Hermes autoMode）。文件切换/重读时重置。
   const [userMode, setUserMode] = useState<'source' | 'rendered' | 'diff' | null>(null);
-  // ── 源码视图行选择（对齐 Hermes SourceView selection：单击选行 / Shift 扩展 /
-  //    再点取消；Ctrl/⌘+L 或拖拽 → @file:path:line 引用插入输入框）──
-  const [lineSelection, setLineSelection] = useState<{ start: number; end: number } | null>(null);
+
+
+  // ── 裸 e 快捷键（对齐 Hermes：read 视图 hover 或 focus-within + 非输入框 → 进编辑）──
+  const readViewRef = useRef<HTMLDivElement | null>(null);
+  const hoverRef = useRef(false);
 
   // ── spot editor 状态（对齐 Hermes L585-597：draft/baseline 走 ref，
   //    打字不触发重渲染——dirty 是唯一 render-worthy 信号；selfReload 保存后重读）──
@@ -178,7 +174,6 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     setConflict(false);
     setUserMode(null);
     setDiff(null);
-    setLineSelection(null);
     draftRef.current = '';
     baselineRef.current = '';
   }, [path, reloadKey]);
@@ -273,8 +268,9 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     setReloadKey((k) => k + 1);
   }, []);
 
-  // ── 编辑能力（对齐 Hermes canEdit：完整可读文本；ELEVE 大文件拦截态不读内容 → 不可编辑）──
-  const canEdit = text !== null && !binary && !largeBlocked && !isImage && byteSize <= LARGE_FILE_THRESHOLD;
+  // ── 编辑能力（对齐 Hermes canEdit：完整可读文本；largeBlocked 拦截态不读内容 →
+  //    不可编辑，force 预览后解除——Hermes blockedByTarget 同款语义）──
+  const canEdit = text !== null && !binary && !largeBlocked && !isImage;
 
   // 每击键：更新 draft ref（不重渲染），仅 dirty 边界翻转时 setState
   const handleEditorChange = useCallback((value: string) => {
@@ -307,6 +303,31 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     setSaveError(null);
     setSelfReload((n) => n + 1);
   };
+
+  // 裸 e 进编辑（对齐 Hermes beginEditRef 模式：监听器常驻不重建，beginEdit 恒最新）
+  const beginEditRef = useRef(beginEdit);
+  beginEditRef.current = beginEdit;
+
+  useEffect(() => {
+    if (!canEdit || editing) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'e' || e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = document.activeElement;
+      if (
+        el &&
+        (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || (el as HTMLElement).isContentEditable)
+      ) {
+        return;
+      }
+      const root = readViewRef.current;
+      const focusWithin = Boolean(root && document.activeElement && root.contains(document.activeElement));
+      if (!hoverRef.current && !focusWithin) return;
+      e.preventDefault();
+      beginEditRef.current();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [canEdit, editing]);
 
   // 保存（对齐 Hermes saveEdit：stale-on-disk guard——保存前重读磁盘对比
   // baseline，外部/Agent 并行改动不静默覆盖，交给用户选 overwrite/discard）
@@ -345,80 +366,20 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     }
   };
 
-  // ── 源码视图行选择交互（对齐 Hermes SourceView handleLineClick/handleDragStart）──
-  const handleLineClick = useCallback((e: React.MouseEvent, line: number) => {
-    if (e.shiftKey && lineSelection) {
-      setLineSelection({
-        start: Math.min(lineSelection.start, line),
-        end: Math.max(lineSelection.end, line),
-      });
-      return;
-    }
-    if (lineSelection && lineSelection.start === line && lineSelection.end === line) {
-      setLineSelection(null);
-      return;
-    }
-    setLineSelection({ start: line, end: line });
-  }, [lineSelection]);
 
-  const handleLineDragStart = useCallback((e: React.DragEvent, line: number) => {
-    const sel =
-      lineSelection && line >= lineSelection.start && line <= lineSelection.end
-        ? lineSelection
-        : { start: line, end: line };
-    e.dataTransfer.setData(
-      LINE_REF_MIME,
-      JSON.stringify({ path, start: sel.start, end: sel.end }),
-    );
-    e.dataTransfer.setData(
-      'text/plain',
-      sel.end > sel.start ? `${path}:${sel.start}-${sel.end}` : `${path}:${sel.start}`,
-    );
-    e.dataTransfer.effectAllowed = 'copy';
-  }, [path, lineSelection]);
-
-  // Ctrl/⌘+L：选中行 → 插入 @file:"path:start[-end]" 引用（对齐 Hermes isAddSelectionShortcut）；
-  // capture 阶段优先于其它全局快捷键
-  useEffect(() => {
-    if (!lineSelection) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'l') return;
-      e.preventDefault();
-      e.stopPropagation();
-      requestComposerInsert(fileLineRef(path, lineSelection.start, lineSelection.end));
-    };
-    window.addEventListener('keydown', onKeyDown, { capture: true });
-    return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
-  }, [lineSelection, path]);
 
   // ── 渲染 ──
-  const isLarge = byteSize > LARGE_FILE_THRESHOLD;
-
-  // 内容渲染（markdown → 完整管线；代码 → 围栏包裹高亮；含 ``` → 纯文本降级）
+  // 内容渲染（markdown → 完整管线；源码视图统一走 WindowedSourceView，
+  // 其内部处理内容含 ``` 时的围栏降级——Hermes Shiki 直高亮无此问题，
+  // ELEVE 用 markdown 围栏需自检）
   let bodyHtml: string | null = null;
-  let plainText: string | null = null;
-  if (text !== null && !binary) {
-    const display = isLarge ? text.slice(0, MAX_RENDER_CHARS) : text;
-    if (isMarkdown) {
-      bodyHtml = renderMarkdown(display, { highlight: true });
-      // source 视图显示 markdown 原文（Hermes SourceView 语义）；rendered 走 bodyHtml
-      plainText = display;
-    } else {
-      const hasFence = display.split('\n').some((l) => l.trim().startsWith('```'));
-      if (hasFence) {
-        plainText = display;
-      } else {
-        bodyHtml = renderMarkdown(`\`\`\`\n${display}\n\`\`\``, { highlight: true });
-      }
-    }
+  if (text !== null && !binary && isMarkdown) {
+    bodyHtml = renderMarkdown(text, { highlight: true });
   }
 
   // ── 视图模式决策（对齐 Hermes L925-940：modes 顺序 rendered→source→diff；
   //    auto 落点 = 有 diff 优先，其次 markdown 渲染，否则源码）──
   const hasDiff = Boolean(diff && diff.trim());
-  // 源码视图行号行数（与内容同源：大文件截断后两侧同截断）
-  const sourceLines =
-    text !== null && !binary ? (isLarge ? text.slice(0, MAX_RENDER_CHARS) : text).split('\n') : [];
   const modes: ('source' | 'rendered' | 'diff')[] = [];
   if (isMarkdown) modes.push('rendered');
   modes.push('source');
@@ -585,7 +546,16 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
             </div>
           </div>
         ) : (
-          <>
+          <div
+            className="flex min-h-0 flex-1 flex-col"
+            onMouseEnter={() => {
+              hoverRef.current = true;
+            }}
+            onMouseLeave={() => {
+              hoverRef.current = false;
+            }}
+            ref={readViewRef}
+          >
             {/* 模式切换行（对齐 Hermes PreviewModeSwitcher：仅多模式时显示；
                 渲染/源码/变更——有 git diff 时出现「变更」） */}
             {modes.length > 1 && (
@@ -597,13 +567,13 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
                 />
               </div>
             )}
-            <div className="flex-1 min-h-0 overflow-auto">
+            <div className="min-h-0 flex-1 overflow-hidden">
               {mode === 'diff' ? (
-                <div className="p-3">
+                <div className="h-full overflow-auto p-3">
                   <DiffLines text={diff ?? ''} maxHeight="none" showLineNumbers />
                 </div>
               ) : mode === 'rendered' && bodyHtml ? (
-                <div className="p-3">
+                <div className="h-full overflow-auto p-3">
                   <div
                     className="prose-preview text-xs leading-relaxed text-[var(--ui-text-primary)]"
                     // renderMarkdown 输出已过 DOMPurify sanitize（对齐消息区安全边界）
@@ -611,53 +581,13 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
                   />
                 </div>
               ) : (
-                /* 源码视图（对齐 Hermes SourceView）：行号 gutter（选择/拖拽/引用）
-                   与内容并排——gutter 与内容同源文本行数，行高强制一致（leading-5/h-5）
-                   保证逐行对齐；大文件截断后两侧同截断 */
-                <div className="h-full flex min-h-0">
-                  <div className="select-none text-right text-[var(--ui-text-tertiary)] border-r border-[var(--ui-stroke-secondary)] sticky left-0 bg-[var(--ui-bg-editor)] shrink-0 overflow-y-auto">
-                    {sourceLines.map((_, i) => {
-                      const line = i + 1;
-                      const selected =
-                        lineSelection !== null &&
-                        line >= lineSelection.start &&
-                        line <= lineSelection.end;
-                      return (
-                        <div
-                          key={line}
-                          className={cn(
-                            'h-5 w-9 pr-2 leading-5 tabular-nums cursor-pointer transition-colors',
-                            selected
-                              ? 'bg-[var(--ui-yellow)]/25 text-[var(--ui-text-primary)]'
-                              : 'hover:text-[var(--ui-text-primary)]',
-                          )}
-                          draggable
-                          onClick={(e) => handleLineClick(e, line)}
-                          onDragStart={(e) => handleLineDragStart(e, line)}
-                          title="单击选行 / Shift+单击扩展 / 拖拽或 Ctrl+L 引用到输入框"
-                        >
-                          {line}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="flex-1 min-w-0 overflow-auto font-mono text-xs [&_pre]:my-0 [&_pre]:leading-5 [&_pre]:px-3">
-                    {plainText !== null ? (
-                      <pre className="whitespace-pre-wrap break-all leading-5 text-[var(--ui-text-primary)]">
-                        {escapeHtml(plainText)}
-                      </pre>
-                    ) : bodyHtml ? (
-                      <div
-                        className="text-[var(--ui-text-primary)]"
-                        // renderMarkdown 输出已过 DOMPurify sanitize（对齐消息区安全边界）
-                        dangerouslySetInnerHTML={{ __html: bodyHtml }}
-                      />
-                    ) : null}
-                  </div>
-                </div>
+                /* 源码视图（对齐 Hermes SourceView）：单滚动容器 + chunk 窗口化，
+                   行号与内容天然同步（根治旧双滚动容器失联）；行选择/拖拽/⌘L
+                   交互在 WindowedSourceView 内部（Hermes SourceView 同款） */
+                <WindowedSourceView filePath={path} language={ext.slice(1)} text={text ?? ''} />
               )}
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>
