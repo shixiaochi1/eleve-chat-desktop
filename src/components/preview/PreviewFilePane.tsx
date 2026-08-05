@@ -1,5 +1,5 @@
 /**
- * PreviewFilePane — 本地文件预览内容区（对齐 Hermes LocalFilePreview）
+ * PreviewFilePane — 本地文件预览内容区（对齐 Hermes preview-file.tsx）
  *
  * 按扩展名分派渲染：
  * - 图片（png/jpg/gif/webp/bmp/svg）→ readFile → blob URL → img
@@ -8,13 +8,22 @@
  * - 大文件（>512KB）→ 警告条 + 截断渲染；二进制 → 拦截提示
  *
  * 文件读取走 tauri-plugin-fs（Hermes Electron 直读 fs 的 Tauri 等价物）。
+ *
+ * spot editor（对齐 Hermes L580-850）：
+ * - 可编辑 = 完整可读文本（非图片/二进制/大文件拦截态）
+ * - 编辑态：CodeEditor（CodeMirror 6）+ 保存/取消 + stale-on-disk 冲突保护
+ * - 保存 → writeTextFile 写回 → selfReload 重读 → tab 脏标记清除
+ * - dirty 发布到 lib/preview-edit.ts → tab 条「已修改」圆点
  */
 
-import { useCallback, useEffect, useState } from 'react';
-import { readFile, readTextFile, stat } from '@tauri-apps/plugin-fs';
-import { AlertCircle, Download, File, Loader2, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { readFile, readTextFile, stat, writeTextFile } from '@tauri-apps/plugin-fs';
+import { AlertCircle, Download, File, Loader2, Pencil, RefreshCw, X } from 'lucide-react';
 import type { PreviewTab } from '@/store/preview';
 import { renderMarkdown } from '@/utils/markdown';
+import { cn } from '@/lib/utils';
+import { setPreviewDirty } from '@/lib/preview-edit';
+import { CodeEditor } from '@/components/chat/code-editor';
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']);
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown', '.mdown']);
@@ -64,6 +73,18 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   // 用户点「仍要预览」才读全量，防大文件全量读入内存卡死）
   const [largeBlocked, setLargeBlocked] = useState(false);
   const [forcePreview, setForcePreview] = useState(false);
+
+  // ── spot editor 状态（对齐 Hermes L585-597：draft/baseline 走 ref，
+  //    打字不触发重渲染——dirty 是唯一 render-worthy 信号；selfReload 保存后重读）──
+  const [editing, setEditing] = useState(false);
+  const draftRef = useRef('');
+  const baselineRef = useRef('');
+  const [dirty, setDirty] = useState(false);
+  const [editorKey, setEditorKey] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState(false);
+  const [selfReload, setSelfReload] = useState(0);
 
   // ── 读取文件（对齐 Hermes L586-701：image → dataUrl / text → text）──
   useEffect(() => {
@@ -118,7 +139,24 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     return () => {
       cancelled = true;
     };
-  }, [path, isImage, ext, reloadKey]);
+  }, [path, isImage, ext, reloadKey, selfReload]);
+
+  // ── 文件切换/重读 → 退出编辑、清脏标记（对齐 Hermes filePath/reloadKey effect）──
+  useEffect(() => {
+    setEditing(false);
+    setDirty(false);
+    setSaving(false);
+    setSaveError(null);
+    setConflict(false);
+    draftRef.current = '';
+    baselineRef.current = '';
+  }, [path, reloadKey]);
+
+  // ── dirty 发布到 tab 条（对齐 Hermes setPreviewDirty：keyed by url，unmount 清除）──
+  useEffect(() => {
+    setPreviewDirty(tab.target.url, editing && dirty);
+    return () => setPreviewDirty(tab.target.url, false);
+  }, [tab.target.url, editing, dirty]);
 
   // ── 下载：blob → a[download] ──
   const handleDownload = useCallback(async () => {
@@ -143,6 +181,75 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     setReloadKey((k) => k + 1);
   }, []);
 
+  // ── 编辑能力（对齐 Hermes canEdit：完整可读文本；ELEVE 大文件拦截态不读内容 → 不可编辑）──
+  const canEdit = text !== null && !binary && !largeBlocked && !isImage && byteSize <= LARGE_FILE_THRESHOLD;
+
+  // 每击键：更新 draft ref（不重渲染），仅 dirty 边界翻转时 setState
+  const handleEditorChange = useCallback((value: string) => {
+    draftRef.current = value;
+    const next = value !== baselineRef.current;
+    setDirty((prev) => (prev === next ? prev : next));
+  }, []);
+
+  const beginEdit = () => {
+    const value = text ?? '';
+    baselineRef.current = value;
+    draftRef.current = value;
+    setDirty(false);
+    setEditorKey((k) => k + 1);
+    setSaving(false);
+    setSaveError(null);
+    setConflict(false);
+    setEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setSaveError(null);
+    setConflict(false);
+  };
+
+  const discardAndReload = () => {
+    setEditing(false);
+    setConflict(false);
+    setSaveError(null);
+    setSelfReload((n) => n + 1);
+  };
+
+  // 保存（对齐 Hermes saveEdit：stale-on-disk guard——保存前重读磁盘对比
+  // baseline，外部/Agent 并行改动不静默覆盖，交给用户选 overwrite/discard）
+  const saveEdit = async (force = false) => {
+    if (saving) return;
+    setSaving(true);
+    setSaveError(null);
+
+    try {
+      if (!force) {
+        try {
+          const current = await readTextFile(path);
+          if (current !== baselineRef.current) {
+            setConflict(true);
+            setSaving(false);
+            return;
+          }
+        } catch {
+          // 重读失败 → 放行尝试写入
+        }
+      }
+
+      await writeTextFile(path, draftRef.current);
+      baselineRef.current = draftRef.current;
+      setDirty(false);
+      setConflict(false);
+      setEditing(false);
+      setSelfReload((n) => n + 1);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // ── 渲染 ──
   const isLarge = byteSize > LARGE_FILE_THRESHOLD;
 
@@ -165,36 +272,114 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-[var(--ui-bg-editor)]">
-      {/* ── 文件头：名称 + 操作 ── */}
+      {/* ── 文件头：名称 + 操作（编辑态换保存/取消，对齐 Hermes EditControls）── */}
       <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[var(--ui-stroke-secondary)] bg-[var(--ui-bg-quaternary)]">
         <File size={13} className="text-warning shrink-0" />
         <span className="flex-1 min-w-0 truncate text-xs text-[var(--ui-text-primary)]" title={path}>
           {basename(path)}
         </span>
-        {byteSize > 0 && (
+        {!editing && byteSize > 0 && (
           <span className="text-[10px] text-[var(--ui-text-tertiary)] shrink-0">
             {(byteSize / 1024).toFixed(byteSize > 1024 * 1024 ? 1 : 0)} KB
           </span>
         )}
-        <button
-          onClick={handleReload}
-          className="p-1 rounded text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] hover:text-[var(--ui-text-primary)] transition-colors shrink-0"
-          title="重新加载"
-        >
-          <RefreshCw size={12} />
-        </button>
-        <button
-          onClick={handleDownload}
-          className="p-1 rounded text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] hover:text-[var(--ui-text-primary)] transition-colors shrink-0"
-          title="下载"
-        >
-          <Download size={12} />
-        </button>
+        {editing ? (
+          <>
+            <button
+              onClick={cancelEdit}
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] hover:text-[var(--ui-text-primary)] transition-colors shrink-0"
+              title="取消编辑（Esc）"
+            >
+              <X size={12} />
+              取消
+            </button>
+            <button
+              onClick={() => void saveEdit()}
+              disabled={!dirty || saving}
+              className={cn(
+                'flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors shrink-0',
+                dirty && !saving
+                  ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                  : 'bg-[var(--ui-bg-tertiary)] text-[var(--ui-text-tertiary)] opacity-60 cursor-not-allowed',
+              )}
+              title="保存（Ctrl+S）"
+            >
+              {saving ? <Loader2 size={12} className="animate-spin" /> : null}
+              {saving ? '保存中' : '保存'}
+            </button>
+          </>
+        ) : (
+          <>
+            {canEdit && (
+              <button
+                onClick={beginEdit}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] hover:text-[var(--ui-text-primary)] transition-colors shrink-0"
+                title="编辑文件"
+              >
+                <Pencil size={12} />
+                编辑
+              </button>
+            )}
+            <button
+              onClick={handleReload}
+              className="p-1 rounded text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] hover:text-[var(--ui-text-primary)] transition-colors shrink-0"
+              title="重新加载"
+            >
+              <RefreshCw size={12} />
+            </button>
+            <button
+              onClick={handleDownload}
+              className="p-1 rounded text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] hover:text-[var(--ui-text-primary)] transition-colors shrink-0"
+              title="下载"
+            >
+              <Download size={12} />
+            </button>
+          </>
+        )}
       </div>
 
-      {/* ── 内容区 ── */}
+      {/* ── 冲突/保存错误横幅（编辑态；对齐 Hermes conflict banner）── */}
+      {editing && conflict && (
+        <div className="shrink-0 border-b border-[var(--ui-yellow)]/40 bg-[var(--ui-yellow)]/10 px-3 py-2 text-xs text-[var(--ui-text-primary)]">
+          <div className="font-semibold">磁盘上的文件已变更</div>
+          <div className="mt-0.5 text-[var(--ui-text-secondary)] leading-relaxed">
+            文件在您开始编辑后被外部修改（Agent 或其它程序）。直接保存会覆盖这些改动。
+          </div>
+          <div className="mt-1.5 flex gap-3">
+            <button
+              className="font-bold underline underline-offset-4 transition-opacity hover:opacity-80 text-[var(--ui-yellow)]"
+              onClick={() => void saveEdit(true)}
+            >
+              覆盖写入
+            </button>
+            <button
+              className="font-bold underline underline-offset-4 transition-opacity hover:opacity-80 text-[var(--ui-text-secondary)]"
+              onClick={discardAndReload}
+            >
+              丢弃编辑并重新加载
+            </button>
+          </div>
+        </div>
+      )}
+      {editing && saveError && (
+        <div className="shrink-0 border-b border-[var(--ui-status-error)]/40 bg-[var(--ui-status-error)]/10 px-3 py-1.5 text-xs text-[var(--ui-status-error)]">
+          保存失败：{saveError}
+        </div>
+      )}
+
+      {/* ── 内容区（编辑态 → CodeEditor，同容器同头部高度，切换零位移）── */}
       <div className="flex-1 min-h-0 overflow-auto">
-        {loading ? (
+        {editing ? (
+          <CodeEditor
+            filePath={path}
+            initialValue={baselineRef.current}
+            key={editorKey}
+            onCancel={cancelEdit}
+            onChange={handleEditorChange}
+            onSave={() => void saveEdit()}
+            disabled={saving}
+          />
+        ) : loading ? (
           <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
             <Loader2 size={20} className="animate-spin" />
             <span className="text-xs">读取中...</span>

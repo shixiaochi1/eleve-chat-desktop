@@ -14,6 +14,7 @@ import { File, Globe, X, ExternalLink } from 'lucide-react';
 import { useState } from 'react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { cn } from '@/lib/utils';
+import { usePreviewDirty } from '@/lib/preview-edit';
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
 import {
   closeAllTabs,
@@ -30,6 +31,13 @@ import PreviewFilePane from './PreviewFilePane';
 interface PreviewCenterProps {
   sessionId?: string | null;
   cwd?: string;
+}
+
+/** 脏标记圆点（对齐 Hermes preview-edit.ts modified dot：仅 file tab 消费） */
+function DirtyDot({ url }: { url: string }) {
+  const dirty = usePreviewDirty(url);
+  if (!dirty) return null;
+  return <span className="w-1.5 h-1.5 rounded-full bg-[var(--ui-yellow)] shrink-0" title="有未保存的编辑" />;
 }
 
 function PreviewTabBar() {
@@ -63,6 +71,8 @@ function PreviewTabBar() {
                   <File size={12} className="shrink-0 text-warning" />
                 )}
                 <span className="max-w-36 truncate">{tab.label}</span>
+                {/* 文件预览未保存编辑的「已修改」圆点（对齐 Hermes dirty dot） */}
+                {tab.target.kind === 'file' && <DirtyDot url={tab.target.url} />}
                 <button
                   className="p-0.5 rounded text-muted-foreground/50 opacity-0 group-hover/tab:opacity-100 hover:text-foreground hover:bg-accent/50 transition-opacity shrink-0"
                   onClick={(e) => {
