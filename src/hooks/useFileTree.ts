@@ -183,6 +183,15 @@ export function useFileTree(initialPath: string | null = null) {
     }
   }, [listDir]);
 
+  /**
+   * 折叠全部（对齐 Hermes collapseAll）：清空展开状态，整树收起。
+   * ELEVE 的 TreeNode 直接受 openState 控制（受控状态），无需 Hermes 的
+   * collapseNonce remount 方案。
+   */
+  const collapseAll = useCallback(() => {
+    setOpenState({});
+  }, []);
+
   return {
     data,
     loading,
@@ -194,6 +203,7 @@ export function useFileTree(initialPath: string | null = null) {
     loadChildren,
     openState,
     toggleOpen,
+    collapseAll,
     rootPath,
   };
 }

@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { ContextFileIcon, WebWindowIcon, ImageIcon, CopyIcon, CheckIcon, DeleteIcon } from './Icons';
 import { cn } from '@/lib/utils';
 import type { ArtifactDetection } from '@/lib/artifact-detect';
-import { artifactSlug } from '@/lib/artifact-detect';
 import {
   useArtifacts,
   useOpenArtifact,
@@ -44,7 +43,6 @@ const KIND_LABEL = {
 export const ArtifactCard = memo(function ArtifactCard({ detection, code, streaming = false, sessionId = null }: ArtifactCardProps) {
   const registry = useArtifacts();
   const trimmed = code.trim();
-  const slug = useMemo(() => artifactSlug(detection), [detection]);
 
   // 围栏完成后注册/版本化（内容哈希去重 → 重渲染/回放 no-op）
   useEffect(() => {
@@ -55,11 +53,18 @@ export const ArtifactCard = memo(function ArtifactCard({ detection, code, stream
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streaming, trimmed, sessionId]);
 
+  // 🔴 查找对齐 Hermes：按 kind + 内容匹配版本（非 slug 匹配）——
+  // 流式期间 title 可能变化（html <title> 后期才到）→ slug 随之漂移，
+  // 按 slug 找不到已注册的 record（版本数恒显 1）。内容匹配不受影响。
   const record = useMemo(() => {
     void registry;
     if (!sessionId) return null;
-    return (registry[sessionId] ?? []).find((r) => r.slug === slug) ?? null;
-  }, [registry, sessionId, slug]);
+    return (
+      (registry[sessionId] ?? []).find(
+        (r) => r.kind === detection.kind && r.versions.some((v) => v.content === trimmed),
+      ) ?? null
+    );
+  }, [registry, sessionId, detection.kind, trimmed]);
 
   const lineCount = useMemo(() => trimmed.split('\n').length, [trimmed]);
   const versionCount = record?.versions.length ?? 0;

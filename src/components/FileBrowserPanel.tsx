@@ -4,7 +4,7 @@
  * 树状文件列表，支持展开/折叠目录、点击文件附加路径
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { File, Folder, FolderOpen, ChevronRight, ChevronDown, RefreshCw, Loader, ArrowUp, FolderInput } from 'lucide-react';
+import { File, Folder, FolderOpen, ChevronRight, ChevronDown, ChevronsDownUp, RefreshCw, Loader, ArrowUp, FolderInput } from 'lucide-react';
 import { useFileTree } from '../hooks/useFileTree';
 import { useWorkspaceTick } from '../lib/workspace-events';
 import { openPreview } from '@/store/preview';
@@ -306,6 +306,7 @@ export default function FileBrowserPanel({
     loadChildren,
     openState,
     toggleOpen,
+    collapseAll,
     rootPath,
   } = useFileTree();
 
@@ -476,6 +477,13 @@ export default function FileBrowserPanel({
             disabled={!rootPath || !parentOf(rootPath)}
           >
             <ArrowUp size={14} />
+          </button>
+          <button
+            className="p-1 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            onClick={collapseAll}
+            title="折叠全部"
+          >
+            <ChevronsDownUp size={14} />
           </button>
           <button
             className="p-1 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
