@@ -118,7 +118,18 @@ export default function PaneShell({
   const draggingRef = useRef(false);
 
   // 🔴 拖拽中禁用 grid-template-columns transition（200ms 动画会造成拖拽滞后感）
+  // 🔴🔴 v5.1：grid-template-columns 的 transition 是弹簧抖动元凶（老大 2026-08-06 05:01 反馈
+  //   “还在抖 + 右边距变宽”）：窗口缩放时 var 每帧变化 → 整个模板被 200ms 动画插值 →
+  //   聊天区/右抽屉被动画拖拽（连续缩放永远追不上 → 弹簧）且右缘间距在动画中飘移。
+  //   修复：动画只在面板开/关瞬间（leftOpen/rightOpen 变化后 300ms）启用，
+  //   其余时刻（含窗口缩放全程）零动画。
   const [dragging, setDragging] = useState(false);
+  const [panelAnim, setPanelAnim] = useState(false);
+  useEffect(() => {
+    setPanelAnim(true);
+    const t = window.setTimeout(() => setPanelAnim(false), 300);
+    return () => window.clearTimeout(t);
+  }, [leftOpen, rightOpen]);
 
   // 🔴🔴 2026-08-06 v4 确定性推导架构（老大要求：整体拖动缩放 → 聊天区不动、只变右抽屉）：
   // 右抽屉宽度 = 锚点基准 + 窗口宽度变化量（纯计算，非增量累积）→
@@ -301,13 +312,16 @@ export default function PaneShell({
           !rightOpen && 'pane-right-closed',
         )}
         ref={containerRef}
-        // 🔴 transition 用 inline style 控制：拖拽中必须禁用（200ms 动画会造成拖拽滞后），
+          // 🔴 transition 用 inline style 控制：拖拽中必须禁用（200ms 动画会造成拖拽滞后），
         // 不用 class（transition-[...] 与 transition-none 同类的覆盖顺序不可靠）；
-        // 开/关面板动画保留（非拖拽时 duration 200ms）。
+        // 🔴 v5.1：grid-template-columns 只在面板开关后 300ms 内动画（panelAnim），
+        //   窗口缩放/持续操作全程零动画（弹簧抖动 + 右缘间距飘移的根因）
         style={{
           ...composedStyle,
           background: 'transparent',
-          transition: dragging ? 'none' : 'grid-template-columns 200ms ease, padding-left 200ms ease, padding-right 200ms ease',
+          transition: dragging || !panelAnim
+            ? 'padding-left 200ms ease, padding-right 200ms ease'
+            : 'grid-template-columns 200ms ease, padding-left 200ms ease, padding-right 200ms ease',
         }}
       >
         {children}
