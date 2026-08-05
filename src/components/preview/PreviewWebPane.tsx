@@ -13,6 +13,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { ExternalLink, AlertCircle, Loader2, Globe, RefreshCw } from 'lucide-react';
+import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { getWsClient } from '@/services/ws-client';
 import { cn } from '@/lib/utils';
 import {
@@ -48,12 +49,14 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   const { reloadRequest, restart } = usePreviewStore();
   const [url, setUrl] = useState(tab.target.url);
   const [iframeKey, setIframeKey] = useState(0);
-  const [iframeError, setIframeError] = useState(false);
+  // 错误分类（对齐 Hermes loadErrorTitle 两级：serverNotFound / failedToLoad；
+  // module mime 类依赖 webview console 检测，iframe 不可得 → 标注限制）
+  const [iframeError, setIframeError] = useState<'serverNotFound' | 'failed' | null>(null);
 
   // tab 切换 → URL 输入框重置为 tab 目标
   useEffect(() => {
     setUrl(tab.target.url);
-    setIframeError(false);
+    setIframeError(null);
   }, [tab.id, tab.target.url]);
 
   // 自动刷新：文件变更（tool.complete + inline_diff → requestPreviewReload）
@@ -65,7 +68,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   useEffect(() => {
     if (restart?.status === 'success' && restart.url === (url.trim() || tab.target.url)) {
       setIframeKey((k) => k + 1);
-      setIframeError(false);
+      setIframeError(null);
     }
   }, [restart, url, tab.target.url]);
 
@@ -100,30 +103,47 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   const handleLoad = useCallback(() => {
     if (url.trim()) {
       setIframeKey((k) => k + 1);
-      setIframeError(false);
+      setIframeError(null);
     }
   }, [url]);
 
-  // ── iframe 错误检测 ──
+  // ── 外部打开：系统浏览器（tauri-plugin-shell，对齐 Hermes openExternal）──
+  const handleOpenExternal = useCallback(() => {
+    const target = url.trim() || tab.target.url;
+    if (!target) return;
+    try {
+      void shellOpen(target);
+    } catch (e) {
+      // 浏览器模式降级 window.open
+      window.open(target, '_blank');
+    }
+  }, [url, tab.target.url]);
+
+  // ── iframe 错误检测 + 分类 ──
+  // iframe onload/onerror 在跨域时不可靠，用延时检测；检测到失败后
+  // fetch HEAD 探测服务器可达性（对齐 Hermes loadErrorTitle 分类：
+  // connection refused → serverNotFound；服务器在但页面坏 → failedToLoad）
   const handleIframeError = useCallback(() => {
-    // iframe onload/onerror 在跨域时不可靠，用延时检测
-    setTimeout(() => {
+    setTimeout(async () => {
       const iframe = document.querySelector<HTMLIFrameElement>('#preview-iframe');
-      if (iframe) {
-        try {
-          // 跨域访问会抛异常，说明加载成功（有内容）
-          // 同域 access ok 说明也加载成功
-          const href = iframe.contentWindow?.location?.href;
-          if (!href || href === 'about:blank') {
-            setIframeError(true);
-          }
-        } catch {
-          // 跨域 → 加载成功（有内容但无法访问）
-          setIframeError(false);
-        }
+      if (!iframe) return;
+      try {
+        const href = iframe.contentWindow?.location?.href;
+        if (href && href !== 'about:blank') return; // 有内容 = 加载成功
+      } catch {
+        return; // 跨域 = 有内容，加载成功
+      }
+
+      // 页面空白/加载失败 → 探测服务器可达性
+      const target = url.trim() || tab.target.url;
+      try {
+        await fetch(target, { method: 'HEAD', mode: 'no-cors' });
+        setIframeError('failed'); // 服务器可达但页面未正常加载
+      } catch {
+        setIframeError('serverNotFound'); // connection refused / 网络不可达
       }
     }, 2000);
-  }, []);
+  }, [url, tab.target.url]);
 
   // 重启状态归属：仅当前 pane 的 URL 关联（Hermes restartingServer 同款判断）
   const currentUrl = url.trim() || tab.target.url;
@@ -206,11 +226,31 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
           />
         )}
 
-        {/* iframe 加载错误覆盖层 */}
-        {iframeError && !isRestarting && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--ui-bg-editor)] gap-3">
-            <AlertCircle size={32} className="text-[var(--ui-status-warning)]" strokeWidth={1.5} />
-            <span className="text-xs text-[var(--ui-text-secondary)]">预览加载失败</span>
+      {/* iframe 加载错误覆盖层（分类文案，对齐 Hermes PreviewLoadError） */}
+      {iframeError && !isRestarting && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--ui-bg-editor)] gap-3">
+          <AlertCircle size={32} className="text-[var(--ui-status-warning)]" strokeWidth={1.5} />
+          <span className="text-xs text-[var(--ui-text-secondary)]">
+            {iframeError === 'serverNotFound' ? '无法连接到服务器' : '预览加载失败'}
+          </span>
+          <span className="text-[10px] text-[var(--ui-text-tertiary)] max-w-[80%] truncate" title={url.trim() || tab.target.url}>
+            {url.trim() || tab.target.url}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleLoad}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[var(--ui-bg-tertiary)] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] transition-colors"
+            >
+              <RefreshCw size={12} />
+              重试
+            </button>
+            <button
+              onClick={handleOpenExternal}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[var(--ui-bg-tertiary)] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] transition-colors"
+            >
+              <ExternalLink size={12} />
+              外部打开
+            </button>
             <button
               onClick={handleRestart}
               disabled={!sessionId}
@@ -220,7 +260,8 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
               重启预览服务器
             </button>
           </div>
-        )}
+        </div>
+      )}
       </div>
 
       {/* ── 进度日志区（重启中/完成时显示）── */}
