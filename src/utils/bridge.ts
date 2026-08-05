@@ -189,6 +189,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   migrate_app_data:       'app_data.migrate',
   files_list:             'files.list',
   files_diff:             'files.diff',
+  files_status:           'files.status',
   files_rename:           'files.rename',
   files_delete:           'files.delete',
   projects_tree:          'projects.tree',

@@ -3,7 +3,7 @@
  *
  * 树状文件列表，支持展开/折叠目录；单击选中、shift+click 引用、双击预览
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { File, Folder, FolderOpen, ChevronRight, ChevronDown, ChevronsDownUp, RefreshCw, Loader, ArrowUp, FolderInput } from 'lucide-react';
 import { useFileTree } from '../hooks/useFileTree';
 import { useWorkspaceTick, notifyWorkspaceChanged } from '../lib/workspace-events';
@@ -13,9 +13,10 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { filesRename, filesDelete } from '../utils/api';
 import { notifyError, notifySuccess } from '../utils/notifications';
-import { isDesktop } from '@/utils/bridge';
+import { isDesktop, call } from '@/utils/bridge';
 import { setPathsDragPayload } from '@/lib/paths-dnd';
 import FolderPickerDialog from './FolderPickerDialog';
+import ErrorBoundary from './ErrorBoundary';
 
 interface FileEntry {
   name: string;
@@ -49,8 +50,16 @@ interface TreeNodeProps {
   rootPath: string;
   /** 当前正在重命名的节点路径（null = 无） */
   renamingPath: string | null;
-  /** 当前选中的文件路径（高亮） */
+  /** 当前选中的文件/文件夹路径（高亮；方向键可选中目录） */
   selectedPath: string | null;
+  /** 已加载的子条目（useFileTree loadedDirs 数据源；undefined = 未加载） */
+  children?: FileEntry[] | undefined;
+  /** 目录 → 已加载子条目（递归渲染用；对齐 Hermes childrenAccessor） */
+  getChildren: (dirPath: string) => FileEntry[] | undefined;
+  /** 路径 → git 变更状态（对齐 Hermes repoChangeKindForPath） */
+  statusKindForPath: (path: string) => 'added' | 'modified' | 'conflicted' | undefined;
+  /** 本行 git 变更状态（对齐 Hermes CHANGE_TINT；undefined = 无变更） */
+  statusKind?: 'added' | 'modified' | 'conflicted';
   onReveal: (path: string) => void;
   onCopyText: (text: string) => void;
   onRenameRequest: (path: string) => void;
@@ -119,6 +128,10 @@ function TreeNode({
   rootPath,
   renamingPath,
   selectedPath,
+  children,
+  getChildren,
+  statusKindForPath,
+  statusKind,
   onReveal,
   onCopyText,
   onRenameRequest,
@@ -126,26 +139,22 @@ function TreeNode({
   onRenameCancel,
   onDeleteRequest,
 }: TreeNodeProps) {
-  const [children, setChildren] = useState<FileEntry[] | null>(null);
   const [loadingChildren, setLoadingChildren] = useState(false);
   /** 子目录读取失败原因（Hermes error placeholder 语义；成功/空目录 = null） */
   const [loadError, setLoadError] = useState<string | null>(null);
-  const childrenLoadedRef = useRef(false);
 
   const isOpen = !!openState[entry.path];
+  const loaded = children !== undefined;
 
   // 非破坏刷新：workspace 变化（Agent 写文件/保存）→ 已展开目录重新拉取
   // （缓存已被 invalidate 清空 → loadChildren 重新 fetch；未展开/未加载过的不动）
   useEffect(() => {
-    if (!isOpen || !childrenLoadedRef.current) return;
+    if (!isOpen || !loaded) return;
     let cancelled = false;
     setLoadingChildren(true);
     loadChildren(entry.path)
-      .then((result) => {
-        if (!cancelled) {
-          setChildren(result);
-          setLoadError(null);
-        }
+      .then(() => {
+        if (!cancelled) setLoadError(null);
       })
       .catch((err: unknown) => {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
@@ -156,27 +165,25 @@ function TreeNode({
     return () => {
       cancelled = true;
     };
-  }, [refreshNonce, entry.path, isOpen, loadChildren]);
+  }, [refreshNonce, entry.path, isOpen, loaded, loadChildren]);
 
-  const handleToggle = useCallback(async (e: React.MouseEvent) => {
+  const handleToggle = useCallback(async (e: React.SyntheticEvent) => {
     e.stopPropagation();
     await onToggle(entry.path);
 
-    // 首次展开时加载子目录
-    if (!isOpen && !childrenLoadedRef.current) {
+    // 首次展开时加载子目录（数据源 = loadedDirs，加载后主组件透传 children）
+    if (!isOpen && !loaded) {
       setLoadingChildren(true);
       try {
-        const result = await loadChildren(entry.path);
-        setChildren(result);
+        await loadChildren(entry.path);
         setLoadError(null);
-        childrenLoadedRef.current = true;
       } catch (err: unknown) {
         // 对齐 Hermes error placeholder：读取失败不能伪装成空目录
         setLoadError(err instanceof Error ? err.message : String(err));
       }
       setLoadingChildren(false);
     }
-  }, [entry.path, isOpen, onToggle, loadChildren]);
+  }, [entry.path, isOpen, loaded, onToggle, loadChildren]);
 
   const indent = Math.min(depth, MAX_INDENT_DEPTH) * INDENT + 4;
   const isRenaming = renamingPath === entry.path;
@@ -190,15 +197,15 @@ function TreeNode({
       onFileAttach(entry.path);
     } else {
       // 单击 = 选中高亮（对齐 Hermes row select 语义，无发送副作用）；
-      // focus 行 → F2/Enter 热键立即可用（对齐 Hermes arborist 选中即键盘可用）
+      // focus 行 → F2/Enter/方向键立即可用（对齐 Hermes arborist 选中即键盘可用）
       onSelectFile(entry.path);
       e.currentTarget.focus();
     }
   }, [entry, handleToggle, onFileAttach, onSelectFile]);
 
-  // 选中行键盘操作（对齐 Hermes isRenameShortcut：F2 = 重命名、Enter = 激活预览）
+  // 选中行键盘操作（对齐 Hermes isRenameShortcut：F2 = 重命名、Enter = 激活；
+  // 目录 Enter = 展开/折叠；方向键冒泡到树容器处理）
   const handleRowKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (entry.isDirectory) return;
     if (e.key === 'F2') {
       e.preventDefault();
       e.stopPropagation();
@@ -206,9 +213,13 @@ function TreeNode({
     } else if (e.key === 'Enter') {
       e.preventDefault();
       e.stopPropagation();
-      onFileDoubleClick(entry);
+      if (entry.isDirectory) {
+        void handleToggle(e);
+      } else {
+        onFileDoubleClick(entry);
+      }
     }
-  }, [entry, onRenameRequest, onFileDoubleClick]);
+  }, [entry, onRenameRequest, onFileDoubleClick, handleToggle]);
 
   // 行拖拽 → 聊天输入框/终端（对齐 Hermes tree.tsx onDragStart：
   // application/x-hermes-paths JSON + text/plain 双 MIME）
@@ -226,8 +237,9 @@ function TreeNode({
       className={cn(
         'flex items-center gap-1 px-1 py-0.5 rounded text-xs cursor-pointer transition-colors',
         !entry.isDirectory && 'hover:bg-accent/20',
-        // 选中高亮（对齐 Hermes node.isSelected 视觉；单击文件即选中）
-        !entry.isDirectory && selectedPath === entry.path && 'bg-accent/30 hover:bg-accent/30'
+        // 选中高亮（对齐 Hermes node.isSelected 视觉；单击文件/方向键均可选中，
+        // 目录被选中时同样高亮——Hermes arborist 选中态不分文件/文件夹）
+        selectedPath === entry.path && 'bg-accent/30 hover:bg-accent/30'
       )}
       onClick={handleClick}
       onDoubleClick={(e) => {
@@ -240,7 +252,9 @@ function TreeNode({
       onDragStart={handleDragStart}
       onKeyDown={handleRowKeyDown}
       draggable={!isRenaming}
-      tabIndex={!entry.isDirectory && selectedPath === entry.path ? 0 : -1}
+      aria-expanded={entry.isDirectory ? isOpen : undefined}
+      aria-selected={selectedPath === entry.path}
+      tabIndex={selectedPath === entry.path ? 0 : -1}
       title={entry.path}
     >
       {/* 展开/折叠箭头 — 仅文件夹显示 */}
@@ -285,7 +299,19 @@ function TreeNode({
           onBlur={(e) => onRenameCommit(entry.path, e.currentTarget.value)}
         />
       ) : (
-        <span className="truncate text-foreground/80 flex-1 min-w-0">{entry.name}</span>
+        <span
+          className={cn(
+            'truncate flex-1 min-w-0',
+            // git 变更着色（对齐 Hermes CHANGE_TINT：added=绿/modified=黄/conflicted=红；
+            // 显式颜色优先于行 hover/选中文本色，持续可见）
+            statusKind === 'added' && 'text-success',
+            statusKind === 'modified' && 'text-warning',
+            statusKind === 'conflicted' && 'text-destructive',
+            !statusKind && 'text-foreground/80'
+          )}
+        >
+          {entry.name}
+        </span>
       )}
 
       {/* 加载中指示器 */}
@@ -332,6 +358,10 @@ function TreeNode({
               rootPath={rootPath}
               renamingPath={renamingPath}
               selectedPath={selectedPath}
+              children={child.isDirectory ? getChildren(child.path) : undefined}
+              getChildren={getChildren}
+              statusKindForPath={statusKindForPath}
+              statusKind={statusKindForPath(child.path)}
               onReveal={onReveal}
               onCopyText={onCopyText}
               onRenameRequest={onRenameRequest}
@@ -382,7 +412,61 @@ export default function FileBrowserPanel({
     toggleOpen,
     collapseAll,
     rootPath,
+    loadedDirs,
   } = useFileTree();
+
+  // ── git 变更着色（对齐 Hermes $repoStatus → CHANGE_TINT）──
+  // files.status（WS）返回 repo-root 相对路径 → join git root 成绝对路径匹配树行；
+  // 非 git 仓库/失败 → 不着色。刷新时机 = 根变化或非破坏刷新后（与树一致，
+  // Hermes 同款：workspaceTick/cwd 变化 → scheduleRepoStatusRefresh）。
+  const [statusMap, setStatusMap] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!rootPath) {
+      setStatusMap({});
+      return;
+    }
+    let cancelled = false;
+    call('files_status', { path: rootPath })
+      .then((data) => {
+        if (cancelled) return;
+        const d = data as { root?: string; files?: Array<{ path: string; kind: string }> };
+        const root = d.root;
+        const m: Record<string, string> = {};
+        if (root) {
+          const r = root.replace(/\\/g, '/').replace(/\/+$/, '');
+          for (const f of d.files ?? []) m[`${r}/${f.path}`] = f.kind;
+        }
+        setStatusMap(m);
+      })
+      .catch(() => {
+        if (!cancelled) setStatusMap({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rootPath, refreshNonce]);
+
+  const statusKindForPath = useCallback(
+    (path: string) => statusMap[path.replace(/\\/g, '/')] as 'added' | 'modified' | 'conflicted' | undefined,
+    [statusMap],
+  );
+
+  // 可见行扁平列表（键盘导航 ↑↓ 用；数据源 = data + loadedDirs + openState，
+  // 与渲染同一权威源，对齐 Hermes arborist 的树导航语义）
+  const flatList = useMemo(() => {
+    const out: Array<{ path: string; isDirectory: boolean }> = [];
+    const walk = (entries: FileEntry[]) => {
+      for (const e of entries) {
+        out.push({ path: e.path, isDirectory: e.isDirectory });
+        if (e.isDirectory && openState[e.path]) {
+          const kids = loadedDirs[e.path];
+          if (kids) walk(kids);
+        }
+      }
+    };
+    if (data) walk(data);
+    return out;
+  }, [data, loadedDirs, openState]);
 
   // 工作区自动刷新（对齐 Hermes use-project-tree workspaceTick 消费）：
   // Agent 写文件 / spot editor 保存 → 非破坏刷新（保留展开状态）
@@ -406,10 +490,49 @@ export default function FileBrowserPanel({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const handleSelectFile = useCallback((path: string) => setSelectedPath(path), []);
 
-  // 双击文件 → 打开文件预览 tab（对齐 Hermes onPreviewFile 语义）
+  // 树容器方向键导航（行 F2/Enter 就地处理；↑↓→← 冒泡到这里）：
+  // ↑↓ 移动选中、→ 展开选中目录、← 折叠选中目录/跳到父目录（对齐 Hermes arborist 键盘模型）
+  const handleTreeKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (!selectedPath || flatList.length === 0) return;
+      const idx = flatList.findIndex((x) => x.path === selectedPath);
+      if (idx < 0) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const next = flatList[Math.min(idx + 1, flatList.length - 1)];
+        if (next) setSelectedPath(next.path);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const prev = flatList[Math.max(idx - 1, 0)];
+        if (prev) setSelectedPath(prev.path);
+      } else if (e.key === 'ArrowRight') {
+        const target = flatList[idx];
+        if (target?.isDirectory && !openState[target.path]) void toggleOpen(target.path);
+      } else if (e.key === 'ArrowLeft') {
+        const target = flatList[idx];
+        if (target?.isDirectory && openState[target.path]) {
+          void toggleOpen(target.path);
+        } else if (target) {
+          const parent = parentOf(target.path);
+          if (parent) {
+            if (openState[parent]) void toggleOpen(parent);
+            else setSelectedPath(parent);
+          }
+        }
+      }
+    },
+    [selectedPath, flatList, openState, toggleOpen],
+  );
+
+  // 双击文件 → 打开文件预览 tab（对齐 Hermes onPreviewFile 语义）；
+  // 双击文件夹 = 展开/折叠（Hermes dblclick 文件夹同 toggle）
   const handleFileDoubleClick = useCallback((entry: FileEntry) => {
-    openPreview({ kind: 'file', url: entry.path, name: entry.name });
-  }, []);
+    if (entry.isDirectory) {
+      void toggleOpen(entry.path);
+    } else {
+      openPreview({ kind: 'file', url: entry.path, name: entry.name });
+    }
+  }, [toggleOpen]);
 
   // 处理刷新
   const handleRefresh = useCallback(() => {
@@ -605,9 +728,11 @@ export default function FileBrowserPanel({
         </div>
       )}
 
-      {/* 文件树 */}
+      {/* 文件树（ErrorBoundary key=rootPath：渲染崩溃局部隔离，对齐 Hermes
+          FileTreeBody ErrorBoundary key=cwd） */}
       {data && !error && (
-        <div className="flex-1 overflow-y-auto space-y-0.5">
+        <ErrorBoundary key={rootPath ?? ''}>
+        <div className="flex-1 overflow-y-auto space-y-0.5" tabIndex={-1} onKeyDown={handleTreeKeyDown}>
           {data.length === 0 ? (
             <div className="flex flex-col items-center py-6 text-muted-foreground gap-2">
               <Folder size={24} className="text-muted-foreground/30" />
@@ -629,6 +754,10 @@ export default function FileBrowserPanel({
                 rootPath={rootPath ?? ''}
                 renamingPath={renamingPath}
                 selectedPath={selectedPath}
+                children={entry.isDirectory ? loadedDirs[entry.path] : undefined}
+                getChildren={(p) => loadedDirs[p]}
+                statusKindForPath={statusKindForPath}
+                statusKind={statusKindForPath(entry.path)}
                 onReveal={handleReveal}
                 onCopyText={handleCopyText}
                 onRenameRequest={handleRenameRequest}
@@ -639,6 +768,7 @@ export default function FileBrowserPanel({
             ))
           )}
         </div>
+        </ErrorBoundary>
       )}
 
       {/* 删除确认弹窗（对齐 Hermes file-actions delete confirm；回收站可恢复） */}

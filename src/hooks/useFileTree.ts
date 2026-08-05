@@ -48,6 +48,9 @@ export function useFileTree(initialPath: string | null = null) {
   // 非破坏刷新信号：workspace tick 递增 → TreeNode 重载已展开目录（对齐 Hermes
   // revalidateTree 非破坏语义——保留展开状态，只更新数据）
   const [refreshNonce, setRefreshNonce] = useState(0);
+  // 已加载目录 → 子条目（数据源收敛到 hook 层，对齐 Hermes useProjectTree 的
+  // data 树模型；TreeNode 渲染 + 键盘导航扁平化都从这里读，单一权威源）
+  const [loadedDirs, setLoadedDirs] = useState<Record<string, FileEntry[]>>({});
   const cacheRef = useRef<CacheMap>({});
   const mountedRef = useRef(true);
 
@@ -88,8 +91,9 @@ export function useFileTree(initialPath: string | null = null) {
     setRootPath(path);
     setLoading(true);
     setError(null);
-    // 切换根目录：重置展开状态 + 目录缓存（旧树状态不能残留到新目录）
+    // 切换根目录：重置展开状态 + 目录缓存 + 已加载子树（旧树状态不能残留到新目录）
     setOpenState({});
+    setLoadedDirs({});
     cacheRef.current = {};
 
     try {
@@ -181,15 +185,17 @@ export function useFileTree(initialPath: string | null = null) {
   }, [listDir]);
 
   /**
-   * 获取子目录条目（用于递归渲染）
+   * 获取子目录条目（用于递归渲染 + 键盘导航扁平化）
+   * 成功 → 写入 loadedDirs（缓存命中同样写，保证渲染数据源一致）；
    * 错误向上传播（不吞）→ TreeNode 显示 Hermes error placeholder 占位行，
    * 不能把读取失败伪装成空目录
    */
   const loadChildren = useCallback(async (dirPath: string): Promise<FileEntry[]> => {
-    if (cacheRef.current[dirPath]) {
-      return cacheRef.current[dirPath];
-    }
-    return listDir(dirPath);
+    const entries = cacheRef.current[dirPath]
+      ? cacheRef.current[dirPath]
+      : await listDir(dirPath);
+    setLoadedDirs((prev) => (prev[dirPath] === entries ? prev : { ...prev, [dirPath]: entries }));
+    return entries;
   }, [listDir]);
 
   /**
@@ -214,5 +220,6 @@ export function useFileTree(initialPath: string | null = null) {
     toggleOpen,
     collapseAll,
     rootPath,
+    loadedDirs,
   };
 }
