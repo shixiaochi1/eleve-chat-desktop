@@ -27,6 +27,12 @@
     "core:webview:allow-set-webview-size",
     "core:webview:allow-set-webview-focus",
     "core:webview:allow-webview-close",
-    "dialog:default"
+    "dialog:default",
+    "fs:allow-read-text-file",
+    "fs:allow-read-file",
+    "fs:allow-read-dir",
+    "fs:allow-exists",
+    "fs:allow-stat",
+    { "identifier": "fs:scope", "allow": [{ "path": "**" }] }
   ]
 }

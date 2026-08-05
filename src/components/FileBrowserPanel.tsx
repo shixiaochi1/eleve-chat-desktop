@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { File, Folder, FolderOpen, ChevronRight, ChevronDown, RefreshCw, Loader, ArrowUp, FolderInput } from 'lucide-react';
 import { useFileTree } from '../hooks/useFileTree';
+import { openPreview } from '@/store/preview';
 import { cn } from '@/lib/utils';
 
 declare const process: { env: Record<string, string | undefined> } | undefined;
@@ -23,6 +24,7 @@ interface TreeNodeProps {
   openState: Record<string, boolean>;
   onToggle: (dirPath: string) => Promise<void>;
   onFileClick: (entry: FileEntry) => void;
+  onFileDoubleClick: (entry: FileEntry) => void;
   loadChildren: (dirPath: string) => Promise<FileEntry[]>;
 }
 
@@ -110,6 +112,7 @@ function TreeNode({
   openState,
   onToggle,
   onFileClick,
+  onFileDoubleClick,
   loadChildren,
 }: TreeNodeProps) {
   const [children, setChildren] = useState<FileEntry[] | null>(null);
@@ -152,6 +155,13 @@ function TreeNode({
           !entry.isDirectory && 'hover:bg-accent/20'
         )}
         onClick={handleClick}
+        onDoubleClick={(e) => {
+          // 双击文件 → 打开预览 tab（对齐 Hermes onPreviewFile）；文件夹双击 = 展开
+          if (!entry.isDirectory) {
+            e.stopPropagation();
+            onFileDoubleClick(entry);
+          }
+        }}
         title={entry.path}
       >
         {/* 展开/折叠箭头 — 仅文件夹显示 */}
@@ -192,6 +202,7 @@ function TreeNode({
               openState={openState}
               onToggle={onToggle}
               onFileClick={onFileClick}
+              onFileDoubleClick={onFileDoubleClick}
               loadChildren={loadChildren}
             />
           ))}
@@ -241,12 +252,33 @@ export default function FileBrowserPanel({
     })();
   }, [setRoot]);
 
-  // 处理文件点击 — 附加文件路径
+  // 处理文件点击 — 附加文件路径（250ms 延迟：双击会先触发两次 click，双击语义=打开预览，
+  // 延迟让双击有机会取消 attach，避免误发两条 @file）
+  const attachTimerRef = useRef<number | null>(null);
   const handleFileClick = useCallback((entry: FileEntry) => {
-    if (!entry.isDirectory && onFileAttach) {
+    if (entry.isDirectory || !onFileAttach) return;
+    if (attachTimerRef.current !== null) window.clearTimeout(attachTimerRef.current);
+    attachTimerRef.current = window.setTimeout(() => {
       onFileAttach(entry.path);
-    }
+      attachTimerRef.current = null;
+    }, 250);
   }, [onFileAttach]);
+
+  // 双击文件 → 打开文件预览 tab（对齐 Hermes onPreviewFile 语义）
+  const handleFileDoubleClick = useCallback((entry: FileEntry) => {
+    if (attachTimerRef.current !== null) {
+      window.clearTimeout(attachTimerRef.current);
+      attachTimerRef.current = null;
+    }
+    openPreview({ kind: 'file', url: entry.path, name: entry.name });
+  }, []);
+
+  // 卸载清理挂起的 attach timer
+  useEffect(() => {
+    return () => {
+      if (attachTimerRef.current !== null) window.clearTimeout(attachTimerRef.current);
+    };
+  }, []);
 
   // 处理刷新
   const handleRefresh = useCallback(() => {
@@ -381,6 +413,7 @@ export default function FileBrowserPanel({
                 openState={openState}
                 onToggle={toggleOpen}
                 onFileClick={handleFileClick}
+                onFileDoubleClick={handleFileDoubleClick}
                 loadChildren={loadChildren}
               />
             ))
