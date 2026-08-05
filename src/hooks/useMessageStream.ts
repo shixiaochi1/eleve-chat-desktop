@@ -390,7 +390,14 @@ export function useMessageStream({
     // KEY: flush queued text/reasoning BEFORE upserting tool part.
     onToolStart: ({ id, name, preview }: { id: string | null; name: string; preview?: string }) => {
       addDebugEvent('tool_start', `${name} (${id?.slice(0, 8)})${preview ? ` - ${preview}` : ''}`);
-      setDebugToolCalls((prev) => [...prev, { name, callId: id || '', args: '', result: '', status: 'pending' }]);
+      // 🔴 2026-08-05 去重：同一 callId 已存在（如历史双推/重连重放）→ 更新不新增，
+      // 防 DebugPanel 工具记录重复显示（后端 ToolCallStart 双推已修，此处兜底）
+      setDebugToolCalls((prev) => {
+        if (id && prev.some((t) => t.callId === id)) {
+          return prev.map((t) => t.callId === id ? { ...t, name: name || t.name, preview } : t);
+        }
+        return [...prev, { name, callId: id || '', args: '', result: '', status: 'pending' }];
+      });
       flushQueuedDeltas()
       const toolPayload: GatewayEventPayload = { tool_call_id: id || '', name, preview };
       upsertToolCall(toolPayload, 'running');
