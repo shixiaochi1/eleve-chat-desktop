@@ -141,6 +141,13 @@ export default function PaneShell({
 
   const handleResizerDown = useCallback((side: 'left' | 'right', e: React.PointerEvent) => {
     e.preventDefault();
+    // 🔴 setPointerCapture 必须：拖拽中鼠标可能移入 iframe（产物预览）等独立文档，
+    // iframe 内 pointerup 不冒泡到父窗口 → 拖拽状态残留（“松手还跟着鼠标走”根因）。
+    // capture 把后续 pointer 事件强制重定向到热区元素，iframe 内松手也能收到。
+    // 热区 div 在拖拽期间不会被 React 卸载（leftOpen/rightOpen 不变），capture 可靠。
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    } catch { /* capture 失败不阻塞（window 级监听兑底） */ }
     dragRef.current = { side, startX: 'clientX' in e ? e.clientX : (e as any).touches?.[0]?.clientX ?? 0 };
     draggingRef.current = true;
     setDragging(true);
