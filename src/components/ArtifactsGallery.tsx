@@ -48,8 +48,10 @@ function formatArtifactTime(timestamp: number): string {
 /** 图片 src 解析：http/data 直通；本地文件 → fs readFile → Blob URL（Hermes artifactImageSrc 等价） */
 async function resolveImageSrc(value: string, href: string): Promise<string> {
   if (/^(?:https?|data):/i.test(value)) return href;
+  // file:// 前缀剥掉（readFile 只收本地路径）
+  const path = value.startsWith('file://') ? value.slice('file://'.length) : value;
   try {
-    const bytes = await readFile(value);
+    const bytes = await readFile(path);
     const ext = (/\.(\w{2,4})(?:\?.*)?$/.exec(value)?.[1] ?? '').toLowerCase();
     const mime =
       ext === 'svg' ? 'image/svg+xml' :
@@ -493,19 +495,30 @@ function ArtifactImageCard({
 /** 放大图片（懒加载 src，支持文件产物） */
 function ZoomedImage({ artifact, onClose }: { artifact: GalleryArtifact; onClose: () => void }) {
   const [src, setSrc] = useState('');
+  const urlRef = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
     setSrc('');
     void resolveImageSrc(artifact.value, artifact.href)
       .then((nextSrc) => {
-        if (active) setSrc(nextSrc);
-        else if (nextSrc.startsWith('blob:')) URL.revokeObjectURL(nextSrc);
+        if (active) {
+          urlRef.current = nextSrc;
+          setSrc(nextSrc);
+        } else if (nextSrc.startsWith('blob:')) {
+          URL.revokeObjectURL(nextSrc);
+        }
       })
       .catch(() => {
         if (active) onClose();
       });
-    return () => { active = false; };
+    return () => {
+      active = false;
+      if (urlRef.current?.startsWith('blob:')) {
+        URL.revokeObjectURL(urlRef.current);
+        urlRef.current = null;
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [artifact.id, artifact.href, artifact.value]);
 
