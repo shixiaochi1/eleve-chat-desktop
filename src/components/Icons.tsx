@@ -58,6 +58,7 @@ import {
   BarChart3,
   LayoutGrid,
   List,
+  Images,
   Bot,
   Radio,
   Edit3,
@@ -100,6 +101,7 @@ export const MicIcon: IconComponent = (props) => <Mic size={ICON_SIZE_SM} {...st
 export const FastIcon: IconComponent = (props) => <Zap size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const ContextFileIcon: IconComponent = (props) => <FileText size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const WebWindowIcon: IconComponent = (props) => <AppWindow size={ICON_SIZE_SM} {...strokeProps} {...props} />;
+export const GalleryIcon: IconComponent = (props) => <Images size={ICON_SIZE_MD} {...strokeProps} {...props} />;
 export const CopyIcon: IconComponent = (props) => <Copy size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const RegenerateIcon: IconComponent = (props) => <RefreshCw size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const NewIcon: IconComponent = (props) => <Plus size={ICON_SIZE_MD} {...strokeProps} {...props} />;
