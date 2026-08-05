@@ -124,18 +124,42 @@ export default function PaneShell({
   // 右抽屉宽度 = 锚点基准 + 窗口宽度变化量（纯计算，非增量累积）→
   //   派生 rightW = clamp(anchor.rightW + (winW - anchor.winW), minR, maxR)
   //   聊天区 = winW - left - rightW - chrome → 非 clamp 区间恒 = anchor 基准值（数学恒等）
-  // 窗口缩放 → winW state 变化 → PaneShell 局部重渲染（App 不参与）→ 派生 rightW 更新；
-  // 手动拖右抽屉 → endDrag 上报 → App setRightAnchor 更新基准。
-  // 对比 v3 增量分配（ResizeObserver + Δ 累积）：v4 无状态累积、无分配延迟、无弹簧抖动。
-  const [winW, setWinW] = useState<number>(() => (typeof window !== 'undefined' ? window.innerWidth : 900));
+  // 🔴🔴 2026-08-06 v5 最终版（老大："只改右抽屉左右宽度，消息区不动"）：
+  //   抖动根因 = grid 中间列 1fr：窗口缩放时浏览器先按旧 CSS 变量重排
+  //   （1fr 吸收变化 → 聊天区被拉），React 异步更新变量后再弹回 → 每帧
+  //   "拉一下弹回" = 弹簧。彻底解法：
+  //   a) 去掉 1fr → 三列全显式：left / calc(100%-left-right-32px) / right
+  //      → 聊天区列在**浏览器每次 reflow 中都恒等**（calc 同步重算），
+  //      窗口怎么变聊天区都不动（无中间态）。
+  //   b) resize 事件里**同步写 CSS 变量**（setProperty，零 React 参与）→
+  //      右抽屉在同一帧跟随窗口宽度，无异步滞后。
+  //   c) React 渲染只做"纠正/确认"（anchor 变化、手动拖拽结束）。
+  const anchorRef = useRef(rightAnchor);
+  anchorRef.current = rightAnchor;
+  const rightOpenRef = useRef(rightOpen);
+  rightOpenRef.current = rightOpen;
   useEffect(() => {
-    const onResize = () => setWinW(window.innerWidth);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    const el = containerRef.current;
+    if (!el) return;
+    const syncRight = () => {
+      // 拖拽中不写（applyDrag 实时写）；右抽屉未开不写
+      if (draggingRef.current || !rightOpenRef.current) return;
+      const a = anchorRef.current;
+      if (!a) return;
+      const right = Math.max(
+        limitsRef.current.minR,
+        Math.min(limitsRef.current.maxR, a.rightW + (window.innerWidth - a.winW)),
+      );
+      widthRef.current.right = right;
+      el.style.setProperty('--pane-right-width', `${right}px`);
+    };
+    window.addEventListener('resize', syncRight);
+    syncRight();
+    return () => window.removeEventListener('resize', syncRight);
   }, []);
   const derivedRight = rightOpen
     ? rightAnchor
-      ? Math.max(minRightWidth, Math.min(maxRightWidth, rightAnchor.rightW + (winW - rightAnchor.winW)))
+      ? Math.max(minRightWidth, Math.min(maxRightWidth, rightAnchor.rightW + (window.innerWidth - rightAnchor.winW)))
       : parseFloat(rightWidth) || 200
     : 0;
   // 渲染同步 widthRef（拖拽中保留 applyDrag 实时值，防基准被重置）
@@ -233,16 +257,14 @@ export default function PaneShell({
   }, [handlePointerMove, endDrag]);
 
   // CSS Grid template: 3 columns (left | main | right)
-  // 🔴 列宽引用 CSS 变量（var(--pane-left/right-width)）：拖拽中 applyDrag 直接
-  // setProperty 覆写变量 → 浏览器原生重排，零 React 参与；非拖拽时由 React 渲染
-  // 写入（composedStyle 同步 props）。
+  // 🔴 v5 三列全显式（无 1fr）：聊天区 = calc(100% - left - right - 32px)
+  //   32px = 容器 padding 16（pl-2/pr-2）+ grid gap 16（gap-2 ×2）。
+  //   浏览器每次 reflow 都同步重算 calc → 聊天区列宽数学恒等，窗口缩放
+  //   零中间态（旧 1fr 会在 CSS 变量更新前吸收窗口变化 → 弹簧抖动根因）。
   const gridTemplate = useMemo(() => {
     const left = leftOpen ? 'var(--pane-left-width)' : '0px';
     const right = rightOpen ? 'var(--pane-right-width)' : '0px';
-    // 🔴 2026-08-06：main 列改 minmax(0, 1fr) —— 旧 1fr 的隐式 min=auto(min-content)
-    // 会被消息内容撑开 → 窗口缩放时聊天区宽度不稳定（左右抖动）；minmax(0,1fr)
-    // 强制 min=0，列宽纯由可用空间决定，聊天区宽度随窗口缩放平滑变化
-    return `${left} minmax(0, 1fr) ${right}`;
+    return `${left} calc(100% - ${left} - ${right} - 32px) ${right}`;
   }, [leftOpen, rightOpen]);
 
   // Emit pane widths as CSS variables for animation

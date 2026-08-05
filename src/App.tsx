@@ -146,15 +146,17 @@ export default function App() {
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
         const { PhysicalSize } = await import('@tauri-apps/api/dpi');
         const win = getCurrentWindow();
+        const size = await win.innerSize();
+        // 🔴 物理宽 = 内容宽 + 边框差（setSize/setMinSize 是物理单位，calc 布局用内容宽）
+        const border = Math.max(0, (await win.outerSize()).width - size.width);
         const minW = 52 + panelWidth + MIN_CHAT_WIDTH + SIDE_CHROME + (rightOpen ? 240 : 0);
-        await win.setMinSize(new PhysicalSize(minW, 400));
+        await win.setMinSize(new PhysicalSize(minW + border, 400));
         if (rightOpen) {
           if (!widenedRef.current) {
             widenedRef.current = true;
-            const size = await win.innerSize();
             const need = 52 + panelWidth + MIN_CHAT_WIDTH + SIDE_CHROME + rightAnchor.rightW;
             if (size.width < need) {
-              await win.setSize(new PhysicalSize(need, size.height));
+              await win.setSize(new PhysicalSize(need + border, size.height));
               // 🔴 setSize 后同步锚点基准（否则窗口增量被算进右抽屉 → 聊天区被挤回）
               const after = await win.innerSize();
               setRightAnchor((prev) => ({ winW: after.width, rightW: prev.rightW }));
