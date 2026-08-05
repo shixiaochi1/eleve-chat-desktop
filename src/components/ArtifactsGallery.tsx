@@ -14,11 +14,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
-import { readFile } from '@tauri-apps/plugin-fs';
+import { readFile, stat } from '@tauri-apps/plugin-fs';
 import {
   ExternalLink, FileText, FolderOpen, Image as ImageIcon, Link2, Loader2, Maximize2, RefreshCw, Search, X,
 } from 'lucide-react';
 import { call } from '@/utils/bridge';
+import { notifyError, notifySuccess } from '@/utils/notifications';
 import { cn } from '@/lib/utils';
 import {
   ARTIFACT_FILTERS,
@@ -181,7 +182,7 @@ export default function ArtifactsGallery({ onSwitchSession }: ArtifactsGalleryPr
     link: artifacts?.filter((a) => a.kind === 'link').length ?? 0,
   }), [artifacts]);
 
-  /** 打开产物（Hermes openArtifact 等价：link/file → 系统程序；失败降级） */
+  /** 打开产物（Hermes openArtifact 等价：link/file → 系统程序；失败降级 + 可见错误） */
   const handleOpen = useCallback(async (artifact: GalleryArtifact) => {
     if (!isTauri()) {
       window.open(artifact.href, '_blank', 'noopener,noreferrer');
@@ -194,18 +195,33 @@ export default function ArtifactsGallery({ onSwitchSession }: ArtifactsGalleryPr
       }
       if (artifact.kind === 'file') {
         const path = artifact.href.startsWith('file://') ? artifact.href.slice('file://'.length) : artifact.href;
-        await openPath(path);
-        return;
+        // 路径有效性验证（fs:allow-stat）：不存在/目录 → 明确提示，避免静默失败
+        try {
+          const info = await stat(path);
+          if (info.isDirectory) {
+            notifyError(new Error(path), '这是目录，请选择文件');
+            return;
+          }
+        } catch {
+          notifyError(new Error(path), '文件不存在');
+          return;
+        }
+        try {
+          await openPath(path);
+          return;
+        } catch (err) {
+          // 打开失败降级：在资源管理器中显示（对齐 Hermes 失败后可自行处理）
+          try {
+            await revealItemInDir(path);
+            notifySuccess('已定位到文件所在目录');
+            return;
+          } catch {
+            notifyError(err, '打开文件失败');
+          }
+        }
       }
     } catch (err) {
-      console.error('[artifacts-gallery] open failed:', err);
-      // file 打开失败降级：在资源管理器中显示（Hermes notifyError 后用户可自行处理）
-      if (artifact.kind === 'file') {
-        const path = artifact.href.startsWith('file://') ? artifact.href.slice('file://'.length) : artifact.href;
-        try {
-          await revealItemInDir(path);
-        } catch { /* 忽略 */ }
-      }
+      notifyError(err, '打开失败');
     }
   }, []);
 
