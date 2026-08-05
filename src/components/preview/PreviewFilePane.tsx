@@ -216,7 +216,7 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
             </span>
             <button
               onClick={handleForcePreview}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[var(--ui-accent-primary)] text-primary-foreground hover:bg-[var(--ui-accent-primary-hover)] transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
             >
               <Download size={12} />
               仍要预览

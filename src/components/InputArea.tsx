@@ -16,6 +16,7 @@ import { useVoice } from '@/hooks/useVoice';
 import { getWsClient } from '@/services/ws-client';
 import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
 import { useQueue, updateEntry, type QueuedMessage } from '@/lib/message-queue';
+import { onComposerInsertRequest } from '@/lib/composer-events';
 
 interface InputAreaProps {
   onSend?: (text: string) => void;
@@ -332,6 +333,10 @@ function InputArea({
   const handleAddPaths = useCallback((paths: string[]) => {
     insertTextAtCursor(paths.join(' ') + ' ');
   }, [insertTextAtCursor]);
+
+  // ── 预览控制台“发送到输入区”（对齐 Hermes focus.ts 总线：外部面板 → composer）──
+  // 订阅 window CustomEvent，复用 insertTextAtCursor（零重复逻辑）；卸载自动取消
+  useEffect(() => onComposerInsertRequest(insertTextAtCursor), [insertTextAtCursor]);
 
   // ── 图片附件：粘贴 / 拖拽 / 文件选择 ──
 

@@ -2,6 +2,7 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": ["main", "kanban"],
+  "webviews": ["main", "kanban"],
   "permissions": [
     "core:default",
     "core:event:default",
@@ -37,6 +38,20 @@
     {
       "identifier": "shell:allow-open",
       "allow": [{ "url": "https://*" }, { "url": "http://*" }]
-    }
+    },
+    "allow-get-gateway-port",
+    "allow-get-auto-start",
+    "allow-set-auto-start",
+    "allow-create-deepseek-webview",
+    "allow-mark-restarting",
+    "allow-preview-console-push",
+    "allow-preview-console-snapshot",
+    "allow-preview-webview-create",
+    "allow-preview-webview-close",
+    "allow-preview-webview-update",
+    "allow-preview-webview-navigate",
+    "allow-preview-webview-reload",
+    "allow-preview-webview-visible",
+    "allow-preview-webview-devtools"
   ]
 }

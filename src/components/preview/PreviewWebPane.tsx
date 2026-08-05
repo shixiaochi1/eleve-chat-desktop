@@ -1,21 +1,33 @@
 /**
  * PreviewWebPane — URL 预览内容区（对齐 Hermes PreviewPane 的 url target 分支）
  *
- * 原 PreviewPanel 改造为多 Tab 预览中心的 url 内容区：
- * - URL 输入 + iframe（sandbox + 协议白名单保留）
- * - 重启：RPC preview.restart → store 重启状态机
- *   （progress/complete 事件由 lib/preview-events 全局路由写入 store，本组件只读）
- * - 自动刷新：store reloadRequest（文件变更自动刷新）→ iframe 重载
+ * 渲染层双模式（方案定稿）：
+ * - Tauri 模式：iframe → 原生子 Webview（Rust PreviewWebviewManager 统一管理）。
+ *   console 捕获注入脚本 → Rust 缓冲治理（100ms 批量）→ preview-console 事件 →
+ *   本组件按 label 分流 → console store（seq 断档 → snapshot 补拉）
+ * - 浏览器模式（非 Tauri dev）：iframe fallback（无 console，功能降级提示）
  *
- * 架构：本组件无 WS 事件监听（预览域事件统一在 lib/preview-events 单点路由），
- * 对齐 Hermes use-preview-routing → store → PreviewPane 单向数据流。
+ * 其它能力保持（对齐 Hermes）：
+ * - 重启：RPC preview.restart → store 重启状态机（lib/preview-events 单点路由）
+ * - 自动刷新：store reloadRequest（文件变更自动刷新）→ webview.reload / iframe key++
+ * - 错误分类：serverNotFound（探测失败）/ failed（保守） / moduleMime（console 流检测，
+ *   对齐 Hermes isModuleMimeError —— 子 webview 下 module mime 依赖 console 捕获）
+ * - devtools 开关（对齐 Hermes devtoolsOpen 按钮，Rust preview_webview_devtools）
+ * - 页面控制台面板（全量移植 Hermes preview-console）
+ *
+ * 布局同步：ResizeObserver → rAF 节流（每帧至多一次）→ preview_webview_update
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ExternalLink, AlertCircle, Loader2, Globe, RefreshCw } from 'lucide-react';
+import { ExternalLink, AlertCircle, Loader2, Globe, RefreshCw, Bug, PanelBottom } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { getWsClient } from '@/services/ws-client';
+import { isDesktop } from '@/utils/bridge';
 import { cn } from '@/lib/utils';
+import { createPreviewConsoleState, isNearConsoleBottom } from '@/store/preview-console';
+import { PreviewConsolePanel } from './PreviewConsolePanel';
 import {
   type PreviewTab,
   beginPreviewRestart,
@@ -29,11 +41,17 @@ interface PreviewWebPaneProps {
   cwd?: string;
 }
 
-/**
- * 预览 URL 安全校验：仅允许 http:/https: 协议。
- * 拒绝 javascript:/file:/data:/blob: 等——防止提示注入诱导加载本地文件或脚本 URL。
- * 预览必须是绝对 URL（占位提示即 http://localhost:3000），相对/非法 URL 一律拒绝。
- */
+/** Rust 侧推送的 console 条目（PreviewConsoleBuffer，per-label seq 游标） */
+interface PreviewConsolePushEntry {
+  label: string;
+  seq: number;
+  level: number;
+  message: string;
+  source: string | null;
+  line: number | null;
+}
+
+/** 预览 URL 安全校验：仅允许 http:/https: 协议（同现有 iframe 白名单） */
 function isSafePreviewUrl(raw: string): boolean {
   const trimmed = raw.trim();
   if (!trimmed) return false;
@@ -45,15 +63,38 @@ function isSafePreviewUrl(raw: string): boolean {
   }
 }
 
+/** module mime 错误检测（对齐 Hermes preview-pane isModuleMimeError） */
+function isModuleMimeError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes('failed to load module script') && lower.includes('mime type');
+}
+
 export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPaneProps) {
   const { reloadRequest, restart } = usePreviewStore();
   const [url, setUrl] = useState(tab.target.url);
+  // 浏览器模式 iframe 重建计数
   const [iframeKey, setIframeKey] = useState(0);
-  // 错误分类（对齐 Hermes loadErrorTitle 两级：serverNotFound / failedToLoad；
-  // module mime 类依赖 webview console 检测，iframe 不可得 → 标注限制）
-  const [iframeError, setIframeError] = useState<'serverNotFound' | 'failed' | null>(null);
-  // 🔴 多 tab 下必须 ref 绑定自己的 iframe（querySelector 会串到其它 tab 的 iframe）
+  const [iframeError, setIframeError] = useState<'serverNotFound' | 'failed' | 'moduleMime' | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  // 子 webview label（Rust 生成；ref 同步最新值供 cleanup/navigate 使用）
+  const [webviewLabel, setWebviewLabel] = useState<string | null>(null);
+  const webviewLabelRef = useRef<string | null>(null);
+  // 页面控制台（per pane 实例，对齐 Hermes per-pane consoleState）
+  const [consoleState] = useState(() => createPreviewConsoleState());
+  const consoleBodyRef = useRef<HTMLDivElement | null>(null);
+  const consoleShouldStickRef = useRef(true);
+  const [consoleOpen, setConsoleOpen] = useState(false);
+  const [devtoolsOpen, setDevtoolsOpen] = useState(false);
+  // Rust seq 游标（断档检测 → snapshot 补拉）
+  const lastSeqRef = useRef<number | null>(null);
+  const layoutRafRef = useRef<number | null>(null);
+  const probeTimerRef = useRef<number | null>(null);
+  const isTauri = isDesktop();
+
+  // 最新 URL 供异步探测/刷新闭包使用（老铁律：空依赖 effect 闭包陷阱）
+  const currentUrlRef = useRef(url.trim() || tab.target.url);
+  currentUrlRef.current = url.trim() || tab.target.url;
 
   // tab 切换 → URL 输入框重置为 tab 目标
   useEffect(() => {
@@ -61,18 +102,197 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
     setIframeError(null);
   }, [tab.id, tab.target.url]);
 
-  // 自动刷新：文件变更（tool.complete + inline_diff → requestPreviewReload）
+  // ── 子 webview 创建/销毁（跟随 pane 生命周期；key=tab.id 保证每 tab 独立实例）──
   useEffect(() => {
-    if (reloadRequest > 0) setIframeKey((k) => k + 1);
-  }, [reloadRequest]);
+    if (!isTauri || !tab.target.url) return;
+    let cancelled = false;
 
-  // 重启成功 → 自动刷新 iframe（对齐 Hermes complete 后 requestPreviewReload 语义）
+    const container = containerRef.current;
+    const rect = container?.getBoundingClientRect();
+    const x = rect?.x ?? 0;
+    const y = rect?.y ?? 0;
+    const width = rect?.width ?? 800;
+    const height = rect?.height ?? 600;
+
+    invoke('preview_webview_create', { url: tab.target.url, x, y, width, height })
+      .then((label) => {
+        if (cancelled) {
+          // 创建完成前已卸载（异步竞态）→ 立即销毁
+          invoke('preview_webview_close', { label }).catch(() => {});
+          return;
+        }
+        webviewLabelRef.current = label as string;
+        setWebviewLabel(label as string);
+      })
+      .catch((e) => {
+        console.error('[preview] webview create failed:', e);
+      });
+
+    return () => {
+      cancelled = true;
+      const label = webviewLabelRef.current;
+      webviewLabelRef.current = null;
+      setWebviewLabel(null);
+      if (label) {
+        invoke('preview_webview_close', { label }).catch(() => {});
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时创建，URL 变化走 navigate 不重建
+  }, []);
+
+  // ── 布局同步：ResizeObserver → rAF 节流 → update（对齐方案：前端 rAF 节流上报）──
+  useEffect(() => {
+    if (!webviewLabel || !isTauri) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    const sync = () => {
+      if (layoutRafRef.current !== null) return; // 每帧至多一次
+      layoutRafRef.current = requestAnimationFrame(() => {
+        layoutRafRef.current = null;
+        const rect = container.getBoundingClientRect();
+        invoke('preview_webview_update', {
+          label: webviewLabel,
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        }).catch(() => {});
+      });
+    };
+
+    const ro = new ResizeObserver(sync);
+    ro.observe(container);
+    window.addEventListener('resize', sync);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', sync);
+      if (layoutRafRef.current !== null) {
+        cancelAnimationFrame(layoutRafRef.current);
+        layoutRafRef.current = null;
+      }
+    };
+  }, [webviewLabel, isTauri]);
+
+  // ── console 事件 + 加载状态事件（webview 就绪后订阅；按 label 分流）──
+  useEffect(() => {
+    if (!webviewLabel) return;
+    let unlisteners: UnlistenFn[] = [];
+    let cancelled = false;
+
+    const onConsole = async (event: { payload: unknown }) => {
+      const entries = event.payload as PreviewConsolePushEntry[];
+      if (!Array.isArray(entries)) return;
+      const mine = entries.filter((e) => e && e.label === webviewLabel);
+      if (mine.length === 0) return;
+
+      // seq 断档检测（per-label 游标连续 → 增量追加；断档 → snapshot 全量补拉）
+      let gap = false;
+      for (const e of mine) {
+        if (lastSeqRef.current !== null && e.seq !== lastSeqRef.current + 1) {
+          gap = true;
+          break;
+        }
+        lastSeqRef.current = e.seq;
+      }
+
+      if (gap) {
+        try {
+          const [snapEntries, snapSeq] = (await invoke('preview_console_snapshot', {
+            label: webviewLabel,
+          })) as [PreviewConsolePushEntry[], number];
+          consoleState.replace(
+            snapEntries.map((e) => ({
+              level: e.level,
+              message: e.message,
+              source: e.source ?? undefined,
+              line: e.line ?? undefined,
+            }))
+          );
+          lastSeqRef.current = snapSeq;
+          return;
+        } catch {
+          // snapshot 失败 → 降级本批增量（尽力而为，不阻塞）
+        }
+      }
+
+      // module mime 检测（对齐 Hermes onConsole：level>=3 + isModuleMimeError）
+      if (mine.some((e) => e.level >= 3 && isModuleMimeError(e.message))) {
+        setIframeError('moduleMime');
+      }
+
+      // 滚底跟随：追加前记录 stick 状态（对齐 Hermes appendConsoleEntry）
+      consoleShouldStickRef.current = isNearConsoleBottom(consoleBodyRef.current);
+      for (const e of mine) {
+        consoleState.append({
+          level: e.level,
+          message: e.message,
+          source: e.source ?? undefined,
+          line: e.line ?? undefined,
+        });
+      }
+    };
+
+    const onLoadState = (event: { payload: { label: string; state: string } }) => {
+      const { label, state } = event.payload;
+      if (label !== webviewLabel) return;
+      if (state === 'started') {
+        setIframeError(null);
+      } else if (state === 'finished') {
+        // 加载结束 → 探测服务器可达性（失败导航也触发 Finished；
+        // 成功则不报错——宁漏勿误，module mime 由 console 流检测）
+        if (probeTimerRef.current) clearTimeout(probeTimerRef.current);
+        probeTimerRef.current = window.setTimeout(async () => {
+          probeTimerRef.current = null;
+          try {
+            await fetch(currentUrlRef.current, { method: 'HEAD', mode: 'no-cors' });
+          } catch {
+            setIframeError('serverNotFound');
+          }
+        }, 800);
+      }
+    };
+
+    void (async () => {
+      const [c, l] = await Promise.all([
+        listen('preview-console', onConsole),
+        listen('preview-load-state', onLoadState),
+      ]);
+      if (cancelled) {
+        c();
+        l();
+        return;
+      }
+      unlisteners = [c, l];
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisteners.forEach((u) => u());
+    };
+  }, [webviewLabel, consoleState]);
+
+  // ── 自动刷新：文件变更（tool.complete + inline_diff → requestPreviewReload）──
+  useEffect(() => {
+    if (reloadRequest <= 0) return;
+    if (webviewLabelRef.current && isTauri) {
+      invoke('preview_webview_reload', { label: webviewLabelRef.current }).catch(() => {});
+    } else {
+      setIframeKey((k) => k + 1);
+    }
+  }, [reloadRequest, isTauri]);
+
+  // ── 重启成功 → 自动刷新（对齐 Hermes complete 后 requestPreviewReload 语义）──
   useEffect(() => {
     if (restart?.status === 'success' && restart.url === (url.trim() || tab.target.url)) {
-      setIframeKey((k) => k + 1);
+      if (webviewLabelRef.current && isTauri) {
+        invoke('preview_webview_reload', { label: webviewLabelRef.current }).catch(() => {});
+      } else {
+        setIframeKey((k) => k + 1);
+      }
       setIframeError(null);
     }
-  }, [restart, url, tab.target.url]);
+  }, [restart, url, tab.target.url, isTauri]);
 
   // ── 重启预览（对齐 Hermes restartPreviewServer）──
   const handleRestart = useCallback(async () => {
@@ -101,13 +321,22 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
     }
   }, [url, sessionId, cwd, iframeError]);
 
-  // ── 手动加载 ──
+  // ── 手动加载：webview navigate（新页面新会话，Rust 侧清缓冲）／iframe 重建 ──
   const handleLoad = useCallback(() => {
-    if (url.trim()) {
+    const target = url.trim();
+    if (!target) return;
+    if (webviewLabelRef.current && isTauri) {
+      lastSeqRef.current = null; // 新页面 seq 从 0 重新开始
+      consoleState.reset(); // 本地 console 清空（Rust 侧同步清缓冲）
+      setIframeError(null);
+      invoke('preview_webview_navigate', { label: webviewLabelRef.current, url: target }).catch(
+        () => {},
+      );
+    } else {
       setIframeKey((k) => k + 1);
       setIframeError(null);
     }
-  }, [url]);
+  }, [url, isTauri, consoleState]);
 
   // ── 外部打开：系统浏览器（tauri-plugin-shell，对齐 Hermes openExternal）──
   const handleOpenExternal = useCallback(() => {
@@ -121,10 +350,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
     }
   }, [url, tab.target.url]);
 
-  // ── iframe 错误检测 + 分类 ──
-  // iframe onload/onerror 在跨域时不可靠，用延时检测；检测到失败后
-  // fetch HEAD 探测服务器可达性（对齐 Hermes loadErrorTitle 分类：
-  // connection refused → serverNotFound；服务器在但页面坏 → failedToLoad）
+  // ── iframe 错误检测 + 分类（浏览器模式；webview 模式走 onLoadState + console 流）──
   const handleIframeError = useCallback(() => {
     setTimeout(async () => {
       const iframe = iframeRef.current;
@@ -135,22 +361,43 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
       } catch {
         return; // 跨域 = 有内容，加载成功
       }
-
-      // 页面空白/加载失败 → 探测服务器可达性
       const target = url.trim() || tab.target.url;
       try {
         await fetch(target, { method: 'HEAD', mode: 'no-cors' });
-        setIframeError('failed'); // 服务器可达但页面未正常加载
+        setIframeError('failed');
       } catch {
-        setIframeError('serverNotFound'); // connection refused / 网络不可达
+        setIframeError('serverNotFound');
       }
     }, 2000);
   }, [url, tab.target.url]);
+
+  // ── devtools 开关（对齐 Hermes devtoolsOpen 前端状态驱动；open/close 显式传参）──
+  // wry Windows 的 close_devtools 是空函数——关闭 devtools 窗口需手动（Alt+F4），
+  // 但按钮状态仍正常切换，语义与 Hermes 一致（可开可切换状态）
+  const handleToggleDevTools = useCallback(() => {
+    if (!webviewLabelRef.current) return;
+    const next = !devtoolsOpen;
+    invoke('preview_webview_devtools', { label: webviewLabelRef.current, open: next })
+      .then((open) => setDevtoolsOpen(Boolean(open)))
+      .catch(() => {});
+  }, [devtoolsOpen]);
+
+  // 错误覆盖层显示时 hide 子 webview（DOM 盖不住原生 HWND，只能隐藏让覆盖层可见）；
+  // 覆盖层消失（重试/导航/刷新）→ show 恢复
+  useEffect(() => {
+    if (!webviewLabelRef.current || !isTauri) return;
+    invoke('preview_webview_visible', {
+      label: webviewLabelRef.current,
+      visible: !iframeError,
+    }).catch(() => {});
+  }, [iframeError, isTauri]);
 
   // 重启状态归属：仅当前 pane 的 URL 关联（Hermes restartingServer 同款判断）
   const currentUrl = url.trim() || tab.target.url;
   const isRestarting = restart?.status === 'running' && restart.url === currentUrl;
   const restartEntries = restart && restart.url === currentUrl ? restart.entries : [];
+
+  const webviewActive = isTauri && webviewLabel !== null && isSafePreviewUrl(currentUrl);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-[var(--ui-bg-editor)]">
@@ -175,6 +422,36 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
         >
           <ExternalLink size={13} />
         </button>
+        {/* devtools 开关（对齐 Hermes devtoolsOpen；仅子 webview 模式可用） */}
+        {webviewActive && (
+          <button
+            onClick={handleToggleDevTools}
+            className={cn(
+              'flex items-center justify-center w-6 h-6 rounded transition-colors',
+              devtoolsOpen
+                ? 'bg-[var(--ui-control-active-background)] text-[var(--ui-text-primary)]'
+                : 'text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] hover:text-[var(--ui-text-primary)]',
+            )}
+            title={devtoolsOpen ? '关闭开发者工具' : '打开开发者工具'}
+          >
+            <Bug size={13} />
+          </button>
+        )}
+        {/* 页面控制台开关（对齐 Hermes titlebar console toggle） */}
+        {webviewActive && (
+          <button
+            onClick={() => setConsoleOpen((o) => !o)}
+            className={cn(
+              'flex items-center justify-center w-6 h-6 rounded transition-colors',
+              consoleOpen
+                ? 'bg-[var(--ui-control-active-background)] text-[var(--ui-text-primary)]'
+                : 'text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] hover:text-[var(--ui-text-primary)]',
+            )}
+            title={consoleOpen ? '收起页面控制台' : '打开页面控制台'}
+          >
+            <PanelBottom size={13} />
+          </button>
+        )}
         <button
           onClick={handleRestart}
           disabled={!url.trim() || !sessionId || isRestarting}
@@ -182,8 +459,8 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
             'flex items-center gap-1 px-2 h-6 rounded text-xs font-medium transition-colors',
             isRestarting
               ? 'bg-[var(--ui-bg-tertiary)] text-[var(--ui-text-tertiary)] cursor-wait'
-              : 'bg-[var(--ui-accent-primary)] text-primary-foreground hover:bg-[var(--ui-accent-primary-hover)]',
-            (!url.trim() || !sessionId) && 'opacity-40 cursor-not-allowed'
+              : 'bg-primary text-primary-foreground hover:bg-primary/90',
+            (!url.trim() || !sessionId) && 'opacity-40 cursor-not-allowed',
           )}
           title="重启预览服务器"
         >
@@ -196,31 +473,38 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
         </button>
       </div>
 
-      {/* ── iframe 预览区 ── */}
-      <div className="flex-1 min-h-0 relative bg-background">
-        {!url.trim() ? (
+      {/* ── 预览区（flex-col：webviewHost + 底部控制台面板）──
+          ⚠️ 子 webview 是原生 HWND 永远在 DOM 之上，控制台面板不能 absolute 覆盖，
+          必须嵌入 flex 布局（面板弹出 → webviewHost 缩小 → ResizeObserver 联动 webview） */}
+      <div className="flex-1 min-h-0 flex flex-col bg-background">
+        <div ref={containerRef} className="flex-1 min-h-0 relative">
+        {!currentUrl ? (
           <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
             <Globe size={32} strokeWidth={1} />
             <span className="text-xs">输入 URL 开始预览</span>
           </div>
-        ) : !isSafePreviewUrl(url) ? (
+        ) : !isSafePreviewUrl(currentUrl) ? (
           <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
-            <AlertCircle size={32} strokeWidth={1} className="text-[var(--ui-status-warning)]" />
+            <AlertCircle size={32} strokeWidth={1} className="text-[var(--ui-yellow)]" />
             <span className="text-xs">仅支持 http:// 或 https:// 地址</span>
           </div>
+        ) : webviewActive ? (
+          /* 子 webview：原生层渲染，容器仅承担定位锚点（Rust 按容器 rect 摆位）；
+             页面 console 经注入脚本 → Rust 缓冲 → preview-console 事件流入面板 */
+          <div className="w-full h-full" />
+        ) : isTauri ? (
+          /* webview 创建中（label 未就绪）：空占位，不渲染 iframe（Tauri 模式无 iframe 降级） */
+          <div className="w-full h-full" />
         ) : (
           /*
-           * sandbox 保留 allow-same-origin：iframe 加载用户自己的 dev server（http://localhost），
-           * 与 Tauri 父窗口（tauri:// 协议）天然跨域，故 allow-scripts+allow-same-origin 的
-           * “iframe 移除自身 sandbox”逃逸不成立（父子不同源）；而 dev 预览（Vite HMR / 同源
-           * fetch）需要 allow-same-origin 才能正常工作。无 allow-top-navigation，sandbox 仍限制
-           * 顶层导航。安全边界由上方 isSafePreviewUrl 协议白名单把控。
+           * 浏览器模式 fallback iframe（非 Tauri dev）：无页面 console（注入脚本
+           * 依赖 Tauri IPC），功能降级提示由错误覆盖层/控制台开关隐藏体现
            */
           <iframe
             key={iframeKey}
             ref={iframeRef}
             id="preview-iframe"
-            src={url.trim()}
+            src={currentUrl}
             onLoad={handleIframeError}
             className="w-full h-full border-none"
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
@@ -229,42 +513,61 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
           />
         )}
 
-      {/* iframe 加载错误覆盖层（分类文案，对齐 Hermes PreviewLoadError） */}
-      {iframeError && !isRestarting && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--ui-bg-editor)] gap-3">
-          <AlertCircle size={32} className="text-[var(--ui-status-warning)]" strokeWidth={1.5} />
-          <span className="text-xs text-[var(--ui-text-secondary)]">
-            {iframeError === 'serverNotFound' ? '无法连接到服务器' : '预览加载失败'}
-          </span>
-          <span className="text-[10px] text-[var(--ui-text-tertiary)] max-w-[80%] truncate" title={url.trim() || tab.target.url}>
-            {url.trim() || tab.target.url}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleLoad}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[var(--ui-bg-tertiary)] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] transition-colors"
+        {/* 加载错误覆盖层（分类文案：moduleMime / serverNotFound / failed，对齐 Hermes loadErrorTitle）
+            覆盖层是 DOM，盖不住原生子 webview → 显示时 hide webview（见下方 iframeError effect） */}
+        {iframeError && !isRestarting && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--ui-bg-editor)] gap-3">
+            <AlertCircle size={32} className="text-[var(--ui-yellow)]" strokeWidth={1.5} />
+            <span className="text-xs text-[var(--ui-text-secondary)]">
+              {iframeError === 'serverNotFound'
+                ? '无法连接到服务器'
+                : iframeError === 'moduleMime'
+                  ? '页面启动失败（模块加载错误）'
+                  : '预览加载失败'}
+            </span>
+            <span
+              className="text-[10px] text-[var(--ui-text-tertiary)] max-w-[80%] truncate"
+              title={currentUrl}
             >
-              <RefreshCw size={12} />
-              重试
-            </button>
-            <button
-              onClick={handleOpenExternal}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[var(--ui-bg-tertiary)] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] transition-colors"
-            >
-              <ExternalLink size={12} />
-              外部打开
-            </button>
-            <button
-              onClick={handleRestart}
-              disabled={!sessionId}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[var(--ui-accent-primary)] text-primary-foreground hover:bg-[var(--ui-accent-primary-hover)] disabled:opacity-40 transition-colors"
-            >
-              <Loader2 size={12} className={isRestarting ? 'animate-spin' : ''} />
-              重启预览服务器
-            </button>
+              {currentUrl}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleLoad}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[var(--ui-bg-tertiary)] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] transition-colors"
+              >
+                <RefreshCw size={12} />
+                重试
+              </button>
+              <button
+                onClick={handleOpenExternal}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[var(--ui-bg-tertiary)] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] transition-colors"
+              >
+                <ExternalLink size={12} />
+                外部打开
+              </button>
+              <button
+                onClick={handleRestart}
+                disabled={!sessionId}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors"
+              >
+                <Loader2 size={12} className={isRestarting ? 'animate-spin' : ''} />
+                重启预览服务器
+              </button>
+            </div>
           </div>
+        )}
         </div>
-      )}
+
+        {/* 页面控制台面板（flex 嵌入 webview 下方，避免被原生 HWND 盖住；
+            全量对齐 Hermes PreviewConsolePanel） */}
+        {webviewActive && consoleOpen && (
+          <PreviewConsolePanel
+            consoleBodyRef={consoleBodyRef}
+            consoleShouldStickRef={consoleShouldStickRef}
+            consoleState={consoleState}
+          />
+        )}
       </div>
 
       {/* ── 进度日志区（重启中/完成时显示）── */}
@@ -280,10 +583,10 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
                 className={cn(
                   'text-[11px] font-mono leading-relaxed break-all',
                   entry.level === 'error'
-                    ? 'text-[var(--ui-status-error)]'
+                    ? 'text-[var(--ui-red)]'
                     : entry.level === 'warn'
-                      ? 'text-[var(--ui-status-warning)]'
-                      : 'text-[var(--ui-text-secondary)]'
+                      ? 'text-[var(--ui-yellow)]'
+                      : 'text-[var(--ui-text-secondary)]',
                 )}
               >
                 <span className="text-[var(--ui-text-quaternary)] mr-1.5">

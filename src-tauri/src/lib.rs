@@ -24,6 +24,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::time::Duration;
 
+// 预览控制台治理层（Rust 侧缓冲 + 子 Webview 生命周期管理）
+mod preview_console;
+mod preview_webview;
+
+pub use preview_console::PreviewConsoleState;
+pub use preview_webview::PreviewWebviewManager;
+
 // ═══════════════════════════════════════════════════════════════════════════
 // TAURI STATE — 仅存端口、子进程句柄、关闭标志
 // ═══════════════════════════════════════════════════════════════════════════
@@ -914,6 +921,16 @@ pub fn run() {
             // （后端 misc_service 权威实现），此命令为早期 Tauri 本地处理遗留
             create_deepseek_webview,
             mark_restarting,
+            // 预览控制台：子 Webview 生命周期 + console 缓冲治理
+            preview_console::preview_console_push,
+            preview_console::preview_console_snapshot,
+            preview_webview::preview_webview_create,
+            preview_webview::preview_webview_close,
+            preview_webview::preview_webview_update,
+            preview_webview::preview_webview_navigate,
+            preview_webview::preview_webview_reload,
+            preview_webview::preview_webview_visible,
+            preview_webview::preview_webview_devtools,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -1042,6 +1059,12 @@ pub fn run() {
                 restarting: AtomicBool::new(false),
             };
             app.manage(tauri_state);
+
+            // 预览控制台治理层：缓冲 state + 子 Webview 管理器 + 100ms flush 线程
+            let preview_console = PreviewConsoleState::default();
+            preview_console.spawn_flusher(app.handle().clone());
+            app.manage(preview_console);
+            app.manage(PreviewWebviewManager::default());
 
             // 在后台线程中轮询端口发现（不阻塞 Tauri setup）
             let port_atomic = app.state::<TauriAppState>().gateway_port.clone();

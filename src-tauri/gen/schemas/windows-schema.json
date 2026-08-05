@@ -2211,6 +2211,174 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the create_deepseek_webview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-create-deepseek-webview",
+          "markdownDescription": "Enables the create_deepseek_webview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_auto_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-auto-start",
+          "markdownDescription": "Enables the get_auto_start command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_gateway_port command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-gateway-port",
+          "markdownDescription": "Enables the get_gateway_port command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mark_restarting command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mark-restarting",
+          "markdownDescription": "Enables the mark_restarting command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the preview_console_push command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-preview-console-push",
+          "markdownDescription": "Enables the preview_console_push command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the preview_console_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-preview-console-snapshot",
+          "markdownDescription": "Enables the preview_console_snapshot command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the preview_webview_close command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-preview-webview-close",
+          "markdownDescription": "Enables the preview_webview_close command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the preview_webview_create command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-preview-webview-create",
+          "markdownDescription": "Enables the preview_webview_create command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the preview_webview_devtools command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-preview-webview-devtools",
+          "markdownDescription": "Enables the preview_webview_devtools command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the preview_webview_navigate command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-preview-webview-navigate",
+          "markdownDescription": "Enables the preview_webview_navigate command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the preview_webview_reload command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-preview-webview-reload",
+          "markdownDescription": "Enables the preview_webview_reload command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the preview_webview_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-preview-webview-update",
+          "markdownDescription": "Enables the preview_webview_update command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the preview_webview_visible command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-preview-webview-visible",
+          "markdownDescription": "Enables the preview_webview_visible command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_auto_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-auto-start",
+          "markdownDescription": "Enables the set_auto_start command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the create_deepseek_webview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-create-deepseek-webview",
+          "markdownDescription": "Denies the create_deepseek_webview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_auto_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-auto-start",
+          "markdownDescription": "Denies the get_auto_start command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_gateway_port command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-gateway-port",
+          "markdownDescription": "Denies the get_gateway_port command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mark_restarting command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mark-restarting",
+          "markdownDescription": "Denies the mark_restarting command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_console_push command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-preview-console-push",
+          "markdownDescription": "Denies the preview_console_push command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_console_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-preview-console-snapshot",
+          "markdownDescription": "Denies the preview_console_snapshot command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_webview_close command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-preview-webview-close",
+          "markdownDescription": "Denies the preview_webview_close command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_webview_create command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-preview-webview-create",
+          "markdownDescription": "Denies the preview_webview_create command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_webview_devtools command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-preview-webview-devtools",
+          "markdownDescription": "Denies the preview_webview_devtools command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_webview_navigate command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-preview-webview-navigate",
+          "markdownDescription": "Denies the preview_webview_navigate command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_webview_reload command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-preview-webview-reload",
+          "markdownDescription": "Denies the preview_webview_reload command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_webview_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-preview-webview-update",
+          "markdownDescription": "Denies the preview_webview_update command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_webview_visible command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-preview-webview-visible",
+          "markdownDescription": "Denies the preview_webview_visible command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_auto_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-auto-start",
+          "markdownDescription": "Denies the set_auto_start command without any pre-configured scope."
+        },
+        {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
           "type": "string",
           "const": "core:default",

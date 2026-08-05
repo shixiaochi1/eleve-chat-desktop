@@ -1,0 +1,19 @@
+{
+  "identifier": "preview-console",
+  "description": "Preview child webview (remote page) minimal capability — remote pages may ONLY invoke preview_console_push (gated additionally by Rust-side caller label validation); all other Tauri APIs and commands rejected",
+  "windows": ["main"],
+  "webviews": ["preview-*"],
+  "remote": {
+    "urls": [
+      "http://localhost:*/*",
+      "http://127.0.0.1:*/*",
+      "http://*:*/*",
+      "https://*:*/*"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "allow-preview-console-push"
+  ]
+}
