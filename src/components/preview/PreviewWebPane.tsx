@@ -11,7 +11,7 @@
  * 对齐 Hermes use-preview-routing → store → PreviewPane 单向数据流。
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ExternalLink, AlertCircle, Loader2, Globe, RefreshCw } from 'lucide-react';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { getWsClient } from '@/services/ws-client';
@@ -52,6 +52,8 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   // 错误分类（对齐 Hermes loadErrorTitle 两级：serverNotFound / failedToLoad；
   // module mime 类依赖 webview console 检测，iframe 不可得 → 标注限制）
   const [iframeError, setIframeError] = useState<'serverNotFound' | 'failed' | null>(null);
+  // 🔴 多 tab 下必须 ref 绑定自己的 iframe（querySelector 会串到其它 tab 的 iframe）
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   // tab 切换 → URL 输入框重置为 tab 目标
   useEffect(() => {
@@ -125,7 +127,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   // connection refused → serverNotFound；服务器在但页面坏 → failedToLoad）
   const handleIframeError = useCallback(() => {
     setTimeout(async () => {
-      const iframe = document.querySelector<HTMLIFrameElement>('#preview-iframe');
+      const iframe = iframeRef.current;
       if (!iframe) return;
       try {
         const href = iframe.contentWindow?.location?.href;
@@ -216,6 +218,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
            */
           <iframe
             key={iframeKey}
+            ref={iframeRef}
             id="preview-iframe"
             src={url.trim()}
             onLoad={handleIframeError}

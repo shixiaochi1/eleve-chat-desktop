@@ -1,0 +1,5 @@
+function test() {
+      console.log("modified1");
+      console.log("modified2");
+    console.log("line3");
+}

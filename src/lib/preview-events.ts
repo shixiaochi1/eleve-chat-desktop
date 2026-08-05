@@ -55,7 +55,8 @@ export function initPreviewEvents(options: PreviewEventsOptions): () => void {
       }
 
       case 'preview.open': {
-        // 对齐 Hermes：仅聚焦会话（用户正在看的会话）生效，后台 turn 不得劫持面板
+        // 对齐 Hermes：仅聚焦会话生效。ELEVE 服务端（api_server）已按 session_id
+        // 路由到对应 WS 客户端（terminal.close 6-G 同款），此处过滤为防御性兜底
         const sessionId = raw.session_id as string | undefined
         if (sessionId && sessionId !== options.getFocusedSessionId()) return
 

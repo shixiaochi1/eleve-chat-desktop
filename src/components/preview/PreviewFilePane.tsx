@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { readFile, readTextFile } from '@tauri-apps/plugin-fs';
+import { readFile, readTextFile, stat } from '@tauri-apps/plugin-fs';
 import { AlertCircle, Download, File, Loader2, RefreshCw } from 'lucide-react';
 import type { PreviewTab } from '@/store/preview';
 import { renderMarkdown } from '@/utils/markdown';
@@ -60,6 +60,10 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   const [text, setText] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // 🔴 大文件拦截（对齐 Hermes blockedByTarget large：stat 预检后不读内容，
+  // 用户点「仍要预览」才读全量，防大文件全量读入内存卡死）
+  const [largeBlocked, setLargeBlocked] = useState(false);
+  const [forcePreview, setForcePreview] = useState(false);
 
   // ── 读取文件（对齐 Hermes L586-701：image → dataUrl / text → text）──
   useEffect(() => {
@@ -76,19 +80,29 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
 
     (async () => {
       try {
+        // 🔴 先 stat 预检大小（对齐 Hermes byteSize 前置判断）
+        let size = 0;
+        try {
+          const info = await stat(path);
+          size = info.size;
+        } catch { /* stat 失败则回退整读 */ }
+        if (cancelled) return;
+        setByteSize(size);
+
         if (isImage) {
           const bytes = await readFile(path);
           if (cancelled) return;
-          setByteSize(bytes.byteLength);
           const blob = new Blob([bytes], {
             type: ext === '.svg' ? 'image/svg+xml' : `image/${ext.slice(1)}`,
           });
           setImageUrl(URL.createObjectURL(blob));
+        } else if (size > LARGE_FILE_THRESHOLD && !forcePreview) {
+          // 大文本文件：拦截（不读内容），用户确认后才读
+          setLargeBlocked(true);
         } else {
           const value = await readTextFile(path);
           if (cancelled) return;
           setText(value);
-          setByteSize(new TextEncoder().encode(value).byteLength);
           setBinary(isLikelyBinary(value));
         }
       } catch (e) {
@@ -118,6 +132,13 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   }, [path]);
 
   const handleReload = useCallback(() => setReloadKey((k) => k + 1), []);
+
+  // 仍要预览：大文件拦截后用户确认 → 读全量
+  const handleForcePreview = useCallback(() => {
+    setForcePreview(true);
+    setLargeBlocked(false);
+    setReloadKey((k) => k + 1);
+  }, []);
 
   // ── 渲染 ──
   const isLarge = byteSize > LARGE_FILE_THRESHOLD;
@@ -186,18 +207,27 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
             <File size={32} strokeWidth={1} />
             <span className="text-xs text-[var(--ui-text-secondary)]">二进制文件，无法预览</span>
           </div>
+        ) : largeBlocked ? (
+          <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-3">
+            <File size={32} strokeWidth={1} />
+            <span className="text-xs text-[var(--ui-text-secondary)]">文件较大，未加载内容</span>
+            <span className="text-[10px] text-[var(--ui-text-tertiary)]">
+              {(byteSize / 1024 / 1024).toFixed(1)} MB（超过 {(LARGE_FILE_THRESHOLD / 1024 / 1024).toFixed(0)} MB）
+            </span>
+            <button
+              onClick={handleForcePreview}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[var(--ui-accent-primary)] text-primary-foreground hover:bg-[var(--ui-accent-primary-hover)] transition-colors"
+            >
+              <Download size={12} />
+              仍要预览
+            </button>
+          </div>
         ) : isImage && imageUrl ? (
           <div className="flex items-center justify-center h-full p-2">
             <img src={imageUrl} alt={basename(path)} className="max-w-full max-h-full object-contain" />
           </div>
         ) : (
           <div className="p-3">
-            {/* 大文件警告 */}
-            {isLarge && (
-              <div className="mb-2 px-2 py-1.5 rounded text-[11px] text-[var(--ui-status-warning)] bg-[var(--ui-bg-quaternary)] border border-[var(--ui-stroke-secondary)]">
-                文件较大（{(byteSize / 1024 / 1024).toFixed(1)} MB），仅预览前 {Math.floor(MAX_RENDER_CHARS / 1024)} KB
-              </div>
-            )}
             {bodyHtml ? (
               <div
                 className="prose-preview text-xs leading-relaxed text-[var(--ui-text-primary)]"

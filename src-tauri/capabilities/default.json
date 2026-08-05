@@ -34,7 +34,6 @@
     "fs:allow-exists",
     "fs:allow-stat",
     { "identifier": "fs:scope", "allow": [{ "path": "**" }] },
-    "shell:allow-open",
     {
       "identifier": "shell:allow-open",
       "allow": [{ "url": "https://*" }, { "url": "http://*" }]

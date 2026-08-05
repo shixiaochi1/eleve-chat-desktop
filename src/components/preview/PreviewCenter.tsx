@@ -10,14 +10,17 @@
  * 的独立面板，不并入预览中心（避免重复造轮子）。
  */
 
-import { File, Globe, X } from 'lucide-react';
+import { File, Globe, X, ExternalLink } from 'lucide-react';
+import { useState } from 'react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { cn } from '@/lib/utils';
+import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
 import {
   closeAllTabs,
   closeOtherTabs,
   closeTab,
   closeTabsToRight,
+  openPreview,
   selectTab,
   usePreviewStore,
 } from '@/store/preview';
@@ -92,6 +95,46 @@ function PreviewTabBar() {
   );
 }
 
+/** 空态：无预览 tab 时的手动入口（URL / 文件路径 → 新建 url tab，对齐原 PreviewPanel 输入能力） */
+function PreviewEmptyState() {
+  const [url, setUrl] = useState('');
+
+  const handleOpen = () => {
+    const target = url.trim();
+    if (!target) return;
+    const resolved = normalizeOrLocalPreviewTarget(target);
+    if (resolved) openPreview(resolved);
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center flex-1 gap-3 p-4">
+      <Globe size={32} strokeWidth={1} className="text-[var(--ui-text-quaternary)]" />
+      <span className="text-xs text-[var(--ui-text-quaternary)]">暂无预览</span>
+      <div className="flex items-center gap-1.5 w-full max-w-[280px] px-2 py-1.5 rounded border border-[var(--ui-stroke-secondary)] bg-[var(--ui-bg-quaternary)]">
+        <input
+          type="text"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleOpen(); }}
+          placeholder="http://localhost:3000 或文件路径"
+          className="flex-1 min-w-0 bg-transparent text-xs text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] outline-none border-none"
+        />
+        <button
+          onClick={handleOpen}
+          disabled={!url.trim()}
+          className="flex items-center justify-center w-6 h-6 rounded text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] hover:text-[var(--ui-text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
+          title="打开预览"
+        >
+          <ExternalLink size={13} />
+        </button>
+      </div>
+      <span className="text-[10px] text-[var(--ui-text-quaternary)]/70">
+        也可让 Agent 用 open_preview 打开，或双击文件树文件
+      </span>
+    </div>
+  );
+}
+
 export default function PreviewCenter({ sessionId, cwd }: PreviewCenterProps) {
   const { tabs, activeId } = usePreviewStore();
   const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0] ?? null;
@@ -106,13 +149,7 @@ export default function PreviewCenter({ sessionId, cwd }: PreviewCenterProps) {
           <PreviewFilePane key={activeTab.id} tab={activeTab} />
         )
       ) : (
-        <div className="flex flex-col items-center justify-center flex-1 text-[var(--ui-text-quaternary)] gap-2">
-          <Globe size={32} strokeWidth={1} />
-          <span className="text-xs">暂无预览</span>
-          <span className="text-[10px] text-[var(--ui-text-quaternary)]/70">
-            输入 URL、打开文件，或让 Agent 用 open_preview 打开
-          </span>
-        </div>
+        <PreviewEmptyState />
       )}
     </div>
   );
