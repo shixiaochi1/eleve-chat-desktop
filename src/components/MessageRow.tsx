@@ -37,7 +37,17 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
   if (m.parts && m.parts.length > 0) {
     if (m.role === 'user') {
       const text = m.parts.filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text').map(p => p.text).join('')
-      return <div data-message-id={m.id} className="flex justify-end px-4 mb-1.5"><MessageBubble type="user" content={text} timestamp={m.timestamp} messageId={m.id} onDelete={onDelete} /></div>
+      // 🔴 Sticky human message（对齐 Hermes StickyHumanMessageContainer）：
+      // 用户消息吸顶 — 滚动时最新用户提示停驻视口顶部（z-40 + 聊天表面背景遮住下滚内容），
+      // 直到下一条用户消息把它顶走。虚拟化 natural-flow 下 sticky 相对 scroller 解析。
+      return (
+        <div
+          data-message-id={m.id}
+          className="sticky top-[0.23rem] z-40 -mx-6 mb-1.5 flex w-[calc(100%+3rem)] justify-end bg-(--ui-chat-surface-background) px-6 pt-1"
+        >
+          <MessageBubble type="user" content={text} timestamp={m.timestamp} messageId={m.id} onDelete={onDelete} />
+        </div>
+      )
     }
 
     if (m.role === 'assistant') {
