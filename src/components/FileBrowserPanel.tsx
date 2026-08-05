@@ -172,8 +172,8 @@ function TreeNode({
           )}
         </span>
 
-        {/* 文件名 */}
-        <span className="truncate text-foreground/80 flex-1">{entry.name}</span>
+        {/* 文件名 — min-w-0 必带：flex item 默认 min-width:auto，长文件名会把行撑出容器、truncate 失效 → 文件行被裁切（文件夹名短看不出，长名文件必现） */}
+        <span className="truncate text-foreground/80 flex-1 min-w-0">{entry.name}</span>
 
         {/* 加载中指示器 */}
         {entry.isDirectory && loadingChildren && (
