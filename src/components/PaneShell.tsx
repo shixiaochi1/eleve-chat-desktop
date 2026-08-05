@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useRef, useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -109,6 +109,32 @@ export default function PaneShell({
   // 🔴 拖拽中禁用 grid-template-columns transition（200ms 动画会造成拖拽滞后感）
   const [dragging, setDragging] = useState(false);
 
+  // 🔴 窗口整体缩放时的宽度增量分配（老大 2026-08-05 要求）：
+  // - 右栏弹出：拖外框（窗口变宽）→ 增量给右栏（rightWidth += Δ），聊天区（1fr）保持不动
+  // - 右栏未弹出：增量自然落在聊天区（1fr 吸收）
+  // 实现：ResizeObserver 观察容器总宽变化，变宽且 rightOpen → onRightResize(current + Δ)；
+  // 变窄不处理（1fr 先缩，右栏保持；右栏宽度仍受 max 钳制，避免无限增长）。
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const rightOpenRef = useRef(rightOpen);
+  rightOpenRef.current = rightOpen;
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    let lastWidth = el.getBoundingClientRect().width;
+    const ro = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? lastWidth;
+      const delta = width - lastWidth;
+      lastWidth = width;
+      if (!rightOpenRef.current || delta <= 0) return;
+      const current = widthRef.current.right;
+      const limits = limitsRef.current;
+      const next = Math.max(limits.minR, Math.min(limits.maxR, current + delta));
+      if (next !== current) onResizeRef.current.right?.(next);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const handleResizerDown = useCallback((side: 'left' | 'right', e: React.PointerEvent) => {
     e.preventDefault();
     dragRef.current = { side, startX: 'clientX' in e ? e.clientX : (e as any).touches?.[0]?.clientX ?? 0 };
@@ -206,42 +232,67 @@ export default function PaneShell({
     <PaneShellContext.Provider value={contextValue}>
       <div
         className={cn(
-          'relative grid min-w-[640px] flex-1 min-h-0 overflow-hidden transition-[grid-template-columns,padding-left,padding-right] duration-200 grid-rows-[minmax(0,1fr)] gap-2',
+          'relative grid min-w-[640px] flex-1 min-h-0 overflow-hidden grid-rows-[minmax(0,1fr)] gap-2',
           leftOpen ? 'pl-2' : 'pl-0',
           rightOpen ? 'pr-2' : 'pr-0',
-          dragging && 'transition-none',
           className,
           !rightOpen && 'pane-right-closed',
         )}
-        style={{ ...composedStyle, background: 'transparent' }}
+        ref={containerRef}
+        // 🔴 transition 用 inline style 控制：拖拽中必须禁用（200ms 动画会造成拖拽滞后），
+        // 不用 class（transition-[...] 与 transition-none 同类的覆盖顺序不可靠）；
+        // 开/关面板动画保留（非拖拽时 duration 200ms）。
+        style={{
+          ...composedStyle,
+          background: 'transparent',
+          transition: dragging ? 'none' : 'grid-template-columns 200ms ease, padding-left 200ms ease, padding-right 200ms ease',
+        }}
       >
         {children}
-        {/* Resizer handles — absolute overlay on the grid GAP（缝隙），不占用列轨道：
-            平时透明无痕；hover/active 显示淡色条（--ui-sash-hover-background 6% accent）。
-            缝隙大小 = grid gap-2 固定 8px 不变，拖拽只改 pane 宽度（grid-template-columns）。
-            🔴 旧实现：grid item 未指定行 → auto-placement 进隐式第二行（高度 auto=0）→ 不可点。 */}
+        {/* 🔴 Resizer 拖拽手柄（2026-08-05 老大要求）— 不要整条拖拽线，只要图标：
+            缝隙正中一个竖长条手柄（GripVertical 图标），平时低对比可见，hover 高亮。
+            缝隙大小 = grid gap-2 固定 8px 不变，拖拽只改 pane 宽度（grid-template-columns）。 */}
         {leftOpen && (
           <div
-            className={cn(
-              'absolute top-0 bottom-0 z-10 w-[8px] -translate-x-1/2 cursor-col-resize transition-colors duration-[180ms] hover:bg-[var(--ui-sash-hover-background)] active:bg-[var(--ui-sash-hover-background)]',
-              dragging && 'bg-[var(--ui-sash-hover-background)]',
-            )}
+            className="absolute top-0 bottom-0 z-10 w-[14px] -translate-x-1/2 cursor-col-resize"
             style={{ left: `calc(${leftWidth} + 4px)` }}
             onPointerDown={(e: React.PointerEvent) => handleResizerDown('left', e)}
-          />
+          >
+            <ResizeHandle dragging={dragging} />
+          </div>
         )}
         {rightOpen && (
           <div
-            className={cn(
-              'absolute top-0 bottom-0 z-10 w-[8px] translate-x-1/2 cursor-col-resize transition-colors duration-[180ms] hover:bg-[var(--ui-sash-hover-background)] active:bg-[var(--ui-sash-hover-background)]',
-              dragging && 'bg-[var(--ui-sash-hover-background)]',
-            )}
+            className="absolute top-0 bottom-0 z-10 w-[14px] translate-x-1/2 cursor-col-resize"
             style={{ right: `calc(${rightWidth} + 4px)` }}
             onPointerDown={(e: React.PointerEvent) => handleResizerDown('right', e)}
-          />
+          >
+            <ResizeHandle dragging={dragging} />
+          </div>
         )}
       </div>
     </PaneShellContext.Provider>
+  );
+}
+
+/** 拖拽手柄 — 垂直居中竖长条（老大要求：不要线，只要图标，稍微长一些，在两卡片中间） */
+function ResizeHandle({ dragging }: { dragging: boolean }) {
+  return (
+    <div
+      className={cn(
+        'absolute left-1/2 top-1/2 flex h-[64px] w-[10px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border transition-colors duration-150',
+        dragging
+          ? 'border-[var(--ui-sash-hover-border)] bg-[var(--ui-sash-hover-background)]'
+          : 'border-border/60 bg-muted/40 hover:border-[var(--ui-sash-hover-border)] hover:bg-[var(--ui-sash-hover-background)]',
+      )}
+      aria-hidden
+    >
+      <GripVertical
+        className={cn('text-muted-foreground/60 transition-colors', dragging && 'text-foreground/80')}
+        size={14}
+        strokeWidth={1.5}
+      />
+    </div>
   );
 }
 

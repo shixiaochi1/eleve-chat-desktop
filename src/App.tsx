@@ -994,10 +994,12 @@ export default function App() {
           maxLeftWidth={500}
           rightOpen={rightOpen}
           rightWidth={`${rightWidth}px`}
-          onRightResize={(w: number) => setRightWidth(Math.max(200, Math.min(400, w)))}
+          // 🔴 右栏宽度范围放宽（老大 2026-08-05）：原 200-400 只有 120px 可拖 →
+          // 拖一点就到底。min 240 保证内容可读，max 800 覆盖窗口增量分配上限。
+          onRightResize={(w: number) => setRightWidth(Math.max(240, Math.min(800, w)))}
           onRightToggle={handleToggleFiles}
-          minRightWidth={200}
-          maxRightWidth={400}
+          minRightWidth={240}
+          maxRightWidth={800}
           className="app-pane-shell"
         >
           {/* 左侧面板：图标栏 + 侧边面板卡片 */}
