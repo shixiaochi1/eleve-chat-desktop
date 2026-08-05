@@ -78,14 +78,24 @@ export default function App() {
   const [panelWidth, setPanelWidth] = useState<number>(260);  // 侧边面板宽度（可拖动）
 
   // ── Responsive: auto-collapse left sidebar when window < 800px ──
+  // 🔴 2026-08-06 修复（老大反馈：最小化再切回，侧边栏自动隐藏）：
+  //   最小化时 WebView2 窗口宽度报告为 0/极小 → matchMedia 判定 isNarrow=true →
+  //   误折叠。加 document.hidden 过滤（最小化/隐藏期间不折叠）；恢复时
+  //   collapsedPanelRef 记住折叠前的面板并还原（旧代码只清标志不还原 → 侧栏丢失）。
   const isNarrow = useMediaQuery('(max-width: 799px)');
   const [responsiveCollapsed, setResponsiveCollapsed] = useState<boolean>(false);
+  const collapsedPanelRef = useRef<string | null>(null);
   useEffect(() => {
-    if (isNarrow && activePanel) {
+    if (isNarrow && !document.hidden && activePanel) {
+      collapsedPanelRef.current = activePanel;
       setActivePanel(null);
       setResponsiveCollapsed(true);
     } else if (!isNarrow && responsiveCollapsed) {
       setResponsiveCollapsed(false);
+      if (collapsedPanelRef.current) {
+        setActivePanel(collapsedPanelRef.current);
+        collapsedPanelRef.current = null;
+      }
     }
   }, [isNarrow, activePanel, responsiveCollapsed]);
 
@@ -1105,7 +1115,7 @@ export default function App() {
                 />
               </div>
             ) : (
-            <div className="chat-card" ref={chatCardRef}>
+            <div className="chat-card min-w-[280px]" ref={chatCardRef}>
             {responsiveCollapsed && (
               <button
                 className="absolute top-2 left-2 z-20 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground transition-colors"

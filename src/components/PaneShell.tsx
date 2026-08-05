@@ -114,29 +114,50 @@ export default function PaneShell({
   // 🔴 拖拽中禁用 grid-template-columns transition（200ms 动画会造成拖拽滞后感）
   const [dragging, setDragging] = useState(false);
 
-  // 🔴 窗口整体缩放时的宽度增量分配（老大 2026-08-05 要求）：
+  // 🔴 窗口整体缩放时的宽度增量分配（老大 2026-08-05 要求 + 2026-08-06 修正）：
   // - 右栏弹出：拖外框（窗口变宽）→ 增量给右栏（rightWidth += Δ），聊天区（1fr）保持不动
-  // - 右栏未弹出：增量自然落在聊天区（1fr 吸收）
-  // 实现：ResizeObserver 观察容器总宽变化，变宽且 rightOpen → onRightResize(current + Δ)；
-  // 变窄不处理（1fr 先缩，右栏保持；右栏宽度仍受 max 钳制，避免无限增长）。
+  // - 窗口变窄 → 减量也从右栏扣（优先缩右栏，聊天区不动）；右栏到 minR 后 1fr 才吸收
+  //   （对齐老大语义：缩放整体窗口只变右抽屉大小，消息区保持不动）
+  // 🔴 2026-08-06 抖动根因修复：
+  //   a) next 计算后**立即同步 widthRef.current.right**（旧代码只在渲染时同步 →
+  //      窗口连续缩放时多次回调基于同一旧值，Δ 丢失/累积 → 左右抖动）
+  //   b) setState 回调走 rAF 节流（窗口拖拽期间每帧只渲染一次，防 React 渲染滞后抖动）
   const rightOpenRef = useRef(rightOpen);
   rightOpenRef.current = rightOpen;
+  const rightPendingRef = useRef<number | null>(null);
+  const rightRafRef = useRef(0);
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     let lastWidth = el.getBoundingClientRect().width;
+    const flushRight = () => {
+      rightRafRef.current = 0;
+      if (rightPendingRef.current !== null) {
+        const v = rightPendingRef.current;
+        rightPendingRef.current = null;
+        onResizeRef.current.right?.(v);
+      }
+    };
     const ro = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width ?? lastWidth;
       const delta = width - lastWidth;
       lastWidth = width;
-      if (!rightOpenRef.current || delta <= 0 || draggingRef.current) return;
+      if (!rightOpenRef.current || delta === 0 || draggingRef.current) return;
       const current = widthRef.current.right;
       const limits = limitsRef.current;
+      // 双向分配：宽 → 右栏 += Δ；窄 → 右栏 -= Δ（到 minR 停，余量 1fr 吸收）
       const next = Math.max(limits.minR, Math.min(limits.maxR, current + delta));
-      if (next !== current) onResizeRef.current.right?.(next);
+      if (next === current) return;
+      // 立即同步 ref（连续回调基于最新值），setState 走 rAF 节流
+      widthRef.current.right = next;
+      rightPendingRef.current = next;
+      if (!rightRafRef.current) rightRafRef.current = requestAnimationFrame(flushRight);
     });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      if (rightRafRef.current) cancelAnimationFrame(rightRafRef.current);
+    };
   }, []);
 
   const handleResizerDown = useCallback((side: 'left' | 'right', e: React.PointerEvent) => {
@@ -232,7 +253,10 @@ export default function PaneShell({
   const gridTemplate = useMemo(() => {
     const left = leftOpen ? 'var(--pane-left-width)' : '0px';
     const right = rightOpen ? 'var(--pane-right-width)' : '0px';
-    return `${left} 1fr ${right}`;
+    // 🔴 2026-08-06：main 列改 minmax(0, 1fr) —— 旧 1fr 的隐式 min=auto(min-content)
+    // 会被消息内容撑开 → 窗口缩放时聊天区宽度不稳定（左右抖动）；minmax(0,1fr)
+    // 强制 min=0，列宽纯由可用空间决定，聊天区宽度随窗口缩放平滑变化
+    return `${left} minmax(0, 1fr) ${right}`;
   }, [leftOpen, rightOpen]);
 
   // Emit pane widths as CSS variables for animation
