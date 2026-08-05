@@ -29,7 +29,7 @@ interface PaneShellContextValue {
   rightWidth: string;
   onLeftToggle?: () => void;
   onRightToggle?: () => void;
-  onResizerDown: (side: string, e: React.PointerEvent) => void;
+  onResizerDown: (side: 'left' | 'right', e: React.PointerEvent) => void;
 }
 
 interface PaneShellProps {
@@ -89,58 +89,92 @@ export default function PaneShell({
   className = '',
   style,
 }: PaneShellProps) {
-  // Resizer drag state
-  const dragRef = useRef<{ side: string; startX: number } | null>(null);
+  // 🔴 拖拽实现（2026-08-05 重写，根治“不流畅/拖到一半不动”）：
+  // 旧实现三宗罪：① 每次 pointermove 直接 setState → 每帧整树重渲染（卡顿）
+  // ② listener 依赖 [leftWidth,rightWidth] → 宽度一变就解绑重绑（间隙丢事件）
+  // ③ setPointerCapture 到 resizer 元素，React 重渲染/类名变更下 capture 不可靠
+  // 新实现：window 级监听只绑一次 + rAF 合并（每帧最多一次 setState）+
+  // ref 读当前宽度（回调永不重建）→ 拖拽期间零重绑、零丢帧。
+  const dragRef = useRef<{ side: 'left' | 'right'; startX: number } | null>(null);
+  const rafRef = useRef(0);
+  const pendingXRef = useRef<number | null>(null);
+  // 宽度/边界/回调走 ref（拖拽 handler 不依赖 props，永不重建）
+  const widthRef = useRef({ left: parseFloat(leftWidth) || 260, right: parseFloat(rightWidth) || 200 });
+  const limitsRef = useRef({ minL: minLeftWidth, maxL: maxLeftWidth, minR: minRightWidth, maxR: maxRightWidth });
+  const onResizeRef = useRef({ left: onLeftResize, right: onRightResize });
+  widthRef.current = { left: parseFloat(leftWidth) || 260, right: parseFloat(rightWidth) || 200 };
+  limitsRef.current = { minL: minLeftWidth, maxL: maxLeftWidth, minR: minRightWidth, maxR: maxRightWidth };
+  onResizeRef.current = { left: onLeftResize, right: onRightResize };
+
   // 🔴 拖拽中禁用 grid-template-columns transition（200ms 动画会造成拖拽滞后感）
   const [dragging, setDragging] = useState(false);
 
-  const handleResizerDown = useCallback((side: string, e: React.PointerEvent) => {
+  const handleResizerDown = useCallback((side: 'left' | 'right', e: React.PointerEvent) => {
     e.preventDefault();
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     dragRef.current = { side, startX: 'clientX' in e ? e.clientX : (e as any).touches?.[0]?.clientX ?? 0 };
     setDragging(true);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   }, []);
 
+  // 每帧最多应用一次宽度变化（rAF 合并）
+  const applyDrag = useCallback(() => {
+    rafRef.current = 0;
+    const drag = dragRef.current;
+    const clientX = pendingXRef.current;
+    if (!drag || clientX == null) return;
+    pendingXRef.current = null;
+
+    const delta = clientX - drag.startX;
+    drag.startX = clientX;
+
+    const w = widthRef.current;
+    const limits = limitsRef.current;
+    const cb = onResizeRef.current;
+
+    if (drag.side === 'left') {
+      const next = Math.max(limits.minL, Math.min(limits.maxL, w.left + delta));
+      cb.left?.(next);
+    } else {
+      // right pane：向左拖 = 变宽（负 delta = 更大 pane）
+      const next = Math.max(limits.minR, Math.min(limits.maxR, w.right - delta));
+      cb.right?.(next);
+    }
+  }, []);
+
   const handlePointerMove = useCallback((e: PointerEvent) => {
     if (!dragRef.current) return;
-    const { side, startX } = dragRef.current;
-    const clientX = e.clientX;
-    const delta = clientX - startX;
-
-    if (side === 'left' && onLeftResize) {
-      const currentW = parseFloat(leftWidth) || 260;
-      const newW = Math.max(minLeftWidth, Math.min(maxLeftWidth, currentW + delta));
-      onLeftResize(newW);
-      dragRef.current.startX = clientX;
-    } else if (side === 'right' && onRightResize) {
-      const currentW = parseFloat(rightWidth) || 200;
-      // For right pane, dragging left should decrease width (negative delta = bigger pane)
-      const newW = Math.max(minRightWidth, Math.min(maxRightWidth, currentW - delta));
-      onRightResize(newW);
-      dragRef.current.startX = clientX;
+    pendingXRef.current = e.clientX;
+    if (!rafRef.current) {
+      rafRef.current = requestAnimationFrame(applyDrag);
     }
-  }, [leftWidth, rightWidth, minLeftWidth, maxLeftWidth, minRightWidth, maxRightWidth, onLeftResize, onRightResize]);
+  }, [applyDrag]);
 
-  const handlePointerUp = useCallback(() => {
-    if (!dragRef.current) return;
+  const endDrag = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = 0;
+    pendingXRef.current = null;
     dragRef.current = null;
     setDragging(false);
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
   }, []);
 
+  // 一次性绑定（空依赖）：window 级监听，拖拽期间绝不重绑
   useEffect(() => {
-    document.addEventListener('pointermove', handlePointerMove);
-    document.addEventListener('pointerup', handlePointerUp);
-    document.addEventListener('pointercancel', handlePointerUp);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+    // 拖出窗口/切窗口兜底：强制结束拖拽
+    window.addEventListener('blur', endDrag);
     return () => {
-      document.removeEventListener('pointermove', handlePointerMove);
-      document.removeEventListener('pointerup', handlePointerUp);
-      document.removeEventListener('pointercancel', handlePointerUp);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', endDrag);
+      window.removeEventListener('pointercancel', endDrag);
+      window.removeEventListener('blur', endDrag);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [handlePointerMove, handlePointerUp]);
+  }, [handlePointerMove, endDrag]);
 
   // CSS Grid template: 3 columns (left | main | right)
   const gridTemplate = useMemo(() => {
