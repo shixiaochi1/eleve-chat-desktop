@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useRef, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, useRef, useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -91,11 +91,14 @@ export default function PaneShell({
 }: PaneShellProps) {
   // Resizer drag state
   const dragRef = useRef<{ side: string; startX: number } | null>(null);
+  // 🔴 拖拽中禁用 grid-template-columns transition（200ms 动画会造成拖拽滞后感）
+  const [dragging, setDragging] = useState(false);
 
   const handleResizerDown = useCallback((side: string, e: React.PointerEvent) => {
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     dragRef.current = { side, startX: 'clientX' in e ? e.clientX : (e as any).touches?.[0]?.clientX ?? 0 };
+    setDragging(true);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   }, []);
@@ -123,6 +126,7 @@ export default function PaneShell({
   const handlePointerUp = useCallback(() => {
     if (!dragRef.current) return;
     dragRef.current = null;
+    setDragging(false);
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
   }, []);
@@ -168,29 +172,37 @@ export default function PaneShell({
     <PaneShellContext.Provider value={contextValue}>
       <div
         className={cn(
-          'grid min-w-[640px] flex-1 min-h-0 overflow-hidden transition-[grid-template-columns,padding-left,padding-right] duration-200 grid-rows-[minmax(0,1fr)] gap-2',
+          'relative grid min-w-[640px] flex-1 min-h-0 overflow-hidden transition-[grid-template-columns,padding-left,padding-right] duration-200 grid-rows-[minmax(0,1fr)] gap-2',
           leftOpen ? 'pl-2' : 'pl-0',
           rightOpen ? 'pr-2' : 'pr-0',
+          dragging && 'transition-none',
           className,
           !rightOpen && 'pane-right-closed',
         )}
         style={{ ...composedStyle, background: 'transparent' }}
       >
         {children}
-        {/* Resizer handles — positioned as grid items overlaying pane edges */}
+        {/* Resizer handles — absolute overlay on the grid GAP（缝隙），不占用列轨道：
+            平时透明无痕；hover/active 显示淡色条（--ui-sash-hover-background 6% accent）。
+            缝隙大小 = grid gap-2 固定 8px 不变，拖拽只改 pane 宽度（grid-template-columns）。
+            🔴 旧实现：grid item 未指定行 → auto-placement 进隐式第二行（高度 auto=0）→ 不可点。 */}
         {leftOpen && (
           <div
             className={cn(
-              'relative z-10 w-[4px] cursor-col-resize bg-transparent shrink-0 transition-colors duration-[180ms] hover:bg-[var(--ui-sash-hover-background)] active:bg-[var(--ui-sash-hover-background)] col-[1/2] justify-self-end',
+              'absolute top-0 bottom-0 z-10 w-[8px] -translate-x-1/2 cursor-col-resize transition-colors duration-[180ms] hover:bg-[var(--ui-sash-hover-background)] active:bg-[var(--ui-sash-hover-background)]',
+              dragging && 'bg-[var(--ui-sash-hover-background)]',
             )}
+            style={{ left: `calc(${leftWidth} + 4px)` }}
             onPointerDown={(e: React.PointerEvent) => handleResizerDown('left', e)}
           />
         )}
         {rightOpen && (
           <div
             className={cn(
-              'relative z-10 w-[4px] cursor-col-resize bg-transparent shrink-0 transition-colors duration-[180ms] hover:bg-[var(--ui-sash-hover-background)] active:bg-[var(--ui-sash-hover-background)] col-[3/4] justify-self-start',
+              'absolute top-0 bottom-0 z-10 w-[8px] translate-x-1/2 cursor-col-resize transition-colors duration-[180ms] hover:bg-[var(--ui-sash-hover-background)] active:bg-[var(--ui-sash-hover-background)]',
+              dragging && 'bg-[var(--ui-sash-hover-background)]',
             )}
+            style={{ right: `calc(${rightWidth} + 4px)` }}
             onPointerDown={(e: React.PointerEvent) => handleResizerDown('right', e)}
           />
         )}
