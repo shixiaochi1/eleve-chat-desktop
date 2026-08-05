@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useRef, useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -89,12 +89,15 @@ export default function PaneShell({
   className = '',
   style,
 }: PaneShellProps) {
-  // 🔴 拖拽实现（2026-08-05 重写，根治“不流畅/拖到一半不动”）：
-  // 旧实现三宗罪：① 每次 pointermove 直接 setState → 每帧整树重渲染（卡顿）
-  // ② listener 依赖 [leftWidth,rightWidth] → 宽度一变就解绑重绑（间隙丢事件）
-  // ③ setPointerCapture 到 resizer 元素，React 重渲染/类名变更下 capture 不可靠
-  // 新实现：window 级监听只绑一次 + rAF 合并（每帧最多一次 setState）+
-  // ref 读当前宽度（回调永不重建）→ 拖拽期间零重绑、零丢帧。
+  // 🔴🔴 拖拽架构（2026-08-05 v3，根治“距离不同步/手感差”）——核心原则：
+  // **拖拽中零 React 状态更新，直接写 DOM CSS 变量**。
+  // grid-template-columns 引用 var(--pane-left/right-width)，拖拽时 applyDrag 直接
+  // setProperty 覆写变量 → 浏览器原生重排（合成器/布局线程直接响应，无 React 参与）
+  // → 鼠标移动 1px = 面板移动 1px，天然同步。
+  // 拖拽结束（pointerup）才一次性 onLeftResize/onRightResize 同步 React state
+  // （持久化/其它逻辑消费），期间 App 零重渲染。
+  // 旧架构（v2）痛点：每帧 setState → App 整树重渲染（会话/流式/面板全量）
+  // 渲染耗时 >16ms → rAF 应用被 React 渲染排队延迟 → 鼠标拖出屏幕面板才动一点。
   const dragRef = useRef<{ side: 'left' | 'right'; startX: number } | null>(null);
   const rafRef = useRef(0);
   const pendingXRef = useRef<number | null>(null);
@@ -105,6 +108,8 @@ export default function PaneShell({
   widthRef.current = { left: parseFloat(leftWidth) || 260, right: parseFloat(rightWidth) || 200 };
   limitsRef.current = { minL: minLeftWidth, maxL: maxLeftWidth, minR: minRightWidth, maxR: maxRightWidth };
   onResizeRef.current = { left: onLeftResize, right: onRightResize };
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const draggingRef = useRef(false);
 
   // 🔴 拖拽中禁用 grid-template-columns transition（200ms 动画会造成拖拽滞后感）
   const [dragging, setDragging] = useState(false);
@@ -114,7 +119,6 @@ export default function PaneShell({
   // - 右栏未弹出：增量自然落在聊天区（1fr 吸收）
   // 实现：ResizeObserver 观察容器总宽变化，变宽且 rightOpen → onRightResize(current + Δ)；
   // 变窄不处理（1fr 先缩，右栏保持；右栏宽度仍受 max 钳制，避免无限增长）。
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const rightOpenRef = useRef(rightOpen);
   rightOpenRef.current = rightOpen;
   useEffect(() => {
@@ -125,7 +129,7 @@ export default function PaneShell({
       const width = entries[0]?.contentRect.width ?? lastWidth;
       const delta = width - lastWidth;
       lastWidth = width;
-      if (!rightOpenRef.current || delta <= 0) return;
+      if (!rightOpenRef.current || delta <= 0 || draggingRef.current) return;
       const current = widthRef.current.right;
       const limits = limitsRef.current;
       const next = Math.max(limits.minR, Math.min(limits.maxR, current + delta));
@@ -138,17 +142,19 @@ export default function PaneShell({
   const handleResizerDown = useCallback((side: 'left' | 'right', e: React.PointerEvent) => {
     e.preventDefault();
     dragRef.current = { side, startX: 'clientX' in e ? e.clientX : (e as any).touches?.[0]?.clientX ?? 0 };
+    draggingRef.current = true;
     setDragging(true);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   }, []);
 
-  // 每帧最多应用一次宽度变化（rAF 合并）
+  // 每帧最多应用一次宽度变化（rAF 合并）——直接写 CSS 变量，零 React
   const applyDrag = useCallback(() => {
     rafRef.current = 0;
     const drag = dragRef.current;
     const clientX = pendingXRef.current;
-    if (!drag || clientX == null) return;
+    const el = containerRef.current;
+    if (!drag || clientX == null || !el) return;
     pendingXRef.current = null;
 
     const delta = clientX - drag.startX;
@@ -156,15 +162,16 @@ export default function PaneShell({
 
     const w = widthRef.current;
     const limits = limitsRef.current;
-    const cb = onResizeRef.current;
 
     if (drag.side === 'left') {
       const next = Math.max(limits.minL, Math.min(limits.maxL, w.left + delta));
-      cb.left?.(next);
+      w.left = next;
+      el.style.setProperty('--pane-left-width', `${next}px`);
     } else {
       // right pane：向左拖 = 变宽（负 delta = 更大 pane）
       const next = Math.max(limits.minR, Math.min(limits.maxR, w.right - delta));
-      cb.right?.(next);
+      w.right = next;
+      el.style.setProperty('--pane-right-width', `${next}px`);
     }
   }, []);
 
@@ -180,10 +187,19 @@ export default function PaneShell({
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = 0;
     pendingXRef.current = null;
+    const drag = dragRef.current;
     dragRef.current = null;
+    draggingRef.current = false;
     setDragging(false);
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
+    // 拖拽结束：一次性同步 React state（拖拽中零 React，结束收敛持久化）
+    if (drag) {
+      const w = widthRef.current;
+      const cb = onResizeRef.current;
+      if (drag.side === 'left') cb.left?.(w.left);
+      else cb.right?.(w.right);
+    }
   }, []);
 
   // 一次性绑定（空依赖）：window 级监听，拖拽期间绝不重绑
@@ -203,18 +219,22 @@ export default function PaneShell({
   }, [handlePointerMove, endDrag]);
 
   // CSS Grid template: 3 columns (left | main | right)
+  // 🔴 列宽引用 CSS 变量（var(--pane-left/right-width)）：拖拽中 applyDrag 直接
+  // setProperty 覆写变量 → 浏览器原生重排，零 React 参与；非拖拽时由 React 渲染
+  // 写入（composedStyle 同步 props）。
   const gridTemplate = useMemo(() => {
-    const left = leftOpen ? leftWidth : '0px';
-    const right = rightOpen ? rightWidth : '0px';
+    const left = leftOpen ? 'var(--pane-left-width)' : '0px';
+    const right = rightOpen ? 'var(--pane-right-width)' : '0px';
     return `${left} 1fr ${right}`;
-  }, [leftOpen, leftWidth, rightOpen, rightWidth]);
+  }, [leftOpen, rightOpen]);
 
   // Emit pane widths as CSS variables for animation
   const composedStyle: React.CSSProperties = {
     ...style,
     gridTemplateColumns: gridTemplate,
-    '--pane-left-width': leftWidth,
-    '--pane-right-width': rightWidth,
+    // 🔴 拖拽中不覆盖变量（applyDrag 正在写 DOM，React 渲染覆写会打断拖拽）——
+    // 非拖拽时同步 props。
+    ...(dragging ? {} : { '--pane-left-width': leftWidth, '--pane-right-width': rightWidth }),
   } as React.CSSProperties;
 
   const contextValue = useMemo(() => ({
@@ -249,12 +269,13 @@ export default function PaneShell({
         }}
       >
         {children}
-        {/* 🔴 Resizer 拖拽手柄（2026-08-05 老大要求）— 不要整条拖拽线，只要图标：
-            缝隙正中一个竖长条手柄（GripVertical 图标），平时低对比可见，hover 高亮。
-            缝隙大小 = grid gap-2 固定 8px 不变，拖拽只改 pane 宽度（grid-template-columns）。 */}
+        {/* 🔴 Resizer 拖拽热区（2026-08-05 老大要求）：
+            平时干干净净（完全透明无痕）；鼠标移到两卡片中间时出现长竖条提示。
+            缝隙大小 = grid gap-2 固定 8px 不变，拖拽只改 pane 宽度（grid-template-columns）。
+            拖拽中零 React（applyDrag 直接写 CSS 变量）。 */}
         {leftOpen && (
           <div
-            className="absolute top-0 bottom-0 z-10 w-[14px] -translate-x-1/2 cursor-col-resize"
+            className="group absolute top-0 bottom-0 z-10 w-[16px] -translate-x-1/2 cursor-col-resize"
             style={{ left: `calc(${leftWidth} + 4px)` }}
             onPointerDown={(e: React.PointerEvent) => handleResizerDown('left', e)}
           >
@@ -263,7 +284,7 @@ export default function PaneShell({
         )}
         {rightOpen && (
           <div
-            className="absolute top-0 bottom-0 z-10 w-[14px] translate-x-1/2 cursor-col-resize"
+            className="group absolute top-0 bottom-0 z-10 w-[16px] translate-x-1/2 cursor-col-resize"
             style={{ right: `calc(${rightWidth} + 4px)` }}
             onPointerDown={(e: React.PointerEvent) => handleResizerDown('right', e)}
           >
@@ -275,24 +296,19 @@ export default function PaneShell({
   );
 }
 
-/** 拖拽手柄 — 垂直居中竖长条（老大要求：不要线，只要图标，稍微长一些，在两卡片中间） */
+/** 拖拽提示竖条 — 平时全透明（干干净净）；hover/拖拽时出现长竖条（老大要求：长一些） */
 function ResizeHandle({ dragging }: { dragging: boolean }) {
   return (
     <div
       className={cn(
-        'absolute left-1/2 top-1/2 flex h-[64px] w-[10px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border transition-colors duration-150',
+        'absolute left-1/2 top-1/2 h-[96px] w-[4px] -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150',
+        'opacity-0 group-hover:opacity-100',
         dragging
-          ? 'border-[var(--ui-sash-hover-border)] bg-[var(--ui-sash-hover-background)]'
-          : 'border-border/60 bg-muted/40 hover:border-[var(--ui-sash-hover-border)] hover:bg-[var(--ui-sash-hover-background)]',
+          ? 'bg-[var(--ui-sash-hover-background)] opacity-100 ring-1 ring-[var(--ui-sash-hover-border)]'
+          : 'bg-[var(--ui-sash-hover-background)] ring-1 ring-[var(--ui-sash-hover-border)]',
       )}
       aria-hidden
-    >
-      <GripVertical
-        className={cn('text-muted-foreground/60 transition-colors', dragging && 'text-foreground/80')}
-        size={14}
-        strokeWidth={1.5}
-      />
-    </div>
+    />
   );
 }
 
