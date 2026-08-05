@@ -1,7 +1,7 @@
 import { useRef, useCallback, type MutableRefObject } from 'react';
 import * as storage from '../utils/storage';
 import { persistSessionPointer } from '../utils/session';
-import { setMessages as storeSetMessages, getMessages } from '../store/messages';
+import { setMessages as storeSetMessages, getMessages, getIsStreaming } from '../store/messages';
 import { setMonitor } from '../store/debug';
 import { textPart } from '@/lib/chat-messages'
 import { getWsClient } from '../services/ws-client';
@@ -45,7 +45,7 @@ export function usePromptActions({
   setConnectionStatus: React.Dispatch<React.SetStateAction<string>>
   addDebugEvent: (type: string, detail: string) => void
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
-  send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string }) => Promise<void>
+  send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string; queued?: boolean }) => Promise<void>
   abort?: () => Promise<void>
   handleNewSession: (title?: string) => Promise<void>
   currentModel?: string
@@ -129,7 +129,9 @@ export function usePromptActions({
     setMonitor((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: entry.text.slice(0, 40) }));
     addDebugEvent('text', `user: ${entry.text.slice(0, 60)}`);
     try {
-      await send(entry.text, sess.sessionId as null | undefined, modelOpts);
+      // 🔴 Phase 2: drain 续发带 queued:true（红线 3 — Hermes server.py:7258：
+      // drain 消息强制 queue，绝不劫持/打断 live turn）
+      await send(entry.text, sess.sessionId as null | undefined, { ...modelOpts, queued: true });
       clearDrainFailures(entry.id); // 成功重置
     } catch {
       incrementDrainFailures(entry.id);
@@ -176,7 +178,8 @@ export function usePromptActions({
       setConnectionStatus('connected');
       addDebugEvent('text', `user (queue-now): ${entry.text.slice(0, 60)}`);
       try {
-        await send(entry.text, sess.sessionId as null | undefined, modelOpts);
+        // 🔴 Phase 2: 排队条目立即发送同样带 queued:true（红线 3）
+        await send(entry.text, sess.sessionId as null | undefined, { ...modelOpts, queued: true });
       } catch {
         isSendingRef.current = false;
       }
@@ -260,8 +263,14 @@ export function usePromptActions({
       return;
     }
 
-    // 🔴 流式期间 → 排队（对齐 Hermes enqueueQueuedPrompt + 附件暂存）
-    if (isSendingRef.current) {
+    // 🔴 Phase 2: busy 分支不再是前端截流 —— 带附件才走前端队列（附件 base64 仅存
+    // 本地内存，物理上必须先上传后端）；纯文本直发后端 prompt.submit，由
+    // route_busy_submit 决定 steer/interrupt/queue（对齐宫格 useGridChat sendTo
+    // wasBusy 语义 + Hermes use-composer-submit busy 决策树）
+    // 🔴 判定含 store 快照：后端 drain turn（run.started → isStreaming=true）无发送锁，
+    // 仅看 isSendingRef 会让附件消息漏走队列（对齐宫格 wasBusy 的 status 判定）
+    const wasBusy = isSendingRef.current || getIsStreaming();
+    if (wasBusy && attachments?.length) {
       const modelOpts = currentModel ? { model: currentModel, provider: currentProvider } : undefined;
       const entry = enqueue(currentProfile, { text, modelOpts, attachments });
       // 附件 base64 暂存内存（drain 时取出附着后端）
@@ -272,9 +281,11 @@ export function usePromptActions({
       storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage]);
       return;
     }
+    // busy 纯文本 → fall through 直发（乐观上屏由下方统一路径负责）
 
-    // 直接发送
-    isSendingRef.current = true;
+    // 直接发送（idle 直发 / busy 直发共用；wasBusy 不加锁——锁归属 live turn，
+    // 对齐宫格 sendTo：早释放会打开双提交窗口，早持有会让旧 turn 的 complete 误 drain）
+    if (!wasBusy) isSendingRef.current = true;
     storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage]);
 
     const wsClient = getWsClient();
@@ -284,7 +295,7 @@ export function usePromptActions({
     const submitLockKey = sessionId || '__pending_new__';
     if (_submitInFlight.has(submitLockKey)) {
       console.warn('[handleSend] submitInFlight guard: already submitting for', submitLockKey);
-      isSendingRef.current = false;
+      if (!wasBusy) isSendingRef.current = false;
       return;
     }
     _submitInFlight.add(submitLockKey);
@@ -293,7 +304,7 @@ export function usePromptActions({
       sess.setTitle(sessionId, text.slice(0, 30));
     }
 
-    const modelOpts: { model?: string; provider?: string; title?: string } = {};
+    const modelOpts: { model?: string; provider?: string; title?: string; queued?: boolean } = {};
     if (currentModel) {
       modelOpts.model = currentModel;
       modelOpts.provider = currentProvider;
@@ -301,6 +312,8 @@ export function usePromptActions({
     if (sess.pendingTitle) {
       modelOpts.title = sess.pendingTitle;
     }
+    // 🔴 注意：busy 直发【不带 queued】——queued=true 仅属于 drain 续发消息（红线 3），
+    // 新消息必须走 route_busy_submit 三模式路由，带 queued 会把 steer/interrupt 强制降级
 
     setConnectionStatus('connected');
     setMonitor((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: text.slice(0, 40) }));

@@ -1,5 +1,5 @@
 import { useRef, useCallback, useEffect } from 'react';
-import { useIsStreaming, setIsStreaming as storeSetIsStreaming } from '@/store/messages';
+import { useIsStreaming, setIsStreaming as storeSetIsStreaming, getIsStreaming } from '@/store/messages';
 import { getWsClient } from '@/services/ws-client';
 import { handleGlobalEvent } from '@/lib/global-events';
 import { persistSessionPointer } from '../utils/session';
@@ -609,9 +609,14 @@ export function useSSE(
     };
   }, [routeWsEvent, enabled]);
 
-  const send = useCallback(async (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string }): Promise<void> => {
+  const send = useCallback(async (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string; queued?: boolean }): Promise<void> => {
     if (!text?.trim()) return;
     console.log('[useSSE.send] sessionId:', sessionId, 'wsState:', getWsClient().state);
+    // 🔴 Phase 2: busy 直发保护 —— 流式态/发送锁/累加器归属 live turn，
+    // wasBusy 路径不重置、失败时不回退（对齐宫格 useGridChat sendTo wasBusy 语义）
+    // 🔴 wasBusy 判定含 store 快照：后端 drain turn（run.started → isStreaming=true）
+    // 无发送锁，仅看 isStreamingRef（send() 设置/done 清除）会误判为 idle
+    const wasBusy = isStreamingRef.current || getIsStreaming();
     storeSetIsStreaming(true);
     isStreamingRef.current = true;
 
@@ -641,8 +646,10 @@ export function useSSE(
     const connected = await wsClient.ensureConnected(10000);
     if (!connected) {
       console.error('[useSSE] WS not connected after waiting 10s');
-      storeSetIsStreaming(false);
-      isStreamingRef.current = false;
+      if (!wasBusy) {
+        storeSetIsStreaming(false);
+        isStreamingRef.current = false;
+      }
       pendingSendRef.current = false;
       pendingBufferRef.current = null;
       if (cbs?.onError) {
@@ -651,11 +658,19 @@ export function useSSE(
       return;
     }
 
-    // 重置 WS 累加器
-    wsAccumulatorsRef.current = createAccumulator();
+    // 🔴 Phase 2: busy 直发不重置累加器 —— live turn 正在其中累积 delta，重置会抹掉终稿
+    if (!wasBusy) wsAccumulatorsRef.current = createAccumulator();
 
     try {
-      const result = await wsClient.promptSubmit(text, sessionId || undefined, modelOpts) as { session_id?: string };
+      const result = await wsClient.promptSubmit(text, sessionId || undefined, modelOpts) as { session_id?: string; status?: string };
+      // 🔴 Phase 2: 消费后端 route_busy_submit outcome（对齐宫格 useGridChat sendTo）：
+      // - steered → 注入 live turn，无新 turn 事件，UI 提示
+      // - queued 类 → live turn 的 message.complete 是锁释放唯一权威入口，
+      //   后端 spawn_ws_turn_with_drain 接续排队消息。两种情况都不动流式态/锁。
+      // - 无 status = idle accepted → 正常持锁等 message.complete 释放
+      if (result?.status === 'steered') {
+        import('../utils/notifications').then(({ notifyInfo }) => notifyInfo('已注入当前轮（steer）', '消息已送达')).catch(() => {});
+      }
       // 对齐架构原则：后端是 session_id 的唯一权威源
       // 后端自动创建 session 时返回 session_id，前端消费并更新本地状态
       if (result?.session_id && result.session_id !== sessionId) {
@@ -676,8 +691,11 @@ export function useSSE(
       return; // WS 发送成功，事件通过 routeWsEvent 回调
     } catch (wsErr) {
       console.error('[useSSE] WS prompt.submit failed:', wsErr);
-      storeSetIsStreaming(false);
-      isStreamingRef.current = false;
+      // 🔴 Phase 2: wasBusy 直发失败不动流式态 —— 归属 live turn（其 complete 负责终止）
+      if (!wasBusy) {
+        storeSetIsStreaming(false);
+        isStreamingRef.current = false;
+      }
       pendingSendRef.current = false;
       pendingBufferRef.current = null;
       if (cbs?.onError) {

@@ -199,16 +199,30 @@ export function useGridChat(active: boolean): {
   const sendTo = useCallback(async (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachments?: QueuedAttachment[]; attachmentDataURLs?: string[]; explicitSessionId?: string }, fromDrain?: boolean) => {
     if (!text.trim()) return;
 
-    // 🔴 per-agent 发送锁：流式期间排队（持久化，对齐 Hermes composer-queue），结束后自动发送
-    if (sendingRef.current[profile]) {
-      const entry = queueEnqueue(profile, { text, modelOpts, attachments: opts?.attachments });
-      // 🔴 附件 base64 暂存内存（drain 时取出附着后端，对齐单视图 stashAttachmentData）
-      if (opts?.attachmentDataURLs?.length) stashAttachmentData(entry.id, opts.attachmentDataURLs);
-      patch(profile, (st) => ({
-        ...st,
-        messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
-      }));
-      return;
+    // 🔴 Phase 2: per-agent 发送锁保留，但 busy 分支不再是"前端截流排队"——
+    // 带附件/已排队条目才走前端队列（附件 base64 仅存本地内存，必须先上传后端，
+    // 物理约束非截流）；纯文本直发后端 prompt.submit，由 route_busy_submit
+    // 决定 steer/interrupt/queue（对齐 Hermes use-composer-submit busy 决策树：
+    // busy + 纯文本 → steerDraft 直发；busy + 附件 → queueCurrentDraft）。
+    // 前端队列定位降级为"回显 + 用户管理 UI + 附件暂存"（对齐 Hermes
+    // $queuedPromptsBySession），drain 权归后端 spawn_ws_turn_with_drain。
+    // 🔴 Phase 2: busy 判定 = 发送锁 OR 事件驱动状态非 idle（streaming/waiting）。
+    // 关键：interrupt/queue 模式下后端 spawn_ws_turn_with_drain 会自动起新 turn
+    // （run.started → status='streaming'，审批 → 'waiting'），该 turn 无前端锁 ——
+    // 仅看 sendingRef 会把后端 drain turn 误判为 idle，走直发路径重置累加器抹掉终稿。
+    const wasBusy = sendingRef.current[profile] || (statesRef.current[profile]?.status ?? 'idle') !== 'idle';
+    if (wasBusy) {
+      if (opts?.attachments?.length) {
+        const entry = queueEnqueue(profile, { text, modelOpts, attachments: opts.attachments });
+        // 🔴 附件 base64 暂存内存（drain 时取出附着后端，对齐单视图 stashAttachmentData）
+        if (opts.attachmentDataURLs?.length) stashAttachmentData(entry.id, opts.attachmentDataURLs);
+        patch(profile, (st) => ({
+          ...st,
+          messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
+        }));
+        return;
+      }
+      // 纯文本直发（乐观上屏由下方统一路径负责，此处 fall through）
     }
 
     const s = statesRef.current[profile];
@@ -236,42 +250,67 @@ export function useGridChat(active: boolean): {
       patch(profile, (st) => ({
         ...st,
         messages: [...st.messages, userMsg].slice(-WINDOW_MAX),
-        status: 'streaming',
+        // 🔴 Phase 2: busy 直发不强置 streaming —— live turn 已持有 status（streaming/waiting）；
+        // queued 类 outcome 等后端 drain 的 run.started 驱动，steered 沿用旧流
+        ...(wasBusy ? {} : { status: 'streaming' as AgentStatus }),
       }));
     } else {
       patch(profile, (st) => ({ ...st, status: 'streaming' }));
     }
-    accRef.current[profile] = createAccumulator();
+    // 🔴 Phase 2: busy 直发不重置累加器 —— live turn 正在其中累积 delta，
+    // 重置会让当前轮 finalize 时丢失 acc.parts（终稿截断）
+    if (!wasBusy) accRef.current[profile] = createAccumulator();
 
     // 🔴 P1-2.1: 先加锁再 await 连接（防双击竞态：两条快速消息都见 sendingRef=false → 双提交）
-    sendingRef.current[profile] = true;
+    // 🔴 Phase 2: wasBusy 直发路径【不加锁】——锁归属仍是 live turn（steered：旧流自带
+    // message.complete 终止链；queued：后端 drain 循环起新 turn，run.started 驱动）。
+    // 若此处加锁，旧 turn 的 complete 会误 drain 前端队列，且 queued 分支的释放逻辑双写。
+    if (!wasBusy) sendingRef.current[profile] = true;
 
     // 🔴 3.1: 统一连接保障入口（消灭 3 份重复）
     const ws = getWsClient();
     // 🔴 P1-7: 检查返回值（对齐单视图 useSSE.send）—— 超时时快速失败，不让 sendRpc 排队 30min 静默卡死
     const connected = await ws.ensureConnected(10000);
     if (!connected) {
-      sendingRef.current[profile] = false;
-      patch(profile, (s) => ({ ...s, status: 'idle', streamParts: [], activityHint: '' }));
+      if (!wasBusy) {
+        sendingRef.current[profile] = false;
+        patch(profile, (s) => ({ ...s, status: 'idle', streamParts: [], activityHint: '' }));
+      }
       // 🔴 #11: 显式失败反馈（旧实现静默 return — 用户以为发出去了）
       import('../utils/notifications').then(({ notifyError }) => notifyError('WebSocket 连接超时，消息未发送', '发送失败')).catch(() => {});
       return;
     }
 
+    // 🔴 Phase 2: drain 续发带 queued:true（红线 3 — Hermes server.py:7258 竞态保护：
+    // client drain 的消息强制 queue，绝不劫持/打断 live turn）
     try {
       const result = await ws.sendRpc('prompt.submit', {
         text, profile, session_id: sessionId ?? '',
         // 🔴 对齐单视图：传递 model/provider（ModelPill 选择的模型生效）
         ...(modelOpts?.model ? { model: modelOpts.model, provider: modelOpts.provider || '' } : {}),
-      }) as { session_id?: string };
+        ...(fromDrain ? { queued: true } : {}),
+      }) as { session_id?: string; status?: string };
       // 后端可能新建 session → 记录 sessionId + 🔴 P1-F 即时持久化（防崩溃丢失）
       if (result?.session_id && result.session_id !== sessionId) {
         patch(profile, (st) => ({ ...st, sessionId: result.session_id! }));
         persistSessionPointer(result.session_id);
       }
+      // 🔴 Phase 2: busy 直发消费后端路由结果（route_busy_submit outcome）：
+      // - status 存在 = 命中 busy 分支。steered → 注入 live turn，无新 turn 事件，UI 提示。
+      // - queued 类（interrupt 打断后入队 / 纯 queue / steer fall through）→ live turn 的
+      //   message.complete(interrupted) 是锁释放 + drain 的唯一权威入口，后端
+      //   spawn_ws_turn_with_drain 接续排队消息起新 turn，run.started 事件驱动 UI。
+      //   两种情况都【不动发送锁】：锁归属仍是 live turn，早释放会打开双提交窗口。
+      // - 无 status = idle accepted → 正常持锁（上方已加锁），等 message.complete 释放。
+      if (result?.status === 'steered') {
+        import('../utils/notifications').then(({ notifyInfo }) => notifyInfo('已注入当前轮（steer）', '消息已送达')).catch(() => {});
+      }
     } catch (e) {
-      sendingRef.current[profile] = false;
-      patch(profile, (st) => ({ ...st, status: 'idle' }));
+      // 🔴 Phase 2: wasBusy 直发失败不动锁 —— 锁归属是 live turn（其 complete 负责释放）
+      if (!wasBusy) {
+        sendingRef.current[profile] = false;
+        patch(profile, (st) => ({ ...st, status: 'idle' }));
+      }
       console.error('[useGridChat] sendTo failed:', profile, e);
       import('../utils/notifications').then(({ notifyError }) => notifyError('发送失败，请检查连接', '发送失败')).catch(() => {});
     }

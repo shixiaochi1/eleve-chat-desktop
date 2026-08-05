@@ -532,11 +532,13 @@ export class GatewayWsClient {
 
   /** 发送 prompt — 对齐 Eleve prompt.submit（参数 text）
    * 对齐 Hermes pending_title: title 参数由后端在 message.complete 后应用到 DB
+   * 🔴 Phase 2: queued 参数 — client drain 续发标记（红线 3，Hermes server.py:7258
+   * 竞态保护：drain 消息强制 queue，绝不劫持/打断 live turn）
    */
   async promptSubmit(
     text: string,
     sessionId?: string,
-    options?: { model?: string; provider?: string; title?: string },
+    options?: { model?: string; provider?: string; title?: string; queued?: boolean },
   ): Promise<unknown> {
     return this.sendRpc('prompt.submit', {
       session_id: sessionId || this.sessionId || '',
@@ -547,6 +549,7 @@ export class GatewayWsClient {
       provider: options?.provider || '',
       // 对齐 Hermes pending_title: 首次消息时传入标题，后端完成 turn 后应用
       title: options?.title || '',
+      ...(options?.queued ? { queued: true } : {}),
     })
   }
 

@@ -42,6 +42,11 @@ function getIsStreamingSnapshot(): boolean {
   return _isStreaming
 }
 
+/** 同步读取流式态（非 React 上下文用 — useSSE.send 的 wasBusy 判定） */
+export function getIsStreaming(): boolean {
+  return _isStreaming
+}
+
 function subscribeIsStreaming(cb: ListenerCallback): Unsubscribe {
   _isStreamingListeners.add(cb)
   return () => { _isStreamingListeners.delete(cb) }
