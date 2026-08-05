@@ -41,10 +41,12 @@ interface PaneShellProps {
   rightWidth?: string;
   minRightWidth?: number;
   maxRightWidth?: number;
-  /** 主区（聊天区）最小宽度保护（2026-08-06 老大要求）：
-   *  窗口变宽时若主区未达最小 → Δ 留给 1fr 补主区（不调右抽屉）；
-   *  主区达标后增量才给右抽屉。默认 0 = 不保护（旧行为）。 */
-  minMainWidth?: number;
+  /** 右抽屉宽度锚点（2026-08-06 v4 确定性推导）：
+   *  { winW: 锚定时的窗口宽, rightW: 锚定时的右抽屉宽 }
+   *  派生 rightW = clamp(rightW + (当前窗口宽 - winW), minR, maxR)
+   *  → 窗口缩放只改右抽屉（聊天区数学恒等，零抖动）；手动拖拽结束由
+   *  onRightResize 上报新锚点。 */
+  rightAnchor?: { winW: number; rightW: number };
   onLeftResize?: (width: number) => void;
   onRightResize?: (width: number) => void;
   onLeftToggle?: () => void;
@@ -85,7 +87,7 @@ export default function PaneShell({
   rightWidth = '200px',
   minRightWidth = 200,
   maxRightWidth = 400,
-  minMainWidth = 0,
+  rightAnchor,
   onLeftResize,
   onRightResize,
   onLeftToggle,
@@ -109,11 +111,8 @@ export default function PaneShell({
   // 宽度/边界/回调走 ref（拖拽 handler 不依赖 props，永不重建）
   const widthRef = useRef({ left: parseFloat(leftWidth) || 260, right: parseFloat(rightWidth) || 200 });
   const limitsRef = useRef({ minL: minLeftWidth, maxL: maxLeftWidth, minR: minRightWidth, maxR: maxRightWidth });
-  const minMainRef = useRef(minMainWidth);
   const onResizeRef = useRef({ left: onLeftResize, right: onRightResize });
-  widthRef.current = { left: parseFloat(leftWidth) || 260, right: parseFloat(rightWidth) || 200 };
   limitsRef.current = { minL: minLeftWidth, maxL: maxLeftWidth, minR: minRightWidth, maxR: maxRightWidth };
-  minMainRef.current = minMainWidth;
   onResizeRef.current = { left: onLeftResize, right: onRightResize };
   const containerRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
@@ -121,63 +120,31 @@ export default function PaneShell({
   // 🔴 拖拽中禁用 grid-template-columns transition（200ms 动画会造成拖拽滞后感）
   const [dragging, setDragging] = useState(false);
 
-  // 🔴 窗口整体缩放时的宽度增量分配（老大 2026-08-05 要求 + 2026-08-06 修正）：
-  // - 右栏弹出：拖外框（窗口变宽）→ 增量给右栏（rightWidth += Δ），聊天区（1fr）保持不动
-  // - 窗口变窄 → 减量也从右栏扣（优先缩右栏，聊天区不动）；右栏到 minR 后 1fr 才吸收
-  //   （对齐老大语义：缩放整体窗口只变右抽屉大小，消息区保持不动）
-  // 🔴 2026-08-06 抖动根因修复：
-  //   a) next 计算后**立即同步 widthRef.current.right**（旧代码只在渲染时同步 →
-  //      窗口连续缩放时多次回调基于同一旧值，Δ 丢失/累积 → 左右抖动）
-  //   b) setState 回调走 rAF 节流（窗口拖拽期间每帧只渲染一次，防 React 渲染滞后抖动）
-  const rightOpenRef = useRef(rightOpen);
-  rightOpenRef.current = rightOpen;
-  const rightPendingRef = useRef<number | null>(null);
-  const rightRafRef = useRef(0);
+  // 🔴🔴 2026-08-06 v4 确定性推导架构（老大要求：整体拖动缩放 → 聊天区不动、只变右抽屉）：
+  // 右抽屉宽度 = 锚点基准 + 窗口宽度变化量（纯计算，非增量累积）→
+  //   派生 rightW = clamp(anchor.rightW + (winW - anchor.winW), minR, maxR)
+  //   聊天区 = winW - left - rightW - chrome → 非 clamp 区间恒 = anchor 基准值（数学恒等）
+  // 窗口缩放 → winW state 变化 → PaneShell 局部重渲染（App 不参与）→ 派生 rightW 更新；
+  // 手动拖右抽屉 → endDrag 上报 → App setRightAnchor 更新基准。
+  // 对比 v3 增量分配（ResizeObserver + Δ 累积）：v4 无状态累积、无分配延迟、无弹簧抖动。
+  const [winW, setWinW] = useState<number>(() => (typeof window !== 'undefined' ? window.innerWidth : 900));
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    let lastWidth = el.getBoundingClientRect().width;
-    const flushRight = () => {
-      rightRafRef.current = 0;
-      if (rightPendingRef.current !== null) {
-        const v = rightPendingRef.current;
-        rightPendingRef.current = null;
-        onResizeRef.current.right?.(v);
-      }
-    };
-    const ro = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width ?? lastWidth;
-      const delta = width - lastWidth;
-      lastWidth = width;
-      if (!rightOpenRef.current || delta === 0 || draggingRef.current) return;
-      const w = widthRef.current;
-      const limits = limitsRef.current;
-      if (delta > 0) {
-        // 变宽：主区未达最小 → Δ 留给 1fr 补主区（右抽屉不动，聊天区优先）；
-        // 主区达标 → 增量给右抽屉（聊天区保持不动）
-        // （grid 2 个 gap 共 16px 计入；<= 而非 < ：setSize 恰好补满 min 时不分配）
-        const availChat = width - w.left - w.right - 16;
-        if (availChat <= minMainRef.current) return;
-        const next = Math.max(limits.minR, Math.min(limits.maxR, w.right + delta));
-        if (next === w.right) return;
-        w.right = next;
-        rightPendingRef.current = next;
-        if (!rightRafRef.current) rightRafRef.current = requestAnimationFrame(flushRight);
-      } else {
-        // 变窄：右抽屉优先吸收（聊天区保持不动），到 minR 停后余量 1fr 吸收
-        const next = Math.max(limits.minR, w.right + delta);
-        if (next === w.right) return;
-        w.right = next;
-        rightPendingRef.current = next;
-        if (!rightRafRef.current) rightRafRef.current = requestAnimationFrame(flushRight);
-      }
-    });
-    ro.observe(el);
-    return () => {
-      ro.disconnect();
-      if (rightRafRef.current) cancelAnimationFrame(rightRafRef.current);
-    };
+    const onResize = () => setWinW(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
+  const derivedRight = rightOpen
+    ? rightAnchor
+      ? Math.max(minRightWidth, Math.min(maxRightWidth, rightAnchor.rightW + (winW - rightAnchor.winW)))
+      : parseFloat(rightWidth) || 200
+    : 0;
+  // 渲染同步 widthRef（拖拽中保留 applyDrag 实时值，防基准被重置）
+  if (!draggingRef.current) {
+    widthRef.current = {
+      left: parseFloat(leftWidth) || 260,
+      right: rightOpen ? derivedRight : parseFloat(rightWidth) || 200,
+    };
+  }
 
   const handleResizerDown = useCallback((side: 'left' | 'right', e: React.PointerEvent) => {
     e.preventDefault();
@@ -337,7 +304,8 @@ export default function PaneShell({
         {rightOpen && (
           <div
             className="absolute top-0 bottom-0 z-10 w-[16px] translate-x-1/2 cursor-col-resize"
-            style={{ right: `calc(${rightWidth} + 4px)` }}
+            // 🔴 热区位置用 widthRef 实时值（窗口缩放后实际宽度是派生值，rightWidth prop 只是锚点）
+            style={{ right: `calc(${widthRef.current.right}px + 4px)` }}
             onPointerDown={(e: React.PointerEvent) => handleResizerDown('right', e)}
           />
         )}

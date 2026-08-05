@@ -108,7 +108,12 @@ export default function App() {
       return false;
     }
   });
-  const [rightWidth, setRightWidth] = useState<number>(280);
+  const [rightAnchor, setRightAnchor] = useState<{ winW: number; rightW: number }>(() => ({
+    // 🔴 2026-08-06 v4 确定性推导：右抽屉宽度锚点（PaneShell 内部派生 = 锚点 + 窗口变化量）
+    // winW = 锚定时的窗口内容宽；rightW = 锚定时的右抽屉宽
+    winW: typeof window !== 'undefined' ? window.innerWidth : 900,
+    rightW: 280,
+  }));
   const [rightTab, setRightTab] = useState<string>(() => {
     try {
       const raw = localStorage.getItem('eleve.rightPane.v1');
@@ -133,9 +138,6 @@ export default function App() {
   const MIN_CHAT_WIDTH = 480;
   const SIDE_CHROME = 32; // pl-2/pr-2 padding 16 + grid gap-2 16
   const widenedRef = useRef(false);
-  // rightWidth 变化（双向分配/手动拖拽）不重跑 effect（只影响 need，用 ref 读最新）
-  const rightWidthRef = useRef(rightWidth);
-  rightWidthRef.current = rightWidth;
   useEffect(() => {
     if (!isDesktop()) return;
     let cancelled = false;
@@ -150,9 +152,15 @@ export default function App() {
           if (!widenedRef.current) {
             widenedRef.current = true;
             const size = await win.innerSize();
-            const need = 52 + panelWidth + MIN_CHAT_WIDTH + SIDE_CHROME + rightWidthRef.current;
+            const need = 52 + panelWidth + MIN_CHAT_WIDTH + SIDE_CHROME + rightAnchor.rightW;
             if (size.width < need) {
               await win.setSize(new PhysicalSize(need, size.height));
+              // 🔴 setSize 后同步锚点基准（否则窗口增量被算进右抽屉 → 聊天区被挤回）
+              const after = await win.innerSize();
+              setRightAnchor((prev) => ({ winW: after.width, rightW: prev.rightW }));
+            } else {
+              // 窗口本来就够宽 → 以当前宽度为基准（右抽屉保持默认）
+              setRightAnchor((prev) => ({ winW: size.width, rightW: prev.rightW }));
             }
           }
         } else {
@@ -163,7 +171,7 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [rightOpen, panelWidth]);
+  }, [rightOpen, panelWidth, rightAnchor.rightW]);
 
   // 🔴 Artifact 右栏化（对齐 Hermes openArtifact → 打开右栏 tab）：
   // 消息内卡片点击 openArtifact() 后，单视图自动打开右栏并切到「产物」tab；
@@ -1091,14 +1099,14 @@ export default function App() {
           minLeftWidth={180}
           maxLeftWidth={500}
           rightOpen={rightOpen}
-          rightWidth={`${rightWidth}px`}
+          rightWidth={`${rightAnchor.rightW}px`}
+          rightAnchor={rightAnchor}
           // 🔴 右栏宽度范围放宽（老大 2026-08-05）：原 200-400 只有 120px 可拖 →
           // 拖一点就到底。min 240 保证内容可读，max 800 覆盖窗口增量分配上限。
-          onRightResize={(w: number) => setRightWidth(Math.max(240, Math.min(800, w)))}
+          onRightResize={(w: number) => setRightAnchor({ winW: window.innerWidth, rightW: Math.max(240, Math.min(800, w)) })}
           onRightToggle={handleToggleFiles}
           minRightWidth={240}
           maxRightWidth={800}
-          minMainWidth={MIN_CHAT_WIDTH}
           className="app-pane-shell"
         >
           {/* 左侧面板：图标栏 + 侧边面板卡片 */}
