@@ -2247,6 +2247,18 @@
           "markdownDescription": "Enables the preview_console_snapshot command without any pre-configured scope."
         },
         {
+          "description": "Enables the preview_file_unwatch command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-preview-file-unwatch",
+          "markdownDescription": "Enables the preview_file_unwatch command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the preview_file_watch command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-preview-file-watch",
+          "markdownDescription": "Enables the preview_file_watch command without any pre-configured scope."
+        },
+        {
           "description": "Enables the preview_webview_close command without any pre-configured scope.",
           "type": "string",
           "const": "allow-preview-webview-close",
@@ -2329,6 +2341,18 @@
           "type": "string",
           "const": "deny-preview-console-snapshot",
           "markdownDescription": "Denies the preview_console_snapshot command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_file_unwatch command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-preview-file-unwatch",
+          "markdownDescription": "Denies the preview_file_unwatch command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_file_watch command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-preview-file-watch",
+          "markdownDescription": "Denies the preview_file_watch command without any pre-configured scope."
         },
         {
           "description": "Denies the preview_webview_close command without any pre-configured scope.",

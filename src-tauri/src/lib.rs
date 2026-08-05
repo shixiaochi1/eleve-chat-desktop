@@ -26,9 +26,11 @@ use std::time::Duration;
 
 // 预览控制台治理层（Rust 侧缓冲 + 子 Webview 生命周期管理）
 mod preview_console;
+mod preview_file_watch;
 mod preview_webview;
 
 pub use preview_console::PreviewConsoleState;
+pub use preview_file_watch::PreviewFileWatchManager;
 pub use preview_webview::PreviewWebviewManager;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -924,6 +926,8 @@ pub fn run() {
             // 预览控制台：子 Webview 生命周期 + console 缓冲治理
             preview_console::preview_console_push,
             preview_console::preview_console_snapshot,
+            preview_file_watch::preview_file_watch,
+            preview_file_watch::preview_file_unwatch,
             preview_webview::preview_webview_create,
             preview_webview::preview_webview_close,
             preview_webview::preview_webview_update,
@@ -1065,6 +1069,8 @@ pub fn run() {
             preview_console.spawn_flusher(app.handle().clone());
             app.manage(preview_console);
             app.manage(PreviewWebviewManager::default());
+            // 预览文件 watcher 注册表（文件变化 → preview-file-changed 事件）
+            app.manage(PreviewFileWatchManager::default());
 
             // 在后台线程中轮询端口发现（不阻塞 Tauri setup）
             let port_atomic = app.state::<TauriAppState>().gateway_port.clone();

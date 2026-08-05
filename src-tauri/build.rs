@@ -22,6 +22,9 @@ fn main() {
             "preview_webview_reload",
             "preview_webview_visible",
             "preview_webview_devtools",
+            // 预览文件 watcher
+            "preview_file_watch",
+            "preview_file_unwatch",
         ]),
     );
     if let Err(e) = tauri_build::try_build(attributes) {

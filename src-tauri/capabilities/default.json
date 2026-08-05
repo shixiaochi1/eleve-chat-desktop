@@ -53,6 +53,8 @@
     "allow-preview-webview-navigate",
     "allow-preview-webview-reload",
     "allow-preview-webview-visible",
-    "allow-preview-webview-devtools"
+    "allow-preview-webview-devtools",
+    "allow-preview-file-watch",
+    "allow-preview-file-unwatch"
   ]
 }

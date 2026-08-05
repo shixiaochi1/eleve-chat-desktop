@@ -17,6 +17,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { readFile, readTextFile, stat, writeTextFile } from '@tauri-apps/plugin-fs';
 import { AlertCircle, Download, File, Loader2, Pencil, RefreshCw, X } from 'lucide-react';
 import type { PreviewTab } from '@/store/preview';
@@ -24,6 +26,7 @@ import { renderMarkdown } from '@/utils/markdown';
 import { cn } from '@/lib/utils';
 import { setPreviewDirty } from '@/lib/preview-edit';
 import { CodeEditor } from '@/components/chat/code-editor';
+import { isDesktop } from '@/utils/bridge';
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']);
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown', '.mdown']);
@@ -157,6 +160,67 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     setPreviewDirty(tab.target.url, editing && dirty);
     return () => setPreviewDirty(tab.target.url, false);
   }, [tab.target.url, editing, dirty]);
+
+  // ── 文件系统 watcher（对齐 Hermes preview-pane watchPreviewFile：磁盘变化
+  //    （外部/Agent/spot editor 保存）→ debounce 200ms → 自动重载。
+  //    Rust 侧 notify watch 父目录 + basename 过滤 → preview-file-changed 事件；
+  //    watch 生命周期跟随 path（切文件 → 旧 watch 停 + 新 watch 起，对齐 Hermes
+  //    effect [target.kind, target.url]）。浏览器模式（非 Tauri）降级：无自动刷新）──
+  const watchIdRef = useRef<string | null>(null);
+  const pathRef = useRef(path);
+  pathRef.current = path;
+
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let cancelled = false;
+    let debounceTimer: number | null = null;
+    let unlisten: UnlistenFn | null = null;
+
+    const onChanged = (event: { payload: { path?: string } }) => {
+      if (cancelled) return;
+      // basename 匹配（与 Rust 侧同规则；多 watch 并存/事件重放防御）
+      const changed = event.payload?.path ?? '';
+      const current = pathRef.current;
+      if (basename(changed) !== basename(current)) return;
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(() => {
+        debounceTimer = null;
+        if (!cancelled) setReloadKey((k) => k + 1);
+      }, 200); // 对齐 Hermes FILE_RELOAD_DEBOUNCE_MS
+    };
+
+    void listen<{ path?: string }>('preview-file-changed', onChanged).then((u) => {
+      if (cancelled) {
+        u();
+        return;
+      }
+      unlisten = u;
+    });
+
+    invoke<string>('preview_file_watch', { path })
+      .then((id) => {
+        if (cancelled) {
+          // 创建完成前已卸载（异步竞态）→ 立即停止
+          invoke('preview_file_unwatch', { id }).catch(() => {});
+          return;
+        }
+        watchIdRef.current = id;
+      })
+      .catch(() => {
+        // watch 失败（文件不存在/权限）：静默降级，手动刷新仍可用
+      });
+
+    return () => {
+      cancelled = true;
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
+      unlisten?.();
+      const id = watchIdRef.current;
+      watchIdRef.current = null;
+      if (id) {
+        invoke('preview_file_unwatch', { id }).catch(() => {});
+      }
+    };
+  }, [path]);
 
   // ── 下载：blob → a[download] ──
   const handleDownload = useCallback(async () => {
