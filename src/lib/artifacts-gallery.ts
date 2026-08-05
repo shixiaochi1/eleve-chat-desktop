@@ -28,7 +28,7 @@ export interface GalleryArtifact {
 const MARKDOWN_IMAGE_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g
 const MARKDOWN_LINK_RE = /\[([^\]]+)\]\(([^)\s]+)\)/g
 const URL_RE = /https?:\/\/[^\s<>"')]+/g
-const PATH_RE = /(^|[\s("'`])((?:\/|~\/|\.\.?\/)[^\s"'`<>]+(?:\.[a-z0-9]{1,8})?)/gi
+const PATH_RE = /(^|[\s("'`])((?:\/|~\/|\.\.?\/)[^\s"'`<>\\]+(?:\.[a-z0-9]{1,8})?)/gi
 const IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp)(?:\?.*)?$/i
 const FILE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp|pdf|txt|json|md|csv|zip|tar|gz|mp3|wav|mp4|mov)(?:\?.*)?$/i
 const KEY_HINT_RE = /(path|file|url|image|artifact|output|download|result|target)/i
@@ -251,7 +251,11 @@ export function collectArtifactsForSession(
     if (message.role !== 'assistant' && message.role !== 'tool') continue
     collectArtifactsFromMessage(message, (candidate) => {
       const value = normalizeValue(candidate)
+      // 🔴 单行 + 长度约束：真实路径/URL 不含换行且长度有限。ELEVE tool 消息
+      // content 是 JSON 字符串（\n 字面转义）或 tool_result 长文本——若被
+      // PATH_RE/递归误收成多行拼接串，会显示为"路径一直重复"。
       if (!value || !looksLikeArtifact(value)) return
+      if (value.includes('\n') || value.includes('\r') || value.length > 300) return
       const key = `${session.id}:${value}`
       if (found.has(key)) return
       found.set(key, {
