@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect, useRef, useMemo, useDeferredValue } from 'react';
-import { ThinkingIcon, CopyIcon, CheckIcon } from './Icons';
+import { useState, useCallback, useMemo, useDeferredValue } from 'react';
+import { ThinkingIcon, CopyIcon, CheckIcon, ExpandIcon } from './Icons';
 import ActivityTimerText from './ActivityTimerText';
 import { useElapsedSeconds } from '@/hooks/useActivityTimer';
 import { useShowReasoning } from '@/store/display-settings';
@@ -19,46 +19,31 @@ interface ReasoningBlockProps {
 }
 
 /**
- * 思维过程块 — 可折叠 + 渐隐预览 + 计时器
+ * 思维过程块 — 折叠漏两行预览 + 点击展开 + 计时器
  * 
- * 对齐 Eleve ThinkingDisclosure:
- *   - 默认折叠，显示前几行 + 渐隐遮罩
- *   - 点击展开完整内容
+ * 🔴 2026-08-05 老大定调（细节对齐 Hermes ThinkingDisclosure / DisclosureRow）：
+ *   - 思考过程中默认折叠，漏出前两行预览（line-clamp-2 硬截断，Hermes overflow-hidden 同款语义）
+ *   - 想看 → 点击预览区或标题"思考"展开；首次手动 toggle 后永久生效
+ *   - 折叠/打开方向：caret 箭头收起 ▶ 朝右、展开 ▼ 朝下（rotate-90），
+ *     静止淡显 0.4（Hermes thinking 专用 --disclosure-caret-rest）、hover/展开 0.8
+ *   - 滚动形式：展开态无 max-h 无内部滚动条，内容自然撑开跟随页面滚动（Hermes 同款）
+ *   - 字体颜色比回复正文淡（muted-foreground × 半透明），hover 提升可读性
  *   - pending 时静态浅色 + "思考了 Xs" 计时器（无呼吸动画，老大要求取消）
  *   - 🔴 禁止 scrollIntoView — 虚拟化列表中会造成反馈循环
- *   - 思考气泡内 ResizeObserver 自动滚底（仅 preview 模式）
  */
 export default function ReasoningBlock({ text, visible, messageId, blockIndex, pending }: ReasoningBlockProps) {
   // 显示推理过程开关（config.yaml display.show_reasoning，设置>聊天）。
   // 关闭时整个推理块不渲染；数据层 parts 保留，重新打开后历史推理块恢复显示。
   const showReasoning = useShowReasoning();
-  // 🔴 Phase 3: 三态默认策略（对齐 Hermes message-parts: open = userOpen ?? pending）：
-  // userOpen=null 时流式自动展开、完成自动折叠；用户首次手动 toggle 后永久生效。
+  // 🔴 默认折叠（老大 2026-08-05 定调：思考过程中折叠，漏两行预览，想看点击展开）：
+  // userOpen=null（从未手动操作）→ 恒折叠，不随 pending 自动展开；首次手动 toggle 后永久生效。
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const [copied, setCopied] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const open = userOpen ?? !!pending;
+  const open = userOpen ?? false;
 
   // 计时器（🔴 Phase 3: 块级 key—多推理块各自计时，不再全块同读数）
   const timerKey = messageId ? `reasoning:${messageId}:${blockIndex ?? 0}` : 'reasoning:unknown';
   const elapsed = useElapsedSeconds(!!pending, timerKey);
-
-  // 🔴 预览模式对齐 Hermes ThinkingDisclosure：`pending && userOpen === null`
-  // 仅当用户从未手动 toggle 时才跟随流式预览；一旦手动展开/折叠（userOpen 非 null），
-  // 立即脱离预览限制——手动展开=完全展开，手动折叠=完全收起。
-  // ELEVE 旧实现 `pending && open` 的 bug：手动展开后仍被困预览态（max-h+滚动条），
-  // 表现为"思考中折叠点不开、只能滚动条滚动"。
-  const isPreview = !!pending && userOpen === null;
-
-  useEffect(() => {
-    if (!isPreview || !contentRef.current) return;
-    const el = contentRef.current;
-    const pin = () => { el.scrollTop = el.scrollHeight; };
-    pin();
-    const observer = new ResizeObserver(pin);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [isPreview]);
 
   // 显示层清洗（对齐 Hermes coerceThinkingText 定位：只动显示不动数据）：
   // 剥混入的 think 标签 + 状态前缀 + 纯垃圾推理流（"..."/":"）视为空隐藏。
@@ -77,23 +62,31 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
 
   if (!showReasoning || !visible || !cleanText) return null;
 
-  const lines = cleanText.split('\n');
-  const isLong = lines.length > 4 || cleanText.length > 200;
-
   return (
     <div className="border-l-2 border-muted-foreground/30 pl-3 my-2 max-w-[85%]">
-      {/* 标题行：图标 + "思考" + 计时器 + 展开/复制 */}
+      {/* 标题行：图标 + "思考" + caret（方向指示） + 计时器 + 复制 */}
       <div className="flex items-center gap-1.5 mb-1">
         <button
           className={cn(
-            'flex items-center gap-1.5 text-xs transition-colors',
-            'text-muted-foreground hover:text-foreground'
+            // hover 胶囊贴合文字宽度（对齐 Hermes DisclosureRow：-mx-1.5 px-1.5）
+            'group/disclosure-row flex items-center gap-1.5 text-xs transition-colors -m-1 p-1 rounded-md',
+            'text-muted-foreground/70 hover:bg-accent/60 hover:text-foreground'
           )}
           onClick={() => setUserOpen(!open)}
+          aria-expanded={open}
         >
           <ThinkingIcon size={12} className="inline-block shrink-0" />
           思考
-          {isLong && <span className="text-[10px] text-muted-foreground/50">{open ? '收起' : '展开'}</span>}
+          {/* caret 对齐 Hermes DisclosureCaret（chevron-right）：收起 ▶ 朝右、
+              展开 rotate-90 ▼ 朝下；静止淡显 0.4（Hermes thinking 专用
+              --disclosure-caret-rest: 0.4）、hover/展开时 0.8 */}
+          <ExpandIcon
+            size={12}
+            className={cn(
+              'shrink-0 text-muted-foreground/80 transition-transform duration-150',
+              open ? 'rotate-90 opacity-80' : 'opacity-40 group-hover/disclosure-row:opacity-80'
+            )}
+          />
         </button>
         {/* 计时器 — 仅 pending 时显示 */}
         {pending && <ActivityTimerText seconds={elapsed} />}
@@ -114,28 +107,27 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
           thinking 内容自带 markdown 语法（行内 code / 代码围栏 / 粗体 / 列表），纯文本直出会
           裸奔反引号与围栏标记；走与主气泡相同的 StreamBlocks 管线（merge → autolink →
           repair → split → marked）→ 行内 code 样式化、代码围栏变代码卡片、强调/列表正常排版。
-          pending（流式）时尾块延迟高亮 + useDeferredValue 降载（对齐 Hermes defer） */}
+          pending（流式）时尾块延迟高亮 + useDeferredValue 降载（对齐 Hermes defer）。
+          🔴 折叠态 = 漏两行预览（line-clamp-2 硬截断，Hermes overflow-hidden 同款截断语义），
+          点击预览区展开；展开态无 max-h 无内部滚动条 → 自然撑开跟随页面滚动。 */}
       <div
-        ref={contentRef}
         className={cn(
-          // 🔴 字体对齐 Hermes ReasoningTextPart containerClassName：
-          // text-xs leading-snug text-muted-foreground/85（12px 紧凑行高）—
-          // 与正文（text-sm）明显区分；ELEVE 旧实现 text-sm 与正文同字号。
-          'text-xs leading-snug break-words select-text',
-          pending ? 'text-muted-foreground/55' : 'text-muted-foreground/85',
-          !open && isLong && 'max-h-[5.5em] overflow-hidden cursor-pointer [-webkit-mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)] [mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)]',
-          open && 'select-text',
-          // 🔴 预览态对齐 Hermes：overflow-hidden（无滚动条）+ 自动滚底，
-          // 思考中最新 token 始终可见；ELEVE 旧实现 overflow-y-auto 出滚动条。
-          isPreview && 'max-h-[10em] overflow-hidden',
+          // 🔴 字体颜色（老大 2026-08-05 定调）：与回复正文（text-card-foreground 全强度）
+          // 拉开轻重——思考内容更淡（muted-foreground × 半透明），hover 提升可读性，
+          // 对齐 Hermes disclosure opacity 0.67 → 1.0 语义；思考中（pending）比查看时更淡。
+          'text-xs leading-snug break-words select-text transition-colors',
+          pending
+            ? 'text-muted-foreground/50 hover:text-muted-foreground/80'
+            : 'text-muted-foreground/65 hover:text-muted-foreground/90',
+          // 折叠态：漏两行 + 光标提示可点击展开
+          !open && 'line-clamp-2 cursor-pointer'
         )}
         onClick={(e) => {
+          if (open) return;
+          // 选择文本时不触发（复制/划词场景）
           const sel = window.getSelection();
           if (sel && sel.toString().length > 0) return;
-          // 🔴 对称 toggle：折叠态点击展开，展开态点击收起。
-          // ELEVE 旧实现仅在 !open 时展开，展开态点击无效 → "折叠点不开"。
-          if (open) setUserOpen(false);
-          else if (isLong) setUserOpen(true);
+          setUserOpen(true);
         }}
       >
         <StreamBlocks text={deferredClean} streaming={!!pending} disableArtifacts />
