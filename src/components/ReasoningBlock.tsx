@@ -43,8 +43,12 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
   const timerKey = messageId ? `reasoning:${messageId}:${blockIndex ?? 0}` : 'reasoning:unknown';
   const elapsed = useElapsedSeconds(!!pending, timerKey);
 
-  // 预览模式：pending 且展开时，自动滚到底
-  const isPreview = !!pending && open;
+  // 🔴 预览模式对齐 Hermes ThinkingDisclosure：`pending && userOpen === null`
+  // 仅当用户从未手动 toggle 时才跟随流式预览；一旦手动展开/折叠（userOpen 非 null），
+  // 立即脱离预览限制——手动展开=完全展开，手动折叠=完全收起。
+  // ELEVE 旧实现 `pending && open` 的 bug：手动展开后仍被困预览态（max-h+滚动条），
+  // 表现为"思考中折叠点不开、只能滚动条滚动"。
+  const isPreview = !!pending && userOpen === null;
 
   useEffect(() => {
     if (!isPreview || !contentRef.current) return;
@@ -83,7 +87,7 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
         <button
           className={cn(
             'flex items-center gap-1.5 text-xs transition-colors',
-            pending ? 'text-foreground/55' : 'text-muted-foreground hover:text-foreground'
+            'text-muted-foreground hover:text-foreground'
           )}
           onClick={() => setUserOpen(!open)}
         >
@@ -114,16 +118,24 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
       <div
         ref={contentRef}
         className={cn(
-          'text-sm break-words select-text',
-          pending ? 'text-muted-foreground/55' : 'text-muted-foreground',
+          // 🔴 字体对齐 Hermes ReasoningTextPart containerClassName：
+          // text-xs leading-snug text-muted-foreground/85（12px 紧凑行高）—
+          // 与正文（text-sm）明显区分；ELEVE 旧实现 text-sm 与正文同字号。
+          'text-xs leading-snug break-words select-text',
+          pending ? 'text-muted-foreground/55' : 'text-muted-foreground/85',
           !open && isLong && 'max-h-[5.5em] overflow-hidden cursor-pointer [-webkit-mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)] [mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)]',
           open && 'select-text',
-          isPreview && 'max-h-[5.5em] overflow-y-auto',
+          // 🔴 预览态对齐 Hermes：overflow-hidden（无滚动条）+ 自动滚底，
+          // 思考中最新 token 始终可见；ELEVE 旧实现 overflow-y-auto 出滚动条。
+          isPreview && 'max-h-[10em] overflow-hidden',
         )}
         onClick={(e) => {
           const sel = window.getSelection();
           if (sel && sel.toString().length > 0) return;
-          isLong && !open && setUserOpen(true);
+          // 🔴 对称 toggle：折叠态点击展开，展开态点击收起。
+          // ELEVE 旧实现仅在 !open 时展开，展开态点击无效 → "折叠点不开"。
+          if (open) setUserOpen(false);
+          else if (isLong) setUserOpen(true);
         }}
       >
         <StreamBlocks text={deferredClean} streaming={!!pending} disableArtifacts />
