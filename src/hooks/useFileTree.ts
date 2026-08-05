@@ -83,6 +83,9 @@ export function useFileTree(initialPath: string | null = null) {
     setRootPath(path);
     setLoading(true);
     setError(null);
+    // 切换根目录：重置展开状态 + 目录缓存（旧树状态不能残留到新目录）
+    setOpenState({});
+    cacheRef.current = {};
 
     try {
       const entries = await listDir(path);

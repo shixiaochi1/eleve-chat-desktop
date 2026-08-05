@@ -4,7 +4,7 @@
  * 树状文件列表，支持展开/折叠目录、点击文件附加路径
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { File, Folder, FolderOpen, ChevronRight, ChevronDown, RefreshCw, Loader } from 'lucide-react';
+import { File, Folder, FolderOpen, ChevronRight, ChevronDown, RefreshCw, Loader, ArrowUp, FolderInput } from 'lucide-react';
 import { useFileTree } from '../hooks/useFileTree';
 import { cn } from '@/lib/utils';
 
@@ -28,6 +28,42 @@ interface TreeNodeProps {
 
 interface FileBrowserPanelProps {
   onFileAttach?: (path: string) => void;
+}
+
+// 每层缩进（对齐 Hermes react-arborist INDENT=10）：16px/层在窄面板里
+// 5-6 层后文件名就被挤出可视区，表现为"深层文件被裁掉显示不全"
+const INDENT = 10;
+// 深度封顶：超过该层数不再增加缩进，防极端深嵌套把行推出面板
+const MAX_INDENT_DEPTH = 20;
+
+/**
+ * 原生目录选择（tauri-plugin-dialog；浏览器模式返回 null）
+ * 与 ProjectTreePanel/SystemSettings 同款模式
+ */
+async function pickDirectory(title: string): Promise<string | null> {
+  try {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const sel = await open({ directory: true, multiple: false, title });
+    return Array.isArray(sel) ? (sel[0] ?? null) : sel;
+  } catch (err) {
+    console.error('[FileBrowserPanel] directory dialog failed:', err);
+    return null;
+  }
+}
+
+/**
+ * 计算父目录路径；已是根（盘符根 / POSIX 根）返回 null
+ * C:\Users\Admin → C:\Users；C:\ → null；/home/user → /home；/ → null
+ */
+function parentOf(path: string): string | null {
+  const norm = path.replace(/[\\/]+$/, '');
+  if (!norm) return null;
+  const idx = Math.max(norm.lastIndexOf('/'), norm.lastIndexOf('\\'));
+  if (idx <= 0) return null;
+  const parent = norm.slice(0, idx);
+  if (!parent) return null;
+  // Windows 盘符根：C: → C:\（保持可再次进入根目录）
+  return /^[A-Za-z]:$/.test(parent) ? `${parent}\\` : parent;
 }
 
 /**
@@ -106,8 +142,10 @@ function TreeNode({
     }
   }, [entry, handleToggle, onFileClick]);
 
+  const indent = Math.min(depth, MAX_INDENT_DEPTH) * INDENT + 4;
+
   return (
-    <div style={{ paddingLeft: depth * 16 + 4 }}>
+    <div style={{ paddingLeft: indent }}>
       <div
         className={cn(
           'flex items-center gap-1 px-1 py-0.5 rounded text-xs cursor-pointer hover:bg-accent/30 transition-colors',
@@ -160,9 +198,9 @@ function TreeNode({
         </div>
       )}
 
-      {/* 空目录提示 */}
+      {/* 空目录提示 — 缩进与子节点行对齐（子行缩进 + 箭头/图标位） */}
       {entry.isDirectory && isOpen && children && children.length === 0 && (
-        <div className="text-[10px] text-muted-foreground/50 italic" style={{ paddingLeft: (depth + 1) * 16 + 20 }}>
+        <div className="text-[10px] text-muted-foreground/50 italic" style={{ paddingLeft: Math.min(depth + 1, MAX_INDENT_DEPTH) * INDENT + 20 }}>
           空目录
         </div>
       )}
@@ -215,6 +253,19 @@ export default function FileBrowserPanel({
     refresh();
   }, [refresh]);
 
+  // 切换目录：Tauri 原生目录选择器（浏览器模式静默无操作）
+  const handlePickRoot = useCallback(async () => {
+    const sel = await pickDirectory('选择工作目录');
+    if (sel) await setRoot(sel);
+  }, [setRoot]);
+
+  // 上级目录
+  const handleGoUp = useCallback(() => {
+    if (!rootPath) return;
+    const parent = parentOf(rootPath);
+    if (parent) void setRoot(parent);
+  }, [rootPath, setRoot]);
+
   // 获取当前目录名
   // 🔴 W-4 修复：旧正则 /\\\\/ 匹配双反斜杠，Windows 单反斜杠路径不替换
   // → dirName 显示全路径而非目录名
@@ -261,20 +312,37 @@ export default function FileBrowserPanel({
       {/* 头部 */}
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-foreground">文件</span>
-        <button
-          className="p-1 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-          onClick={handleRefresh}
-          title="刷新"
-          disabled={loading}
-        >
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            className="p-1 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+            onClick={handleGoUp}
+            title="上级目录"
+            disabled={!rootPath || !parentOf(rootPath)}
+          >
+            <ArrowUp size={14} />
+          </button>
+          <button
+            className="p-1 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            onClick={handlePickRoot}
+            title="切换目录"
+          >
+            <FolderInput size={14} />
+          </button>
+          <button
+            className="p-1 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            onClick={handleRefresh}
+            title="刷新"
+            disabled={loading}
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
-      {/* 当前工作目录 */}
+      {/* 当前工作目录 — 显示完整路径，悬浮可见全路径 */}
       <div className="flex items-center gap-1 px-1 py-1 mb-2 text-xs text-muted-foreground truncate border-b border-border" title={rootPath || undefined}>
         <Folder size={12} className="text-warning shrink-0" />
-        <span className="truncate">{dirName}</span>
+        <span className="truncate">{rootPath || dirName}</span>
       </div>
 
       {/* 加载状态 */}
