@@ -215,7 +215,7 @@ export default function ArtifactsGallery({
       </div>
 
       {/* 内容区 */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-2">
         {!artifacts ? (
           <div className="grid h-full place-items-center">
             <div className="flex flex-col items-center gap-2 text-muted-foreground/70">
@@ -253,14 +253,16 @@ export default function ArtifactsGallery({
           <div className="flex flex-col gap-4">
             {pagedImages.length > 0 && (
               <section className="flex flex-col gap-2">
-                <div className="mt-1 flex h-7 w-full items-center">
-                  <GalleryPagination
-                    page={curImagePage}
-                    pageCount={imagePageCount}
-                    onPageChange={setImagePage}
-                    rangeLabel={pageRangeLabel(visibleImages.length, curImagePage, IMAGE_PAGE_SIZE)}
-                  />
-                </div>
+                {imagePageCount > 1 && (
+                  <div className="mt-1 flex h-7 w-full items-center">
+                    <GalleryPagination
+                      page={curImagePage}
+                      pageCount={imagePageCount}
+                      onPageChange={setImagePage}
+                      rangeLabel={pageRangeLabel(visibleImages.length, curImagePage, IMAGE_PAGE_SIZE)}
+                    />
+                  </div>
+                )}
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] items-start gap-2.5">
                   {pagedImages.map((artifact) => (
                     <ArtifactImageCard
@@ -278,14 +280,16 @@ export default function ArtifactsGallery({
 
             {pagedNonImages.length > 0 && (
               <section className="flex flex-col gap-2">
-                <div className="mt-1 flex h-7 w-full items-center">
-                  <GalleryPagination
-                    page={curFilePage}
-                    pageCount={filePageCount}
-                    onPageChange={setFilePage}
-                    rangeLabel={pageRangeLabel(visibleNonImages.length, curFilePage, FILE_PAGE_SIZE)}
-                  />
-                </div>
+                {filePageCount > 1 && (
+                  <div className="mt-1 flex h-7 w-full items-center">
+                    <GalleryPagination
+                      page={curFilePage}
+                      pageCount={filePageCount}
+                      onPageChange={setFilePage}
+                      rangeLabel={pageRangeLabel(visibleNonImages.length, curFilePage, FILE_PAGE_SIZE)}
+                    />
+                  </div>
+                )}
                 <div className="overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm">
                   <table className="w-full border-collapse text-xs">
                     <thead>
