@@ -19,7 +19,7 @@ import { useMediaQuery } from './hooks/use-media-query';
 import { loadMarkdownDeps } from './utils/markdown';
 import * as storage from './utils/storage';
 import { loadSettingsFromRust } from './utils/settings-store';
-import { discoverPort, call } from './utils/bridge';
+import { discoverPort, call, isDesktop } from './utils/bridge';
 import { getActiveProfile, fetchProfiles } from './utils/api';
 import { getWsClient, setWsActiveProfile } from './services/ws-client';
 import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer, loadProfilePointers, saveProfilePointer, removeProfilePointer } from './utils/session';
@@ -124,6 +124,46 @@ export default function App() {
     } catch { /* 存储不可用静默降级 */ }
   }, [rightOpen, rightTab]);
   const handleToggleFiles = useCallback(() => setRightOpen(prev => !prev), []);
+
+  // 🔴 2026-08-06 老大要求：右抽屉打开 = 窗口向右加宽（不挤压消息区）
+  // - 窗口最小宽度 = 图标栏 52 + 左面板 panelWidth + 聊天区最小 480
+  //   + (抽屉开 ? 右抽屉最小 240 : 0) + padding/gap 32（SIDE_CHROME）
+  // - 开抽屉瞬间若窗口不足 → setSize 向右加宽（聊天区补到最小，右抽屉保持）
+  // - widenedRef 防重复加宽：之后右抽屉/面板宽度变化只同步 min-size 不再 setSize
+  const MIN_CHAT_WIDTH = 480;
+  const SIDE_CHROME = 32; // pl-2/pr-2 padding 16 + grid gap-2 16
+  const widenedRef = useRef(false);
+  // rightWidth 变化（双向分配/手动拖拽）不重跑 effect（只影响 need，用 ref 读最新）
+  const rightWidthRef = useRef(rightWidth);
+  rightWidthRef.current = rightWidth;
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const { PhysicalSize } = await import('@tauri-apps/api/dpi');
+        const win = getCurrentWindow();
+        const minW = 52 + panelWidth + MIN_CHAT_WIDTH + SIDE_CHROME + (rightOpen ? 240 : 0);
+        await win.setMinSize(new PhysicalSize(minW, 400));
+        if (rightOpen) {
+          if (!widenedRef.current) {
+            widenedRef.current = true;
+            const size = await win.innerSize();
+            const need = 52 + panelWidth + MIN_CHAT_WIDTH + SIDE_CHROME + rightWidthRef.current;
+            if (size.width < need) {
+              await win.setSize(new PhysicalSize(need, size.height));
+            }
+          }
+        } else {
+          widenedRef.current = false;
+        }
+      } catch (err) {
+        console.warn('[App] window size sync failed:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [rightOpen, panelWidth]);
 
   // 🔴 Artifact 右栏化（对齐 Hermes openArtifact → 打开右栏 tab）：
   // 消息内卡片点击 openArtifact() 后，单视图自动打开右栏并切到「产物」tab；
@@ -1058,6 +1098,7 @@ export default function App() {
           onRightToggle={handleToggleFiles}
           minRightWidth={240}
           maxRightWidth={800}
+          minMainWidth={MIN_CHAT_WIDTH}
           className="app-pane-shell"
         >
           {/* 左侧面板：图标栏 + 侧边面板卡片 */}
@@ -1115,7 +1156,7 @@ export default function App() {
                 />
               </div>
             ) : (
-            <div className="chat-card min-w-[280px]" ref={chatCardRef}>
+            <div className="chat-card min-w-[480px]" ref={chatCardRef}>
             {responsiveCollapsed && (
               <button
                 className="absolute top-2 left-2 z-20 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground transition-colors"

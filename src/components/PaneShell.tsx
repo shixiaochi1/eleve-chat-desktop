@@ -41,6 +41,10 @@ interface PaneShellProps {
   rightWidth?: string;
   minRightWidth?: number;
   maxRightWidth?: number;
+  /** 主区（聊天区）最小宽度保护（2026-08-06 老大要求）：
+   *  窗口变宽时若主区未达最小 → Δ 留给 1fr 补主区（不调右抽屉）；
+   *  主区达标后增量才给右抽屉。默认 0 = 不保护（旧行为）。 */
+  minMainWidth?: number;
   onLeftResize?: (width: number) => void;
   onRightResize?: (width: number) => void;
   onLeftToggle?: () => void;
@@ -81,6 +85,7 @@ export default function PaneShell({
   rightWidth = '200px',
   minRightWidth = 200,
   maxRightWidth = 400,
+  minMainWidth = 0,
   onLeftResize,
   onRightResize,
   onLeftToggle,
@@ -104,9 +109,11 @@ export default function PaneShell({
   // 宽度/边界/回调走 ref（拖拽 handler 不依赖 props，永不重建）
   const widthRef = useRef({ left: parseFloat(leftWidth) || 260, right: parseFloat(rightWidth) || 200 });
   const limitsRef = useRef({ minL: minLeftWidth, maxL: maxLeftWidth, minR: minRightWidth, maxR: maxRightWidth });
+  const minMainRef = useRef(minMainWidth);
   const onResizeRef = useRef({ left: onLeftResize, right: onRightResize });
   widthRef.current = { left: parseFloat(leftWidth) || 260, right: parseFloat(rightWidth) || 200 };
   limitsRef.current = { minL: minLeftWidth, maxL: maxLeftWidth, minR: minRightWidth, maxR: maxRightWidth };
+  minMainRef.current = minMainWidth;
   onResizeRef.current = { left: onLeftResize, right: onRightResize };
   const containerRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
@@ -143,15 +150,27 @@ export default function PaneShell({
       const delta = width - lastWidth;
       lastWidth = width;
       if (!rightOpenRef.current || delta === 0 || draggingRef.current) return;
-      const current = widthRef.current.right;
+      const w = widthRef.current;
       const limits = limitsRef.current;
-      // 双向分配：宽 → 右栏 += Δ；窄 → 右栏 -= Δ（到 minR 停，余量 1fr 吸收）
-      const next = Math.max(limits.minR, Math.min(limits.maxR, current + delta));
-      if (next === current) return;
-      // 立即同步 ref（连续回调基于最新值），setState 走 rAF 节流
-      widthRef.current.right = next;
-      rightPendingRef.current = next;
-      if (!rightRafRef.current) rightRafRef.current = requestAnimationFrame(flushRight);
+      if (delta > 0) {
+        // 变宽：主区未达最小 → Δ 留给 1fr 补主区（右抽屉不动，聊天区优先）；
+        // 主区达标 → 增量给右抽屉（聊天区保持不动）
+        // （grid 2 个 gap 共 16px 计入；<= 而非 < ：setSize 恰好补满 min 时不分配）
+        const availChat = width - w.left - w.right - 16;
+        if (availChat <= minMainRef.current) return;
+        const next = Math.max(limits.minR, Math.min(limits.maxR, w.right + delta));
+        if (next === w.right) return;
+        w.right = next;
+        rightPendingRef.current = next;
+        if (!rightRafRef.current) rightRafRef.current = requestAnimationFrame(flushRight);
+      } else {
+        // 变窄：右抽屉优先吸收（聊天区保持不动），到 minR 停后余量 1fr 吸收
+        const next = Math.max(limits.minR, w.right + delta);
+        if (next === w.right) return;
+        w.right = next;
+        rightPendingRef.current = next;
+        if (!rightRafRef.current) rightRafRef.current = requestAnimationFrame(flushRight);
+      }
     });
     ro.observe(el);
     return () => {

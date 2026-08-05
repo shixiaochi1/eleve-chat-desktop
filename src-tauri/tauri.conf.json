@@ -14,7 +14,7 @@
         "title": "Eleve Chat",
         "width": 900,
         "height": 680,
-        "minWidth": 860,
+        "minWidth": 640,
         "minHeight": 400,
         "decorations": false,
         "transparent": false,
