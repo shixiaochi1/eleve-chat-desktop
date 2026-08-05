@@ -77,6 +77,10 @@
     "allow-preview-webview-devtools",
     "allow-preview-file-watch",
     "allow-preview-file-unwatch",
+    "allow-pty-start",
+    "allow-pty-write",
+    "allow-pty-resize",
+    "allow-pty-dispose",
     {
       "identifier": "opener:allow-open-path",
       "allow": [

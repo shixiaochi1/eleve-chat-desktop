@@ -25,6 +25,11 @@ fn main() {
             // 预览文件 watcher
             "preview_file_watch",
             "preview_file_unwatch",
+            // 交互式 PTY（右栏用户终端真实 shell）
+            "pty_start",
+            "pty_write",
+            "pty_resize",
+            "pty_dispose",
         ]),
     );
     if let Err(e) = tauri_build::try_build(attributes) {
