@@ -534,6 +534,56 @@ export default function FileBrowserPanel({
     }
   }, [toggleOpen]);
 
+  // ── fallback root（对齐 Hermes sanitizeWorkspaceCwd → usingFallback 探针）──
+  // 会话 cwd 读取失败（目录被删/换机器）→ 回退到激活项目的主文件夹（ELEVE
+  // projects.primary_path，等价 Hermes「默认项目目录」）；回退期间 3s 探针原
+  // cwd，一旦恢复自动切回（Hermes use-project-tree 同款两段逻辑）。
+  const [usingFallback, setUsingFallback] = useState(false);
+  const originalCwdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!cwd || !error || usingFallback) return;
+    let cancelled = false;
+    call('projects_tree', { preview_limit: 1, include_discovered: false })
+      .then((d) => {
+        if (cancelled) return;
+        const t = d as {
+          active_id?: string | null;
+          projects?: Array<{ id: string; path?: string | null }>;
+        };
+        const active = (t.projects ?? []).find((p) => p.id === t.active_id);
+        const fallbackPath = active?.path;
+        if (fallbackPath && fallbackPath !== cwd) {
+          originalCwdRef.current = cwd;
+          setUsingFallback(true);
+          void setRoot(fallbackPath);
+        }
+      })
+      .catch(() => { /* 无激活项目/查询失败 → 维持报错+3s 重试 */ });
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd, error, usingFallback, setRoot]);
+
+  // 回退期间探针原 cwd → 恢复即切回（对齐 Hermes usingFallback interval；
+  // 探针不碰状态（无 loading 闪烁），成功才 setRoot）
+  useEffect(() => {
+    if (!usingFallback || !originalCwdRef.current) return;
+    const probe = async () => {
+      const orig = originalCwdRef.current;
+      if (!orig) return;
+      try {
+        await call('files_list', { path: orig });
+        originalCwdRef.current = null;
+        setUsingFallback(false);
+        void setRoot(orig);
+      } catch { /* 仍不可用，继续探针 */ }
+    };
+    void probe();
+    const i = window.setInterval(probe, 3000);
+    return () => window.clearInterval(i);
+  }, [usingFallback, setRoot]);
+
   // 处理刷新
   const handleRefresh = useCallback(() => {
     refresh();
@@ -708,6 +758,13 @@ export default function FileBrowserPanel({
         <span className="truncate">{rootPath || dirName}</span>
         <FolderInput size={11} className="ml-auto shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
       </button>
+
+      {/* 回退提示（对齐 Hermes fallback root 语义；原 cwd 恢复后自动切回） */}
+      {usingFallback && (
+        <div className="mb-1 px-1 text-[10px] text-warning/90 leading-tight">
+          原工作目录不可用，已显示激活项目目录（恢复后自动切回）
+        </div>
+      )}
 
       {/* 加载状态 */}
       {loading && data === null && (
