@@ -1,8 +1,12 @@
-import { useState, useMemo, memo } from 'react';
+import { useState, useMemo, memo, useCallback } from 'react';
+import { ExternalLink } from 'lucide-react';
 import { SmallToolIcon, ExpandIcon, CollapseIcon, CheckIcon, LoadingIcon, ErrorIcon } from './Icons';
 import DiffLines, { inlineDiffFromResult } from './DiffLines';
 import { cn } from '@/lib/utils';
 import { useToolViewMode } from '@/store/tool-view';
+import { extractPreviewTargets, previewName, stripPreviewTargets } from '@/lib/preview-targets';
+import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
+import { openPreview } from '@/store/preview';
 
 /**
  * product 模式人性化摘要（对齐 Hermes fallback.tsx product 语义：
@@ -88,10 +92,26 @@ const ToolEntry = memo(function ToolEntry({ tool }: { tool: ToolCallItem }) {
       ? parsedResult
       : JSON.stringify(parsedResult, null, 2);
     if (!text.trim()) return null;
-    return text.length > PRODUCT_PREVIEW_CHARS
-      ? text.slice(0, PRODUCT_PREVIEW_CHARS) + '\n…（已截断，切换技术模式查看完整输出）'
-      : text;
+    // 🔴 #preview/ 链接：product 模式正文剥离（对齐 Hermes stripPreviewTargets），
+    // 链接行在下方独立渲染（技术模式保留原始数据不剥离）
+    const shown = stripPreviewTargets(text);
+    if (!shown.trim()) return null;
+    return shown.length > PRODUCT_PREVIEW_CHARS
+      ? shown.slice(0, PRODUCT_PREVIEW_CHARS) + '\n…（已截断，切换技术模式查看完整输出）'
+      : shown;
   }, [parsedResult, tool.name]);
+
+  // 🔴 #preview/ 链接提取：从完整工具结果提取预览目标（对齐 Hermes extractPreviewTargets）
+  const previewTargets = useMemo(() => {
+    if (!tool.resultStr) return [];
+    return extractPreviewTargets(tool.resultStr);
+  }, [tool.resultStr]);
+
+  // 点击预览链接 → 打开预览 tab（openPreview 内部自动切右栏）
+  const handlePreviewTarget = useCallback((target: string) => {
+    const resolved = normalizeOrLocalPreviewTarget(target);
+    if (resolved) openPreview(resolved);
+  }, []);
 
   // 提取 inline_diff（对齐 Eleve：优先从 result.inline_diff 字段获取）
   const inlineDiff = useMemo(() => {
@@ -208,6 +228,22 @@ const ToolEntry = memo(function ToolEntry({ tool }: { tool: ToolCallItem }) {
               </>
             )}
           </div>
+        </div>
+      )}
+      {/* 🔴 #preview/ 链接行 — 工具结果里的预览链接（对齐 Hermes status-stack preview-row） */}
+      {previewTargets.length > 0 && (
+        <div className="mt-2 pt-1.5 border-t border-border space-y-1">
+          {previewTargets.map((target) => (
+            <button
+              key={target}
+              onClick={(e) => { e.stopPropagation(); handlePreviewTarget(target); }}
+              className="flex items-center gap-1.5 w-full text-xs text-primary hover:underline text-left"
+              title={target}
+            >
+              <ExternalLink size={11} className="shrink-0" />
+              <span className="truncate">{previewName(target)}</span>
+            </button>
+          ))}
         </div>
       )}
       {/* 内联 diff — 始终可见（对齐 Eleve：工具卡片底部直接展示 diff） */}
