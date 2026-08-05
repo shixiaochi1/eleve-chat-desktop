@@ -96,16 +96,25 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   const currentUrlRef = useRef(url.trim() || tab.target.url);
   currentUrlRef.current = url.trim() || tab.target.url;
 
-  // tab 切换 → URL 输入框重置为 tab 目标
+  // tab 切换 → URL 输入框重置为 tab 目标（对齐 Hermes：仅 target.url 变化时重置，
+  // 同 URL 切 tab 保留输入框本地编辑/页面状态——Hermes currentUrl 同款语义）
   useEffect(() => {
     setUrl(tab.target.url);
     setIframeError(null);
-  }, [tab.id, tab.target.url]);
+  }, [tab.target.url]);
 
-  // ── 子 webview 创建/销毁（跟随 pane 生命周期；key=tab.id 保证每 tab 独立实例）──
+  // ── 子 webview 创建/销毁（对齐 Hermes preview-pane webview effect：
+  //    依赖 [target.kind, target.url]——URL 变化才重建，同 URL 切 tab 保留
+  //    webview/页面状态。旧实现挂载时创建 + key remount 无条件重建）──
   useEffect(() => {
     if (!isTauri || !tab.target.url) return;
     let cancelled = false;
+
+    // 重建 = 新页面新会话：Rust 侧 close 会销毁 per-label 缓冲，前端同步重置
+    lastSeqRef.current = null;
+    consoleState.reset();
+    setDevtoolsOpen(false);
+    setIframeError(null);
 
     const container = containerRef.current;
     const rect = container?.getBoundingClientRect();
@@ -137,8 +146,9 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
         invoke('preview_webview_close', { label }).catch(() => {});
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时创建，URL 变化走 navigate 不重建
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- URL 变化重建（对齐
+    // Hermes）；同 URL 的 pane 内导航（用户改 URL 点加载）走 navigate 不重建
+  }, [tab.target.url, isTauri]);
 
   // ── 布局同步：ResizeObserver → rAF 节流 → update（对齐方案：前端 rAF 节流上报）──
   useEffect(() => {
@@ -297,7 +307,18 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   // ── 重启预览（对齐 Hermes restartPreviewServer）──
   const handleRestart = useCallback(async () => {
     const targetUrl = url.trim();
-    if (!targetUrl || !sessionId) return;
+    if (!targetUrl) return;
+
+    // 🔴 对齐 Hermes：无活跃会话时明确报错（Hermes throw 'No active session
+    // for background restart' → catch → console entry + notify），绝不静默
+    // 返回（旧行为：按钮 disabled 无任何提示，用户不知道为什么点不了）。
+    if (!sessionId) {
+      failPreviewRestartRequest(
+        targetUrl,
+        '没有活跃会话，无法启动后台重启（请先打开或新建一个会话）',
+      );
+      return;
+    }
 
     try {
       const wsClient = getWsClient();
@@ -454,13 +475,13 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
         )}
         <button
           onClick={handleRestart}
-          disabled={!url.trim() || !sessionId || isRestarting}
+          disabled={!url.trim() || isRestarting}
           className={cn(
             'flex items-center gap-1 px-2 h-6 rounded text-xs font-medium transition-colors',
             isRestarting
               ? 'bg-[var(--ui-bg-tertiary)] text-[var(--ui-text-tertiary)] cursor-wait'
               : 'bg-primary text-primary-foreground hover:bg-primary/90',
-            (!url.trim() || !sessionId) && 'opacity-40 cursor-not-allowed',
+            !url.trim() && 'opacity-40 cursor-not-allowed',
           )}
           title="重启预览服务器"
         >
@@ -548,7 +569,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
               </button>
               <button
                 onClick={handleRestart}
-                disabled={!sessionId}
+                disabled={isRestarting}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors"
               >
                 <Loader2 size={12} className={isRestarting ? 'animate-spin' : ''} />

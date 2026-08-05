@@ -144,9 +144,13 @@ export default function PreviewCenter({ sessionId, cwd }: PreviewCenterProps) {
       <PreviewTabBar />
       {activeTab ? (
         activeTab.target.kind === 'url' ? (
-          <PreviewWebPane key={activeTab.id} tab={activeTab} sessionId={sessionId} cwd={cwd} />
+          /* 对齐 Hermes：不 key remount（旧实现切 tab 无条件销毁重建 webview →
+             页面状态丢失 + 布局竞态）。pane 常驻，webview 生命周期由
+             PreviewWebPane 内部按 target.url 决定（同 URL 切 tab 保留，
+             URL 变才重建）。url/file 组件类型不同，React 自动卸载/挂载。 */
+          <PreviewWebPane tab={activeTab} sessionId={sessionId} cwd={cwd} />
         ) : (
-          <PreviewFilePane key={activeTab.id} tab={activeTab} />
+          <PreviewFilePane tab={activeTab} />
         )
       ) : (
         <PreviewEmptyState />

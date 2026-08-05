@@ -72,6 +72,9 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     setError(null);
     setBinary(false);
     setByteSize(0);
+    // 🔴 去 key remount 后 pane 常驻：跨文件切换必须重置大文件拦截状态，
+    //    否则上一个文件的「仍要预览」残留到新文件（旧实现靠 key 重建隐式重置）
+    setForcePreview(false);
     setText(null);
     setImageUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
