@@ -290,14 +290,13 @@ export default function ArtifactsGallery({
                     />
                   </div>
                 )}
-                <div className="overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm">
-                  <table className="w-full border-collapse text-xs">
+                <table className="w-full border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-border/80 bg-muted/25 text-left text-[10px] uppercase tracking-wider text-muted-foreground/60">
-                        <th className="w-[42%] px-3 py-2 font-medium">名称</th>
-                        <th className="px-3 py-2 font-medium">来源</th>
-                        <th className="w-[14rem] px-3 py-2 font-medium">会话 · 时间</th>
-                        <th className="w-[5rem] px-3 py-2 text-right font-medium">操作</th>
+                      <tr className="border-b border-border/60 text-left text-[10px] uppercase tracking-wider text-muted-foreground/50">
+                        <th className="w-[42%] px-1.5 py-1.5 font-medium">名称</th>
+                        <th className="px-1.5 py-1.5 font-medium">来源</th>
+                        <th className="w-[14rem] px-1.5 py-1.5 font-medium">会话 · 时间</th>
+                        <th className="w-[5rem] px-1.5 py-1.5 text-right font-medium">操作</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -311,7 +310,6 @@ export default function ArtifactsGallery({
                       ))}
                     </tbody>
                   </table>
-                </div>
               </section>
             )}
           </div>
@@ -464,7 +462,14 @@ function ArtifactImageCard({
 
       {/* 信息区 */}
       <div className="space-y-1 p-2.5">
-        <div className="truncate text-xs font-medium text-foreground" title={artifact.label}>{artifact.label}</div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="truncate text-xs font-medium text-foreground">{artifact.label}</div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <span className="break-all">{artifact.label}</span>
+          </TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="truncate text-[10px] text-muted-foreground/60">{artifact.value}</div>
@@ -474,7 +479,7 @@ function ArtifactImageCard({
           </TooltipContent>
         </Tooltip>
         <div className="flex items-center justify-between gap-2 pt-0.5">
-          <span className="min-w-0 truncate text-[10px] text-muted-foreground/55" title={`${artifact.sessionTitle} · ${formatArtifactTime(artifact.timestamp)}`}>
+          <span className="min-w-0 truncate text-[10px] text-muted-foreground/55">
             {artifact.sessionTitle} · {formatArtifactTime(artifact.timestamp)}
           </span>
           {onOpenChat && (
@@ -547,11 +552,10 @@ function ArtifactRow({
   const accent = isLink ? 'text-emerald-500' : 'text-sky-500';
   return (
     <tr className="group/row border-b border-border/50 transition-colors last:border-b-0 hover:bg-muted/30">
-      <td className="px-3 py-2">
+      <td className="px-1.5 py-1.5">
         <button
           type="button"
           onClick={onOpen}
-          title={`打开：${artifact.value}`}
           className="flex w-full min-w-0 items-center gap-2 text-left"
         >
           <span className={cn('grid size-6 shrink-0 place-items-center rounded-md bg-muted/50', accent)}>
@@ -562,7 +566,7 @@ function ArtifactRow({
           </span>
         </button>
       </td>
-      <td className="px-3 py-2">
+      <td className="px-1.5 py-1.5">
         <div className="group/location flex min-w-0 items-center gap-1.5">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -581,17 +585,15 @@ function ArtifactRow({
             iconClassName="size-3.5"
             label={isLink ? '复制链接' : '复制路径'}
             text={artifact.value}
-            title={isLink ? '复制链接' : '复制路径'}
           />
         </div>
       </td>
-      <td className="px-3 py-2">
+      <td className="px-1.5 py-1.5">
         {onOpenChat ? (
           <button
             type="button"
             onClick={() => onOpenChat(artifact.sessionId)}
             className="block w-full min-w-0 text-left text-muted-foreground/70 transition-colors hover:text-foreground"
-            title="打开会话"
           >
             <span className="block truncate">
               {artifact.sessionTitle} <span className="text-muted-foreground/40">·</span> {formatArtifactTime(artifact.timestamp)}
@@ -603,7 +605,7 @@ function ArtifactRow({
           </span>
         )}
       </td>
-      <td className="px-3 py-2 text-right">
+      <td className="px-1.5 py-1.5 text-right">
         <button
           type="button"
           onClick={onOpen}
