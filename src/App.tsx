@@ -52,7 +52,6 @@ import { initPreviewEvents } from '@/lib/preview-events';
 import { usePaneOpenRequest } from '@/store/preview';
 import ArtifactPanel from './components/ArtifactPanel';
 import RightSidebarTabs from './components/RightSidebarTabs';
-import ArtifactsGallery from './components/ArtifactsGallery';
 import CommandCenter from './components/CommandCenter';
 import Toast from './components/Toast';
 import GridModeView, { type GridModeViewHandle } from './components/GridModeView';
@@ -1222,7 +1221,7 @@ export default function App() {
                   <PreviewCenter sessionId={sess.sessionId} cwd={sessionCwd} />
                 )}
                 {rightTab === 'artifacts' && (
-                  <ArtifactPanel sessionId={sess.sessionId} />
+                  <ArtifactPanel sessionId={sess.sessionId} onSwitchSession={handleSwitchSession} />
                 )}
                 <div className={rightTab === 'terminal' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}>
                   <TerminalPanel cwd={sessionCwd} sessionId={sess.sessionId ?? undefined} />
@@ -1235,13 +1234,6 @@ export default function App() {
 
         {/* Artifact 预览：右栏「产物」tab（Hermes 右栏语义）；宫格视图浮层在 GridModeView 内挂载 */}
 
-        {overlayPanel === 'artifacts' && (
-          <ErrorBoundary>
-            <OverlayView onClose={handleCloseOverlay} title="产物库" wide>
-              <ArtifactsGallery onSwitchSession={handleSwitchSession} />
-            </OverlayView>
-          </ErrorBoundary>
-        )}
         {overlayPanel === 'settings' && (
           <ErrorBoundary>
             <OverlayView onClose={handleCloseOverlay} title="设置">

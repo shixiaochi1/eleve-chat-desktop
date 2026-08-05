@@ -21,6 +21,8 @@ import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { join, tempDir } from '@tauri-apps/api/path';
 import ModeSwitcher, { type ModeOption } from '@/components/preview/ModeSwitcher';
+import ArtifactsGallery from '@/components/ArtifactsGallery';
+import { TextTab, TextTabMeta } from '@/components/ui/text-tab';
 import DOMPurify from 'dompurify';
 
 const KIND_ICON = {
@@ -57,8 +59,17 @@ type ArtifactViewMode = 'rendered' | 'source';
  * - 头部：版本步进器 v1/v2… + 复制 + 下载 + 外部打开
  * 打开语义：点击消息内卡片 → store openArtifact → 本面板跟随 openState 展示。
  */
-const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: { sessionId: string | null | undefined }) {
+const ArtifactPanel = memo(function ArtifactPanel({
+  sessionId,
+  onSwitchSession,
+}: {
+  sessionId: string | null | undefined;
+  /** 产物库视图：跳转会话（Hermes openChat 语义） */
+  onSwitchSession?: (sessionId: string) => void;
+}) {
   const registry = useArtifacts();
+  // 视图：本会话产物 / 产物库（跨会话画廊，Hermes app/artifacts）
+  const [view, setView] = useState<'session' | 'gallery'>('session');
   const openState = useOpenArtifact();
   const [copied, setCopied] = useState(false);
   // 🔴 全屏预览（老大 2026-08-05 要求）
@@ -162,6 +173,18 @@ const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: { sessionId: st
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* 视图切换：本会话 / 产物库（产物库 = 跨会话画廊，对齐 Hermes app/artifacts） */}
+      <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-1.5">
+        <TextTab active={view === 'session'} onClick={() => setView('session')}>
+          本会话
+          {sessionRecords.length > 0 && <TextTabMeta>{sessionRecords.length}</TextTabMeta>}
+        </TextTab>
+        <TextTab active={view === 'gallery'} onClick={() => setView('gallery')}>产物库</TextTab>
+      </div>
+      {view === 'gallery' ? (
+        <ArtifactsGallery onSwitchSession={onSwitchSession} />
+      ) : (
+      <>
       {/* 列表头 */}
       <div className="shrink-0 border-b border-border px-3 py-2 text-xs font-medium text-muted-foreground">
         产物 {sessionRecords.length > 0 && <span className="tabular-nums">({sessionRecords.length})</span>}
@@ -283,6 +306,8 @@ const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: { sessionId: st
           onClose={() => setFullscreen(false)}
           onSelectVersion={(i) => selectArtifactVersion(activeForRender.record.id, i)}
         />
+      )}
+      </>
       )}
     </div>
   );

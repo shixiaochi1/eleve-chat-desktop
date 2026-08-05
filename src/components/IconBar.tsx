@@ -8,7 +8,6 @@ import {
   DebugIcon, SettingsIcon, AboutIcon,
   PaletteIcon, ToolIcon, FileIcon,
   UsageIcon, ChannelsIcon, KanbanIcon, AgentIcon,
-  GalleryIcon,
 } from './Icons';
 import { FolderGit, Activity, GitCommit, BookOpen } from 'lucide-react';
 import { openKanbanWindow } from '../utils/kanban-window';
@@ -41,7 +40,6 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
     { id: 'learning', icon: BookOpen,    label: '学习' },
     { id: 'rollback', icon: GitCommit,   label: '回滚' },
     { id: 'usage',    icon: UsageIcon,    label: '用量分析' },
-    { id: 'artifacts', icon: GalleryIcon, label: '产物库', isOverlay: true },
     { id: 'debug',    icon: DebugIcon,    label: '调试' },
   ];
 
