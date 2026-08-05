@@ -88,6 +88,7 @@ function PreviewTabBar() {
             <ContextMenuContent>
               <ContextMenuItem onSelect={() => closeTab(tab.id)}>
                 关闭
+                <span className="ml-auto pl-4 text-[var(--ui-text-tertiary)]">Ctrl/⌘+W</span>
               </ContextMenuItem>
               <ContextMenuItem disabled={!hasOthers} onSelect={() => closeOtherTabs(tab.id)}>
                 关闭其它

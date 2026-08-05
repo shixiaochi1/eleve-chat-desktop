@@ -91,7 +91,7 @@ pub async fn preview_webview_create(
         eprintln!("[PREVIEW] load: label={} state={} url={}", emit_label, state, payload.url());
         let _ = app.emit(
             "preview-load-state",
-            serde_json::json!({ "label": emit_label, "state": state }),
+            serde_json::json!({ "label": emit_label, "state": state, "url": payload.url() }),
         );
     })
     .disable_drag_drop_handler();

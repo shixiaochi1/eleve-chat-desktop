@@ -138,6 +138,11 @@ export function usePreviewStore(): PreviewState {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
+/** 非 hook 快照读取（全局快捷键等非 React 上下文用；对齐 Hermes get() 语义） */
+export function getPreviewStoreState(): PreviewState {
+  return state
+}
+
 function update(patch: Partial<PreviewState>): void {
   state = { ...state, ...patch }
   // 仅 tab 组成变化时落盘（reloadRequest/restart 是运行时态）

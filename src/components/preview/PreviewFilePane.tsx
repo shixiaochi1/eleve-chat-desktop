@@ -30,6 +30,7 @@ import { CodeEditor } from '@/components/chat/code-editor';
 import DiffLines from '@/components/DiffLines';
 import ModeSwitcher from '@/components/preview/ModeSwitcher';
 import WindowedSourceView from '@/components/preview/WindowedSourceView';
+import { enhanceRichFences } from '@/lib/rich-fence';
 import { isDesktop, call } from '@/utils/bridge';
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']);
@@ -84,6 +85,12 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   // ── 裸 e 快捷键（对齐 Hermes：read 视图 hover 或 focus-within + 非输入框 → 进编辑）──
   const readViewRef = useRef<HTMLDivElement | null>(null);
   const hoverRef = useRef(false);
+  // rendered 分支容器（富围栏提升扫描目标）
+  const mdRef = useRef<HTMLDivElement | null>(null);
+
+  // 富围栏提升（mermaid / svg，对齐 Hermes MarkdownPreview RichCodeBlock）：
+  // renderMarkdown 输出 data-mermaid/data-svg 占位，渲染后扫描异步提升为图形
+  // （与消息区 StreamBlocks 共享 lib/rich-fence.ts，不重复造轮子）
 
   // ── spot editor 状态（对齐 Hermes L585-597：draft/baseline 走 ref，
   //    打字不触发重渲染——dirty 是唯一 render-worthy 信号；selfReload 保存后重读）──
@@ -391,6 +398,16 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
       : 'source';
   const mode = userMode && modes.includes(userMode) ? userMode : autoMode;
 
+  // 富围栏提升（mermaid / svg，对齐 Hermes MarkdownPreview RichCodeBlock）：
+  // renderMarkdown 输出 data-mermaid/data-svg 占位，rendered 视图渲染后扫描提升
+  // （与消息区 StreamBlocks 共享 lib/rich-fence.ts，不重复造轮子）
+  useEffect(() => {
+    if (mode !== 'rendered' || !bodyHtml) return;
+    const el = mdRef.current;
+    if (!el) return;
+    return enhanceRichFences(el);
+  }, [mode, bodyHtml]);
+
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-[var(--ui-bg-editor)]">
       {/* ── 文件头：名称 + 操作（编辑态换保存/取消，对齐 Hermes EditControls）── */}
@@ -578,6 +595,7 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
                     className="prose-preview text-xs leading-relaxed text-[var(--ui-text-primary)]"
                     // renderMarkdown 输出已过 DOMPurify sanitize（对齐消息区安全边界）
                     dangerouslySetInnerHTML={{ __html: bodyHtml }}
+                    ref={mdRef}
                   />
                 </div>
               ) : (

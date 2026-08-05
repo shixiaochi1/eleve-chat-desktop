@@ -245,9 +245,14 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
       }
     };
 
-    const onLoadState = (event: { payload: { label: string; state: string } }) => {
-      const { label, state } = event.payload;
+    const onLoadState = (event: { payload: { label: string; state: string; url?: string } }) => {
+      const { label, state, url: navUrl } = event.payload;
       if (label !== webviewLabel) return;
+      // 对齐 Hermes did-navigate/did-navigate-in-page：导航完成后把实际地址同步到
+      // 输入框（SPA 路由/重定向后跟随真实 URL；Rust on_page_load 已带 url）
+      if (state === 'finished' && navUrl && isSafePreviewUrl(navUrl) && navUrl !== url) {
+        setUrl(navUrl);
+      }
       if (state === 'started') {
         setIframeError(null);
       } else if (state === 'finished') {

@@ -1,6 +1,7 @@
 import { forwardRef, memo, useEffect, useMemo, useRef } from 'react';
 import { renderMarkdown, repairMarkdownTail, splitMarkdownBlocksCached, autolinkOutsideFences, mergeSingleNewlines } from '@/utils/markdown';
 import { detectArtifact, type ArtifactDetection } from '@/lib/artifact-detect';
+import { enhanceRichFences } from '@/lib/rich-fence';
 import { ArtifactCard } from './ArtifactCard';
 
 /**
@@ -79,10 +80,8 @@ function parseSingleFence(block: string): { lang: string; code: string } | null 
  * 其余块走 HTML 渲染 + 富围栏提升（对齐 Hermes embeds LAZY_FENCE 懒加载路由）：
  * mermaid → 懒加载 mermaid.js 渲染 SVG（securityLevel strict + 主题跟随）；
  * svg → DOMPurify svg profile 硬清洗后内联渲染；失败均回退代码卡片。
+ * 提升逻辑在 lib/rich-fence.ts（与文件预览 markdown 视图共享，不重复造轮子）。
  */
-let mermaidReady = false;
-let lastMermaidTheme: 'dark' | 'default' | null = null;
-let dompurifyMod: { sanitize(html: string, opts?: Record<string, unknown>): string } | null = null;
 
 const Block = memo(
   function Block({ text, highlight, artifact, sessionId }: BlockPlan) {
@@ -95,69 +94,7 @@ const Block = memo(
       if (!highlight) return;
       const el = ref.current;
       if (!el) return;
-      const nodes = Array.from(el.querySelectorAll<HTMLElement>('[data-mermaid], [data-svg]'));
-      if (nodes.length === 0) return;
-      let cancelled = false;
-      void (async () => {
-        try {
-          const [{ default: mermaid }, dp] = await Promise.all([import('mermaid'), import('dompurify')]);
-          dompurifyMod = dp.default ?? dp;
-          // 主题跟随（对齐 Hermes useIsDark）：.dark class 由主题系统驱动
-          const isDark = document.documentElement.classList.contains('dark');
-          const theme: 'dark' | 'default' = isDark ? 'dark' : 'default';
-          if (!mermaidReady || lastMermaidTheme !== theme) {
-            // securityLevel: 'strict'：mermaid 清洗 label HTML 并丢弃 click handlers，
-            // 渲染出的 SVG 可安全注入（对齐 Hermes mermaid-embed ensureInit）
-            mermaid.initialize({ fontFamily: 'inherit', securityLevel: 'strict', startOnLoad: false, theme });
-            mermaidReady = true;
-            lastMermaidTheme = theme;
-          }
-          for (const node of nodes) {
-            if (cancelled) break;
-            const isMermaid = node.hasAttribute('data-mermaid');
-            const code = (node.getAttribute(isMermaid ? 'data-mermaid' : 'data-svg') ?? '').trim();
-            if (!code) {
-              node.removeAttribute('data-mermaid');
-              node.removeAttribute('data-svg');
-              continue;
-            }
-            try {
-              let svg: string;
-              if (isMermaid) {
-                const id = `mmd-${Math.random().toString(36).slice(2, 10)}`;
-                const result = await mermaid.render(id, code);
-                svg = result.svg;
-              } else {
-                // svg profile 硬清洗（对齐 Hermes svg-embed）：剥 scripts/事件处理器/foreignObject
-                svg = dompurifyMod.sanitize(code, { USE_PROFILES: { svg: true, svgFilters: true } });
-                if (!svg.trim()) {
-                  node.removeAttribute('data-svg');
-                  continue;
-                }
-              }
-              const wrapper = document.createElement('div');
-              wrapper.className = isMermaid ? 'mermaid-svg' : 'svg-inline';
-              wrapper.innerHTML = svg;
-              const card = node.closest('.code-block-wrapper');
-              if (card && card.parentNode) card.replaceWith(wrapper);
-              else node.replaceWith(wrapper);
-            } catch {
-              // 渲染失败（语法错误等）→ 回退代码卡片，移除标记防重试
-              node.removeAttribute('data-mermaid');
-              node.removeAttribute('data-svg');
-            }
-          }
-        } catch {
-          // 懒加载失败 → 全部回退代码卡片
-          nodes.forEach((n) => {
-            n.removeAttribute('data-mermaid');
-            n.removeAttribute('data-svg');
-          });
-        }
-      })();
-      return () => {
-        cancelled = true;
-      };
+      return enhanceRichFences(el);
     }, [html, highlight]);
 
     if (artifact) {

@@ -51,7 +51,7 @@ import FileBrowserPanel from './components/FileBrowserPanel';
 import TerminalPanel from './components/TerminalPanel';
 import PreviewCenter from './components/preview/PreviewCenter';
 import { initPreviewEvents } from '@/lib/preview-events';
-import { usePaneOpenRequest } from '@/store/preview';
+import { usePaneOpenRequest, getPreviewStoreState, closeTab as closePreviewTab } from '@/store/preview';
 import ArtifactPanel from './components/ArtifactPanel';
 import RightSidebarTabs from './components/RightSidebarTabs';
 import CommandCenter from './components/CommandCenter';
@@ -1044,7 +1044,18 @@ export default function App() {
     const handler = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key === 'n') { e.preventDefault(); gridAwareNewSession(); }
-      if (mod && e.key === 'w') { e.preventDefault(); tauriWindow?.close(); }
+      if (mod && e.key === 'w') {
+        // 对齐 Hermes view.closeTab（⌘W = 关闭当前预览 tab）：有预览 tab → 关 tab；
+        // 无预览 tab → 保留旧语义关窗（Hermes 无此场景，但保留用户习惯）
+        const previewState = getPreviewStoreState();
+        if (previewState.tabs.length > 0 && previewState.activeId) {
+          e.preventDefault();
+          closePreviewTab(previewState.activeId);
+          return;
+        }
+        e.preventDefault();
+        tauriWindow?.close();
+      }
       if (mod && e.key === 'l') { e.preventDefault(); (document.getElementById('input') as HTMLElement)?.focus(); }
       if (mod && e.key === 'k') { e.preventDefault(); setCommandCenterOpen((v) => !v); }
       if (e.key === 'Escape') {
