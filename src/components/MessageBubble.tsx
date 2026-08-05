@@ -16,6 +16,8 @@ interface MessageBubbleProps {
   timestamp?: number;
   messageId?: string;
   onDelete?: (messageId: string) => void;
+  /** 会话 ID（artifact 版本注册按会话隔离，对齐 Hermes） */
+  sessionId?: string | null;
 }
 
 /**
@@ -36,7 +38,7 @@ function mayHaveLocalImage(text?: string): boolean {
  * - useDeferredValue：渲染降优先级，React 并发调度可跳过中间 token 状态
  * - 气泡宽度占满容器（w-full），宽度恒定 → 消除流式宽度重排抖动
  */
-export default function MessageBubble({ type, content, streaming, timestamp, messageId, onDelete }: MessageBubbleProps) {
+export default function MessageBubble({ type, content, streaming, timestamp, messageId, onDelete, sessionId }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [resolvedMedia, setResolvedMedia] = useState<string | null>(null);
   const [zoomedSrc, setZoomedSrc] = useState<string | null>(null);
@@ -154,7 +156,7 @@ export default function MessageBubble({ type, content, streaming, timestamp, mes
   return (
     <div ref={enterRef} className="group w-fit max-w-[85%] min-w-0 select-text">
       <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed border border-border shadow-sm overflow-hidden">
-        <StreamBlocks ref={textRef} text={deferredContent} streaming={!!streaming} />
+        <StreamBlocks ref={textRef} text={deferredContent} streaming={!!streaming} sessionId={sessionId} />
       </div>
       {/* 操作栏 + 时间 — 流式/非流式同结构，消除切换抖动 */}
       <div className="flex items-center gap-1.5 mt-1 justify-between">

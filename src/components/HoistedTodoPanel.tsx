@@ -72,7 +72,8 @@ export default function HoistedTodoPanel({ todos }: HoistedTodoPanelProps) {
  */
 export function todosFromMessageParts(parts: readonly { type: string; toolName?: string; result?: unknown }[]): TodoItem[] {
   const todos: TodoItem[] = [];
-  for (const part of parts) {
+  for (let pi = 0; pi < parts.length; pi++) {
+    const part = parts[pi];
     if (part.type !== 'tool-call' || part.toolName !== 'todo') continue;
     const result = part.result;
     if (!result || typeof result !== 'object') continue;
@@ -85,7 +86,9 @@ export function todosFromMessageParts(parts: readonly { type: string; toolName?:
       if (!item || typeof item !== 'object') continue;
       const obj = item as Record<string, unknown>;
       todos.push({
-        id: String(obj.id ?? ''),
+        // 🔴 2026-08-05 修复：id 加 part 索引前缀——后端 todo id（t0/t1…）跨 tool-call part
+        // 重复 → React key 冲突（HoistedTodoPanel 警告 + 渲染异常风险）
+        id: `p${pi}:${String(obj.id ?? '')}`,
         content: String(obj.content ?? ''),
         status: (['pending', 'in_progress', 'completed', 'cancelled'].includes(obj.status as string)
           ? obj.status : 'pending') as TodoItem['status'],

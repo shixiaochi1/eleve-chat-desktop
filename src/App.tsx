@@ -31,6 +31,7 @@ import { ThemeProvider } from './themes/index';
 import IconBar from './components/IconBar';
 import SidePanel from './components/SidePanel';
 import OverlayView from './components/OverlayView';
+import { ArtifactPreviewOverlay } from './components/ArtifactCard';
 import ThemePanel from './components/ThemePanel';
 import SettingsPanel from './components/SettingsPanel';
 import AboutPanel from './components/AboutPanel';
@@ -1153,6 +1154,9 @@ export default function App() {
           </Pane>
         </PaneShell>
         </ErrorBoundary>
+
+        {/* Artifact 浮层预览（portal 到 body） */}
+        <ArtifactPreviewOverlay />
 
         {overlayPanel === 'settings' && (
           <ErrorBoundary>

@@ -105,6 +105,10 @@ export function useSessionActions({
   // 纯前端重置：清消息 + 释放锁 + 设 freshDraftReady
   // 后端 session 懒创建 — 首条消息发送时通过 createSession() 创建
   const handleNewSession = useCallback(async (title?: string) => {
+    // 🔴 2026-08-05 防御：调用方可能误传非字符串（onClick 直绑传 MouseEvent 等）。
+    // 若此处抛错，前面 setSessionId(null)/switchSession('') 已执行 → 会话被清空但
+    // 后续流程中断 → 下次发送传 null → 后端自动新建会话。入口统一防御：非字符串忽略。
+    const safeTitle = typeof title === 'string' ? title : undefined;
     resetSendingLock?.();
     // 🔴 串台根因修复：新建会话 → 无会话，同步锁定过滤 ref 为 null
     resetStream?.(null);
@@ -119,8 +123,8 @@ export function useSessionActions({
     getWsClient().switchSession('');
     sess.setFreshDraftReady(true);
     // 对齐 Eleve: /new <title> 时暂存标题，懒创建后设置
-    if (title?.trim()) {
-      sess.setPendingTitle(title.trim());
+    if (safeTitle?.trim()) {
+      sess.setPendingTitle(safeTitle.trim());
     } else {
       sess.setPendingTitle(null);
     }

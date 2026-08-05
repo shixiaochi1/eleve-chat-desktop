@@ -213,11 +213,11 @@ export function VirtualizedThread({
                         data-slot="aui_turn-pair"
                       >
                         {group.indices.map(index => (
-                          <SingleMessageItem key={index} index={index} />
+                          <SingleMessageItem key={index} index={index} sessionId={sessionKey} />
                         ))}
                       </div>
                     ) : (
-                      <SingleMessageItem index={group.index} />
+                      <SingleMessageItem index={group.index} sessionId={sessionKey} />
                     )}
                   </div>
                 )
@@ -488,18 +488,19 @@ function useThreadScrollAnchor({ enabled, groupCount, scrollerRef, sessionKey, v
 
 interface SingleMessageItemProps {
   index: number
+  sessionId?: string | null
 }
 
 // 渲染逻辑已提取到 MessageRow（纯渲染、store 解耦，单视图/宫格共用）。
 // 本 wrapper 只负责：从全局 store 按 index 读取消息 + 提供删除回调。
 // 注：useCallback 提到 early return 之前（修正原实现的 rules-of-hooks 违规）。
-const SingleMessageItem = memo(function SingleMessageItem({ index }: SingleMessageItemProps) {
+const SingleMessageItem = memo(function SingleMessageItem({ index, sessionId }: SingleMessageItemProps) {
   const m = useMessage(index)
   const handleDelete = useCallback((messageId: string) => {
     setMessages(prev => prev.filter(msg => msg.id !== messageId))
   }, [])
   if (!m) return null
-  return <MessageRow message={m} onDelete={handleDelete} />
+  return <MessageRow message={m} onDelete={handleDelete} sessionId={sessionId} />
 })
 
 export default memo(VirtualizedThread)

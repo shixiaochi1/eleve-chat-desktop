@@ -1,5 +1,7 @@
-import { forwardRef, memo, useMemo } from 'react';
+import { forwardRef, memo, useEffect, useMemo, useRef } from 'react';
 import { renderMarkdown, repairMarkdownTail, splitMarkdownBlocksCached, autolinkOutsideFences, mergeSingleNewlines } from '@/utils/markdown';
+import { detectArtifact, type ArtifactDetection } from '@/lib/artifact-detect';
+import { ArtifactCard } from './ArtifactCard';
 
 /**
  * StreamBlocks — 块级流式 Markdown 渲染（对齐 Hermes Streamdown 分块模型）
@@ -33,25 +35,141 @@ interface StreamBlocksProps {
   text: string;
   /** 流式进行中（尾块会持续增长） */
   streaming?: boolean;
+  /** 禁止 artifact 提升（reasoning 草稿不提升，对齐 Hermes disableArtifacts） */
+  disableArtifacts?: boolean;
+  /** 会话 ID（artifact 版本注册按会话隔离，对齐 Hermes） */
+  sessionId?: string | null;
 }
 
 interface BlockPlan {
   text: string;
   /** 代码块是否启用高亮：流式尾块 false（延迟高亮），其余 true */
   highlight: boolean;
+  /** 提升为 artifact 的围栏（无 = 普通块） */
+  artifact?: {
+    detection: ArtifactDetection;
+    code: string;
+    /** 围栏仍在流式增长（卡片 shimmer 态，不注册版本） */
+    streaming: boolean;
+  };
+  /** 会话 ID（透传给 ArtifactCard） */
+  sessionId?: string | null;
 }
 
 /**
- * 单块渲染 — memo 按 (text, highlight) 比较：
- * 文本与高亮态都不变则完全跳过（含 marked 解析与 hljs 高亮）。
- * 流式中稳定块命中 memo；落定瞬间只有尾块补高亮重渲染一次。
+ * 单围栏块解析：块文本本身就是一个完整代码 fence（```lang\nbody\n```）。
+ * splitMarkdownBlocks 后"纯 fence 块"才可提升（fence 与文本混排的块保持原样）。
  */
+function parseSingleFence(block: string): { lang: string; code: string } | null {
+  const trimmed = block.trim();
+  const lines = trimmed.split('\n');
+  if (lines.length < 2) return null;
+  const open = lines[0].match(/^```([^\n`]*)$/) ?? lines[0].match(/^~~~([^\n~]*)$/);
+  if (!open) return null;
+  if (!/^(```|~~~)\s*$/.test(lines[lines.length - 1])) return null;
+  return { lang: open[1].trim(), code: lines.slice(1, -1).join('\n') };
+}
+
+/**
+ * 单块渲染 — memo 按 (text, highlight, artifactStreaming) 比较：
+ * 文本与高亮态都不变则完全跳过（含 unified 解析与 hljs 高亮）。
+ * 流式中稳定块命中 memo；落定瞬间只有尾块补高亮重渲染一次。
+ *
+ * artifact 块：直接渲染 ArtifactCard（跳过 markdown 解析，性能最优）；
+ * 其余块走 HTML 渲染 + 富围栏提升（对齐 Hermes embeds LAZY_FENCE 懒加载路由）：
+ * mermaid → 懒加载 mermaid.js 渲染 SVG（securityLevel strict + 主题跟随）；
+ * svg → DOMPurify svg profile 硬清洗后内联渲染；失败均回退代码卡片。
+ */
+let mermaidReady = false;
+let lastMermaidTheme: 'dark' | 'default' | null = null;
+let dompurifyMod: { sanitize(html: string, opts?: Record<string, unknown>): string } | null = null;
+
 const Block = memo(
-  function Block({ text, highlight }: BlockPlan) {
+  function Block({ text, highlight, artifact, sessionId }: BlockPlan) {
     const html = useMemo(() => renderMarkdown(text, { highlight }), [text, highlight]);
-    return <div className="min-w-0" dangerouslySetInnerHTML={{ __html: html }} />;
+    const ref = useRef<HTMLDivElement | null>(null);
+
+    // 富围栏提升（mermaid / svg）：仅 highlight=true（稳定块/落定态）触发，
+    // 流式尾块显示代码占位，防止每 flush 全量重渲染图形
+    useEffect(() => {
+      if (!highlight) return;
+      const el = ref.current;
+      if (!el) return;
+      const nodes = Array.from(el.querySelectorAll<HTMLElement>('[data-mermaid], [data-svg]'));
+      if (nodes.length === 0) return;
+      let cancelled = false;
+      void (async () => {
+        try {
+          const [{ default: mermaid }, dp] = await Promise.all([import('mermaid'), import('dompurify')]);
+          dompurifyMod = dp.default ?? dp;
+          // 主题跟随（对齐 Hermes useIsDark）：.dark class 由主题系统驱动
+          const isDark = document.documentElement.classList.contains('dark');
+          const theme: 'dark' | 'default' = isDark ? 'dark' : 'default';
+          if (!mermaidReady || lastMermaidTheme !== theme) {
+            // securityLevel: 'strict'：mermaid 清洗 label HTML 并丢弃 click handlers，
+            // 渲染出的 SVG 可安全注入（对齐 Hermes mermaid-embed ensureInit）
+            mermaid.initialize({ fontFamily: 'inherit', securityLevel: 'strict', startOnLoad: false, theme });
+            mermaidReady = true;
+            lastMermaidTheme = theme;
+          }
+          for (const node of nodes) {
+            if (cancelled) break;
+            const isMermaid = node.hasAttribute('data-mermaid');
+            const code = (node.getAttribute(isMermaid ? 'data-mermaid' : 'data-svg') ?? '').trim();
+            if (!code) {
+              node.removeAttribute('data-mermaid');
+              node.removeAttribute('data-svg');
+              continue;
+            }
+            try {
+              let svg: string;
+              if (isMermaid) {
+                const id = `mmd-${Math.random().toString(36).slice(2, 10)}`;
+                const result = await mermaid.render(id, code);
+                svg = result.svg;
+              } else {
+                // svg profile 硬清洗（对齐 Hermes svg-embed）：剥 scripts/事件处理器/foreignObject
+                svg = dompurifyMod.sanitize(code, { USE_PROFILES: { svg: true, svgFilters: true } });
+                if (!svg.trim()) {
+                  node.removeAttribute('data-svg');
+                  continue;
+                }
+              }
+              const wrapper = document.createElement('div');
+              wrapper.className = isMermaid ? 'mermaid-svg' : 'svg-inline';
+              wrapper.innerHTML = svg;
+              const card = node.closest('.code-block-wrapper');
+              if (card && card.parentNode) card.replaceWith(wrapper);
+              else node.replaceWith(wrapper);
+            } catch {
+              // 渲染失败（语法错误等）→ 回退代码卡片，移除标记防重试
+              node.removeAttribute('data-mermaid');
+              node.removeAttribute('data-svg');
+            }
+          }
+        } catch {
+          // 懒加载失败 → 全部回退代码卡片
+          nodes.forEach((n) => {
+            n.removeAttribute('data-mermaid');
+            n.removeAttribute('data-svg');
+          });
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [html, highlight]);
+
+    if (artifact) {
+      return <ArtifactCard detection={artifact.detection} code={artifact.code} streaming={artifact.streaming} sessionId={sessionId} />;
+    }
+
+    return <div ref={ref} className="min-w-0" dangerouslySetInnerHTML={{ __html: html }} />;
   },
-  (prev, next) => prev.text === next.text && prev.highlight === next.highlight
+  (prev, next) =>
+    prev.text === next.text &&
+    prev.highlight === next.highlight &&
+    (prev.artifact?.streaming ?? false) === (next.artifact?.streaming ?? false)
 );
 
 /** 按行数分块（大文本降级渲染用）— 对齐 Hermes chunkByLines */
@@ -66,7 +184,7 @@ function chunkByLines(text: string, linesPerChunk: number): { text: string; line
 }
 
 export default forwardRef<HTMLDivElement, StreamBlocksProps>(function StreamBlocks(
-  { text, streaming = false },
+  { text, streaming = false, disableArtifacts = false, sessionId = null },
   ref
 ) {
   const plan = useMemo(() => {
@@ -84,12 +202,31 @@ export default forwardRef<HTMLDivElement, StreamBlocksProps>(function StreamBloc
     const repaired = repairMarkdownTail(preprocessed);
     const rawBlocks = splitMarkdownBlocksCached(repaired);
     // 仅流式"活动尾块"延迟高亮；稳定块首次渲染即高亮（一次性成本，memo 后不再重复）
-    const blocks: BlockPlan[] = rawBlocks.map((blockText, i) => ({
-      text: blockText,
-      highlight: !(streaming && i === rawBlocks.length - 1),
-    }));
+    const blocks: BlockPlan[] = rawBlocks.map((blockText, i) => {
+      const isTail = streaming && i === rawBlocks.length - 1;
+      // 纯 fence 块 + 命中检测 → 提升 artifact（reasoning 草稿 disableArtifacts 不提升）
+      if (!disableArtifacts) {
+        const fence = parseSingleFence(blockText);
+        if (fence) {
+          const detection = detectArtifact(fence.lang, fence.code);
+          if (detection) {
+            return {
+              text: blockText,
+              highlight: false,
+              artifact: { detection, code: fence.code, streaming: isTail },
+              sessionId,
+            };
+          }
+        }
+      }
+      return {
+        text: blockText,
+        highlight: !isTail,
+        sessionId,
+      };
+    });
     return { kind: 'blocks' as const, blocks };
-  }, [text, streaming]);
+  }, [text, streaming, disableArtifacts, sessionId]);
 
   // 大文本降级分块（hooks 规则：所有 useMemo 必须在 early return 之前）
   const plainChunks = useMemo(

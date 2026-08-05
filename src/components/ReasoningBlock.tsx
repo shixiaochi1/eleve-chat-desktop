@@ -1,10 +1,11 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo, useDeferredValue } from 'react';
 import { ThinkingIcon, CopyIcon, CheckIcon } from './Icons';
 import ActivityTimerText from './ActivityTimerText';
 import { useElapsedSeconds } from '@/hooks/useActivityTimer';
 import { useShowReasoning } from '@/store/display-settings';
 import { cleanThinkingText } from '@/lib/thinking-text';
 import { cn } from '@/lib/utils';
+import StreamBlocks from './StreamBlocks';
 
 interface ReasoningBlockProps {
   text?: string;
@@ -57,7 +58,10 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
 
   // 显示层清洗（对齐 Hermes coerceThinkingText 定位：只动显示不动数据）：
   // 剥混入的 think 标签 + 状态前缀 + 纯垃圾推理流（"..."/":"）视为空隐藏。
-  const cleanText = useMemo(() => cleanThinkingText(text ?? ''), [text]);
+  // trimStart：对齐 Hermes ReasoningTextPart 的 text.trimStart()（思考流首 token 常带前导空白）
+  const cleanText = useMemo(() => cleanThinkingText(text ?? '').trimStart(), [text]);
+  // 渲染降级：思考流每 token 重渲染，useDeferredValue 降为低优先级（对齐 Hermes DeferStreamingText）
+  const deferredClean = useDeferredValue(cleanText);
 
   const handleCopy = useCallback(() => {
     if (!cleanText) return;
@@ -102,12 +106,15 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
           {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
         </button>
       </div>
-      {/* 内容区 — whitespace-pre-line：单换行折叠为空格、空行保留段落（对齐 Hermes 换行语义，
-          消灭推理文本“几个字占一行”的碎行） */}
+      {/* 内容区 — markdown 渲染（对齐 Hermes ReasoningTextPart → MarkdownTextContent）：
+          thinking 内容自带 markdown 语法（行内 code / 代码围栏 / 粗体 / 列表），纯文本直出会
+          裸奔反引号与围栏标记；走与主气泡相同的 StreamBlocks 管线（merge → autolink →
+          repair → split → marked）→ 行内 code 样式化、代码围栏变代码卡片、强调/列表正常排版。
+          pending（流式）时尾块延迟高亮 + useDeferredValue 降载（对齐 Hermes defer） */}
       <div
         ref={contentRef}
         className={cn(
-          'text-sm whitespace-pre-line break-words select-text',
+          'text-sm break-words select-text',
           pending ? 'text-muted-foreground/55' : 'text-muted-foreground',
           !open && isLong && 'max-h-[5.5em] overflow-hidden cursor-pointer [-webkit-mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)] [mask-image:linear-gradient(to_bottom,transparent_0%,black_28%,black_100%)]',
           open && 'select-text',
@@ -119,7 +126,7 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
           isLong && !open && setUserOpen(true);
         }}
       >
-        {cleanText}
+        <StreamBlocks text={deferredClean} streaming={!!pending} disableArtifacts />
       </div>
     </div>
   );

@@ -98,7 +98,10 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
           <button
             className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground bg-secondary/60 hover:bg-accent/50 rounded transition-colors"
             title="新建会话 (Ctrl+N)"
-            onClick={onNewSession}
+            // 🔴 2026-08-05 修复：必须包箭头函数——onClick 直绑会把 MouseEvent 当参数传入
+            // handleNewSession(title)，title?.trim 抛错但 sessionId 已被清空 → 下次发送传 null
+            // → 后端自动新建会话（"执行工具后自动新建"根因）
+            onClick={() => onNewSession?.()}
           >
             <Plus size={14} strokeWidth={1.5} />
             <span>新建会话</span>

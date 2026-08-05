@@ -22,9 +22,11 @@ interface MessageRowProps {
   message: ChatMessage
   /** 删除回调；undefined 时不显示删除按钮（宫格只读场景） */
   onDelete?: (messageId: string) => void
+  /** 会话 ID（artifact 版本注册按会话隔离，对齐 Hermes） */
+  sessionId?: string | null
 }
 
-export const MessageRow = memo(function MessageRow({ message: m, onDelete }: MessageRowProps) {
+export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessionId }: MessageRowProps) {
   if (!m || m.hidden) return null
 
   // ── Parts-based rendering ──
@@ -98,6 +100,7 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete }: Mes
                     timestamp={m.timestamp}
                     messageId={m.id}
                     onDelete={onDelete}
+                    sessionId={sessionId}
                   />
                 )
               case 'tool':

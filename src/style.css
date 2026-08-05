@@ -1324,6 +1324,34 @@ canvas {
   margin: 0.4em 0;
 }
 
+/* ── 数学公式（markdown.ts katex 扩展，对齐 Hermes mathPlugin）──
+   块级公式横向可滚（长公式不挤压气泡）；行内公式随文本基线自动适配 */
+.math-block {
+  overflow-x: auto;
+  margin: 0.5em 0;
+  padding: 0.1em 0;
+}
+.math-block .katex-display { margin: 0; }
+.prose .katex { font-size: 1.05em; }
+
+/* ── mermaid 图形（StreamBlocks 懒加载渲染，对齐 Hermes mermaid fence）── */
+.mermaid-svg {
+  margin: 0.6em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-svg svg { max-width: 100%; height: auto; }
+
+/* ── svg fence 内联渲染（DOMPurify svg profile 清洗后注入，对齐 Hermes svg-embed）── */
+.svg-inline { margin: 0.6em 0; }
+.svg-inline svg {
+  display: block;
+  height: auto;
+  width: auto;
+  max-height: 33dvh;
+  max-width: 100%;
+}
+
 /* ── 代码块卡片（markdown.ts addCopyButtons 注入，对齐 Hermes CodeCard）──
    卡片化容器：header（语言标签 + 复制按钮）+ pre 主体，整体圆角边框 */
 .code-block-wrapper {
