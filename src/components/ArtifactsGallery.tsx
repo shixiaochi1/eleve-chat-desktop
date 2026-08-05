@@ -1,14 +1,12 @@
 /**
  * 跨会话产物画廊（对齐 Hermes app/artifacts）
  *
- * 扫描最近会话历史，从消息里重新提取 image/file/link 三类产物：
- * 过滤 tabs（全部/图片/文件/链接 + 计数）+ 搜索 + 刷新；
- * 图片网格 24/页（点击放大）、文件/链接表格 100/页（点击打开）。
+ * 展示组件：过滤 tabs（全部/图片/文件/链接 + 计数）+ 图片网格 24/页（点击放大）
+ * + 文件/链接表格 100/页（点击打开）。
+ * 数据/搜索/刷新由外层持有（useArtifactsGallery hook），搜索框与刷新按钮
+ * 渲染在右栏产物 tab 的「产物库」栏（ArtifactPanel 视图切换条右侧）。
  * 打开：link → 系统浏览器（shell open）；file → 系统默认程序（opener openPath）；
  * 图片本地文件 → fs readFile → Blob URL 显示。
- *
- * 标题与关闭按钮由外层 OverlayView 提供（本组件不自带，防双标题双关闭）。
- * 数据链路：session.list → session.history → lib/artifacts-gallery 纯函数提取。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
@@ -16,14 +14,12 @@ import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { readFile, stat } from '@tauri-apps/plugin-fs';
 import {
-  ExternalLink, FileText, FolderOpen, Image as ImageIcon, Link2, Loader2, Maximize2, RefreshCw, Search, X,
+  ExternalLink, FileText, FolderOpen, Image as ImageIcon, Link2, Loader2, Maximize2, RefreshCw, X,
 } from 'lucide-react';
-import { call } from '@/utils/bridge';
 import { notifyError, notifySuccess } from '@/utils/notifications';
 import { cn } from '@/lib/utils';
 import {
   ARTIFACT_FILTERS,
-  collectArtifactsForSession,
   type ArtifactFilter,
   type GalleryArtifact,
 } from '@/lib/artifacts-gallery';
@@ -39,12 +35,6 @@ const KIND_LABEL: Record<GalleryArtifact['kind'], string> = {
   image: '图片',
   file: '文件',
   link: '链接',
-};
-
-const KIND_ACCENT: Record<GalleryArtifact['kind'], string> = {
-  image: 'text-violet-500',
-  file: 'text-sky-500',
-  link: 'text-emerald-500',
 };
 
 function formatArtifactTime(timestamp: number): string {
@@ -95,50 +85,25 @@ function pageRangeLabel(total: number, page: number, pageSize: number): string {
 }
 
 interface ArtifactsGalleryProps {
+  /** 跨会话扫描结果（null = 加载中） */
+  artifacts: GalleryArtifact[] | null;
+  /** 搜索词（由外层持有，搜索框渲染在「产物库」栏） */
+  query: string;
+  onQueryChange: (q: string) => void;
+  refreshing: boolean;
+  onRefresh: () => void;
   /** 打开会话（Hermes openChat 语义） */
   onSwitchSession?: (sessionId: string) => void;
 }
 
-export default function ArtifactsGallery({ onSwitchSession }: ArtifactsGalleryProps) {
-  const [artifacts, setArtifacts] = useState<GalleryArtifact[] | null>(null);
-  const [query, setQuery] = useState('');
+export default function ArtifactsGallery({
+  artifacts, query, onQueryChange, refreshing, onRefresh, onSwitchSession,
+}: ArtifactsGalleryProps) {
   const [kindFilter, setKindFilter] = useState<ArtifactFilter>('all');
   const [failedImageIds, setFailedImageIds] = useState<Set<string>>(() => new Set());
   const [imagePage, setImagePage] = useState(1);
   const [filePage, setFilePage] = useState(1);
-  const [refreshing, setRefreshing] = useState(false);
   const [zoomArtifact, setZoomArtifact] = useState<GalleryArtifact | null>(null);
-
-  const refreshArtifacts = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      const data = (await call('list_sessions', { limit: 30 })) as { sessions?: Array<{
-        id: string; title?: string | null; preview?: string | null;
-        started_at?: unknown; last_active?: unknown;
-      }> };
-      const sessions = data.sessions ?? [];
-      const results = await Promise.allSettled(
-        sessions.map(async (session) => {
-          const hist = (await call('get_session_messages', { session_id: session.id })) as { messages?: unknown[] };
-          return collectArtifactsForSession(session, (hist.messages ?? []) as Parameters<typeof collectArtifactsForSession>[1]);
-        }),
-      );
-      const next: GalleryArtifact[] = [];
-      results.forEach((result, index) => {
-        if (result.status === 'fulfilled') next.push(...result.value);
-      });
-      setArtifacts(next.sort((a, b) => b.timestamp - a.timestamp));
-    } catch (err) {
-      console.error('[artifacts-gallery] load failed:', err);
-      setArtifacts([]);
-    } finally {
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refreshArtifacts();
-  }, [refreshArtifacts]);
 
   useEffect(() => {
     setImagePage(1);
@@ -235,41 +200,19 @@ export default function ArtifactsGallery({ onSwitchSession }: ArtifactsGalleryPr
   const showEmpty = artifacts !== null && visibleArtifacts.length === 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
-      {/* 工具栏：过滤 tabs + 搜索 + 刷新（标题/关闭由 OverlayView 提供） */}
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2">
-        <div className="flex items-center gap-1">
-          {ARTIFACT_FILTERS.map((f) => (
-            <TextTab key={f} active={kindFilter === f} onClick={() => setKindFilter(f)}>
-              {f === 'all' ? '全部' : KIND_LABEL[f]}
-              {artifacts !== null && <TextTabMeta>{counts[f]}</TextTabMeta>}
-            </TextTab>
-          ))}
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <div className="relative">
-            <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索路径 / 标题 / 会话"
-              className="h-8 w-56 rounded-full border border-border/80 bg-muted/30 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground/45 transition-all focus:w-64 focus:border-accent-cyan/50 focus:bg-background focus:outline-none focus:ring-2 focus:ring-accent-cyan/15"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => void refreshArtifacts()}
-            disabled={refreshing}
-            title={refreshing ? '刷新中…' : '刷新'}
-            className="grid size-8 place-items-center rounded-full border border-border/80 bg-muted/30 text-muted-foreground transition-all hover:border-muted-foreground/30 hover:bg-accent/10 hover:text-foreground disabled:opacity-50"
-          >
-            {refreshing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-          </button>
-        </div>
+    <div className="flex h-full min-h-0 flex-col">
+      {/* 过滤 tabs（搜索/刷新在外部「产物库」栏） */}
+      <div className="flex shrink-0 items-center gap-1 border-b border-border/60 px-3 py-1.5">
+        {ARTIFACT_FILTERS.map((f) => (
+          <TextTab key={f} active={kindFilter === f} onClick={() => setKindFilter(f)}>
+            {f === 'all' ? '全部' : KIND_LABEL[f]}
+            {artifacts !== null && <TextTabMeta>{counts[f]}</TextTabMeta>}
+          </TextTab>
+        ))}
       </div>
 
       {/* 内容区 */}
-      <div className="min-h-0 flex-1 overflow-y-auto pr-0.5">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {!artifacts ? (
           <div className="grid h-full place-items-center">
             <div className="flex flex-col items-center gap-2 text-muted-foreground/70">
@@ -294,17 +237,17 @@ export default function ArtifactsGallery({ onSwitchSession }: ArtifactsGalleryPr
               {counts.all === 0 && (
                 <button
                   type="button"
-                  onClick={() => void refreshArtifacts()}
+                  onClick={onRefresh}
                   className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-muted-foreground/30 hover:text-foreground"
                 >
-                  <RefreshCw size={12} />
+                  <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
                   重新扫描
                 </button>
               )}
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-4 pb-2">
+          <div className="flex flex-col gap-4">
             {pagedImages.length > 0 && (
               <section className="flex flex-col gap-2">
                 <div className="flex h-6 items-center justify-end">

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, Copy, Check, ExternalLink, Download, Maximize2, Minimize2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Check, ExternalLink, Download, Loader2, Maximize2, Minimize2, RefreshCw, Search } from 'lucide-react';
 import { ContextFileIcon, WebWindowIcon, ImageIcon } from './Icons';
 import { cn } from '@/lib/utils';
 import {
@@ -23,6 +23,7 @@ import { join, tempDir } from '@tauri-apps/api/path';
 import ModeSwitcher, { type ModeOption } from '@/components/preview/ModeSwitcher';
 import ArtifactsGallery from '@/components/ArtifactsGallery';
 import { TextTab, TextTabMeta } from '@/components/ui/text-tab';
+import { useArtifactsGallery } from '@/lib/useArtifactsGallery';
 import DOMPurify from 'dompurify';
 
 const KIND_ICON = {
@@ -68,6 +69,8 @@ const ArtifactPanel = memo(function ArtifactPanel({
   onSwitchSession?: (sessionId: string) => void;
 }) {
   const registry = useArtifacts();
+  // 产物库数据（搜索/刷新状态由本面板持有，渲染在视图切换条右侧）
+  const gallery = useArtifactsGallery();
   // 视图：本会话产物 / 产物库（跨会话画廊，Hermes app/artifacts）
   const [view, setView] = useState<'session' | 'gallery'>('session');
   const openState = useOpenArtifact();
@@ -173,16 +176,46 @@ const ArtifactPanel = memo(function ArtifactPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* 视图切换：本会话 / 产物库（产物库 = 跨会话画廊，对齐 Hermes app/artifacts） */}
+      {/* 视图切换：本会话 / 产物库（产物库 = 跨会话画廊，对齐 Hermes app/artifacts）——
+          搜索框与刷新按钮放在本栏右侧（老大 2026-08-06 指示） */}
       <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-1.5">
         <TextTab active={view === 'session'} onClick={() => setView('session')}>
           本会话
           {sessionRecords.length > 0 && <TextTabMeta>{sessionRecords.length}</TextTabMeta>}
         </TextTab>
         <TextTab active={view === 'gallery'} onClick={() => setView('gallery')}>产物库</TextTab>
+        {view === 'gallery' && (
+          <div className="ml-auto flex items-center gap-2">
+            <div className="relative">
+              <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50" />
+              <input
+                value={gallery.query}
+                onChange={(e) => gallery.setQuery(e.target.value)}
+                placeholder="搜索产物 / 会话"
+                className="h-7 w-40 rounded-full border border-border/80 bg-muted/30 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground/45 transition-all focus:w-48 focus:border-accent-cyan/50 focus:bg-background focus:outline-none focus:ring-2 focus:ring-accent-cyan/15"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => void gallery.refresh()}
+              disabled={gallery.refreshing}
+              title={gallery.refreshing ? '刷新中…' : '刷新'}
+              className="grid size-7 place-items-center rounded-full border border-border/80 bg-muted/30 text-muted-foreground transition-all hover:border-muted-foreground/30 hover:bg-accent/10 hover:text-foreground disabled:opacity-50"
+            >
+              {gallery.refreshing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+            </button>
+          </div>
+        )}
       </div>
       {view === 'gallery' ? (
-        <ArtifactsGallery onSwitchSession={onSwitchSession} />
+        <ArtifactsGallery
+          artifacts={gallery.artifacts}
+          query={gallery.query}
+          onQueryChange={gallery.setQuery}
+          refreshing={gallery.refreshing}
+          onRefresh={() => void gallery.refresh()}
+          onSwitchSession={onSwitchSession}
+        />
       ) : (
       <>
       {/* 列表头 */}
