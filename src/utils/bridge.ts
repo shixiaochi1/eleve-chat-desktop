@@ -188,6 +188,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   resolve_media:          'media.resolve',
   migrate_app_data:       'app_data.migrate',
   files_list:             'files.list',
+  files_diff:             'files.diff',
   projects_tree:          'projects.tree',
   projects_project_sessions: 'projects.project_sessions',
   projects_create:        'projects.create',
