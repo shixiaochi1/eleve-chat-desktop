@@ -503,11 +503,18 @@ export default function FileBrowserPanel({
         </div>
       </div>
 
-      {/* 当前工作目录 — 显示完整路径，悬浮可见全路径 */}
-      <div className="flex items-center gap-1 px-1 py-1 mb-2 text-xs text-muted-foreground truncate border-b border-border" title={rootPath || undefined}>
+      {/* 当前工作目录 — 点击弹出目录选择器（老大 2026-08-06 指示：点路径即切换目录，
+          不必找按钮）；hover 显示切换图标 */}
+      <button
+        type="button"
+        onClick={handlePickRoot}
+        title="点击切换目录"
+        className="group flex w-full items-center gap-1 px-1 py-1 mb-2 text-xs text-muted-foreground truncate border-b border-border transition-colors hover:bg-accent/10 hover:text-foreground"
+      >
         <Folder size={12} className="text-warning shrink-0" />
         <span className="truncate">{rootPath || dirName}</span>
-      </div>
+        <FolderInput size={11} className="ml-auto shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+      </button>
 
       {/* 加载状态 */}
       {loading && data === null && (
