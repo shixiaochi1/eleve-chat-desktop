@@ -29,6 +29,7 @@ import useTerminal from '../hooks/useTerminal';
 import { listProcesses } from '../utils/api';
 import { isDesktop } from '@/utils/bridge';
 import { cn } from '@/lib/utils';
+import { subscribeTerminalInjection, getTerminalInjectionSnapshot, clearTerminalInjection } from '@/lib/terminal-injection';
 import {
   subscribeTerminals,
   getTerminalsSnapshot,
@@ -431,6 +432,20 @@ function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boo
     }, 30);
     return () => clearTimeout(t);
   }, [active, ready, term.fit, term.focus, syncSize]);
+
+  // 终端命令注入 flush（对齐 Hermes $terminalInjection subscribe：活跃 tab + session
+  // open 才消费；写 PTY 输入 + 清空防重放；值在面板挂载前设置也能跑）
+  useEffect(() => {
+    if (!active || status !== 'open') return;
+    return subscribeTerminalInjection(() => {
+      const command = getTerminalInjectionSnapshot();
+      if (!command) return;
+      clearTerminalInjection();
+      hasSessionActivityRef.current = true;
+      void writePtyInput(entry.id, `${command}\r`);
+      term.focus();
+    });
+  }, [active, status, entry.id, term.focus]);
 
   if (!isDesktop()) {
     return (

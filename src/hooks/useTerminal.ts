@@ -2,7 +2,7 @@
  * useTerminal — Terminal lifecycle hook
  *
  * Creates and manages an @xterm/xterm Terminal instance
- * with FitAddon + WebLinksAddon（走 opener，非 window.open）。
+ * with FitAddon + WebLinksAddon（走 opener，非 window.open）+ WebGL（fallback DOM）。
  *
  * 对齐 Hermes use-terminal-session 的渲染/交互核心：
  * - linkHandler（OSC 8）+ WebLinksAddon（URL）→ opener openUrl（⌘/Ctrl+click）
@@ -10,8 +10,10 @@
  * - onSelectionChange → mirrorSelection（canvas 选区镜像进 helper textarea，系统复制生效）
  * - altClickMovesCursor:false + macOptionClickForcesSelection（⌥-drag 强制选择鼠标模式 TUI）
  * - minimumContrastRatio 4.5 / convertEol / scrollback 1000（VS Code 终端视觉语义）
+ * - WebGL 渲染器 + context loss 降级 DOM（对齐 Hermes mount 路径）
+ * - 字体：warm 后挂载 + 配置变化热切换（applyTerminalFontFamily，不重建 xterm/PTY）
  */
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useMemo } from 'react';
 import type { CSSProperties } from 'react';
 import { registerTerminalReader, makeTerminalReader, setActiveTerminalId } from '@/store/terminal-buffer';
 import {
@@ -22,6 +24,13 @@ import {
   terminalSelectionAnchor,
   isMacPlatform,
 } from '@/lib/terminal-extras';
+import {
+  getTerminalFontSnapshot,
+  resolveTerminalFontFamily,
+  warmTerminalFontFamily,
+  applyTerminalFontFamily,
+  useTerminalFontConfigured,
+} from '@/lib/terminal-font';
 
 interface UseTerminalOptions {
   lazy?: boolean;
@@ -35,10 +44,36 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<any>(null);
   const fitAddonRef = useRef<any>(null);
+  const webglRef = useRef<any>(null);
   const initializedRef = useRef(false);
   const unregisterReaderRef = useRef<(() => void) | null>(null);
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
+
+  // ── 字体热切换（对齐 Hermes useTerminalFontController）──
+  const configuredFont = useTerminalFontConfigured();
+  const resolvedFont = useMemo(() => resolveTerminalFontFamily(configuredFont), [configuredFont]);
+  const fontGenerationRef = useRef(0);
+  useEffect(() => {
+    const term = terminalRef.current;
+    if (!initializedRef.current || !term || term.options.fontFamily === resolvedFont) return;
+    const generation = ++fontGenerationRef.current;
+    let cancelled = false;
+    void applyTerminalFontFamily({
+      clearTextureAtlas: () => webglRef.current?.clearTextureAtlas?.(),
+      fit: () => {
+        try {
+          fitAddonRef.current?.fit();
+        } catch { /* ignore */ }
+      },
+      fontFamily: resolvedFont,
+      isCurrent: () => !cancelled && fontGenerationRef.current === generation,
+      term,
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedFont]);
 
   // Create the terminal instance
   const init = useCallback(() => {
@@ -49,14 +84,19 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
         const { Terminal } = await import('@xterm/xterm');
         const { FitAddon } = await import('@xterm/addon-fit');
         const { Unicode11Addon } = await import('@xterm/addon-unicode11');
+        const { WebglAddon } = await import('@xterm/addon-webgl');
 
         const fitAddon = new FitAddon();
+
+        // 预热字体（WebGL 字形 atlas 需要；本地已装字体时快，未装不阻塞挂载）
+        const bootFont = resolveTerminalFontFamily(getTerminalFontSnapshot());
+        void warmTerminalFontFamily(bootFont);
 
         const term = new Terminal({
           cursorBlink: true,
           cursorStyle: 'bar',
           fontSize: 13,
-          fontFamily: "'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace",
+          fontFamily: bootFont,
           // 对齐 Hermes：opaque canvas（allowTransparency=false 走清晰渲染路径）
           allowTransparency: false,
           convertEol: true,
@@ -101,6 +141,19 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
         // Unicode 11 宽字符（emoji 等）
         term.loadAddon(new Unicode11Addon());
         term.unicode.activeVersion = '11';
+
+        // WebGL 渲染器（对齐 Hermes mount 路径：context loss 时 dispose 降级 DOM）
+        try {
+          const webgl = new WebglAddon();
+          webgl.onContextLoss(() => {
+            webgl.dispose();
+            webglRef.current = null;
+          });
+          term.loadAddon(webgl);
+          webglRef.current = webgl;
+        } catch (err) {
+          console.warn('[useTerminal] WebGL unavailable; falling back to DOM', err);
+        }
 
         // 智能剪贴板（对齐 Hermes clipboard.ts）：返回 false = xterm 不再把按键发 PTY
         term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
@@ -187,6 +240,7 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
           terminalRef.current.dispose();
         } catch { /* ignore */ }
         terminalRef.current = null;
+        webglRef.current = null;
         initializedRef.current = false;
       }
     };
@@ -223,6 +277,7 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
   return {
     containerRef,
     terminalRef,
+    webglRef,
     init,
     fit,
     write,

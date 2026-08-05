@@ -4,6 +4,7 @@ import { notifySuccess, notifyError } from '../../utils/notifications';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
+import { TERMINAL_FONT_SUGGESTIONS, normalizeTerminalFontFamily, setTerminalFontFamily } from '../../lib/terminal-font';
 
 /**
  * WorkspaceSettings — 工作区设置
@@ -25,6 +26,7 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
     code_exec_mode: 'project',
     persistent_shell: true,
     file_read_max_chars: 100000,
+    terminal_font_family: '',
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -45,6 +47,8 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
         code_exec_mode: code_execution.mode || 'project',
         persistent_shell: terminal.persistent_shell ?? true,
         file_read_max_chars: bc.file_read_max_chars ?? 100000,
+        // 对齐 Hermes terminal.font_family（config.yaml；空 = 默认字体栈）
+        terminal_font_family: normalizeTerminalFontFamily(terminal.font_family),
       });
       setLoaded(true);
     } catch {
@@ -69,6 +73,7 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
           terminal: {
             cwd: config.cwd || null,
             persistent_shell: config.persistent_shell,
+            font_family: normalizeTerminalFontFamily(config.terminal_font_family),
           },
           code_execution: {
             mode: config.code_exec_mode,
@@ -76,6 +81,8 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
           file_read_max_chars: config.file_read_max_chars,
         },
       });
+      // 本地状态即时生效（终端热切换，不重启；对齐 Hermes setTerminalFontFamilyFromConfig）
+      setTerminalFontFamily(config.terminal_font_family);
       notifySuccess('工作区配置已保存');
       onSaved?.();
     } catch (e) {
@@ -131,6 +138,24 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
           checked={config.persistent_shell}
           onCheckedChange={(val: boolean) => update('persistent_shell', val)}
         />
+      </div>
+
+      {/* 终端字体（对齐 Hermes terminal.font_family 设置；空 = 默认栈） */}
+      <div className="mb-3">
+        <label className="block text-xs text-muted-foreground mb-1">终端字体</label>
+        <Input
+          type="text"
+          list="terminal-font-suggestions"
+          placeholder="JetBrains Mono（空 = 默认）"
+          value={config.terminal_font_family}
+          onChange={e => update('terminal_font_family', e.target.value)}
+        />
+        <datalist id="terminal-font-suggestions">
+          {TERMINAL_FONT_SUGGESTIONS.map(f => <option key={f} value={f} />)}
+        </datalist>
+        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
+          集成终端字体（支持 Nerd Font，如 MesloLGS NF / JetBrainsMono Nerd Font）。保存后当前终端即时切换，无需重启。
+        </p>
       </div>
 
       {/* 文件读取字符上限 */}

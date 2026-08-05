@@ -9,6 +9,7 @@ import {
 } from './store/debug';
 import { textPart } from '@/lib/chat-messages';
 import { requestComposerInsert } from '@/lib/composer-events';
+import { loadTerminalFontFromConfig } from '@/lib/terminal-font';
 import { useSessions } from './hooks/useSessions';
 import { useGatewayHealth } from './hooks/useGatewayHealth';
 import { useMessageStream } from './hooks/useMessageStream';
@@ -235,6 +236,9 @@ export default function App() {
   useEffect(() => {
     if (!portReady) return;
     let cancelled = false;
+    // 终端字体配置（config.yaml terminal.font_family）——依赖 WS，portReady 后加载
+    // （对齐 Hermes setTerminalFontFamilyFromConfig；面板保存会即时更新模块状态）
+    void loadTerminalFontFromConfig();
     let attempts = 0;
     const tryGetActive = () => {
       getActiveProfile()
@@ -862,6 +866,7 @@ export default function App() {
 
     // 🔴 P1：loadSettingsFromRust 已移至 WS connect 后（下方 portReady effect）。
     // 旧实现在 mount 时调（WS 未连，sendRpc state='disconnected' 必 reject，无重试）→ 死代码。
+    // 终端字体配置（config.yaml terminal.font_family）同样依赖 WS：放 portReady 后。
     loadMarkdownDeps().then(() => setDepsReady(true));
 
     if (typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) {
