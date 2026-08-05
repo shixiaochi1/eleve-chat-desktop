@@ -1,12 +1,12 @@
 /**
  * FileBrowserPanel — 右侧文件浏览器面板
  *
- * 树状文件列表，支持展开/折叠目录、点击文件附加路径
+ * 树状文件列表，支持展开/折叠目录；单击选中、shift+click 引用、双击预览
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { File, Folder, FolderOpen, ChevronRight, ChevronDown, ChevronsDownUp, RefreshCw, Loader, ArrowUp, FolderInput } from 'lucide-react';
 import { useFileTree } from '../hooks/useFileTree';
-import { useWorkspaceTick } from '../lib/workspace-events';
+import { useWorkspaceTick, notifyWorkspaceChanged } from '../lib/workspace-events';
 import { openPreview } from '@/store/preview';
 import { cn } from '@/lib/utils';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu';
@@ -35,7 +35,10 @@ interface TreeNodeProps {
   depth: number;
   openState: Record<string, boolean>;
   onToggle: (dirPath: string) => Promise<void>;
-  onFileClick: (entry: FileEntry) => void;
+  /** 单击文件 → 选中高亮（对齐 Hermes row select 语义，无副作用） */
+  onSelectFile: (path: string) => void;
+  /** shift+click 文件 → 引用到输入框（对齐 Hermes tree.tsx shift+click = attach） */
+  onFileAttach: (path: string) => void;
   onFileDoubleClick: (entry: FileEntry) => void;
   loadChildren: (dirPath: string) => Promise<FileEntry[]>;
   /** 非破坏刷新信号：workspace tick 递增 → 已展开目录重新加载（对齐 Hermes revalidateTree） */
@@ -44,6 +47,8 @@ interface TreeNodeProps {
   rootPath: string;
   /** 当前正在重命名的节点路径（null = 无） */
   renamingPath: string | null;
+  /** 当前选中的文件路径（高亮） */
+  selectedPath: string | null;
   onReveal: (path: string) => void;
   onCopyText: (text: string) => void;
   onRenameRequest: (path: string) => void;
@@ -104,12 +109,14 @@ function TreeNode({
   depth,
   openState,
   onToggle,
-  onFileClick,
+  onSelectFile,
+  onFileAttach,
   onFileDoubleClick,
   loadChildren,
   refreshNonce,
   rootPath,
   renamingPath,
+  selectedPath,
   onReveal,
   onCopyText,
   onRenameRequest,
@@ -119,6 +126,8 @@ function TreeNode({
 }: TreeNodeProps) {
   const [children, setChildren] = useState<FileEntry[] | null>(null);
   const [loadingChildren, setLoadingChildren] = useState(false);
+  /** 子目录读取失败原因（Hermes error placeholder 语义；成功/空目录 = null） */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const childrenLoadedRef = useRef(false);
 
   const isOpen = !!openState[entry.path];
@@ -131,9 +140,14 @@ function TreeNode({
     setLoadingChildren(true);
     loadChildren(entry.path)
       .then((result) => {
-        if (!cancelled) setChildren(result);
+        if (!cancelled) {
+          setChildren(result);
+          setLoadError(null);
+        }
       })
-      .catch(() => { /* 静默 */ })
+      .catch((err: unknown) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
+      })
       .finally(() => {
         if (!cancelled) setLoadingChildren(false);
       });
@@ -152,19 +166,28 @@ function TreeNode({
       try {
         const result = await loadChildren(entry.path);
         setChildren(result);
+        setLoadError(null);
         childrenLoadedRef.current = true;
-      } catch { /* 静默 */ }
+      } catch (err: unknown) {
+        // 对齐 Hermes error placeholder：读取失败不能伪装成空目录
+        setLoadError(err instanceof Error ? err.message : String(err));
+      }
       setLoadingChildren(false);
     }
   }, [entry.path, isOpen, onToggle, loadChildren]);
 
-  const handleClick = useCallback(() => {
+  const handleClick = useCallback((e: React.MouseEvent) => {
     if (entry.isDirectory) {
-      handleToggle({ stopPropagation: () => {} } as React.MouseEvent);
+      handleToggle(e);
+    } else if (e.shiftKey) {
+      // shift+click = attach（对齐 Hermes tree.tsx：shift+click 走 onAttachFile）
+      e.stopPropagation();
+      onFileAttach(entry.path);
     } else {
-      onFileClick(entry);
+      // 单击 = 选中高亮（对齐 Hermes row select 语义，无发送副作用）
+      onSelectFile(entry.path);
     }
-  }, [entry, handleToggle, onFileClick]);
+  }, [entry, handleToggle, onFileAttach, onSelectFile]);
 
   const indent = Math.min(depth, MAX_INDENT_DEPTH) * INDENT + 4;
   const isRenaming = renamingPath === entry.path;
@@ -173,8 +196,10 @@ function TreeNode({
   const row = (
     <div
       className={cn(
-        'flex items-center gap-1 px-1 py-0.5 rounded text-xs cursor-pointer hover:bg-accent/30 transition-colors',
-        !entry.isDirectory && 'hover:bg-accent/20'
+        'flex items-center gap-1 px-1 py-0.5 rounded text-xs cursor-pointer transition-colors',
+        !entry.isDirectory && 'hover:bg-accent/20',
+        // 选中高亮（对齐 Hermes node.isSelected 视觉；单击文件即选中）
+        !entry.isDirectory && selectedPath === entry.path && 'bg-accent/30 hover:bg-accent/30'
       )}
       onClick={handleClick}
       onDoubleClick={(e) => {
@@ -211,7 +236,11 @@ function TreeNode({
           className="flex-1 min-w-0 rounded border border-primary bg-background px-1 text-xs text-foreground outline-none"
           defaultValue={entry.name}
           onClick={(e) => e.stopPropagation()}
-          onFocus={(e) => e.currentTarget.select()}
+          onFocus={(e) => {
+            // 对齐 Hermes InlineRenameInput：stem 预选（不含扩展名），VS Code 语义
+            const dot = e.currentTarget.value.lastIndexOf('.');
+            e.currentTarget.setSelectionRange(0, dot > 0 ? dot : e.currentTarget.value.length);
+          }}
           onKeyDown={(e) => {
             e.stopPropagation();
             if (e.key === 'Enter') {
@@ -236,10 +265,12 @@ function TreeNode({
 
   return (
     <div style={{ paddingLeft: indent }}>
-      {/* 右键菜单（对齐 Hermes file-actions：reveal/复制路径/相对路径/重命名/删除） */}
+      {/* 右键菜单（对齐 Hermes file-actions：reveal/复制路径/相对路径/重命名/删除）
+          onCloseAutoFocus preventDefault：菜单关闭默认把焦点还给行 → 立即 blur 掉
+          重命名输入框（Hermes file-actions.tsx 同款注释；不加则"重命名"点了闪退） */}
       <ContextMenu>
         <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
-        <ContextMenuContent>
+        <ContextMenuContent onCloseAutoFocus={(e) => e.preventDefault()}>
           {isDesktop() && (
             <ContextMenuItem onSelect={() => onReveal(entry.path)}>在文件管理器中显示</ContextMenuItem>
           )}
@@ -261,12 +292,14 @@ function TreeNode({
               depth={depth + 1}
               openState={openState}
               onToggle={onToggle}
-              onFileClick={onFileClick}
+              onSelectFile={onSelectFile}
+              onFileAttach={onFileAttach}
               onFileDoubleClick={onFileDoubleClick}
               loadChildren={loadChildren}
               refreshNonce={refreshNonce}
               rootPath={rootPath}
               renamingPath={renamingPath}
+              selectedPath={selectedPath}
               onReveal={onReveal}
               onCopyText={onCopyText}
               onRenameRequest={onRenameRequest}
@@ -278,8 +311,17 @@ function TreeNode({
         </div>
       )}
 
+      {/* 读取失败占位（对齐 Hermes error placeholder："Unable to read (EACCES)"，
+          不能伪装成空目录；重新展开或 workspace tick 会重试） */}
+      {entry.isDirectory && isOpen && loadError && (
+        <div className="flex items-center gap-1 text-[10px] text-destructive/80 italic" style={{ paddingLeft: Math.min(depth + 1, MAX_INDENT_DEPTH) * INDENT + 20 }}>
+          <span className="shrink-0">无法读取</span>
+          <span className="truncate">{loadError}</span>
+        </div>
+      )}
+
       {/* 空目录提示 — 缩进与子节点行对齐（子行缩进 + 箭头/图标位） */}
-      {entry.isDirectory && isOpen && children && children.length === 0 && (
+      {entry.isDirectory && isOpen && !loadError && children && children.length === 0 && (
         <div className="text-[10px] text-muted-foreground/50 italic" style={{ paddingLeft: Math.min(depth + 1, MAX_INDENT_DEPTH) * INDENT + 20 }}>
           空目录
         </div>
@@ -326,32 +368,15 @@ export default function FileBrowserPanel({
     if (cwd) void setRoot(cwd);
   }, [cwd, setRoot]);
 
-  // 处理文件点击 — 附加文件路径（250ms 延迟：双击会先触发两次 click，双击语义=打开预览，
-  // 延迟让双击有机会取消 attach，避免误发两条 @file）
-  const attachTimerRef = useRef<number | null>(null);
-  const handleFileClick = useCallback((entry: FileEntry) => {
-    if (entry.isDirectory || !onFileAttach) return;
-    if (attachTimerRef.current !== null) window.clearTimeout(attachTimerRef.current);
-    attachTimerRef.current = window.setTimeout(() => {
-      onFileAttach(entry.path);
-      attachTimerRef.current = null;
-    }, 250);
-  }, [onFileAttach]);
+  // 单击文件 → 选中高亮（对齐 Hermes row select；无发送副作用）。
+  // shift+click → attach（引用到输入框，由 App.tsx 接线 requestComposerInsert，
+  // 不再直接发送消息——Hermes tree.tsx 的 attach 是显式意图操作）。
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const handleSelectFile = useCallback((path: string) => setSelectedPath(path), []);
 
   // 双击文件 → 打开文件预览 tab（对齐 Hermes onPreviewFile 语义）
   const handleFileDoubleClick = useCallback((entry: FileEntry) => {
-    if (attachTimerRef.current !== null) {
-      window.clearTimeout(attachTimerRef.current);
-      attachTimerRef.current = null;
-    }
     openPreview({ kind: 'file', url: entry.path, name: entry.name });
-  }, []);
-
-  // 卸载清理挂起的 attach timer
-  useEffect(() => {
-    return () => {
-      if (attachTimerRef.current !== null) window.clearTimeout(attachTimerRef.current);
-    };
   }, []);
 
   // 处理刷新
@@ -399,6 +424,9 @@ export default function FileBrowserPanel({
       try {
         await filesRename(path, trimmed);
         await invalidate();
+        // 对齐 Hermes executeFileRename → notifyWorkspaceChanged：
+        // 预览等所有 fs 镜像表面联动刷新（不仅文件树）
+        notifyWorkspaceChanged();
       } catch (err) {
         notifyError(err, '重命名失败');
       }
@@ -417,6 +445,9 @@ export default function FileBrowserPanel({
       await filesDelete(deletingEntry.path);
       setDeletingEntry(null);
       await invalidate();
+      // 对齐 Hermes executeFileDelete → notifyWorkspaceChanged：
+      // 预览等所有 fs 镜像表面联动刷新（不仅文件树）
+      notifyWorkspaceChanged();
     } catch (err) {
       notifyError(err, '删除失败');
     } finally {
@@ -479,9 +510,10 @@ export default function FileBrowserPanel({
             <ArrowUp size={14} />
           </button>
           <button
-            className="p-1 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            className="p-1 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
             onClick={collapseAll}
             title="折叠全部"
+            disabled={!Object.values(openState).some(Boolean)}
           >
             <ChevronsDownUp size={14} />
           </button>
@@ -551,12 +583,14 @@ export default function FileBrowserPanel({
                 depth={0}
                 openState={openState}
                 onToggle={toggleOpen}
-                onFileClick={handleFileClick}
+                onSelectFile={handleSelectFile}
+                onFileAttach={onFileAttach ?? (() => {})}
                 onFileDoubleClick={handleFileDoubleClick}
                 loadChildren={loadChildren}
                 refreshNonce={refreshNonce}
                 rootPath={rootPath ?? ''}
                 renamingPath={renamingPath}
+                selectedPath={selectedPath}
                 onReveal={handleReveal}
                 onCopyText={handleCopyText}
                 onRenameRequest={handleRenameRequest}

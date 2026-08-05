@@ -109,6 +109,17 @@ export function useFileTree(initialPath: string | null = null) {
     }
   }, [listDir]);
 
+  // 对齐 Hermes ROOT_ERROR_RETRY_MS=3s self-heal：根目录读取失败（会话 cwd 竞态 /
+  // 目录暂时不可读）→ 自动重试直到成功，树自愈而非停在"读取失败"。
+  // setRoot 开始时清 error → 本 effect 清理 timer；失败再设 error → 重新起 timer。
+  useEffect(() => {
+    if (!rootPath || !error) return;
+    const t = window.setTimeout(() => {
+      void setRoot(rootPath);
+    }, 3000);
+    return () => window.clearTimeout(t);
+  }, [rootPath, error, setRoot]);
+
   /**
    * 刷新当前目录
    */
@@ -171,16 +182,14 @@ export function useFileTree(initialPath: string | null = null) {
 
   /**
    * 获取子目录条目（用于递归渲染）
+   * 错误向上传播（不吞）→ TreeNode 显示 Hermes error placeholder 占位行，
+   * 不能把读取失败伪装成空目录
    */
   const loadChildren = useCallback(async (dirPath: string): Promise<FileEntry[]> => {
     if (cacheRef.current[dirPath]) {
       return cacheRef.current[dirPath];
     }
-    try {
-      return await listDir(dirPath);
-    } catch {
-      return [];
-    }
+    return listDir(dirPath);
   }, [listDir]);
 
   /**

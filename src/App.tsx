@@ -8,6 +8,7 @@ import {
   useMonitorSessionStartedAt,
 } from './store/debug';
 import { textPart } from '@/lib/chat-messages';
+import { requestComposerInsert } from '@/lib/composer-events';
 import { useSessions } from './hooks/useSessions';
 import { useGatewayHealth } from './hooks/useGatewayHealth';
 import { useMessageStream } from './hooks/useMessageStream';
@@ -1276,7 +1277,10 @@ export default function App() {
               <>
                 <RightSidebarTabs activeTab={rightTab} onTabChange={setRightTab} onClose={() => setRightOpen(false)} />
                 {rightTab === 'files' && (
-                  <FileBrowserPanel cwd={sessionCwd} onFileAttach={(path: string) => handleSend(`@file:"${path}"`)} />
+                  <FileBrowserPanel
+                    cwd={sessionCwd}
+                    onFileAttach={(path: string) => requestComposerInsert(`@file:"${path}"`)}
+                  />
                 )}
                 {rightTab === 'preview' && (
                   <PreviewCenter sessionId={sess.sessionId} cwd={sessionCwd} />
