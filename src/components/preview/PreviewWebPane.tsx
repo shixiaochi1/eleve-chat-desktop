@@ -453,7 +453,11 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
                 ? 'bg-[var(--ui-control-active-background)] text-[var(--ui-text-primary)]'
                 : 'text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] hover:text-[var(--ui-text-primary)]',
             )}
-            title={devtoolsOpen ? '关闭开发者工具' : '打开开发者工具'}
+            title={
+              devtoolsOpen
+                ? '关闭开发者工具（平台限制：请在开发者工具窗口按 Alt+F4 关闭）'
+                : '打开开发者工具'
+            }
           >
             <Bug size={13} />
           </button>
