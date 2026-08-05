@@ -229,12 +229,15 @@ export default function PaneShell({
   }, [leftOpen, rightOpen]);
 
   // Emit pane widths as CSS variables for animation
+  // 🔴 变量必须**永远**在 style 里（不能 dragging 时条件移除）：React 渲染 diff 会把
+  // 缺席的属性 removeProperty，拖拽中一次渲染就会删掉变量 → grid 引用未定义 var →
+  // 布局回退（“拖没反应、松手才显示”根因）。值始终取 widthRef 实时值：
+  // 非拖拽 = props 同步值；拖拽中 = applyDrag 刚写的最新值（React 渲染只是“确认”不干扰）。
   const composedStyle: React.CSSProperties = {
     ...style,
     gridTemplateColumns: gridTemplate,
-    // 🔴 拖拽中不覆盖变量（applyDrag 正在写 DOM，React 渲染覆写会打断拖拽）——
-    // 非拖拽时同步 props。
-    ...(dragging ? {} : { '--pane-left-width': leftWidth, '--pane-right-width': rightWidth }),
+    '--pane-left-width': `${widthRef.current.left}px`,
+    '--pane-right-width': `${widthRef.current.right}px`,
   } as React.CSSProperties;
 
   const contextValue = useMemo(() => ({
@@ -269,46 +272,27 @@ export default function PaneShell({
         }}
       >
         {children}
-        {/* 🔴 Resizer 拖拽热区（2026-08-05 老大要求）：
-            平时干干净净（完全透明无痕）；鼠标移到两卡片中间时出现长竖条提示。
+        {/* 🔴 Resizer 拖拽热区（2026-08-05 老大最终要求）：
+            平时与 hover 都**零视觉元素**——鼠标移到两卡片缝隙中间时，
+            只有光标变成左右拖拽箭头（cursor-col-resize），不显示任何滑块/竖条。
             缝隙大小 = grid gap-2 固定 8px 不变，拖拽只改 pane 宽度（grid-template-columns）。
             拖拽中零 React（applyDrag 直接写 CSS 变量）。 */}
         {leftOpen && (
           <div
-            className="group absolute top-0 bottom-0 z-10 w-[16px] -translate-x-1/2 cursor-col-resize"
+            className="absolute top-0 bottom-0 z-10 w-[16px] -translate-x-1/2 cursor-col-resize"
             style={{ left: `calc(${leftWidth} + 4px)` }}
             onPointerDown={(e: React.PointerEvent) => handleResizerDown('left', e)}
-          >
-            <ResizeHandle dragging={dragging} />
-          </div>
+          />
         )}
         {rightOpen && (
           <div
-            className="group absolute top-0 bottom-0 z-10 w-[16px] translate-x-1/2 cursor-col-resize"
+            className="absolute top-0 bottom-0 z-10 w-[16px] translate-x-1/2 cursor-col-resize"
             style={{ right: `calc(${rightWidth} + 4px)` }}
             onPointerDown={(e: React.PointerEvent) => handleResizerDown('right', e)}
-          >
-            <ResizeHandle dragging={dragging} />
-          </div>
+          />
         )}
       </div>
     </PaneShellContext.Provider>
-  );
-}
-
-/** 拖拽提示竖条 — 平时全透明（干干净净）；hover/拖拽时出现长竖条（老大要求：长一些） */
-function ResizeHandle({ dragging }: { dragging: boolean }) {
-  return (
-    <div
-      className={cn(
-        'absolute left-1/2 top-1/2 h-[96px] w-[4px] -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150',
-        'opacity-0 group-hover:opacity-100',
-        dragging
-          ? 'bg-[var(--ui-sash-hover-background)] opacity-100 ring-1 ring-[var(--ui-sash-hover-border)]'
-          : 'bg-[var(--ui-sash-hover-background)] ring-1 ring-[var(--ui-sash-hover-border)]',
-      )}
-      aria-hidden
-    />
   );
 }
 
