@@ -11,11 +11,9 @@
  * __PREVIEW_CONSOLE_LABEL__ 由 Rust 侧创建 webview 时替换为实际 label。
  */
 (() => {
-  // 诊断：Tauri IPC 桥不可用（非 Tauri 环境/被禁）时提示（devtools 可见）
-  if (!window.__TAURI_INTERNALS__) {
-    console.warn('[preview-console] __TAURI_INTERNALS__ unavailable — console capture disabled');
-  }
-
+  // 🔴 静默降级（2026-08-06 老大反馈噪音）：外部页面无 __TAURI_INTERNALS__
+  // （非 Tauri 环境）→ console 捕获不可用是预期行为（Hermes 同款），
+  // 不再打印 warn 刷屏（push 内 try/catch 已兜底 undefined 访问）
   const __label = '__PREVIEW_CONSOLE_LABEL__';
   const MAX_LEN = 1024;
 
