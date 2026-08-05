@@ -52,8 +52,18 @@ fn resolve_default_shell() -> (String, String) {
     }
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         for cand in ["pwsh.exe", "powershell.exe"] {
-            if let Ok(out) = std::process::Command::new("where").arg(cand).output() {
+            // 🔴 2026-08-06 黑窗口根因修复：GUI 进程（无控制台）CreateProcess 控制台程序
+            // where.exe 会创建真实控制台 → Win11 默认终端（Windows Terminal）托管弹黑窗。
+            // 且 pwsh.exe 缺失时 where 退出码 1 → WT 标签停留显示
+            // "[已退出进程，代码为 1]"（老大安装版实测：新建终端弹 2 个黑窗口）。
+            if let Ok(out) = std::process::Command::new("where")
+                .arg(cand)
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+            {
                 if out.status.success() {
                     let first = String::from_utf8_lossy(&out.stdout)
                         .lines()
