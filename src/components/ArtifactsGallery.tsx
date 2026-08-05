@@ -353,6 +353,8 @@ function GalleryPagination({
   onPageChange: (page: number) => void;
   rangeLabel: string;
 }) {
+  // 单页无需分页条（避免「1-25/25」贴着过滤栏的噪音；Hermes 一页也只隐藏页码）
+  if (pageCount <= 1) return null;
   return (
     <div className="flex h-6 w-full items-center justify-between gap-2 px-1">
       <div className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">{rangeLabel}</div>
