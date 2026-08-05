@@ -24,6 +24,8 @@ import {
   type GalleryArtifact,
 } from '@/lib/artifacts-gallery';
 import { TextTab, TextTabMeta } from '@/components/ui/text-tab';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { CopyButton } from '@/components/ui/copy-button';
 import {
   Pagination, PaginationButton, PaginationContent, PaginationEllipsis, PaginationItem, PaginationNext, PaginationPrevious,
 } from '@/components/ui/pagination';
@@ -200,6 +202,7 @@ export default function ArtifactsGallery({
   const showEmpty = artifacts !== null && visibleArtifacts.length === 0;
 
   return (
+    <TooltipProvider delayDuration={0}>
     <div className="flex h-full min-h-0 flex-col">
       {/* 过滤 tabs（搜索/刷新在外部「产物库」栏） */}
       <div className="flex shrink-0 items-center gap-1 border-b border-border/60 px-3 py-1.5">
@@ -337,6 +340,7 @@ export default function ArtifactsGallery({
         </div>
       )}
     </div>
+    </TooltipProvider>
   );
 }
 
@@ -455,7 +459,14 @@ function ArtifactImageCard({
       {/* 信息区 */}
       <div className="space-y-1 p-2.5">
         <div className="truncate text-xs font-medium text-foreground" title={artifact.label}>{artifact.label}</div>
-        <div className="truncate text-[10px] text-muted-foreground/60" title={artifact.value}>{artifact.value}</div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="truncate text-[10px] text-muted-foreground/60">{artifact.value}</div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-[24rem]">
+            <span className="break-all">{artifact.value}</span>
+          </TooltipContent>
+        </Tooltip>
         <div className="flex items-center justify-between gap-2 pt-0.5">
           <span className="min-w-0 truncate text-[10px] text-muted-foreground/55" title={`${artifact.sessionTitle} · ${formatArtifactTime(artifact.timestamp)}`}>
             {artifact.sessionTitle} · {formatArtifactTime(artifact.timestamp)}
@@ -546,9 +557,27 @@ function ArtifactRow({
         </button>
       </td>
       <td className="px-3 py-2">
-        <button type="button" onClick={onOpen} title={artifact.value} className="block w-full min-w-0 text-left">
-          <span className="block max-w-[26rem] truncate text-muted-foreground/70">{artifact.value}</span>
-        </button>
+        <div className="group/location flex min-w-0 items-center gap-1.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
+                <span className="block max-w-[26rem] truncate font-mono text-muted-foreground/70">{artifact.value}</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-[26rem]">
+              <span className="break-all">{artifact.value}</span>
+            </TooltipContent>
+          </Tooltip>
+          <CopyButton
+            appearance="icon"
+            buttonSize="icon-xs"
+            className="shrink-0 opacity-0 transition-opacity group-hover/location:opacity-100 focus-visible:opacity-100"
+            iconClassName="size-3.5"
+            label={isLink ? '复制链接' : '复制路径'}
+            text={artifact.value}
+            title={isLink ? '复制链接' : '复制路径'}
+          />
+        </div>
       </td>
       <td className="px-3 py-2">
         {onOpenChat ? (
