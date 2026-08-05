@@ -398,7 +398,7 @@ export const AgentChatCard = memo(function AgentChatCard({
                   ref={virtualizer.measureElement}
                   className="min-w-0"
                 >
-                  <MessageRow message={m} sessionId={state.sessionId ?? null} />
+                  <MessageRow message={m} sessionId={state.sessionId ?? null} isLast={virtualItem.index === state.messages.length - 1} />
                 </div>
               );
             })}

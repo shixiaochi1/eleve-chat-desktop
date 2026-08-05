@@ -79,6 +79,12 @@ export function VirtualizedThread({
 }: VirtualizedThreadProps) {
   const messageSignature = useMessageSignature()
   const groups = useMemo(() => buildGroups(messageSignature ?? ''), [messageSignature])
+  // 🔴 最后一条消息的 index（ChangedFilesCard 门控：仅最后一条已落定 assistant 显示）
+  const isLastMessageIndex = useMemo(() => {
+    const last = groups[groups.length - 1]
+    if (!last) return -1
+    return last.kind === 'turn' ? last.indices[last.indices.length - 1] : last.index
+  }, [groups])
   const renderEmpty = groups.length === 0
   const scrollerRef = useRef<HTMLDivElement | null>(null)
 
@@ -217,11 +223,11 @@ export function VirtualizedThread({
                         data-slot="aui_turn-pair"
                       >
                         {group.indices.map(index => (
-                          <SingleMessageItem key={index} index={index} sessionId={sessionKey} />
+                          <SingleMessageItem key={index} index={index} sessionId={sessionKey} isLast={isLastMessageIndex === index} />
                         ))}
                       </div>
                     ) : (
-                      <SingleMessageItem index={group.index} sessionId={sessionKey} />
+                      <SingleMessageItem index={group.index} sessionId={sessionKey} isLast={isLastMessageIndex === group.index} />
                     )}
                   </div>
                 )
@@ -495,18 +501,20 @@ function useThreadScrollAnchor({ enabled, groupCount, scrollerRef, sessionKey, v
 interface SingleMessageItemProps {
   index: number
   sessionId?: string | null
+  /** 🔴 是否最后一条消息（ChangedFilesCard 门控） */
+  isLast?: boolean
 }
 
 // 渲染逻辑已提取到 MessageRow（纯渲染、store 解耦，单视图/宫格共用）。
 // 本 wrapper 只负责：从全局 store 按 index 读取消息 + 提供删除回调。
 // 注：useCallback 提到 early return 之前（修正原实现的 rules-of-hooks 违规）。
-const SingleMessageItem = memo(function SingleMessageItem({ index, sessionId }: SingleMessageItemProps) {
+const SingleMessageItem = memo(function SingleMessageItem({ index, sessionId, isLast }: SingleMessageItemProps) {
   const m = useMessage(index)
   const handleDelete = useCallback((messageId: string) => {
     setMessages(prev => prev.filter(msg => msg.id !== messageId))
   }, [])
   if (!m) return null
-  return <MessageRow message={m} onDelete={handleDelete} sessionId={sessionId} />
+  return <MessageRow message={m} onDelete={handleDelete} sessionId={sessionId} isLast={isLast} />
 })
 
 export default memo(VirtualizedThread)

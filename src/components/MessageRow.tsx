@@ -13,6 +13,7 @@
 import { memo } from 'react'
 import MessageBubble from './MessageBubble'
 import SystemMessage from './SystemMessage'
+import ChangedFilesCard from './ChangedFilesCard'
 import ReasoningBlock from './ReasoningBlock'
 import ToolEntry, { type ToolCallItem } from './ToolEntry'
 import HoistedTodoPanel, { todosFromMessageParts } from './HoistedTodoPanel'
@@ -25,9 +26,11 @@ interface MessageRowProps {
   onDelete?: (messageId: string) => void
   /** 会话 ID（artifact 版本注册按会话隔离，对齐 Hermes） */
   sessionId?: string | null
+  /** 🔴 是否最后一条消息（ChangedFilesCard 门控：仅最后一条已落定 assistant 显示） */
+  isLast?: boolean
 }
 
-export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessionId }: MessageRowProps) {
+export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessionId, isLast = false }: MessageRowProps) {
   if (!m || m.hidden) return null
 
   // ── Parts-based rendering ──
@@ -111,6 +114,9 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
           {m.error && <MessageBubble type="error" content={m.error} />}
           {/* 流式停滞提示（对齐 Hermes StreamStallIndicator）：12s 无进展显示“正在思考” */}
           {m.pending && <StreamStallIndicator text={streamText} />}
+          {/* 🔴 ChangedFilesCard（对齐 Hermes）：仅最后一条已落定 assistant 消息显示，
+              收尾本轮“N 个文件已修改”；发送下一条消息即退休（卡片描述的工作树已成历史） */}
+          {isLast && !m.pending && <ChangedFilesCard parts={m.parts} />}
         </div>
       )
     }
