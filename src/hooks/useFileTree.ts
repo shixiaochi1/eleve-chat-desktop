@@ -51,6 +51,10 @@ export function useFileTree(initialPath: string | null = null) {
   // 已加载目录 → 子条目（数据源收敛到 hook 层，对齐 Hermes useProjectTree 的
   // data 树模型；TreeNode 渲染 + 键盘导航扁平化都从这里读，单一权威源）
   const [loadedDirs, setLoadedDirs] = useState<Record<string, FileEntry[]>>({});
+  // 目录加载中（虚拟滚动 placeholder "加载中" 数据源，对齐 Hermes loadingChild）
+  const [loadingDirs, setLoadingDirs] = useState<Record<string, boolean>>({});
+  // 目录读取失败（placeholder "无法读取" 数据源，对齐 Hermes errorChild）
+  const [dirErrors, setDirErrors] = useState<Record<string, string | null>>({});
   const cacheRef = useRef<CacheMap>({});
   const mountedRef = useRef(true);
 
@@ -185,17 +189,26 @@ export function useFileTree(initialPath: string | null = null) {
   }, [listDir]);
 
   /**
-   * 获取子目录条目（用于递归渲染 + 键盘导航扁平化）
-   * 成功 → 写入 loadedDirs（缓存命中同样写，保证渲染数据源一致）；
-   * 错误向上传播（不吞）→ TreeNode 显示 Hermes error placeholder 占位行，
-   * 不能把读取失败伪装成空目录
+   * 获取子目录条目（虚拟滚动行数据源）
+   * 成功 → 写入 loadedDirs + 清 dirErrors；失败 → dirErrors（placeholder 显示）；
+   * loadingDirs 全程标记（placeholder "加载中"）。错误不再向上抛——扁平渲染
+   * 由 placeholder 行呈现（对齐 Hermes loadingChild/errorChild）
    */
   const loadChildren = useCallback(async (dirPath: string): Promise<FileEntry[]> => {
-    const entries = cacheRef.current[dirPath]
-      ? cacheRef.current[dirPath]
-      : await listDir(dirPath);
-    setLoadedDirs((prev) => (prev[dirPath] === entries ? prev : { ...prev, [dirPath]: entries }));
-    return entries;
+    setDirErrors((prev) => (prev[dirPath] ? { ...prev, [dirPath]: null } : prev));
+    setLoadingDirs((prev) => (prev[dirPath] ? prev : { ...prev, [dirPath]: true }));
+    try {
+      const entries = cacheRef.current[dirPath]
+        ? cacheRef.current[dirPath]
+        : await listDir(dirPath);
+      setLoadedDirs((prev) => (prev[dirPath] === entries ? prev : { ...prev, [dirPath]: entries }));
+      return entries;
+    } catch (err: unknown) {
+      setDirErrors((prev) => ({ ...prev, [dirPath]: err instanceof Error ? err.message : String(err) }));
+      return [];
+    } finally {
+      setLoadingDirs((prev) => (prev[dirPath] ? { ...prev, [dirPath]: false } : prev));
+    }
   }, [listDir]);
 
   /**
@@ -221,5 +234,7 @@ export function useFileTree(initialPath: string | null = null) {
     collapseAll,
     rootPath,
     loadedDirs,
+    loadingDirs,
+    dirErrors,
   };
 }

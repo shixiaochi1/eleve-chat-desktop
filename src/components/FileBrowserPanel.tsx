@@ -33,40 +33,47 @@ function relativeTo(root: string, p: string): string {
   return normP;
 }
 
-interface TreeNodeProps {
-  entry: FileEntry;
+interface FlatRow {
+  key: string;
+  name: string;
+  path: string;
+  isDirectory: boolean;
   depth: number;
-  openState: Record<string, boolean>;
-  onToggle: (dirPath: string) => Promise<void>;
-  /** 单击文件 → 选中高亮（对齐 Hermes row select 语义，无副作用） */
-  onSelectFile: (path: string) => void;
-  /** shift+click 文件 → 引用到输入框（对齐 Hermes tree.tsx shift+click = attach） */
-  onFileAttach: (path: string) => void;
-  onFileDoubleClick: (entry: FileEntry) => void;
-  loadChildren: (dirPath: string) => Promise<FileEntry[]>;
-  /** 非破坏刷新信号：workspace tick 递增 → 已展开目录重新加载（对齐 Hermes revalidateTree） */
-  refreshNonce: number;
-  /** 树根路径（复制相对路径的基准） */
-  rootPath: string;
-  /** 当前正在重命名的节点路径（null = 无） */
-  renamingPath: string | null;
-  /** 当前选中的文件/文件夹路径（高亮；方向键可选中目录） */
-  selectedPath: string | null;
-  /** 已加载的子条目（useFileTree loadedDirs 数据源；undefined = 未加载） */
-  children?: FileEntry[] | undefined;
-  /** 目录 → 已加载子条目（递归渲染用；对齐 Hermes childrenAccessor） */
-  getChildren: (dirPath: string) => FileEntry[] | undefined;
-  /** 路径 → git 变更状态（对齐 Hermes repoChangeKindForPath） */
-  statusKindForPath: (path: string) => 'added' | 'modified' | 'conflicted' | undefined;
-  /** 本行 git 变更状态（对齐 Hermes CHANGE_TINT；undefined = 无变更） */
+  /** 占位行（loading/error/empty）不可交互（对齐 Hermes placeholder 语义） */
+  placeholder?: 'loading' | 'error' | 'empty';
+  error?: string;
+}
+
+interface FileRowProps {
+  row: FlatRow;
+  isOpen: boolean;
+  selected: boolean;
+  renaming: boolean;
   statusKind?: 'added' | 'modified' | 'conflicted';
+  rootPath: string;
+  onSelect: (path: string) => void;
+  onAttach: (path: string) => void;
+  onPreview: (row: FlatRow) => void;
+  onToggleDir: (path: string) => void;
   onReveal: (path: string) => void;
   onCopyText: (text: string) => void;
   onRenameRequest: (path: string) => void;
   onRenameCommit: (path: string, newName: string) => void;
   onRenameCancel: () => void;
-  onDeleteRequest: (entry: FileEntry) => void;
+  onDeleteRequest: (row: FlatRow) => void;
 }
+
+// ── 虚拟滚动常量（对齐 Hermes react-arborist：ROW_HEIGHT=22 + overscan）──
+const ROW_HEIGHT = 22;
+const OVERSCAN = 5;
+
+/** git 变更着色（对齐 Hermes CHANGE_TINT：added=绿/modified=黄/conflicted=红） */
+const STATUS_COLOR: Record<string, string> = {
+  added: 'text-success',
+  modified: 'text-warning',
+  conflicted: 'text-destructive',
+};
+
 
 interface FileBrowserPanelProps {
   onFileAttach?: (path: string) => void;
@@ -115,151 +122,115 @@ function parentOf(path: string): string | null {
 /**
  * 文件树节点渲染
  */
-function TreeNode({
-  entry,
-  depth,
-  openState,
-  onToggle,
-  onSelectFile,
-  onFileAttach,
-  onFileDoubleClick,
-  loadChildren,
-  refreshNonce,
-  rootPath,
-  renamingPath,
-  selectedPath,
-  children,
-  getChildren,
-  statusKindForPath,
+/**
+ * FileRow — 虚拟滚动单行（对齐 Hermes ProjectTreeRow；占位行不可交互）
+ */
+function FileRow({
+  row,
+  isOpen,
+  selected,
+  renaming,
   statusKind,
+  rootPath,
+  onSelect,
+  onAttach,
+  onPreview,
+  onToggleDir,
   onReveal,
   onCopyText,
   onRenameRequest,
   onRenameCommit,
   onRenameCancel,
   onDeleteRequest,
-}: TreeNodeProps) {
-  const [loadingChildren, setLoadingChildren] = useState(false);
-  /** 子目录读取失败原因（Hermes error placeholder 语义；成功/空目录 = null） */
-  const [loadError, setLoadError] = useState<string | null>(null);
+}: FileRowProps) {
+  // 占位行：不可交互（对齐 Hermes placeholder：pointer-events-none italic）
+  if (row.placeholder) {
+    return (
+      <div
+        className={cn(
+          'flex items-center gap-1 px-1 text-[10px] italic pointer-events-none select-none',
+          row.placeholder === 'error' ? 'text-destructive/80' : 'text-muted-foreground/50'
+        )}
+        style={{ paddingLeft: Math.min(row.depth, MAX_INDENT_DEPTH) * INDENT + 4 }}
+        title={row.placeholder === 'error' ? row.error : undefined}
+      >
+        {row.placeholder === 'loading' && <Loader size={10} className="animate-spin shrink-0" />}
+        <span className="truncate">
+          {row.placeholder === 'loading' ? '加载中…' : row.placeholder === 'error' ? `无法读取：${row.error ?? ''}` : '空目录'}
+        </span>
+      </div>
+    );
+  }
 
-  const isOpen = !!openState[entry.path];
-  const loaded = children !== undefined;
-
-  // 非破坏刷新：workspace 变化（Agent 写文件/保存）→ 已展开目录重新拉取
-  // （缓存已被 invalidate 清空 → loadChildren 重新 fetch；未展开/未加载过的不动）
-  useEffect(() => {
-    if (!isOpen || !loaded) return;
-    let cancelled = false;
-    setLoadingChildren(true);
-    loadChildren(entry.path)
-      .then(() => {
-        if (!cancelled) setLoadError(null);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingChildren(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshNonce, entry.path, isOpen, loaded, loadChildren]);
-
-  const handleToggle = useCallback(async (e: React.SyntheticEvent) => {
-    e.stopPropagation();
-    await onToggle(entry.path);
-
-    // 首次展开时加载子目录（数据源 = loadedDirs，加载后主组件透传 children）
-    if (!isOpen && !loaded) {
-      setLoadingChildren(true);
-      try {
-        await loadChildren(entry.path);
-        setLoadError(null);
-      } catch (err: unknown) {
-        // 对齐 Hermes error placeholder：读取失败不能伪装成空目录
-        setLoadError(err instanceof Error ? err.message : String(err));
-      }
-      setLoadingChildren(false);
-    }
-  }, [entry.path, isOpen, loaded, onToggle, loadChildren]);
-
-  const indent = Math.min(depth, MAX_INDENT_DEPTH) * INDENT + 4;
-  const isRenaming = renamingPath === entry.path;
-
-  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (entry.isDirectory) {
-      handleToggle(e);
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (row.isDirectory) {
+      onToggleDir(row.path);
     } else if (e.shiftKey) {
       // shift+click = attach（对齐 Hermes tree.tsx：shift+click 走 onAttachFile）
       e.stopPropagation();
-      onFileAttach(entry.path);
+      onAttach(row.path);
     } else {
       // 单击 = 选中高亮（对齐 Hermes row select 语义，无发送副作用）；
       // focus 行 → F2/Enter/方向键立即可用（对齐 Hermes arborist 选中即键盘可用）
-      onSelectFile(entry.path);
+      onSelect(row.path);
       e.currentTarget.focus();
     }
-  }, [entry, handleToggle, onFileAttach, onSelectFile]);
+  };
 
   // 选中行键盘操作（对齐 Hermes isRenameShortcut：F2 = 重命名、Enter = 激活；
   // 目录 Enter = 展开/折叠；方向键冒泡到树容器处理）
-  const handleRowKeyDown = useCallback((e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'F2') {
       e.preventDefault();
       e.stopPropagation();
-      onRenameRequest(entry.path);
+      onRenameRequest(row.path);
     } else if (e.key === 'Enter') {
       e.preventDefault();
       e.stopPropagation();
-      if (entry.isDirectory) {
-        void handleToggle(e);
-      } else {
-        onFileDoubleClick(entry);
-      }
+      if (row.isDirectory) onToggleDir(row.path);
+      else onPreview(row);
     }
-  }, [entry, onRenameRequest, onFileDoubleClick, handleToggle]);
+  };
 
-  // 行拖拽 → 聊天输入框/终端（对齐 Hermes tree.tsx onDragStart：
-  // application/x-hermes-paths JSON + text/plain 双 MIME）
-  const handleDragStart = useCallback((e: React.DragEvent) => {
-    if (isRenaming) {
+  // 行拖拽 → 聊天输入框/终端（对齐 Hermes tree.tsx onDragStart 双 MIME）
+  const handleDragStart = (e: React.DragEvent) => {
+    if (renaming) {
       e.preventDefault();
       return;
     }
-    setPathsDragPayload(e.dataTransfer, entry.path, entry.isDirectory);
-  }, [entry.isDirectory, entry.path, isRenaming]);
+    setPathsDragPayload(e.dataTransfer, row.path, row.isDirectory);
+  };
 
-  // 行内容（重命名中 → 输入框；对齐 Hermes InlineRenameInput：Enter 提交/Esc 取消/失焦提交）
-  const row = (
+  const indent = Math.min(row.depth, MAX_INDENT_DEPTH) * INDENT + 4;
+
+  const rowEl = (
     <div
       className={cn(
-        'flex items-center gap-1 px-1 py-0.5 rounded text-xs cursor-pointer transition-colors',
-        !entry.isDirectory && 'hover:bg-accent/20',
-        // 选中高亮（对齐 Hermes node.isSelected 视觉；单击文件/方向键均可选中，
-        // 目录被选中时同样高亮——Hermes arborist 选中态不分文件/文件夹）
-        selectedPath === entry.path && 'bg-accent/30 hover:bg-accent/30'
+        'flex items-center gap-1 px-1 rounded text-xs cursor-pointer transition-colors',
+        'hover:bg-accent/20',
+        // 选中高亮（对齐 Hermes node.isSelected；单击文件/方向键均可选中）
+        selected && 'bg-accent/30 hover:bg-accent/30'
       )}
       onClick={handleClick}
       onDoubleClick={(e) => {
         // 双击文件 → 打开预览 tab（对齐 Hermes onPreviewFile）；文件夹双击 = 展开
-        if (!entry.isDirectory) {
+        if (!row.isDirectory) {
           e.stopPropagation();
-          onFileDoubleClick(entry);
+          onPreview(row);
         }
       }}
       onDragStart={handleDragStart}
-      onKeyDown={handleRowKeyDown}
-      draggable={!isRenaming}
-      aria-expanded={entry.isDirectory ? isOpen : undefined}
-      aria-selected={selectedPath === entry.path}
-      tabIndex={selectedPath === entry.path ? 0 : -1}
-      title={entry.path}
+      onKeyDown={handleKeyDown}
+      draggable={!renaming}
+      aria-expanded={row.isDirectory ? isOpen : undefined}
+      aria-selected={selected}
+      tabIndex={selected ? 0 : -1}
+      style={{ paddingLeft: indent, height: ROW_HEIGHT }}
+      title={row.path}
     >
       {/* 展开/折叠箭头 — 仅文件夹显示 */}
       <span className="w-3 shrink-0 text-muted-foreground">
-        {entry.isDirectory ? (
+        {row.isDirectory ? (
           isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />
         ) : (
           <span className="inline-block w-3" />
@@ -268,7 +239,7 @@ function TreeNode({
 
       {/* 图标 */}
       <span className="shrink-0 text-muted-foreground">
-        {entry.isDirectory ? (
+        {row.isDirectory ? (
           isOpen ? <FolderOpen size={14} className="text-warning" /> : <Folder size={14} className="text-warning" />
         ) : (
           <File size={14} className="text-info" />
@@ -276,11 +247,11 @@ function TreeNode({
       </span>
 
       {/* 文件名 / 重命名输入框 — min-w-0 必带（flex item 默认 min-width:auto） */}
-      {isRenaming ? (
+      {renaming ? (
         <input
           autoFocus
           className="flex-1 min-w-0 rounded border border-primary bg-background px-1 text-xs text-foreground outline-none"
-          defaultValue={entry.name}
+          defaultValue={row.name}
           onClick={(e) => e.stopPropagation()}
           onFocus={(e) => {
             // 对齐 Hermes InlineRenameInput：stem 预选（不含扩展名），VS Code 语义
@@ -290,107 +261,49 @@ function TreeNode({
           onKeyDown={(e) => {
             e.stopPropagation();
             if (e.key === 'Enter') {
-              onRenameCommit(entry.path, e.currentTarget.value);
+              onRenameCommit(row.path, e.currentTarget.value);
             } else if (e.key === 'Escape') {
-              e.currentTarget.value = entry.name;
+              e.currentTarget.value = row.name;
               onRenameCancel();
             }
           }}
-          onBlur={(e) => onRenameCommit(entry.path, e.currentTarget.value)}
+          onBlur={(e) => onRenameCommit(row.path, e.currentTarget.value)}
         />
       ) : (
         <span
           className={cn(
             'truncate flex-1 min-w-0',
-            // git 变更着色（对齐 Hermes CHANGE_TINT：added=绿/modified=黄/conflicted=红；
-            // 显式颜色优先于行 hover/选中文本色，持续可见）
-            statusKind === 'added' && 'text-success',
-            statusKind === 'modified' && 'text-warning',
-            statusKind === 'conflicted' && 'text-destructive',
+            // git 变更着色（显式颜色优先于行 hover/选中文本色，持续可见）
+            statusKind && STATUS_COLOR[statusKind],
             !statusKind && 'text-foreground/80'
           )}
         >
-          {entry.name}
+          {row.name}
         </span>
       )}
-
-      {/* 加载中指示器 */}
-      {entry.isDirectory && loadingChildren && (
-        <Loader size={10} className="animate-spin text-muted-foreground shrink-0" />
-      )}
     </div>
   );
 
+  // 右键菜单（对齐 Hermes file-actions：reveal/复制路径/相对路径/重命名/删除）
+  // onCloseAutoFocus preventDefault：菜单关闭默认把焦点还给行 → 立即 blur 掉
+  // 重命名输入框（Hermes file-actions.tsx 同款注释；不加则"重命名"点了闪退）
   return (
-    <div style={{ paddingLeft: indent }}>
-      {/* 右键菜单（对齐 Hermes file-actions：reveal/复制路径/相对路径/重命名/删除）
-          onCloseAutoFocus preventDefault：菜单关闭默认把焦点还给行 → 立即 blur 掉
-          重命名输入框（Hermes file-actions.tsx 同款注释；不加则"重命名"点了闪退） */}
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
-        <ContextMenuContent onCloseAutoFocus={(e) => e.preventDefault()}>
-          {isDesktop() && (
-            <ContextMenuItem onSelect={() => onReveal(entry.path)}>在文件管理器中显示</ContextMenuItem>
-          )}
-          <ContextMenuItem onSelect={() => onCopyText(entry.path)}>复制路径</ContextMenuItem>
-          <ContextMenuItem onSelect={() => onCopyText(relativeTo(rootPath, entry.path))}>复制相对路径</ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem disabled={isRenaming} onSelect={() => onRenameRequest(entry.path)}>重命名</ContextMenuItem>
-          <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={() => onDeleteRequest(entry)}>删除</ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-
-      {/* 递归渲染子节点 */}
-      {entry.isDirectory && isOpen && children && children.length > 0 && (
-        <div>
-          {children.map((child: FileEntry) => (
-            <TreeNode
-              key={child.path}
-              entry={child}
-              depth={depth + 1}
-              openState={openState}
-              onToggle={onToggle}
-              onSelectFile={onSelectFile}
-              onFileAttach={onFileAttach}
-              onFileDoubleClick={onFileDoubleClick}
-              loadChildren={loadChildren}
-              refreshNonce={refreshNonce}
-              rootPath={rootPath}
-              renamingPath={renamingPath}
-              selectedPath={selectedPath}
-              children={child.isDirectory ? getChildren(child.path) : undefined}
-              getChildren={getChildren}
-              statusKindForPath={statusKindForPath}
-              statusKind={statusKindForPath(child.path)}
-              onReveal={onReveal}
-              onCopyText={onCopyText}
-              onRenameRequest={onRenameRequest}
-              onRenameCommit={onRenameCommit}
-              onRenameCancel={onRenameCancel}
-              onDeleteRequest={onDeleteRequest}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* 读取失败占位（对齐 Hermes error placeholder："Unable to read (EACCES)"，
-          不能伪装成空目录；重新展开或 workspace tick 会重试） */}
-      {entry.isDirectory && isOpen && loadError && (
-        <div className="flex items-center gap-1 text-[10px] text-destructive/80 italic" style={{ paddingLeft: Math.min(depth + 1, MAX_INDENT_DEPTH) * INDENT + 20 }}>
-          <span className="shrink-0">无法读取</span>
-          <span className="truncate">{loadError}</span>
-        </div>
-      )}
-
-      {/* 空目录提示 — 缩进与子节点行对齐（子行缩进 + 箭头/图标位） */}
-      {entry.isDirectory && isOpen && !loadError && children && children.length === 0 && (
-        <div className="text-[10px] text-muted-foreground/50 italic" style={{ paddingLeft: Math.min(depth + 1, MAX_INDENT_DEPTH) * INDENT + 20 }}>
-          空目录
-        </div>
-      )}
-    </div>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{rowEl}</ContextMenuTrigger>
+      <ContextMenuContent onCloseAutoFocus={(e) => e.preventDefault()}>
+        {isDesktop() && (
+          <ContextMenuItem onSelect={() => onReveal(row.path)}>在文件管理器中显示</ContextMenuItem>
+        )}
+        <ContextMenuItem onSelect={() => onCopyText(row.path)}>复制路径</ContextMenuItem>
+        <ContextMenuItem onSelect={() => onCopyText(relativeTo(rootPath, row.path))}>复制相对路径</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem disabled={renaming} onSelect={() => onRenameRequest(row.path)}>重命名</ContextMenuItem>
+        <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={() => onDeleteRequest(row)}>删除</ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
+
 
 /**
  * FileBrowserPanel 主组件
@@ -413,6 +326,8 @@ export default function FileBrowserPanel({
     collapseAll,
     rootPath,
     loadedDirs,
+    loadingDirs,
+    dirErrors,
   } = useFileTree();
 
   // ── git 变更着色（对齐 Hermes $repoStatus → CHANGE_TINT）──
@@ -451,31 +366,78 @@ export default function FileBrowserPanel({
     [statusMap],
   );
 
-  // 可见行扁平列表（键盘导航 ↑↓ 用；数据源 = data + loadedDirs + openState，
-  // 与渲染同一权威源，对齐 Hermes arborist 的树导航语义）
+  // 可见行扁平列表（虚拟滚动 + 键盘导航共用；数据源 = data + loadedDirs +
+  // openState + dirErrors，与渲染同一权威源，对齐 Hermes useProjectTree data
+  // 树模型 + loadingChild/errorChild 占位语义）
   const flatList = useMemo(() => {
-    const out: Array<{ path: string; isDirectory: boolean }> = [];
-    const walk = (entries: FileEntry[]) => {
+    const out: FlatRow[] = [];
+    const walk = (entries: FileEntry[], depth: number) => {
       for (const e of entries) {
-        out.push({ path: e.path, isDirectory: e.isDirectory });
+        out.push({ key: e.path, name: e.name, path: e.path, isDirectory: e.isDirectory, depth });
         if (e.isDirectory && openState[e.path]) {
           const kids = loadedDirs[e.path];
-          if (kids) walk(kids);
+          if (kids === undefined) {
+            // 展开但未加载完成/失败 → 占位行（对齐 Hermes placeholderChild/errorChild）
+            if (dirErrors[e.path]) {
+              out.push({
+                key: `${e.path}::error`, name: '', path: e.path, isDirectory: false, depth: depth + 1,
+                placeholder: 'error', error: dirErrors[e.path] ?? '',
+              });
+            } else {
+              out.push({
+                key: `${e.path}::loading`, name: '', path: e.path, isDirectory: false, depth: depth + 1,
+                placeholder: 'loading',
+              });
+            }
+          } else if (kids.length === 0) {
+            out.push({
+              key: `${e.path}::empty`, name: '', path: e.path, isDirectory: false, depth: depth + 1,
+              placeholder: 'empty',
+            });
+          } else {
+            walk(kids, depth + 1);
+          }
         }
       }
     };
-    if (data) walk(data);
+    if (data) walk(data, 0);
     return out;
-  }, [data, loadedDirs, openState]);
+  }, [data, loadedDirs, openState, dirErrors]);
+
+  // 虚拟滚动窗口（对齐 Hermes react-arborist：固定行高 + overscan，只渲染可视行）
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportH, setViewportH] = useState(0);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setViewportH(el.clientHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const scrollStart = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+  const scrollEnd = Math.min(flatList.length, Math.ceil((scrollTop + viewportH) / ROW_HEIGHT) + OVERSCAN);
+  const visibleRows = flatList.slice(scrollStart, scrollEnd);
 
   // 工作区自动刷新（对齐 Hermes use-project-tree workspaceTick 消费）：
-  // Agent 写文件 / spot editor 保存 → 非破坏刷新（保留展开状态）
+  // Agent 写文件 / spot editor 保存 → 非破坏刷新（保留展开状态）。
+  // 虚拟滚动后无 TreeNode refreshNonce 重载——已展开目录在此显式重拉
+  // （对齐 Hermes revalidateTree 定向重读已加载目录）。
+  // 🔴 openState/loadedDirs 用 ref 镜像：进依赖数组会让展开/加载本身误触发
+  // invalidate（React effect 任一依赖变化都执行体）
   const workspaceTick = useWorkspaceTick();
+  const openStateRef = useRef(openState);
+  openStateRef.current = openState;
+  const loadedDirsRef = useRef(loadedDirs);
+  loadedDirsRef.current = loadedDirs;
   useEffect(() => {
     if (workspaceTick > 0) {
       void invalidate();
+      for (const dir of Object.keys(openStateRef.current)) {
+        if (openStateRef.current[dir] && loadedDirsRef.current[dir] !== undefined) void loadChildren(dir);
+      }
     }
-  }, [workspaceTick, invalidate]);
+  }, [workspaceTick, invalidate, loadChildren]);
 
   // 根目录跟随会话 cwd（对齐 Hermes RightSidebarPane：hasWorkspace ? cwd : ''）。
   // 会话切换（cwd 变化）→ 重置手动 override 重新跟随；无 cwd 的 detached
@@ -490,8 +452,28 @@ export default function FileBrowserPanel({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const handleSelectFile = useCallback((path: string) => setSelectedPath(path), []);
 
+  // 目录展开/折叠 + 懒加载（对齐 Hermes handleToggle：toggle 后首次展开拉取子项）
+  const handleToggleDir = useCallback(
+    (path: string) => {
+      void toggleOpen(path);
+      void loadChildren(path);
+    },
+    [toggleOpen, loadChildren],
+  );
+
   // 树容器方向键导航（行 F2/Enter 就地处理；↑↓→← 冒泡到这里）：
-  // ↑↓ 移动选中、→ 展开选中目录、← 折叠选中目录/跳到父目录（对齐 Hermes arborist 键盘模型）
+  // ↑↓ 移动选中（跳过占位行）、→ 展开选中目录、← 折叠/跳父目录（对齐 Hermes arborist 键盘模型）
+  const ensureVisible = useCallback((index: number) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const top = index * ROW_HEIGHT;
+    if (top < el.scrollTop) {
+      el.scrollTop = top;
+    } else if (top + ROW_HEIGHT > el.scrollTop + el.clientHeight) {
+      el.scrollTop = top + ROW_HEIGHT - el.clientHeight;
+    }
+  }, []);
+
   const handleTreeKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (!selectedPath || flatList.length === 0) return;
@@ -499,15 +481,23 @@ export default function FileBrowserPanel({
       if (idx < 0) return;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        const next = flatList[Math.min(idx + 1, flatList.length - 1)];
-        if (next) setSelectedPath(next.path);
+        let i = Math.min(idx + 1, flatList.length - 1);
+        while (i < flatList.length - 1 && flatList[i].placeholder) i += 1;
+        if (!flatList[i].placeholder) {
+          setSelectedPath(flatList[i].path);
+          ensureVisible(i);
+        }
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        const prev = flatList[Math.max(idx - 1, 0)];
-        if (prev) setSelectedPath(prev.path);
+        let i = Math.max(idx - 1, 0);
+        while (i > 0 && flatList[i].placeholder) i -= 1;
+        if (!flatList[i].placeholder) {
+          setSelectedPath(flatList[i].path);
+          ensureVisible(i);
+        }
       } else if (e.key === 'ArrowRight') {
         const target = flatList[idx];
-        if (target?.isDirectory && !openState[target.path]) void toggleOpen(target.path);
+        if (target?.isDirectory && !openState[target.path]) handleToggleDir(target.path);
       } else if (e.key === 'ArrowLeft') {
         const target = flatList[idx];
         if (target?.isDirectory && openState[target.path]) {
@@ -521,18 +511,19 @@ export default function FileBrowserPanel({
         }
       }
     },
-    [selectedPath, flatList, openState, toggleOpen],
+    [selectedPath, flatList, openState, toggleOpen, handleToggleDir, ensureVisible],
   );
 
   // 双击文件 → 打开文件预览 tab（对齐 Hermes onPreviewFile 语义）；
   // 双击文件夹 = 展开/折叠（Hermes dblclick 文件夹同 toggle）
-  const handleFileDoubleClick = useCallback((entry: FileEntry) => {
+  const handleFileDoubleClick = useCallback((entry: FlatRow) => {
     if (entry.isDirectory) {
       void toggleOpen(entry.path);
+      void loadChildren(entry.path);
     } else {
       openPreview({ kind: 'file', url: entry.path, name: entry.name });
     }
-  }, [toggleOpen]);
+  }, [toggleOpen, loadChildren]);
 
   // ── fallback root（对齐 Hermes sanitizeWorkspaceCwd → usingFallback 探针）──
   // 会话 cwd 读取失败（目录被删/换机器）→ 回退到激活项目的主文件夹（ELEVE
@@ -646,9 +637,9 @@ export default function FileBrowserPanel({
   );
 
   // 删除（回收站）：确认弹窗 → files.delete → 非破坏刷新
-  const [deletingEntry, setDeletingEntry] = useState<FileEntry | null>(null);
+  const [deletingEntry, setDeletingEntry] = useState<FlatRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
-  const handleDeleteRequest = useCallback((entry: FileEntry) => setDeletingEntry(entry), []);
+  const handleDeleteRequest = useCallback((entry: FlatRow) => setDeletingEntry(entry), []);
   const handleDeleteConfirm = useCallback(async () => {
     if (!deletingEntry || deleteBusy) return;
     setDeleteBusy(true);
@@ -785,44 +776,56 @@ export default function FileBrowserPanel({
         </div>
       )}
 
-      {/* 文件树（ErrorBoundary key=rootPath：渲染崩溃局部隔离，对齐 Hermes
-          FileTreeBody ErrorBoundary key=cwd） */}
+      {/* 文件树 — 虚拟滚动（对齐 Hermes react-arborist：固定行高 22 + overscan，
+          只渲染可视窗口行；ErrorBoundary key=rootPath 对齐 Hermes FileTreeBody key=cwd） */}
       {data && !error && (
         <ErrorBoundary key={rootPath ?? ''}>
-        <div className="flex-1 overflow-y-auto space-y-0.5" tabIndex={-1} onKeyDown={handleTreeKeyDown}>
-          {data.length === 0 ? (
+        <div
+          ref={scrollRef}
+          className="flex-1 overflow-y-auto"
+          tabIndex={-1}
+          onKeyDown={handleTreeKeyDown}
+          onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        >
+          {flatList.length === 0 ? (
             <div className="flex flex-col items-center py-6 text-muted-foreground gap-2">
               <Folder size={24} className="text-muted-foreground/30" />
               <p className="text-xs">空目录</p>
             </div>
           ) : (
-            data.map((entry: FileEntry) => (
-              <TreeNode
-                key={entry.path}
-                entry={entry}
-                depth={0}
-                openState={openState}
-                onToggle={toggleOpen}
-                onSelectFile={handleSelectFile}
-                onFileAttach={onFileAttach ?? (() => {})}
-                onFileDoubleClick={handleFileDoubleClick}
-                loadChildren={loadChildren}
-                refreshNonce={refreshNonce}
-                rootPath={rootPath ?? ''}
-                renamingPath={renamingPath}
-                selectedPath={selectedPath}
-                children={entry.isDirectory ? loadedDirs[entry.path] : undefined}
-                getChildren={(p) => loadedDirs[p]}
-                statusKindForPath={statusKindForPath}
-                statusKind={statusKindForPath(entry.path)}
-                onReveal={handleReveal}
-                onCopyText={handleCopyText}
-                onRenameRequest={handleRenameRequest}
-                onRenameCommit={handleRenameCommit}
-                onRenameCancel={handleRenameCancel}
-                onDeleteRequest={handleDeleteRequest}
-              />
-            ))
+            <div style={{ height: flatList.length * ROW_HEIGHT, position: 'relative' }}>
+              {visibleRows.map((row, i) => (
+                <div
+                  key={row.key}
+                  style={{
+                    position: 'absolute',
+                    top: (scrollStart + i) * ROW_HEIGHT,
+                    left: 0,
+                    right: 0,
+                    height: ROW_HEIGHT,
+                  }}
+                >
+                  <FileRow
+                    row={row}
+                    isOpen={!!openState[row.path]}
+                    selected={selectedPath === row.path}
+                    renaming={renamingPath === row.path}
+                    statusKind={statusKindForPath(row.path)}
+                    rootPath={rootPath ?? ''}
+                    onSelect={handleSelectFile}
+                    onAttach={onFileAttach ?? (() => {})}
+                    onPreview={handleFileDoubleClick}
+                    onToggleDir={handleToggleDir}
+                    onReveal={handleReveal}
+                    onCopyText={handleCopyText}
+                    onRenameRequest={handleRenameRequest}
+                    onRenameCommit={handleRenameCommit}
+                    onRenameCancel={handleRenameCancel}
+                    onDeleteRequest={handleDeleteRequest}
+                  />
+                </div>
+              ))}
+            </div>
           )}
         </div>
         </ErrorBoundary>
