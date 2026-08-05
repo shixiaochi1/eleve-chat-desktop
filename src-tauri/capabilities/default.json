@@ -1,8 +1,14 @@
 {
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main", "kanban"],
-  "webviews": ["main", "kanban"],
+  "windows": [
+    "main",
+    "kanban"
+  ],
+  "webviews": [
+    "main",
+    "kanban"
+  ],
   "permissions": [
     "core:default",
     "core:event:default",
@@ -36,10 +42,24 @@
     "fs:allow-exists",
     "fs:allow-stat",
     "fs:allow-write-text-file",
-    { "identifier": "fs:scope", "allow": [{ "path": "**" }] },
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        {
+          "path": "**"
+        }
+      ]
+    },
     {
       "identifier": "shell:allow-open",
-      "allow": [{ "url": "https://*" }, { "url": "http://*" }]
+      "allow": [
+        {
+          "url": "https://*"
+        },
+        {
+          "url": "http://*"
+        }
+      ]
     },
     "allow-get-gateway-port",
     "allow-get-auto-start",
@@ -56,6 +76,14 @@
     "allow-preview-webview-visible",
     "allow-preview-webview-devtools",
     "allow-preview-file-watch",
-    "allow-preview-file-unwatch"
+    "allow-preview-file-unwatch",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        {
+          "path": "$TEMP/**"
+        }
+      ]
+    }
   ]
 }

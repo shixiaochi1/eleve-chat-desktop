@@ -14,8 +14,12 @@ import {
 } from '@/store/artifacts';
 import { renderMarkdown } from '@/utils/markdown';
 import { artifactDownloadName } from '@/lib/artifact-detect';
-import { invoke } from '@tauri-apps/api/core';
-import { open as shellOpen } from '@tauri-apps/plugin-shell';
+// 🔴 浏览器打开走已有插件（不造轮子，对齐 PreviewFilePane writeTextFile 先例）：
+// tauri-plugin-fs 写临时文件（capability 已有 fs:allow-write-text-file + fs:scope **）
+// + tauri-plugin-opener openPath（系统默认程序打开，capability opener:allow-open-path）
+import { writeTextFile } from '@tauri-apps/plugin-fs';
+import { openPath } from '@tauri-apps/plugin-opener';
+import { join, tempDir } from '@tauri-apps/api/path';
 import ModeSwitcher, { type ModeOption } from '@/components/preview/ModeSwitcher';
 import DOMPurify from 'dompurify';
 
@@ -102,15 +106,16 @@ const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: { sessionId: st
   }, [active]);
 
   // 🔴 浏览器打开（对齐 Hermes saveImageBuffer + openPreviewInBrowser）：
-  // window.open(blobURL) 在 Tauri webview 打不开 OS 浏览器——blob/data URL
-  // 无法跨进程进入系统默认浏览器，先写临时文件再交给系统 opener。
+  // blob/data URL 无法跨进程进入 OS 默认浏览器——写临时文件再交给系统默认程序。
+  // 实现 = fs 插件 writeTextFile（PreviewFilePane spot editor 同款）→ opener openPath，零自定义命令。
   const openExternal = useCallback(async () => {
     if (!active || active.record.kind !== 'html') return;
     const content = composeArtifactHtml(active.version.content);
     try {
-      const path = await invoke<string>('write_artifact_temp_html', { content });
-      const fileUrl = `file://${path.startsWith('/') ? '' : '/'}${path.replace(/\\/g, '/')}`;
-      await shellOpen(fileUrl);
+      const dir = await tempDir();
+      const path = await join(dir, `artifact-${crypto.randomUUID()}.html`);
+      await writeTextFile(path, content);
+      await openPath(path);
     } catch (e) {
       // 降级：浏览器模式/开发环境（非 Tauri 运行时）
       const url = URL.createObjectURL(new Blob([content], { type: 'text/html' }));
