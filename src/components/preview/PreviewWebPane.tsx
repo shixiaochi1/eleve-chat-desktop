@@ -1,40 +1,32 @@
 /**
- * PreviewPanel — Web 预览面板
+ * PreviewWebPane — URL 预览内容区（对齐 Hermes PreviewPane 的 url target 分支）
  *
- * 对齐 Hermes apps/desktop 桌面预览功能:
- * - iframe 加载本地 dev server URL
- * - 加载失败时显示"重启预览"按钮
- * - 点击重启 → 调 preview.restart RPC → 后端创建临时 Agent 分析历史+重启 server
- * - 实时显示 progress 日志（工具执行进度）
- * - 完成后自动刷新 iframe
+ * 原 PreviewPanel 改造为多 Tab 预览中心的 url 内容区：
+ * - URL 输入 + iframe（sandbox + 协议白名单保留）
+ * - 重启：RPC preview.restart → store 重启状态机
+ *   （progress/complete 事件由 lib/preview-events 全局路由写入 store，本组件只读）
+ * - 自动刷新：store reloadRequest（文件变更自动刷新）→ iframe 重载
  *
- * 事件监听（对齐 Hermes use-preview-routing.ts）:
- * - preview.restart.progress → 追加进度日志
- * - preview.restart.complete → 结束重启状态，成功则刷新 iframe
- *
- * 架构：组件自行注册 WS 事件监听器，不侵入 useSSE 聊天事件流。
- * preview 事件是独立功能域，与聊天消息处理职责隔离。
+ * 架构：本组件无 WS 事件监听（预览域事件统一在 lib/preview-events 单点路由），
+ * 对齐 Hermes use-preview-routing → store → PreviewPane 单向数据流。
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, ExternalLink, AlertCircle, Loader2, Globe } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { ExternalLink, AlertCircle, Loader2, Globe, RefreshCw } from 'lucide-react';
 import { getWsClient } from '@/services/ws-client';
 import { cn } from '@/lib/utils';
+import {
+  type PreviewTab,
+  beginPreviewRestart,
+  failPreviewRestartRequest,
+  usePreviewStore,
+} from '@/store/preview';
 
-interface PreviewPanelProps {
-  /** 当前会话 ID，用于 preview.restart RPC */
+interface PreviewWebPaneProps {
+  tab: PreviewTab;
   sessionId?: string | null;
-  /** 当前工作目录，作为重启的 cwd 提示 */
   cwd?: string;
 }
-
-interface ProgressEntry {
-  text: string;
-  level: string;
-  timestamp: number;
-}
-
-type RestartStatus = 'idle' | 'restarting' | 'success' | 'error';
 
 /**
  * 预览 URL 安全校验：仅允许 http:/https: 协议。
@@ -52,110 +44,63 @@ function isSafePreviewUrl(raw: string): boolean {
   }
 }
 
-export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
-  const [url, setUrl] = useState('');
+export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPaneProps) {
+  const { reloadRequest, restart } = usePreviewStore();
+  const [url, setUrl] = useState(tab.target.url);
   const [iframeKey, setIframeKey] = useState(0);
   const [iframeError, setIframeError] = useState(false);
-  const [status, setStatus] = useState<RestartStatus>('idle');
-  const [progress, setProgress] = useState<ProgressEntry[]>([]);
-  const taskIdRef = useRef<string | null>(null);
-  const progressEndRef = useRef<HTMLDivElement>(null);
 
-  // ── WS 事件监听（对齐 Hermes use-preview-routing.ts L100-116）──
+  // tab 切换 → URL 输入框重置为 tab 目标
   useEffect(() => {
-    const wsClient = getWsClient();
-
-    const handleEvent = (eventName: string, data: unknown) => {
-      const raw = data as Record<string, unknown>;
-      if (!raw) return;
-
-      // payload 内聚（对齐 routeWsEvent 的 chunkBase 提取）
-      const payload = (raw.payload && typeof raw.payload === 'object'
-        ? raw.payload
-        : raw) as Record<string, unknown>;
-
-      if (eventName === 'preview.restart.progress') {
-        const tid = payload.task_id as string;
-        if (tid && tid === taskIdRef.current) {
-          setProgress(prev => [...prev, {
-            text: (payload.text as string) || '',
-            level: (payload.level as string) || 'info',
-            timestamp: Date.now(),
-          }]);
-        }
-      } else if (eventName === 'preview.restart.complete') {
-        const tid = payload.task_id as string;
-        if (tid && tid === taskIdRef.current) {
-          const text = (payload.text as string) || '';
-          const isError = text.startsWith('error:') || text.toLowerCase().includes('failed');
-          setStatus(isError ? 'error' : 'success');
-
-          if (!isError) {
-            // 成功 → 刷新 iframe（对齐 Hermes requestPreviewReload）
-            setIframeKey(k => k + 1);
-            setIframeError(false);
-          }
-          // 追加最终结果到进度日志
-          setProgress(prev => [...prev, {
-            text,
-            level: isError ? 'error' : 'info',
-            timestamp: Date.now(),
-          }]);
-          taskIdRef.current = null;
-        }
-      }
-    };
-
-    wsClient.addEventListener(handleEvent);
-    return () => {
-      wsClient.removeEventListener(handleEvent);
-    };
-  }, []);
-
-  // ── 自动滚动进度日志到底部 ──
-  useEffect(() => {
-    progressEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [progress]);
-
-  // ── 重启预览（对齐 Hermes restartPreviewServer L70-98）──
-  const handleRestart = useCallback(async () => {
-    if (!url.trim()) return;
-    if (!sessionId) return;
-
-    setStatus('restarting');
-    setProgress([]);
+    setUrl(tab.target.url);
     setIframeError(false);
+  }, [tab.id, tab.target.url]);
+
+  // 自动刷新：文件变更（tool.complete + inline_diff → requestPreviewReload）
+  useEffect(() => {
+    if (reloadRequest > 0) setIframeKey((k) => k + 1);
+  }, [reloadRequest]);
+
+  // 重启成功 → 自动刷新 iframe（对齐 Hermes complete 后 requestPreviewReload 语义）
+  useEffect(() => {
+    if (restart?.status === 'success' && restart.url === (url.trim() || tab.target.url)) {
+      setIframeKey((k) => k + 1);
+      setIframeError(false);
+    }
+  }, [restart, url, tab.target.url]);
+
+  // ── 重启预览（对齐 Hermes restartPreviewServer）──
+  const handleRestart = useCallback(async () => {
+    const targetUrl = url.trim();
+    if (!targetUrl || !sessionId) return;
 
     try {
       const wsClient = getWsClient();
-      const result = await wsClient.sendRpc('preview.restart', {
+      const result = (await wsClient.sendRpc('preview.restart', {
         session_id: sessionId,
-        url: url.trim(),
+        url: targetUrl,
         cwd: cwd || '',
         context: iframeError ? 'Preview failed to load' : '',
-      }) as { task_id?: string };
+      })) as { task_id?: string };
 
       const taskId = result?.task_id || '';
       if (!taskId) {
         throw new Error('Background restart did not return a task id');
       }
-      taskIdRef.current = taskId;
+      beginPreviewRestart(taskId, targetUrl);
     } catch (e) {
-      setStatus('error');
-      setProgress(prev => [...prev, {
-        text: `error: ${e instanceof Error ? e.message : String(e)}`,
-        level: 'error',
-        timestamp: Date.now(),
-      }]);
+      failPreviewRestartRequest(
+        targetUrl,
+        `error: ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }, [url, sessionId, cwd, iframeError]);
 
   // ── 手动加载 ──
   const handleLoad = useCallback(() => {
     if (url.trim()) {
-      setIframeKey(k => k + 1);
+      setIframeKey((k) => k + 1);
       setIframeError(false);
-      setStatus('idle');
     }
   }, [url]);
 
@@ -180,7 +125,10 @@ export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
     }, 2000);
   }, []);
 
-  const isRestarting = status === 'restarting';
+  // 重启状态归属：仅当前 pane 的 URL 关联（Hermes restartingServer 同款判断）
+  const currentUrl = url.trim() || tab.target.url;
+  const isRestarting = restart?.status === 'running' && restart.url === currentUrl;
+  const restartEntries = restart && restart.url === currentUrl ? restart.entries : [];
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-[var(--ui-bg-editor)]">
@@ -190,8 +138,8 @@ export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
         <input
           type="text"
           value={url}
-          onChange={e => setUrl(e.target.value)}
-          onKeyDown={e => {
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => {
             if (e.key === 'Enter') handleLoad();
           }}
           placeholder="http://localhost:3000"
@@ -268,7 +216,7 @@ export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
               disabled={!sessionId}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-[var(--ui-accent-primary)] text-primary-foreground hover:bg-[var(--ui-accent-primary-hover)] disabled:opacity-40 transition-colors"
             >
-              <RefreshCw size={12} />
+              <Loader2 size={12} className={isRestarting ? 'animate-spin' : ''} />
               重启预览服务器
             </button>
           </div>
@@ -276,13 +224,13 @@ export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
       </div>
 
       {/* ── 进度日志区（重启中/完成时显示）── */}
-      {(isRestarting || progress.length > 0) && (
+      {(isRestarting || restartEntries.length > 0) && (
         <div className="border-t border-[var(--ui-stroke-secondary)] bg-[var(--ui-bg-editor)] max-h-[40%] overflow-y-auto">
           <div className="px-2 py-1 text-[10px] font-medium text-[var(--ui-text-tertiary)] uppercase tracking-wide border-b border-[var(--ui-stroke-secondary)] sticky top-0 bg-[var(--ui-bg-editor)]">
             {isRestarting ? '重启进度' : '重启日志'}
           </div>
           <div className="px-2 py-1 space-y-0.5">
-            {progress.map((entry, i) => (
+            {restartEntries.map((entry, i) => (
               <div
                 key={i}
                 className={cn(
@@ -290,8 +238,8 @@ export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
                   entry.level === 'error'
                     ? 'text-[var(--ui-status-error)]'
                     : entry.level === 'warn'
-                    ? 'text-[var(--ui-status-warning)]'
-                    : 'text-[var(--ui-text-secondary)]'
+                      ? 'text-[var(--ui-status-warning)]'
+                      : 'text-[var(--ui-text-secondary)]'
                 )}
               >
                 <span className="text-[var(--ui-text-quaternary)] mr-1.5">
@@ -300,7 +248,6 @@ export default function PreviewPanel({ sessionId, cwd }: PreviewPanelProps) {
                 {entry.text}
               </div>
             ))}
-            <div ref={progressEndRef} />
           </div>
         </div>
       )}

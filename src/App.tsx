@@ -47,7 +47,9 @@ import AppShell from './components/AppShell';
 import PaneShell, { Pane, PaneMain, PaneCollapseBtn } from './components/PaneShell';
 import FileBrowserPanel from './components/FileBrowserPanel';
 import TerminalPanel from './components/TerminalPanel';
-import PreviewPanel from './components/PreviewPanel';
+import PreviewCenter from './components/preview/PreviewCenter';
+import { initPreviewEvents } from '@/lib/preview-events';
+import { usePaneOpenRequest } from '@/store/preview';
 import ArtifactPanel from './components/ArtifactPanel';
 import RightSidebarTabs from './components/RightSidebarTabs';
 import CommandCenter from './components/CommandCenter';
@@ -117,6 +119,16 @@ export default function App() {
       setRightTab('artifacts');
     }
   }, [artifactOpen, viewMode]);
+
+  // 🔴 预览中心：外部事件（open_preview 工具 / #preview 链接 / 文件树双击）请求打开预览面板
+  // 对齐 Hermes $revealInTreeRequest：事件源 → App 消费
+  const paneOpenRequest = usePaneOpenRequest();
+  useEffect(() => {
+    if (paneOpenRequest > 0 && viewMode === 'single') {
+      setRightOpen(true);
+      setRightTab('preview');
+    }
+  }, [paneOpenRequest, viewMode]);
   // 🔴 Phase 4b #4: 宫格焦点 Agent 的实时 sessionId（GridModeView 上抛）→ 侧栏会话列表高亮跟随
   const [focusedGridSessionId, setFocusedGridSessionId] = useState<string | null>(null);
   const [agentCount, setAgentCount] = useState<number>(1);  // Agent 数量（宫格按钮禁用判断）
@@ -246,10 +258,26 @@ export default function App() {
   // ── session management（必须在 handleProfileChange 之前，切换 Agent 需要重置 session） ──
   const sess = useSessions();
 
-  // 🔴 W-7: 会话 cwd（session.info 推送）— 传 PreviewPanel 供重启预览使用
+  // 🔴 W-7: 会话 cwd（session.info 推送）— 传预览中心供重启预览使用
   // 会话切换时清空，等新会话的 session.info 重新推送
   const [sessionCwd, setSessionCwd] = useState('');
   useEffect(() => { setSessionCwd(''); }, [sess.sessionId]);
+
+  // 🔴 预览域 WS 事件路由（对齐 Hermes use-preview-routing）：
+  // preview.restart.progress/complete / preview.open / tool.complete+inline_diff 自动刷新
+  // 挂载 App 生命周期（全局单点），卸载清理。
+  // ⚠️ 闭包陷阱：空依赖 useEffect 捕获首次渲染值 → 用 ref 持有最新会话 id / cwd
+  const focusedSessionIdRef = useRef(sess.sessionId);
+  focusedSessionIdRef.current = sess.sessionId;
+  const sessionCwdRef = useRef(sessionCwd);
+  sessionCwdRef.current = sessionCwd;
+  useEffect(() => {
+    return initPreviewEvents({
+      getFocusedSessionId: () => focusedSessionIdRef.current,
+      getCwd: () => sessionCwdRef.current || null,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 🔴 D1 修复：切换 profile 时刷新会话列表（session.list 后端按 params.profile 过滤）
   useEffect(() => {
@@ -1165,7 +1193,7 @@ export default function App() {
             {rightOpen && (rightTab === 'files' ? (
               <FileBrowserPanel onFileAttach={(path: string) => handleSend(`@file:"${path}"`)} />
             ) : rightTab === 'preview' ? (
-              <PreviewPanel sessionId={sess.sessionId} cwd={sessionCwd} />
+              <PreviewCenter sessionId={sess.sessionId} cwd={sessionCwd} />
             ) : rightTab === 'artifacts' ? (
               <ArtifactPanel sessionId={sess.sessionId} />
             ) : (
