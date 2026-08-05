@@ -1,5 +1,6 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Copy, Check, ExternalLink, Download } from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ChevronLeft, ChevronRight, Copy, Check, ExternalLink, Download, Maximize2, Minimize2 } from 'lucide-react';
 import { ContextFileIcon, WebWindowIcon, ImageIcon } from './Icons';
 import { cn } from '@/lib/utils';
 import {
@@ -56,6 +57,11 @@ const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: { sessionId: st
   const registry = useArtifacts();
   const openState = useOpenArtifact();
   const [copied, setCopied] = useState(false);
+  // 🔴 全屏预览（老大 2026-08-05 要求）
+  const [fullscreen, setFullscreen] = useState(false);
+  // 🔴 面板内缩放适配：量容器实际宽，HTML iframe 固定设计宽后 transform scale 缩放到容器宽
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [containerW, setContainerW] = useState(0);
 
   const sessionRecords = useMemo(
     () => (sessionId ? (registry[sessionId] ?? []) : []),
@@ -103,6 +109,30 @@ const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: { sessionId: st
 
   const empty = !sessionId || sessionRecords.length === 0;
 
+  // 🔴 缩放适配：量预览容器宽度（ResizeObserver，含面板拖拽变宽）
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      setContainerW((prev) => (prev === w ? prev : w));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // 🔴 全屏 ESC 关闭
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFullscreen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [fullscreen]);
+
+  const activeForRender = active && openState?.id && sessionRecords.some((r) => r.id === openState.id) ? active : null;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* 列表头 */}
@@ -132,13 +162,13 @@ const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: { sessionId: st
 
           {/* 预览区 */}
           <div className="flex min-h-0 flex-1 flex-col">
-            {active && openState?.id && sessionRecords.some((r) => r.id === openState.id) ? (
+            {activeForRender ? (
               <>
                 <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
                   <VersionStepper
-                    current={openState.versionIndex}
-                    total={active.record.versions.length}
-                    onSelect={(i) => selectArtifactVersion(active.record.id, i)}
+                    current={openState!.versionIndex}
+                    total={activeForRender.record.versions.length}
+                    onSelect={(i) => selectArtifactVersion(activeForRender.record.id, i)}
                   />
                   <span className="ml-auto flex items-center gap-0.5">
                     <button
@@ -157,15 +187,26 @@ const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: { sessionId: st
                     >
                       <Download size={13} />
                     </button>
-                    {active.record.kind === 'html' && (
-                      <button
-                        type="button"
-                        onClick={openExternal}
-                        title="浏览器打开"
-                        className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-                      >
-                        <ExternalLink size={13} />
-                      </button>
+                    {activeForRender.record.kind === 'html' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={openExternal}
+                          title="浏览器打开"
+                          className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                        >
+                          <ExternalLink size={13} />
+                        </button>
+                        {/* 🔴 全屏预览（老大要求） */}
+                        <button
+                          type="button"
+                          onClick={() => setFullscreen(true)}
+                          title="全屏预览"
+                          className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                        >
+                          <Maximize2 size={13} />
+                        </button>
+                      </>
                     )}
                     <button
                       type="button"
@@ -177,8 +218,12 @@ const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: { sessionId: st
                     </button>
                   </span>
                 </div>
-                <div className="min-h-0 flex-1 overflow-auto">
-                  <ArtifactContentView record={active.record} content={active.version.content} />
+                <div ref={viewportRef} className="min-h-0 flex-1 overflow-auto">
+                  <ArtifactContentView
+                    record={activeForRender.record}
+                    content={activeForRender.version.content}
+                    containerW={containerW}
+                  />
                 </div>
               </>
             ) : (
@@ -188,6 +233,17 @@ const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: { sessionId: st
             )}
           </div>
         </>
+      )}
+
+      {/* 🔴 全屏预览浮层（portal 到 body）：HTML 产物大画面查看 */}
+      {fullscreen && activeForRender && activeForRender.record.kind === 'html' && (
+        <ArtifactFullscreen
+          record={activeForRender.record}
+          content={activeForRender.version.content}
+          versionIndex={openState!.versionIndex}
+          onClose={() => setFullscreen(false)}
+          onSelectVersion={(i) => selectArtifactVersion(activeForRender.record.id, i)}
+        />
       )}
     </div>
   );
@@ -272,7 +328,22 @@ function VersionStepper({
   );
 }
 
-function ArtifactContentView({ record, content }: { record: ArtifactRecord; content: string }) {
+/**
+ * HTML 设计宽（缩放适配基准）：iframe 以固定设计宽渲染内容，
+ * transform scale 缩放到容器宽 → 无横向滚动条、全貌可见（老大要求）。
+ */
+const HTML_DESIGN_WIDTH = 1280;
+
+function ArtifactContentView({
+  record,
+  content,
+  containerW = 0,
+}: {
+  record: ArtifactRecord;
+  content: string;
+  /** 容器实际宽度（ResizeObserver 提供）；0 = 未量到（不缩放） */
+  containerW?: number;
+}) {
   // 🔴 useMemo 必须在组件顶层（条件分支内调用违反 Rules of Hooks）
   const svgClean = useMemo(
     () => DOMPurify.sanitize(content, { USE_PROFILES: { svg: true, svgFilters: true } }),
@@ -288,14 +359,29 @@ function ArtifactContentView({ record, content }: { record: ArtifactRecord; cont
   }
 
   if (record.kind === 'html') {
+    // 🔴 缩放适配（老大 2026-08-05）：iframe 固定 1280 设计宽，scale 到容器宽。
+    // 高度按比例补（容器高 / scale），缩放后正好填满容器 → 无滚动条全貌可见。
+    // 容器 < 1280 时缩小（scale<1）；容器 ≥1280 时不缩放（scale=1 原样）。
+    const scale = containerW > 0 ? Math.min(1, containerW / HTML_DESIGN_WIDTH) : 1;
     return (
-      <iframe
-        className="block size-full border-0 bg-white"
-        sandbox="allow-scripts"
-        srcDoc={composeArtifactHtml(content)}
-        style={{ colorScheme: 'light' }}
-        title={record.title}
-      />
+      <div className="relative size-full overflow-hidden bg-white">
+        <div
+          style={{
+            width: HTML_DESIGN_WIDTH,
+            height: `calc(100% / ${scale})`,
+            transform: `scale(${scale})`,
+            transformOrigin: 'top left',
+          }}
+        >
+          <iframe
+            className="block size-full border-0 bg-white"
+            sandbox="allow-scripts"
+            srcDoc={composeArtifactHtml(content)}
+            style={{ colorScheme: 'light' }}
+            title={record.title}
+          />
+        </div>
+      </div>
     );
   }
 
@@ -307,5 +393,57 @@ function ArtifactContentView({ record, content }: { record: ArtifactRecord; cont
         __html: renderMarkdown(`\`\`\`${record.language}\n${content}\n\`\`\``),
       }}
     />
+  );
+}
+
+/**
+ * 全屏预览浮层（老大 2026-08-05 要求）：HTML 产物大画面查看。
+ * portal 到 body，ESC / 关闭按钮退出；保留版本切换。
+ */
+function ArtifactFullscreen({
+  record,
+  content,
+  versionIndex,
+  onClose,
+  onSelectVersion,
+}: {
+  record: ArtifactRecord;
+  content: string;
+  versionIndex: number;
+  onClose: () => void;
+  onSelectVersion: (index: number) => void;
+}) {
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9999] flex flex-col bg-[var(--ui-bg-chrome)]"
+      role="dialog"
+      aria-label={`${record.title} 全屏预览`}
+    >
+      {/* 头部：标题 + 版本 + 操作 */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{record.title}</span>
+        <VersionStepper current={versionIndex} total={record.versions.length} onSelect={onSelectVersion} />
+        <button
+          type="button"
+          onClick={onClose}
+          title="退出全屏 (Esc)"
+          className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+        >
+          <Minimize2 size={13} />
+          退出全屏
+        </button>
+      </div>
+      {/* 内容：大画面 iframe */}
+      <div className="min-h-0 flex-1 bg-white">
+        <iframe
+          className="block size-full border-0 bg-white"
+          sandbox="allow-scripts"
+          srcDoc={composeArtifactHtml(content)}
+          style={{ colorScheme: 'light' }}
+          title={record.title}
+        />
+      </div>
+    </div>,
+    document.body,
   );
 }
