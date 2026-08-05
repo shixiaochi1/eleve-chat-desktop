@@ -27,7 +27,7 @@ import { getWsClient } from '@/services/ws-client';
 import { isDesktop } from '@/utils/bridge';
 import { cn } from '@/lib/utils';
 import { createPreviewConsoleState, isNearConsoleBottom } from '@/store/preview-console';
-import { PreviewConsolePanel } from './PreviewConsolePanel';
+import { PreviewConsolePanel, formatLogLine } from './PreviewConsolePanel';
 import {
   type PreviewTab,
   beginPreviewRestart,
@@ -324,11 +324,20 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
 
     try {
       const wsClient = getWsClient();
+      // 对齐 Hermes restartServer：把最近 12 条页面 console 日志作为上下文带给
+      // 后台 agent（Hermes consoleState.$logs.slice(-12).map(formatLogLine)）；
+      // 无日志时退回旧的错误提示
+      const consoleContext = consoleState
+        .getLogs()
+        .slice(-12)
+        .map(formatLogLine)
+        .join('\n');
+      const context = consoleContext || (iframeError ? 'Preview failed to load' : '');
       const result = (await wsClient.sendRpc('preview.restart', {
         session_id: sessionId,
         url: targetUrl,
         cwd: cwd || '',
-        context: iframeError ? 'Preview failed to load' : '',
+        context,
       })) as { task_id?: string };
 
       const taskId = result?.task_id || '';
@@ -342,7 +351,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
         `error: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
-  }, [url, sessionId, cwd, iframeError]);
+  }, [url, sessionId, cwd, iframeError, consoleState]);
 
   // ── 手动加载：webview navigate（新页面新会话，Rust 侧清缓冲）／iframe 重建 ──
   const handleLoad = useCallback(() => {
