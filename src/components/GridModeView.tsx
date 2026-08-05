@@ -53,6 +53,7 @@ import { fetchProfiles } from '../utils/api';
 import { Square } from 'lucide-react';
 import { useGridChat, type AgentChatState } from '../hooks/useGridChat';
 import AgentChatCard, { type AgentProfileInfo, type AgentCardColor } from './AgentChatCard';
+import { ArtifactPreviewOverlay } from './ArtifactCard';
 import { sessionIdMatchesProfile, persistSessionPointer, loadProfilePointers, batchSaveProfilePointers } from '../utils/session';
 import { useModelContext } from '@/contexts/ModelContext';
 
@@ -515,6 +516,8 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
           </div>
         )}
       </div>
+      {/* 宫格 Artifact 浮层预览（无右栏语义，portal 到 body） */}
+      <ArtifactPreviewOverlay />
     </div>
   );
 });

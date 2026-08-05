@@ -31,7 +31,7 @@ import { ThemeProvider } from './themes/index';
 import IconBar from './components/IconBar';
 import SidePanel from './components/SidePanel';
 import OverlayView from './components/OverlayView';
-import { ArtifactPreviewOverlay } from './components/ArtifactCard';
+import { useOpenArtifact } from './store/artifacts';
 import ThemePanel from './components/ThemePanel';
 import SettingsPanel from './components/SettingsPanel';
 import AboutPanel from './components/AboutPanel';
@@ -48,6 +48,7 @@ import PaneShell, { Pane, PaneMain, PaneCollapseBtn } from './components/PaneShe
 import FileBrowserPanel from './components/FileBrowserPanel';
 import TerminalPanel from './components/TerminalPanel';
 import PreviewPanel from './components/PreviewPanel';
+import ArtifactPanel from './components/ArtifactPanel';
 import RightSidebarTabs from './components/RightSidebarTabs';
 import CommandCenter from './components/CommandCenter';
 import Toast from './components/Toast';
@@ -89,9 +90,12 @@ export default function App() {
   // ── 右侧文件浏览器 state ──
   const [rightOpen, setRightOpen] = useState<boolean>(false);
   const [rightWidth, setRightWidth] = useState<number>(280);
-  const [rightTab, setRightTab] = useState<string>('files'); // 'files' | 'terminal'
+  const [rightTab, setRightTab] = useState<string>('files'); // 'files' | 'terminal' | 'preview' | 'artifacts'
   const handleToggleFiles = useCallback(() => setRightOpen(prev => !prev), []);
 
+  // 🔴 Artifact 右栏化（对齐 Hermes openArtifact → 打开右栏 tab）：
+  // 消息内卡片点击 openArtifact() 后，单视图自动打开右栏并切到「产物」tab；
+  // 宫格模式无右栏语义 → 浮层由 GridModeView 内挂载承载。
   const messageCount = useMessageCount();
   const [connectionStatus, setConnectionStatus] = useState<string>('idle');
   const [commandCenterOpen, setCommandCenterOpen] = useState<boolean>(false);
@@ -102,6 +106,17 @@ export default function App() {
   const [sessionListVersion, setSessionListVersion] = useState<number>(0);  // 刷新会话列表
   const [currentProfile, setCurrentProfile] = useState<string>('default');  // F9+ 当前活动 Profile（多 Profile 全局状态）
   const [viewMode, setViewMode] = useState<'single' | 'grid'>('single');  // 多 Agent 视图模式
+
+  // 🔴 Artifact 右栏化（对齐 Hermes openArtifact → 打开右栏 tab）：
+  // 消息内卡片点击 openArtifact() 后，单视图自动打开右栏并切到「产物」tab；
+  // 宫格模式无右栏语义 → 浮层由 GridModeView 内挂载承载。
+  const artifactOpen = useOpenArtifact();
+  useEffect(() => {
+    if (artifactOpen && viewMode === 'single') {
+      setRightOpen(true);
+      setRightTab('artifacts');
+    }
+  }, [artifactOpen, viewMode]);
   // 🔴 Phase 4b #4: 宫格焦点 Agent 的实时 sessionId（GridModeView 上抛）→ 侧栏会话列表高亮跟随
   const [focusedGridSessionId, setFocusedGridSessionId] = useState<string | null>(null);
   const [agentCount, setAgentCount] = useState<number>(1);  // Agent 数量（宫格按钮禁用判断）
@@ -1148,6 +1163,8 @@ export default function App() {
               <FileBrowserPanel onFileAttach={(path: string) => handleSend(`@file:"${path}"`)} />
             ) : rightTab === 'preview' ? (
               <PreviewPanel sessionId={sess.sessionId} cwd={sessionCwd} />
+            ) : rightTab === 'artifacts' ? (
+              <ArtifactPanel sessionId={sess.sessionId} />
             ) : (
               <TerminalPanel onSend={handleSend} isStreaming={isStreaming} sessionId={sess.sessionId ?? undefined} />
             ))}
@@ -1155,8 +1172,7 @@ export default function App() {
         </PaneShell>
         </ErrorBoundary>
 
-        {/* Artifact 浮层预览（portal 到 body） */}
-        <ArtifactPreviewOverlay />
+        {/* Artifact 预览：右栏「产物」tab（Hermes 右栏语义）；宫格视图浮层在 GridModeView 内挂载 */}
 
         {overlayPanel === 'settings' && (
           <ErrorBoundary>
