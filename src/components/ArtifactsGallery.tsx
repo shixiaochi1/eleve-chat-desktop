@@ -215,7 +215,7 @@ export default function ArtifactsGallery({
       </div>
 
       {/* 内容区 */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-4">
         {!artifacts ? (
           <div className="grid h-full place-items-center">
             <div className="flex flex-col items-center gap-2 text-muted-foreground/70">
@@ -253,7 +253,7 @@ export default function ArtifactsGallery({
           <div className="flex flex-col gap-4">
             {pagedImages.length > 0 && (
               <section className="flex flex-col gap-2">
-                <div className="flex h-6 items-center justify-end">
+                <div className="mt-1 flex h-7 w-full items-center">
                   <GalleryPagination
                     page={curImagePage}
                     pageCount={imagePageCount}
@@ -278,7 +278,7 @@ export default function ArtifactsGallery({
 
             {pagedNonImages.length > 0 && (
               <section className="flex flex-col gap-2">
-                <div className="flex h-6 items-center justify-end">
+                <div className="mt-1 flex h-7 w-full items-center">
                   <GalleryPagination
                     page={curFilePage}
                     pageCount={filePageCount}
@@ -354,7 +354,7 @@ function GalleryPagination({
   rangeLabel: string;
 }) {
   return (
-    <div className="flex h-6 items-center justify-between gap-2 px-1">
+    <div className="flex h-6 w-full items-center justify-between gap-2 px-1">
       <div className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">{rangeLabel}</div>
       {pageCount > 1 && (
         <Pagination className="mx-0 w-auto min-w-0 justify-end">
