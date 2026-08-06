@@ -18,13 +18,17 @@ import { cn } from '@/lib/utils';
 import { Skeleton } from './ui/skeleton';
 import { undoSessionTurn, compressSession, branchSession, getSessionUsage } from '../utils/api';
 import { deleteSessionAction, renameSessionAction, toggleArchiveSession, exportSessionAction, copySessionId } from '../lib/session-actions';
+import { sessionMatchesSearch, searchSessions, searchResultToSession } from '../lib/session-search';
+import { SessionStatusDot } from './SessionStatusDot';
+import { markSessionRead } from '../store/session-status';
+import { Input } from './ui/input';
 import * as storage from '../utils/storage';
 import { notifyError, notifySuccess, notifyInfo } from '../utils/notifications';
-import type { Session } from '@/types';
+import type { Session, SessionSearchResult } from '@/types';
 import {
   CheckSquare, Square, Trash2, Download, Pin, PinOff,
   Archive, ArchiveRestore, Edit3, Copy, MoreHorizontal,
-  List, Undo2, Minimize2, GitBranch, BarChart3
+  List, Undo2, Minimize2, GitBranch, BarChart3, Search, X
 } from 'lucide-react';
 import { DeleteIcon, DotIcon } from './Icons';
 import OutlinePanel from './OutlinePanel';
@@ -225,6 +229,28 @@ export default function SessionsPanel({
   // ── 右键菜单 ──
   const [ctxMenu, setCtxMenu] = useState<CtxMenuState | null>(null);
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
+  // ── 会话搜索（对齐 Hermes sidebar index：本地即时匹配 + 服务端全文 200ms debounce 合并） ──
+  const [searchQuery, setSearchQuery] = useState('');
+  const [serverMatches, setServerMatches] = useState<SessionSearchResult[]>([]);
+  const [searchPending, setSearchPending] = useState(false);
+  const trimmedQuery = searchQuery.trim();
+
+  useEffect(() => {
+    if (!trimmedQuery) {
+      setServerMatches([]);
+      setSearchPending(false);
+      return;
+    }
+    let cancelled = false;
+    setSearchPending(true);
+    const id = window.setTimeout(() => {
+      void searchSessions(trimmedQuery)
+        .then((res) => { if (!cancelled) setServerMatches(res); })
+        .catch(() => undefined)
+        .finally(() => { if (!cancelled) setSearchPending(false); });
+    }, 200);
+    return () => { cancelled = true; window.clearTimeout(id); };
+  }, [trimmedQuery]);
 
   // ── F2 重命名快捷键（对齐右键菜单 shortcut 提示）──
   // 作用于当前激活会话；输入框/编辑态不触发，避免误抢输入
@@ -253,6 +279,7 @@ export default function SessionsPanel({
   const handleSwitch = (s: Session) => {
     const id = s.id || s as any;
     if (id === sessionId) return;
+    markSessionRead(id);
     onSwitchSession?.(id);
   };
 
@@ -396,7 +423,22 @@ export default function SessionsPanel({
     [sessions]
   );
 
-  const allFiltered = visibleSessions;
+  // ── 搜索：本地即时匹配 + 服务端全文命中合并（对齐 Hermes searchResults；null = 无搜索词） ──
+  const searchResults = useMemo(() => {
+    if (!trimmedQuery) return null;
+    const out = new Map<string, Session>();
+    for (const s of visibleSessions) {
+      if (sessionMatchesSearch(s, trimmedQuery)) out.set(s.id || s as any, s);
+    }
+    for (const m of serverMatches) {
+      if (out.has(m.session_id)) continue;
+      const loaded = visibleSessions.find((s) => (s.id || s as any) === m.session_id);
+      out.set(m.session_id, loaded ?? searchResultToSession(m));
+    }
+    return [...out.values()];
+  }, [trimmedQuery, visibleSessions, serverMatches]);
+
+  const allFiltered = searchResults ?? visibleSessions;
 
   // 分区：置顶 / 普通 / 归档
   const pinnedSessions = allFiltered.filter((s) => pinnedIds.has(s.id || s as any) && !archivedIds.has(s.id || s as any));
@@ -467,6 +509,7 @@ export default function SessionsPanel({
         )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
+            <SessionStatusDot sessionId={id} />
             {isPinned && <Pin size={10} className="shrink-0 text-primary" />}
             <span className="text-sm truncate text-foreground flex-1" title={title}>{title}</span>
             {timeStr && <span className="text-[10px] text-muted-foreground/60 shrink-0">{timeStr}</span>}
@@ -526,6 +569,30 @@ export default function SessionsPanel({
         </div>
       </div>
 
+      {/* ── 搜索框（对齐 Hermes sidebar SearchField；仅会话 tab） ── */}
+      {activeTab === 'sessions' && !batchMode && (
+        <div className="px-3 pb-1.5 shrink-0">
+          <div className="relative">
+            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground/50 pointer-events-none" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={searchPending ? '搜索中…' : '搜索会话…'}
+              className="h-7 pl-7 pr-6 text-xs"
+            />
+            {trimmedQuery && (
+              <button
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50"
+                title="清除搜索"
+                onClick={() => setSearchQuery('')}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── 会话列表 ── */}
       {activeTab === 'sessions' && (
       <div className="flex flex-col min-h-0 flex-1">
@@ -555,8 +622,10 @@ export default function SessionsPanel({
           </div>
         ) : allFiltered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-1">
-            <span className="text-sm">暂无会话</span>
-            <span className="text-xs text-muted-foreground/60">发送第一条消息后自动创建</span>
+            <span className="text-sm">{trimmedQuery ? '未找到匹配的会话' : '暂无会话'}</span>
+            <span className="text-xs text-muted-foreground/60">
+              {trimmedQuery ? '换个关键词试试，或检查搜索内容' : '发送第一条消息后自动创建'}
+            </span>
           </div>
         ) : (
           <div

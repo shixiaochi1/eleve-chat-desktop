@@ -82,6 +82,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   sudo_respond:           'sudo.respond',
   secret_respond:         'secret.respond',
   list_sessions:          'session.list',
+  search_sessions:        'session.search',
   create_session:         'session.create',
   delete_session:         'session.delete',
   activate_session:       'session.activate',

@@ -32,6 +32,7 @@ import * as storage from '../utils/storage';
 import { gitWorktreeList, gitWorktreeRemove, type HermesGitWorktree } from '../lib/git';
 import { WorktreeDialog } from './worktree/WorktreeDialog';
 import { notifySuccess, notifyError } from '../utils/notifications';
+import { SessionStatusDot } from './SessionStatusDot';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from './ui/dropdown-menu';
@@ -259,6 +260,7 @@ function SessionItem({ s, isActive, onClick, actions }: {
       )}
       onClick={onClick}
     >
+      <SessionStatusDot sessionId={s.id} />
       <MessageSquare size={12} className="text-muted-foreground shrink-0" />
       <span className="truncate flex-1">{title}</span>
       {isPinned && <Pin size={10} className="shrink-0 text-muted-foreground/50" />}

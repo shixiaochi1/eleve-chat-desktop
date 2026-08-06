@@ -44,7 +44,7 @@ export interface SignatureRow {
 
 // ── Session types ──
 // 🔴 P2-8: 消灭平行类型。Session = SessionInfo（后端真实形状，单一来源 eleve.ts）
-export type { SessionInfo as Session } from './eleve';
+export type { SessionInfo as Session, SessionSearchResult, SessionSearchResponse } from './eleve';
 
 // ── Store callback types ──
 
