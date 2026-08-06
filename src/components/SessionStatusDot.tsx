@@ -9,6 +9,7 @@
  * - needs-input：琥珀色稳态点——有 clarify/approval/secret 等在等用户（"该你操作了"）
  * - working：accent 脉冲——LLM turn 运行中
  * - stalled：accent 弱脉冲——权威 running 但静默超 8min（网络中断/后端挂起）
+ * - background：灰色脉冲——LLM 空闲但会话有后台进程在跑（对齐 Hermes 灰点语义）
  * - unread：绿色稳态点——后台会话完成且未打开
  * - idle：灰色小点——空闲
  */
@@ -33,6 +34,11 @@ const DOT_VARIANTS: Record<SessionDotState, { className: string; pulse?: boolean
     pulse: true,
     title: '运行中（长时间无输出）',
   },
+  background: {
+    className: `${DOT_BASE} bg-muted-foreground/80`,
+    pulse: true,
+    title: '有后台进程在运行',
+  },
   unread: {
     className: `${DOT_BASE} bg-emerald-500`,
     title: '已完成，未读',
@@ -52,6 +58,7 @@ export interface SessionStatusDotProps {
 export function SessionStatusDot({ sessionId, className }: SessionStatusDotProps) {
   const st = useSessionStatus(sessionId);
   const dotState = sessionDotState({
+    hasBackground: st.background,
     isStalled: st.stalled,
     isUnread: st.unread,
     isWorking: st.running,

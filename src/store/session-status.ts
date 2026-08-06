@@ -24,6 +24,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { getWsClient } from '../services/ws-client';
+import { call } from '../utils/bridge';
 import * as storage from '../utils/storage';
 
 export interface SessionLiveState {
@@ -31,13 +32,18 @@ export interface SessionLiveState {
   needsInput: boolean;
   unread: boolean;
   stalled: boolean;
+  /** 有 running 的后台进程（Hermes $backgroundRunningSessionIds 等价） */
+  background: boolean;
   lastActive: number;
 }
 
-const IDLE_STATE: SessionLiveState = { running: false, needsInput: false, unread: false, stalled: false, lastActive: 0 };
+const IDLE_STATE: SessionLiveState = { running: false, needsInput: false, unread: false, stalled: false, background: false, lastActive: 0 };
 
 /** 对齐 Hermes SESSION_WATCHDOG_TIMEOUT_MS = 8min：权威 running 但流活动静默即 stalled */
 export const SESSION_WATCHDOG_TIMEOUT_MS = 8 * 60 * 1000;
+
+/** 对齐 Hermes status-stack BACKGROUND_POLL_MS = 5s：后台进程轮询间隔 */
+export const BACKGROUND_POLL_MS = 5 * 1000;
 
 // ── 内部状态 ──
 
@@ -80,6 +86,7 @@ function patch(sessionId: string, p: Partial<SessionLiveState>): void {
     prev.needsInput === next.needsInput &&
     prev.unread === next.unread &&
     prev.stalled === next.stalled &&
+    prev.background === next.background &&
     prev.lastActive === next.lastActive
   ) {
     return;
@@ -128,7 +135,6 @@ getWsClient().addEventListener((eventName: string, data: unknown) => {
     case 'tool.start':
     case 'tool.generating':
     case 'tool.progress':
-    case 'tool.complete':
     case 'tool.failed':
     case 'step.complete':
     case 'usage.summary': {
@@ -150,10 +156,61 @@ getWsClient().addEventListener((eventName: string, data: unknown) => {
       });
       break;
     }
+    // ── 进程生命周期事件：即时刷新后台进程状态（对齐 Hermes gateway-event 里
+    //    tool.complete 后 refreshBackgroundProcesses 的触发点；无 process.start 事件
+    //    （Hermes 同），进程启动由 5s 全量轮询兜底） ──
+    case 'tool.complete': {
+      patch(sid, { running: true, stalled: false, lastActive: Date.now() });
+      armWatchdog(sid);
+      void refreshBackgroundStatus();
+      break;
+    }
+    case 'terminal.close':
+      void refreshBackgroundStatus();
+      break;
     default:
       break;
   }
 });
+
+// ── 后台进程状态：单点全量轮询（对齐 Hermes status-stack 5s 轮询语义；
+//    全量查询一次覆盖所有会话，避免 per-session N 请求） ──
+
+interface ProcessEntry {
+  session_id?: string;
+  status?: string;
+}
+
+async function refreshBackgroundStatus(): Promise<void> {
+  try {
+    const data = await call('process_list', {}) as { processes?: ProcessEntry[] } | null;
+    if (!data?.processes) return;
+    const runningIds = new Set(
+      data.processes.filter((p) => p.status === 'running' && p.session_id).map((p) => p.session_id as string),
+    );
+    const known = new Set(Object.keys(states));
+    for (const sid of known) {
+      patch(sid, { background: runningIds.has(sid) });
+    }
+    // 进程归属的会话可能不在本地列表（未加载）——仍收录，供后续行挂载时即时呈现
+    for (const sid of runningIds) {
+      if (!known.has(sid)) {
+        patch(sid, { background: true });
+      }
+    }
+  } catch {
+    // WS 未连接/暂不可用：下轮重试（对齐 Hermes 瞬态 socket loss 重试语义）
+  }
+}
+
+let pollStarted = false;
+function ensureBackgroundPolling(): void {
+  if (pollStarted) return;
+  pollStarted = true;
+  void refreshBackgroundStatus();
+  setInterval(() => void refreshBackgroundStatus(), BACKGROUND_POLL_MS);
+}
+ensureBackgroundPolling();
 
 /** 会话被打开时清除 unread（对齐 Hermes：打开即已读；UI 切换会话处调用） */
 export function markSessionRead(sessionId: string): void {

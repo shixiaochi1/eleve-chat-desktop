@@ -3,13 +3,15 @@
  *
  * 纯函数：互斥展示态优先级解析。Hermes 原注释：
  * "Resolve the sidebar dot's mutually-exclusive display state by priority."
- * ELEVE 无 background 态（无 process→session 事件源，见 store/session-status.ts），
- * 6 态 → 5 态：needs-input > working/stalled > unread > idle。
+ * 6 态全对齐：needs-input > working/stalled > background > unread > idle。
+ * background 数据源 = process.list 全量轮询（store/session-status.ts），
+ * Hermes 用 per-session 轮询，ELEVE 单点全量（同语义更省请求）。
  */
 
-export type SessionDotState = 'needs-input' | 'working' | 'stalled' | 'unread' | 'idle';
+export type SessionDotState = 'needs-input' | 'working' | 'stalled' | 'background' | 'unread' | 'idle';
 
 export interface SessionRowState {
+  hasBackground: boolean;
   isStalled: boolean;
   isUnread: boolean;
   isWorking: boolean;
@@ -17,6 +19,7 @@ export interface SessionRowState {
 }
 
 export function sessionDotState({
+  hasBackground,
   isStalled,
   isUnread,
   isWorking,
@@ -28,6 +31,10 @@ export function sessionDotState({
 
   if (isWorking) {
     return isStalled ? 'stalled' : 'working';
+  }
+
+  if (hasBackground) {
+    return 'background';
   }
 
   return isUnread ? 'unread' : 'idle';
