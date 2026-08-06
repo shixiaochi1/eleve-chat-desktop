@@ -11,7 +11,7 @@
  * 管理：显式项目可新建/编辑（名称+主题色）/添加文件夹/归档——接线后端
  *   projects.create/update/add_folder/set_primary/archive CRUD（对齐 Hermes 桌面端项目管理）。
  */
-import { useState, useEffect, useCallback, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, RefreshCw, Plus, MoreVertical, Pencil, FolderPlus, CheckCircle2, Copy, Trash2 } from 'lucide-react';
 import { isTauri } from '@tauri-apps/api/core';
 import { cn } from '@/lib/utils';
@@ -22,6 +22,8 @@ import { PROJECT_ICON_KEYS, projectIconFor } from '../lib/project-icons';
 import { getDismissedAutoProjectIds, dismissAutoProject } from '../lib/dismissed-projects';
 import { mergeWorktreeLanes } from '../lib/worktree-lanes';
 import { getDismissedWorktrees, dismissWorktree } from '../lib/dismissed-worktrees';
+import { useWorkspaceNodeOpen } from '../lib/sidebar-node-open';
+import { getProjectOrderIds, setProjectOrderIds, orderProjectsByIds } from '../lib/project-order';
 import { gitWorktreeList, gitWorktreeRemove, type HermesGitWorktree } from '../lib/git';
 import { WorktreeDialog } from './worktree/WorktreeDialog';
 import { notifySuccess, notifyError } from '../utils/notifications';
@@ -98,25 +100,6 @@ interface ProjectTreePanelProps {
 
 // ── 辅助 ──
 
-// 总览排序（对齐 Hermes sortProjectsForOverview）：激活项目置顶（仅显式）→
-// 显式先于自动 → 有会话先于无会话 → 最近活跃 → 名称（不区分大小写）。
-// ELEVE 总览模式 lane.sessions 恒空 → 项目活跃时间 = lastActive（Hermes
-// projectActivityTime 的 session 兜底分支无数据，跳过）。无 isNoProject 桶。
-function sortProjectsForOverview(projects: ProjectNode[], activeProjectId?: string | null): ProjectNode[] {
-  return [...projects].sort((a, b) => {
-    const aActive = Boolean(activeProjectId && a.id === activeProjectId && !a.isAuto);
-    const bActive = Boolean(activeProjectId && b.id === activeProjectId && !b.isAuto);
-    if (aActive !== bActive) return aActive ? -1 : 1;
-    if (!a.isAuto !== !b.isAuto) return a.isAuto ? 1 : -1;
-    const aHasSessions = a.sessionCount > 0;
-    const bHasSessions = b.sessionCount > 0;
-    if (aHasSessions !== bHasSessions) return aHasSessions ? -1 : 1;
-    const recency = (b.lastActive || 0) - (a.lastActive || 0);
-    if (recency !== 0) return recency;
-    return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
-  });
-}
-
 function fmtTime(ts: number): string {
   if (!ts) return '';
   const d = new Date(ts * 1000);
@@ -171,19 +154,26 @@ function SessionItem({ s, isActive, onClick }: { s: SessionPreview; isActive: bo
   );
 }
 
+// lane 会话分页（对齐 Hermes SIDEBAR_GROUP_PAGE=5：已加载行分批显示）
+const SHOW_MORE_PAGE = 5;
+
 function LaneNode({ lane, sessionId, onSwitchSession, onReveal, onCopyPath, onRemoveWorktree }: { lane: LaneGroup; sessionId?: string; onSwitchSession?: (id: string) => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void }) {
-  const [expanded, setExpanded] = useState(false);
+  // 展开状态持久化（对齐 Hermes useWorkspaceNodeOpen；lane 默认折叠）
+  const [expanded, toggleExpanded] = useWorkspaceNodeOpen(lane.id, false);
+  // 会话分页：初始 5 条，点「显示更多」+5（对齐 Hermes WorkspaceShowMoreButton）
+  const [visibleCount, setVisibleCount] = useState(SHOW_MORE_PAGE);
   const hasSessions = lane.sessions.length > 0;
   // 仅 linked worktree lane 可移除（主检出/kanban 聚合无单一目标；对齐 Hermes WorkspaceMenu）
   const removable = !lane.isMain && !lane.isKanban && !!lane.path && !!onRemoveWorktree;
+  const visible = lane.sessions.slice(0, visibleCount);
 
   return (
     <div>
       <div
         className="flex items-center gap-1.5 pl-6 pr-3 py-1 cursor-pointer hover:bg-accent/20 text-xs group/lane"
-        onClick={() => hasSessions && setExpanded(!expanded)}
+        onClick={() => { if (hasSessions) toggleExpanded(); setVisibleCount(SHOW_MORE_PAGE); }}
       >
-        {hasSessions ? <TreeToggle expanded={expanded} onClick={() => setExpanded(!expanded)} /> : <span className="w-3.5" />}
+        {hasSessions ? <TreeToggle expanded={expanded} onClick={() => { toggleExpanded(); setVisibleCount(SHOW_MORE_PAGE); }} /> : <span className="w-3.5" />}
         {lane.isKanban ? <Blocks size={12} className="text-info" /> : <GitBranch size={12} className="text-muted-foreground" />}
         <span className="truncate flex-1" title={lane.path || lane.label}>{lane.label}</span>
         {lane.sessions.length > 0 && <span className="text-[10px] text-muted-foreground">{lane.sessions.length}</span>}
@@ -217,24 +207,33 @@ function LaneNode({ lane, sessionId, onSwitchSession, onReveal, onCopyPath, onRe
           </DropdownMenu>
         )}
       </div>
-      {expanded && lane.sessions.map(s => (
+      {expanded && visible.map(s => (
         <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => onSwitchSession?.(s.id)} />
       ))}
+      {expanded && lane.sessions.length > visible.length && (
+        <button
+          className="ml-7 pl-2 pr-3 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:underline"
+          onClick={() => setVisibleCount(c => c + SHOW_MORE_PAGE)}
+        >
+          显示更多（{lane.sessions.length - visible.length}）
+        </button>
+      )}
     </div>
   );
 }
 
 function RepoNodeItem({ repo, sessionId, onSwitchSession, onStartWork, onReveal, onCopyPath, onRemoveWorktree, lanes, defaultExpanded = false }: { repo: RepoNode; sessionId?: string; onSwitchSession?: (id: string) => void; onStartWork?: (repoPath: string) => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void; /** 合并 git worktree 后的 lane 列表（对齐 Hermes mergeRepoWorktreeGroups 输出） */
   lanes: LaneGroup[]; defaultExpanded?: boolean }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  // 展开状态持久化（对齐 Hermes useWorkspaceNodeOpen；repo 默认展开）
+  const [expanded, toggleExpanded] = useWorkspaceNodeOpen(repo.id, defaultExpanded);
 
   return (
     <div>
       <div
         className="flex items-center gap-1.5 pl-4 pr-3 py-1 cursor-pointer hover:bg-accent/20 text-xs group/workspace"
-        onClick={() => setExpanded(!expanded)}
+        onClick={toggleExpanded}
       >
-        <TreeToggle expanded={expanded} onClick={() => setExpanded(!expanded)} />
+        <TreeToggle expanded={expanded} onClick={toggleExpanded} />
         <FolderGit size={13} className="text-muted-foreground shrink-0" />
         <span className="truncate flex-1 font-medium" title={repo.path}>{repo.label}</span>
         <span className="text-[10px] text-muted-foreground">{repo.sessionCount}</span>
@@ -366,7 +365,7 @@ function projectMenuSpecs(project: ProjectNode, h: {
   ];
 }
 
-function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, onNewSession, isActiveProject, desktop }: {
+function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, onNewSession, isActiveProject, desktop, isDragging, isDragOver, onRowDragStart, onRowDragOver, onRowDrop, onRowDragEnd }: {
   project: ProjectNode;
   sessionId?: string;
   onSwitchSession?: (id: string) => void;
@@ -381,8 +380,16 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onA
   onNewSession?: (path: string) => void;
   isActiveProject: boolean;
   desktop: boolean;
+  // ── 拖拽排序（对齐 Hermes reorderable overview-row）──
+  isDragging?: boolean;
+  isDragOver?: boolean;
+  onRowDragStart?: (id: string) => void;
+  onRowDragOver?: (id: string) => void;
+  onRowDrop?: (id: string) => void;
+  onRowDragEnd?: () => void;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  // 展开状态持久化（对齐 Hermes useWorkspaceNodeOpen；项目行默认展开）
+  const [expanded, toggleExpanded] = useWorkspaceNodeOpen(project.id, true);
   const previews = project.previewSessions ?? [];
   const specs = projectMenuSpecs(project, { onSetActive, onEdit, onAddFolder, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop });
   const path = project.path || '';
@@ -414,11 +421,20 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onA
 
   const row = (
     <div
-      className="flex items-center gap-1.5 pl-3 pr-3 py-2 cursor-pointer hover:bg-accent/20 text-sm group/workspace"
+      className={cn(
+        'flex items-center gap-1.5 pl-3 pr-3 py-2 cursor-pointer hover:bg-accent/20 text-sm group/workspace transition-colors',
+        isDragging && 'opacity-40',
+        isDragOver && 'bg-accent/30',
+      )}
       onClick={() => onDrill(project)}
+      draggable={!!onRowDragStart}
+      onDragStart={(e) => { if (onRowDragStart) { e.dataTransfer.effectAllowed = 'move'; onRowDragStart(project.id); } }}
+      onDragOver={(e) => { if (onRowDragOver) { e.preventDefault(); onRowDragOver(project.id); } }}
+      onDrop={(e) => { if (onRowDrop) { e.preventDefault(); onRowDrop(project.id); } }}
+      onDragEnd={onRowDragEnd}
       title={path ? `${path} — 点击进入项目（完整 Repo/Lane 树）` : '点击进入项目（完整 Repo/Lane 树）'}
     >
-      <TreeToggle expanded={expanded} onClick={() => setExpanded(!expanded)} />
+      <TreeToggle expanded={expanded} onClick={toggleExpanded} />
       <ProjectLeadIcon project={project} />
       <span className="truncate flex-1 font-medium">{project.label}</span>
       {/* 激活项目标记（对齐 Hermes overview-row isActive 高亮） */}
@@ -489,6 +505,9 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
   const [name, setName] = useState('');
   const [color, setColor] = useState(AGENT_PALETTE[0]);
   const [icon, setIcon] = useState<string | null>(null);
+  // 新建模式：多文件夹（对齐 Hermes project-dialog：folders 列表 + primary badge + 移除）；
+  // 编辑模式：单主文件夹（folder，走 set_primary 更换）
+  const [folders, setFolders] = useState<string[]>([]);
   const [folder, setFolder] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
@@ -499,6 +518,7 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
       setName(initial?.label ?? '');
       setColor(initial?.color || AGENT_PALETTE[0]);
       setIcon(initial?.icon ?? null);
+      setFolders(initial?.path ? [initial.path] : []);
       setFolder(initial?.path ?? '');
       setConfirmArchive(false);
     }
@@ -513,11 +533,13 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
       try {
         await call('projects_set_primary', { id: initial.id, path, profile });
         setFolder(path);
+        setFolders([path]);
         notifySuccess('主文件夹已更新');
         onSaved();
       } catch (e) { notifyError(e, '更新文件夹失败'); }
     } else {
-      setFolder(path);
+      // 新建模式：追加到多文件夹列表（去重；首个 = primary）
+      setFolders(prev => (prev.includes(path) ? prev : [...prev, path]));
     }
   }, [desktop, initial, onSaved, profile]);
 
@@ -544,7 +566,7 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
           name: name.trim(),
           color,
           ...(icon ? { icon } : {}),
-          ...(folder ? { folders: [folder], primary_path: folder } : {}),
+          ...(folders.length > 0 ? { folders, primary_path: folders[0] } : {}),
           profile,
         });
         notifySuccess('项目已创建');
@@ -556,7 +578,7 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
     } finally {
       setSaving(false);
     }
-  }, [name, color, icon, folder, initial, onSaved, onClose, profile]);
+  }, [name, color, icon, folders, folder, initial, onSaved, onClose, profile]);
 
   // 归档两步确认（防误触）
   const archive = useCallback(async () => {
@@ -645,27 +667,74 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
             {icon && <button className="mt-1 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setIcon(null)}>清除图标</button>}
           </div>
 
-          {/* 文件夹 */}
+          {/* 文件夹（对齐 Hermes project-dialog：新建多文件夹列表 + primary badge + 移除） */}
           <div>
             <label className="block text-xs text-muted-foreground mb-1">
-              {initial ? '主文件夹' : '项目文件夹（可选）'}
+              {initial ? '主文件夹' : '项目文件夹'}
             </label>
-            <div className="flex items-center gap-1.5">
-              <span
-                className="flex-1 truncate rounded-md border border-border bg-muted/30 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground"
-                title={folder || undefined}
-              >
-                {folder || '未选择 — 可稍后从项目菜单添加'}
-              </span>
-              <button
-                className="h-7 shrink-0 rounded-md border border-border px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
-                onClick={pickFolder}
-                disabled={!desktop}
-                title={desktop ? '原生文件夹选择' : '仅桌面端可用'}
-              >
-                {initial ? '更换' : '选择'}
-              </button>
-            </div>
+            {initial ? (
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="flex-1 truncate rounded-md border border-border bg-muted/30 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground"
+                  title={folder || undefined}
+                >
+                  {folder || '未选择 — 可稍后从项目菜单添加'}
+                </span>
+                <button
+                  className="h-7 shrink-0 rounded-md border border-border px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+                  onClick={pickFolder}
+                  disabled={!desktop}
+                  title={desktop ? '原生文件夹选择' : '仅桌面端可用'}
+                >
+                  更换
+                </button>
+              </div>
+            ) : folders.length === 0 ? (
+              <div className="flex items-center gap-1.5">
+                <span className="flex-1 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                  未选择文件夹 — 可稍后从项目菜单添加
+                </span>
+                <button
+                  className="h-7 shrink-0 rounded-md border border-border px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+                  onClick={pickFolder}
+                  disabled={!desktop}
+                  title={desktop ? '原生文件夹选择' : '仅桌面端可用'}
+                >
+                  选择
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {folders.map((f, i) => (
+                  <div key={f} className="flex items-center gap-1.5">
+                    <span
+                      className="flex-1 truncate rounded-md border border-border bg-muted/30 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground"
+                      title={f}
+                    >
+                      {f}
+                    </span>
+                    {i === 0 && (
+                      <span className="shrink-0 rounded bg-primary/15 px-1 py-0.5 text-[9px] text-primary">主</span>
+                    )}
+                    <button
+                      className="shrink-0 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                      onClick={() => setFolders(prev => prev.filter(x => x !== f))}
+                      title="移除文件夹"
+                    >
+                      移除
+                    </button>
+                  </div>
+                ))}
+                <button
+                  className="self-start rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+                  onClick={pickFolder}
+                  disabled={!desktop}
+                  title={desktop ? '原生文件夹选择' : '仅桌面端可用'}
+                >
+                  + 添加文件夹
+                </button>
+              </div>
+            )}
           </div>
 
           {/* 归档危险区（仅显式项目编辑模式；自动项目无记录不可归档） */}
@@ -720,7 +789,43 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
   const [editing, setEditing] = useState<ProjectNode | null>(null);
   const [deleting, setDeleting] = useState<ProjectNode | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  // 拖拽排序（对齐 Hermes $sidebarProjectOrderIds + orderProjectsByIds）
+  const [projectOrder, setProjectOrder] = useState<string[]>(() => getProjectOrderIds());
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const desktop = isTauri();
+
+  // 渲染列表：手排 order 覆盖在确定性排序之上（对齐 Hermes orderProjectsByIds）
+  const orderedProjects = useMemo(
+    () => (tree ? orderProjectsByIds(tree.projects, projectOrder, tree.active_id) : []),
+    [tree, projectOrder],
+  );
+
+  // ── 拖拽排序 handlers（对齐 Hermes setOrderIds：手排 order 持久化）──
+  const handleRowDragStart = useCallback((id: string) => setDragId(id), []);
+  const handleRowDragOver = useCallback((id: string) => setDragOverId(id), []);
+  const handleRowDrop = useCallback((targetId: string) => {
+    setDragOverId(null);
+    if (!dragId || dragId === targetId) {
+      setDragId(null);
+      return;
+    }
+    // 基准 = 当前 order（无则当前渲染顺序）——首次拖拽从确定性排序起步
+    const base = projectOrder.length ? projectOrder : orderedProjects.map(p => p.id);
+    const ids = [...base];
+    const from = ids.indexOf(dragId);
+    if (from >= 0) ids.splice(from, 1);
+    const to = ids.indexOf(targetId);
+    if (to >= 0) ids.splice(to, 0, dragId);
+    else ids.push(dragId);
+    setProjectOrder(ids);
+    setProjectOrderIds(ids);
+    setDragId(null);
+  }, [dragId, projectOrder, orderedProjects]);
+  const handleRowDragEnd = useCallback(() => {
+    setDragId(null);
+    setDragOverId(null);
+  }, []);
 
   const fetchTree = useCallback(async (silent = false) => {
     try {
@@ -1013,8 +1118,8 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
                 {tree.projects.length === 0 ? (
                   <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground p-4">暂无项目</div>
                 ) : (
-                  // 🔴 总览排序（对齐 Hermes sortProjectsForOverview）：激活置顶→显式→有会话→活跃→名称
-                  sortProjectsForOverview(tree.projects, tree.active_id).map(p => (
+                  // 🔴 总览排序（对齐 Hermes orderProjectsByIds：手排 order + 确定性排序兜底）
+                  orderedProjects.map(p => (
                     <ProjectItem
                       key={p.id}
                       project={p}
@@ -1031,6 +1136,12 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
                       onNewSession={onNewSessionInProject}
                       isActiveProject={tree.active_id === p.id}
                       desktop={desktop}
+                      isDragging={dragId === p.id}
+                      isDragOver={dragOverId === p.id}
+                      onRowDragStart={handleRowDragStart}
+                      onRowDragOver={handleRowDragOver}
+                      onRowDrop={handleRowDrop}
+                      onRowDragEnd={handleRowDragEnd}
                     />
                   ))
                 )}
