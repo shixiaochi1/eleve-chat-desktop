@@ -16,8 +16,8 @@ import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import { Skeleton } from './ui/skeleton';
-import { deleteSession, undoSessionTurn, compressSession, branchSession, getSessionUsage } from '../utils/api';
-import { call } from '../utils/bridge';
+import { undoSessionTurn, compressSession, branchSession, getSessionUsage } from '../utils/api';
+import { deleteSessionAction, renameSessionAction, toggleArchiveSession, exportSessionAction, copySessionId } from '../lib/session-actions';
 import * as storage from '../utils/storage';
 import { notifyError, notifySuccess, notifyInfo } from '../utils/notifications';
 import type { Session } from '@/types';
@@ -258,10 +258,7 @@ export default function SessionsPanel({
 
   const handleDelete = async (s: Session) => {
     const id = s.id || s as any;
-    try {
-      await deleteSession(id);
-      onDeleteSession?.(id);
-    } catch { /* ignore */ }
+    await deleteSessionAction(id, (deletedId) => onDeleteSession?.(deletedId));
   };
 
   // ── 置顶 ──
@@ -276,18 +273,13 @@ export default function SessionsPanel({
   // ── 归档 ──
   const toggleArchive = useCallback(async (id: string) => {
     const isArchived = archivedIds.has(id);
-    try {
-      isArchived
-        ? await call('unarchive_session', { session_id: id })
-        : await call('archive_session', { session_id: id });
+    const next = await toggleArchiveSession(id, isArchived);
+    if (next !== isArchived) {
       setArchivedIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(id)) next.delete(id); else next.add(id);
-        return next;
+        const n = new Set(prev);
+        if (n.has(id)) n.delete(id); else n.add(id);
+        return n;
       });
-      notifySuccess(isArchived ? '已取消归档' : '已归档');
-    } catch {
-      notifyInfo(isArchived ? '取消归档失败' : '归档失败，请重试');
     }
   }, [archivedIds]);
 
@@ -334,40 +326,19 @@ export default function SessionsPanel({
 
   // ── 重命名 ──
   const handleRename = useCallback(async (id: string, newTitle: string) => {
-    try {
-      await call('rename_session', { session_id: id, title: newTitle });
-      notifySuccess('已重命名');
-    } catch {
-      notifyInfo('重命名已保存（本地）');
-    }
     // 🔴 不 mutate prop（sessionTitles 是 useSessions 的 state 对象）——走 onRenameTitle 不可变更新
-    onRenameTitle?.(id, newTitle);
+    await renameSessionAction(id, newTitle, (sid, t) => onRenameTitle?.(sid, t));
     setRenameTarget(null);
   }, [onRenameTitle]);
 
   // ── 导出 ──
-  const handleExport = useCallback(async (id: string, title: string) => {
-    try {
-      const data = await call('export_session', { session_id: id });
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${(title || id).replace(/[^a-zA-Z0-9\u4e00-\u9fff-_ ]/g, '_')}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      notifySuccess('已导出会话');
-    } catch (err: unknown) {
-      notifyError((err as Error).message || err, '导出失败');
-    }
+  const handleExport = useCallback((id: string, title: string) => {
+    return exportSessionAction(id, title);
   }, []);
 
   // ── 复制 ID ──
   const handleCopyId = useCallback((id: string) => {
-    navigator.clipboard.writeText(id).then(
-      () => notifySuccess('已复制 ID'),
-      () => notifyError('复制失败', '无法复制')
-    );
+    return copySessionId(id);
   }, []);
 
   // ── 右键菜单 ──
@@ -404,7 +375,7 @@ export default function SessionsPanel({
     if (selectedIds.size === 0) return;
     if (!window.confirm(`确认删除 ${selectedIds.size} 个会话？此操作不可撤销。`)) return;
     for (const id of selectedIds) {
-      try { await deleteSession(id); onDeleteSession?.(id); } catch { /* ignore */ }
+      await deleteSessionAction(id, (deletedId) => onDeleteSession?.(deletedId));
     }
     setSelectedIds(new Set());
     setBatchMode(false);
