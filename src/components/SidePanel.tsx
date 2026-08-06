@@ -60,6 +60,8 @@ interface SidePanelProps {
   onNewSession?: () => void;
   isStreaming?: boolean;
   messageCount?: number;
+  /** 🔴 在该项目新建会话（对齐 Hermes onNewSessionInWorkspace）：ProjectTreePanel 项目行 + 按钮 → App 创建带 cwd 会话 */
+  onNewSessionInProject?: (cwd: string) => void;
 }
 
 export default function SidePanel({ activePanel, onPanelChange, ...props }: SidePanelProps) {

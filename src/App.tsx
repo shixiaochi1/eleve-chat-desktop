@@ -23,8 +23,9 @@ import * as storage from './utils/storage';
 import { loadSettingsFromRust } from './utils/settings-store';
 import { discoverPort, call, isDesktop } from './utils/bridge';
 import { getActiveProfile, fetchProfiles } from './utils/api';
-import { getWsClient, setWsActiveProfile } from './services/ws-client';
+import { getWsClient, setWsActiveProfile, type SessionCreateResponse } from './services/ws-client';
 import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer, loadProfilePointers, saveProfilePointer, removeProfilePointer } from './utils/session';
+import { notifyError } from './utils/notifications';
 import type { ChatMessage } from './types';
 import { Minus, Square, X } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -675,6 +676,25 @@ export default function App() {
     handleNewSession();
   }, [viewMode, currentProfile, handleNewSession]);
 
+  // 🔴 P1-2: 在该项目新建会话（对齐 Hermes goToProject newSession → requestStartWorkSession(cwd)）：
+  // 立即创建带 cwd 的会话（后端 session.create 写入 cwd 烙印 → resolve_session_cwd 生效），
+  // 再切到新会话（复用 handleSwitchSession 完整切换链，不另起炉灶）。
+  const handleNewSessionInProject = useCallback(async (cwd: string) => {
+    try {
+      const res = await getWsClient().sessionCreate({ profile: currentProfile, cwd });
+      const sid = (res as SessionCreateResponse | null)?.session_id;
+      if (!sid) throw new Error('创建会话失败');
+      if (viewMode === 'grid') {
+        gridRef.current?.switchToSession(currentProfile, sid);
+      } else {
+        await handleSwitchSession(sid);
+      }
+      setSessionListVersion(v => v + 1);
+    } catch (e) {
+      notifyError(e, '新建会话失败');
+    }
+  }, [currentProfile, viewMode, handleSwitchSession]);
+
   // 🔴 P2-6: 宫格模式侧栏“删除会话”路由进宫格（删后自动加载同 Agent 最新剩余会话，无则显示空态）
   const gridAwareDeleteSession = useCallback((id: string) => {
     handleDeleteSession(id);
@@ -1167,6 +1187,7 @@ export default function App() {
                   onNewSession={gridAwareNewSession}
                   isStreaming={isStreaming}
                   messageCount={messageCount}
+                  onNewSessionInProject={handleNewSessionInProject}
                 />
             </div>
             )}

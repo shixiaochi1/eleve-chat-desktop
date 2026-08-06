@@ -123,6 +123,68 @@ function parentOf(path: string): string | null {
  * 文件树节点渲染
  */
 /**
+ * 行内重命名输入（对齐 Hermes InlineRenameInput）：
+ * - done latch：Enter 提交后 blur 不二次提交（旧实现 Enter→blur 双提交 →
+ *   旧路径+新名二次 rename 报错）
+ * - mountedAt 250ms 防抖：菜单关闭/焦点回流在挂载后 250ms 内不 blur 误提交，
+ *   抢回焦点（右键菜单 onCloseAutoFocus preventDefault 之外的第二道防线）
+ * - stem 预选（不含扩展名，VS Code 语义）
+ */
+function InlineRenameInput({ name, path, onCommit, onCancel }: {
+  name: string;
+  path: string;
+  onCommit: (path: string, newName: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(name);
+  const done = useRef(false);
+  const mountedAt = useRef(Date.now());
+
+  const finish = (commit: boolean) => {
+    if (done.current) return;
+    done.current = true;
+    if (commit) onCommit(path, value);
+    else onCancel();
+  };
+
+  return (
+    <input
+      autoFocus
+      spellCheck={false}
+      autoCapitalize="off"
+      autoCorrect="off"
+      className="flex-1 min-w-0 rounded border border-primary bg-background px-1 text-xs text-foreground outline-none"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onFocus={(e) => {
+        // 对齐 Hermes InlineRenameInput：stem 预选（不含扩展名），VS Code 语义
+        const dot = e.currentTarget.value.lastIndexOf('.');
+        e.currentTarget.setSelectionRange(0, dot > 0 ? dot : e.currentTarget.value.length);
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          finish(true);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          finish(false);
+        }
+      }}
+      onBlur={(e) => {
+        if (Date.now() - mountedAt.current < 250) {
+          e.currentTarget.focus();
+          return;
+        }
+        finish(true);
+      }}
+    />
+  );
+}
+
+/**
  * FileRow — 虚拟滚动单行（对齐 Hermes ProjectTreeRow；占位行不可交互）
  */
 function FileRow({
@@ -248,27 +310,7 @@ function FileRow({
 
       {/* 文件名 / 重命名输入框 — min-w-0 必带（flex item 默认 min-width:auto） */}
       {renaming ? (
-        <input
-          autoFocus
-          className="flex-1 min-w-0 rounded border border-primary bg-background px-1 text-xs text-foreground outline-none"
-          defaultValue={row.name}
-          onClick={(e) => e.stopPropagation()}
-          onFocus={(e) => {
-            // 对齐 Hermes InlineRenameInput：stem 预选（不含扩展名），VS Code 语义
-            const dot = e.currentTarget.value.lastIndexOf('.');
-            e.currentTarget.setSelectionRange(0, dot > 0 ? dot : e.currentTarget.value.length);
-          }}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === 'Enter') {
-              onRenameCommit(row.path, e.currentTarget.value);
-            } else if (e.key === 'Escape') {
-              e.currentTarget.value = row.name;
-              onRenameCancel();
-            }
-          }}
-          onBlur={(e) => onRenameCommit(row.path, e.currentTarget.value)}
-        />
+        <InlineRenameInput name={row.name} path={row.path} onCommit={onRenameCommit} onCancel={onRenameCancel} />
       ) : (
         <span
           className={cn(

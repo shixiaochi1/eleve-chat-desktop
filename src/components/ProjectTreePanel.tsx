@@ -11,20 +11,25 @@
  * 管理：显式项目可新建/编辑（名称+主题色）/添加文件夹/归档——接线后端
  *   projects.create/update/add_folder/set_primary/archive CRUD（对齐 Hermes 桌面端项目管理）。
  */
-import { useState, useEffect, useCallback } from 'react';
-import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, RefreshCw, Plus, MoreVertical, Pencil, FolderPlus, CheckCircle2 } from 'lucide-react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
+import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, RefreshCw, Plus, MoreVertical, Pencil, FolderPlus, CheckCircle2, Copy, Trash2 } from 'lucide-react';
 import { isTauri } from '@tauri-apps/api/core';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
 import { getWsClient } from '../services/ws-client';
 import { AGENT_PALETTE } from '../lib/agent-palette';
+import { PROJECT_ICON_KEYS, projectIconFor } from '../lib/project-icons';
+import { getDismissedAutoProjectIds, dismissAutoProject } from '../lib/dismissed-projects';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from './ui/dialog';
+import {
+  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger,
+} from './ui/context-menu';
 
 // ── 类型定义（与后端 JSON 输出严格对齐）──
 
@@ -82,9 +87,31 @@ interface ProjectTreePanelProps {
   /** 当前活动 Agent（SidePanel 透传）——🔴 所有 projects.* RPC 显式携带，
    *  不依赖 sendRpc 全局盖章（宫格焦点冒泡时序坑，对齐 ClarifyCard 显式归属模式） */
   currentProfile?: string;
+  /** 🔴 在该项目新建会话（对齐 Hermes onNewSessionInWorkspace → goToProject newSession）：
+   *  项目行 hover + → 创建带 cwd 的新会话并切换（App 层接线） */
+  onNewSessionInProject?: (cwd: string) => void;
 }
 
 // ── 辅助 ──
+
+// 总览排序（对齐 Hermes sortProjectsForOverview）：激活项目置顶（仅显式）→
+// 显式先于自动 → 有会话先于无会话 → 最近活跃 → 名称（不区分大小写）。
+// ELEVE 总览模式 lane.sessions 恒空 → 项目活跃时间 = lastActive（Hermes
+// projectActivityTime 的 session 兜底分支无数据，跳过）。无 isNoProject 桶。
+function sortProjectsForOverview(projects: ProjectNode[], activeProjectId?: string | null): ProjectNode[] {
+  return [...projects].sort((a, b) => {
+    const aActive = Boolean(activeProjectId && a.id === activeProjectId && !a.isAuto);
+    const bActive = Boolean(activeProjectId && b.id === activeProjectId && !b.isAuto);
+    if (aActive !== bActive) return aActive ? -1 : 1;
+    if (!a.isAuto !== !b.isAuto) return a.isAuto ? 1 : -1;
+    const aHasSessions = a.sessionCount > 0;
+    const bHasSessions = b.sessionCount > 0;
+    if (aHasSessions !== bHasSessions) return aHasSessions ? -1 : 1;
+    const recency = (b.lastActive || 0) - (a.lastActive || 0);
+    if (recency !== 0) return recency;
+    return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+  });
+}
 
 function fmtTime(ts: number): string {
   if (!ts) return '';
@@ -183,63 +210,214 @@ function RepoNodeItem({ repo, sessionId, onSwitchSession, defaultExpanded = fals
   );
 }
 
-function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onAddFolder, onSetActive, isActiveProject, desktop }: { project: ProjectNode; sessionId?: string; onSwitchSession?: (id: string) => void; onDrill: (p: ProjectNode) => void; onEdit: (p: ProjectNode) => void; onAddFolder: (p: ProjectNode) => void; onSetActive: (p: ProjectNode) => void; isActiveProject: boolean; desktop: boolean }) {
+// 项目行前置图标（对齐 Hermes projectIcon）：icon → 图标（color 着色）；
+// 无 icon 有 color → 纯色点；都无 → 默认 folder-library 图标
+function ProjectLeadIcon({ project }: { project: ProjectNode }) {
+  if (project.color && !project.icon) {
+    return <div className="w-3 h-3 rounded-full shrink-0" style={{ background: project.color }} />;
+  }
+  const Icon = projectIconFor(project.icon);
+  return (
+    <Icon
+      size={14}
+      className="shrink-0"
+      style={project.color ? { color: project.color } : undefined}
+    />
+  );
+}
+
+// ── 项目菜单规格（对齐 Hermes useProjectActions：kebab 与右键共享同一套 action）──
+// 显式项目：设激活/编辑/加文件夹 + reveal/复制路径 + 删除（确认）
+// 自动项目：编辑(=收养，Hermes appearance adopt 语义) + reveal/复制路径 + 从侧边栏移除(dismiss)
+interface ProjectMenuSpec {
+  key: string;
+  icon: React.ReactNode;
+  label: string;
+  disabled?: boolean;
+  danger?: boolean;
+  onSelect: () => void;
+}
+
+function projectMenuSpecs(project: ProjectNode, h: {
+  onSetActive: (p: ProjectNode) => void;
+  onEdit: (p: ProjectNode) => void;
+  onAddFolder: (p: ProjectNode) => void;
+  onReveal: (path: string) => void;
+  onCopyPath: (path: string) => void;
+  onDelete: (p: ProjectNode) => void;
+  onDismiss: (p: ProjectNode) => void;
+  isActiveProject: boolean;
+  desktop: boolean;
+}): ProjectMenuSpec[] {
+  const path = project.path || '';
+  const reveal = {
+    key: 'reveal',
+    icon: <FolderOpen size={12} className="shrink-0" />,
+    label: '在文件管理器中显示',
+    disabled: !path || !h.desktop,
+    onSelect: () => h.onReveal(path),
+  };
+  const copy = {
+    key: 'copy',
+    icon: <Copy size={12} className="shrink-0" />,
+    label: '复制路径',
+    disabled: !path,
+    onSelect: () => h.onCopyPath(path),
+  };
+
+  if (project.isAuto) {
+    // 自动项目：编辑 = 收养成显式项目（Hermes setProjectAppearance adopt）
+    return [
+      {
+        key: 'adopt',
+        icon: <Pencil size={12} className="shrink-0" />,
+        label: project.path ? '编辑外观/名称（设为显式项目）' : '编辑外观/名称',
+        disabled: !project.path,
+        onSelect: () => h.onEdit(project),
+      },
+      reveal,
+      copy,
+      {
+        key: 'dismiss',
+        icon: <Trash2 size={12} className="shrink-0" />,
+        label: '从侧边栏移除',
+        danger: true,
+        onSelect: () => h.onDismiss(project),
+      },
+    ];
+  }
+
+  return [
+    {
+      key: 'set-active',
+      icon: <CheckCircle2 size={12} className="shrink-0" />,
+      label: h.isActiveProject ? '当前激活项目' : '设为激活项目',
+      disabled: h.isActiveProject,
+      onSelect: () => h.onSetActive(project),
+    },
+    {
+      key: 'edit',
+      icon: <Pencil size={12} className="shrink-0" />,
+      label: '编辑名称/颜色/图标',
+      onSelect: () => h.onEdit(project),
+    },
+    {
+      key: 'add-folder',
+      icon: <FolderPlus size={12} className="shrink-0" />,
+      label: h.desktop ? '添加文件夹' : '添加文件夹（仅桌面端）',
+      disabled: !h.desktop,
+      onSelect: () => h.onAddFolder(project),
+    },
+    reveal,
+    copy,
+    {
+      key: 'delete',
+      icon: <Trash2 size={12} className="shrink-0" />,
+      label: '删除…',
+      danger: true,
+      onSelect: () => h.onDelete(project),
+    },
+  ];
+}
+
+function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, onNewSession, isActiveProject, desktop }: {
+  project: ProjectNode;
+  sessionId?: string;
+  onSwitchSession?: (id: string) => void;
+  onDrill: (p: ProjectNode) => void;
+  onEdit: (p: ProjectNode) => void;
+  onAddFolder: (p: ProjectNode) => void;
+  onSetActive: (p: ProjectNode) => void;
+  onReveal: (path: string) => void;
+  onCopyPath: (path: string) => void;
+  onDelete: (p: ProjectNode) => void;
+  onDismiss: (p: ProjectNode) => void;
+  onNewSession?: (path: string) => void;
+  isActiveProject: boolean;
+  desktop: boolean;
+}) {
   const [expanded, setExpanded] = useState(true);
   const previews = project.previewSessions ?? [];
+  const specs = projectMenuSpecs(project, { onSetActive, onEdit, onAddFolder, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop });
+  const path = project.path || '';
+
+  const kebab = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors opacity-0 group-hover/workspace:opacity-100 data-[state=open]:opacity-100"
+          onClick={(e) => e.stopPropagation()}
+          title="项目管理"
+        >
+          <MoreVertical size={13} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        {specs.map((s) => (
+          <Fragment key={s.key}>
+            {(s.key === 'reveal' || s.key === 'dismiss' || s.key === 'delete') && <DropdownMenuSeparator />}
+            <DropdownMenuItem disabled={s.disabled} onSelect={s.onSelect} className={s.danger ? 'text-destructive focus:text-destructive' : undefined}>
+              {s.icon}
+              <span className="flex-1">{s.label}</span>
+            </DropdownMenuItem>
+          </Fragment>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const row = (
+    <div
+      className="flex items-center gap-1.5 pl-3 pr-3 py-2 cursor-pointer hover:bg-accent/20 text-sm group/workspace"
+      onClick={() => onDrill(project)}
+      title={path ? `${path} — 点击进入项目（完整 Repo/Lane 树）` : '点击进入项目（完整 Repo/Lane 树）'}
+    >
+      <TreeToggle expanded={expanded} onClick={() => setExpanded(!expanded)} />
+      <ProjectLeadIcon project={project} />
+      <span className="truncate flex-1 font-medium">{project.label}</span>
+      {/* 激活项目标记（对齐 Hermes overview-row isActive 高亮） */}
+      {isActiveProject && (
+        <span className="text-[9px] px-1 py-0.5 rounded bg-primary/15 text-primary shrink-0" title="当前激活项目">激活</span>
+      )}
+      {project.sessionCount > 0 && (
+        <span className="text-[10px] text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">{project.sessionCount}</span>
+      )}
+      <span className="text-[10px] text-muted-foreground/50">{fmtTime(project.lastActive)}</span>
+      {/* 在该项目新建会话（对齐 Hermes WorkspaceAddButton：hover 显示 +） */}
+      {onNewSession && path && (
+        <button
+          className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors opacity-0 group-hover/workspace:opacity-100"
+          onClick={(e) => { e.stopPropagation(); onNewSession(path); }}
+          title={`在「${project.label}」中新建会话`}
+        >
+          <Plus size={13} />
+        </button>
+      )}
+      {kebab}
+    </div>
+  );
 
   return (
     <div className="border-b border-border/50">
-      {/* 项目行：点击钻取（全量 lane 树）；chevron 展开/收起预览 */}
-      <div
-        className="flex items-center gap-1.5 pl-3 pr-3 py-2 cursor-pointer hover:bg-accent/20 text-sm"
-        onClick={() => onDrill(project)}
-        title={project.path ? `${project.path} — 点击进入项目（完整 Repo/Lane 树）` : '点击进入项目（完整 Repo/Lane 树）'}
-      >
-        <TreeToggle expanded={expanded} onClick={() => setExpanded(!expanded)} />
-        {project.isAuto
-          ? <FolderOpen size={14} className="text-muted-foreground shrink-0" />
-          : <div className="w-3 h-3 rounded-full shrink-0" style={{ background: project.color || 'var(--ui-blue, #6366f1)' }} />
-        }
-        <span className="truncate flex-1 font-medium">{project.label}</span>
-        {/* 激活项目标记（对齐 Hermes overview-row isActive 高亮） */}
-        {isActiveProject && (
-          <span className="text-[9px] px-1 py-0.5 rounded bg-primary/15 text-primary shrink-0" title="当前激活项目">激活</span>
-        )}
-        {project.sessionCount > 0 && (
-          <span className="text-[10px] text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">{project.sessionCount}</span>
-        )}
-        <span className="text-[10px] text-muted-foreground/50">{fmtTime(project.lastActive)}</span>
-        {/* 显式项目管理菜单（自动项目由仓库派生，不可编辑） */}
-        {!project.isAuto && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors"
-                onClick={(e) => e.stopPropagation()}
-                title="项目管理"
+      {/* 右键菜单（对齐 Hermes ProjectContextMenu：与 kebab 同 action） */}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+        <ContextMenuContent onCloseAutoFocus={(e) => e.preventDefault()} className="w-52">
+          {specs.map((s) => (
+            <Fragment key={s.key}>
+              {(s.key === 'reveal' || s.key === 'dismiss' || s.key === 'delete') && <ContextMenuSeparator />}
+              <ContextMenuItem
+                disabled={s.disabled}
+                onSelect={s.onSelect}
+                className={s.danger ? 'text-destructive focus:text-destructive' : undefined}
               >
-                <MoreVertical size={13} />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              {/* 对齐 Hermes project-menu：设为激活项目（已激活时禁用） */}
-              <DropdownMenuItem disabled={isActiveProject} onSelect={() => onSetActive(project)}>
-                <CheckCircle2 size={12} className="shrink-0" />
-                <span className="flex-1">{isActiveProject ? '当前激活项目' : '设为激活项目'}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onEdit(project)}>
-                <Pencil size={12} className="shrink-0" />
-                <span className="flex-1">编辑名称/颜色</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={!desktop} onSelect={() => onAddFolder(project)}>
-                <FolderPlus size={12} className="shrink-0" />
-                <span className="flex-1">添加文件夹</span>
-                {!desktop && <span className="text-[10px] text-muted-foreground/50">仅桌面端</span>}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
+                {s.icon}
+                <span className="flex-1">{s.label}</span>
+              </ContextMenuItem>
+            </Fragment>
+          ))}
+        </ContextMenuContent>
+      </ContextMenu>
       {/* 总览预览：previewSessions（每项目 Top3 最近会话，对齐 Hermes PROJECT_PREVIEW_COUNT） */}
       {expanded && (previews.length > 0 ? (
         previews.map(s => (
@@ -264,6 +442,7 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
 }) {
   const [name, setName] = useState('');
   const [color, setColor] = useState(AGENT_PALETTE[0]);
+  const [icon, setIcon] = useState<string | null>(null);
   const [folder, setFolder] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
@@ -273,6 +452,7 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
     if (open) {
       setName(initial?.label ?? '');
       setColor(initial?.color || AGENT_PALETTE[0]);
+      setIcon(initial?.icon ?? null);
       setFolder(initial?.path ?? '');
       setConfirmArchive(false);
     }
@@ -299,13 +479,25 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
     if (!name.trim()) { notifyError(null, '请输入项目名称'); return; }
     setSaving(true);
     try {
-      if (initial) {
-        await call('projects_update', { id: initial.id, name: name.trim(), color, profile });
+      if (initial && !initial.isAuto) {
+        await call('projects_update', { id: initial.id, name: name.trim(), color, ...(icon ? { icon } : { icon: '' }), profile });
         notifySuccess('项目已更新');
+      } else if (initial) {
+        // 🔴 自动项目编辑 = 收养（对齐 Hermes setProjectAppearance adopt）：
+        // 无 projects.db 记录 → create 带外观 + 主文件夹（repo root）
+        await call('projects_create', {
+          name: name.trim(),
+          color,
+          ...(icon ? { icon } : {}),
+          ...(folder ? { folders: [folder], primary_path: folder } : {}),
+          profile,
+        });
+        notifySuccess('已设为显式项目');
       } else {
         await call('projects_create', {
           name: name.trim(),
           color,
+          ...(icon ? { icon } : {}),
           ...(folder ? { folders: [folder], primary_path: folder } : {}),
           profile,
         });
@@ -318,7 +510,7 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
     } finally {
       setSaving(false);
     }
-  }, [name, color, folder, initial, onSaved, onClose, profile]);
+  }, [name, color, icon, folder, initial, onSaved, onClose, profile]);
 
   // 归档两步确认（防误触）
   const archive = useCallback(async () => {
@@ -341,9 +533,11 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{initial ? '编辑项目' : '新建项目'}</DialogTitle>
+          <DialogTitle>{initial ? (initial.isAuto ? '设为显式项目' : '编辑项目') : '新建项目'}</DialogTitle>
           <DialogDescription>
-            会话的工作目录落在项目文件夹下即自动归入本项目（按 Repo/分支分组）
+            {initial?.isAuto
+              ? '自动项目由磁盘扫描派生，保存后将收养成显式项目（名称/颜色/图标可自定义）'
+              : '会话的工作目录落在项目文件夹下即自动归入本项目（按 Repo/分支分组）'}
           </DialogDescription>
         </DialogHeader>
 
@@ -376,6 +570,35 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
             </div>
           </div>
 
+          {/* 图标（对齐 Hermes ProjectAppearancePicker 28 图标网格；再次点击取消选择） */}
+          <div>
+            <label className="block text-xs text-muted-foreground mb-1">图标</label>
+            <div className="grid grid-cols-7 gap-1">
+              {PROJECT_ICON_KEYS.map((key) => {
+                const Icon = projectIconFor(key);
+                const active = icon === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className={cn(
+                      'grid aspect-square place-items-center rounded-md border transition-colors',
+                      active
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-transparent text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                    )}
+                    style={active && color ? { color } : undefined}
+                    onClick={() => setIcon(active ? null : key)}
+                    title={key}
+                  >
+                    <Icon size={14} />
+                  </button>
+                );
+              })}
+            </div>
+            {icon && <button className="mt-1 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setIcon(null)}>清除图标</button>}
+          </div>
+
           {/* 文件夹 */}
           <div>
             <label className="block text-xs text-muted-foreground mb-1">
@@ -399,8 +622,8 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
             </div>
           </div>
 
-          {/* 归档危险区（仅编辑模式） */}
-          {initial && (
+          {/* 归档危险区（仅显式项目编辑模式；自动项目无记录不可归档） */}
+          {initial && !initial.isAuto && (
             <div className="border-t border-border pt-2">
               <button
                 className={cn(
@@ -437,7 +660,7 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
 
 // ── Panel ──
 
-export default function ProjectTreePanel({ sessionId, onSwitchSession, currentProfile }: ProjectTreePanelProps) {
+export default function ProjectTreePanel({ sessionId, onSwitchSession, currentProfile, onNewSessionInProject }: ProjectTreePanelProps) {
   const [tree, setTree] = useState<TreeResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -446,9 +669,11 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
   const [drillProject, setDrillProject] = useState<ProjectNode | null>(null);
   const [drillLoading, setDrillLoading] = useState(false);
   const [drillError, setDrillError] = useState<string | null>(null);
-  // 项目管理（显式项目新建/编辑/加文件夹/归档）
+  // 项目管理（显式项目新建/编辑/加文件夹/归档/删除）
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<ProjectNode | null>(null);
+  const [deleting, setDeleting] = useState<ProjectNode | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const desktop = isTauri();
 
   const fetchTree = useCallback(async (silent = false) => {
@@ -457,6 +682,11 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
       setError(null);
       // 🔴 显式 profile：per-profile projects.db 路由，切 Agent 自动重拉（依赖 currentProfile）
       const result = await call('projects_tree', { preview_limit: 3, include_discovered: true, profile: currentProfile });
+      // 🔴 自动项目 dismiss 过滤（对齐 Hermes filterVisibleProjects：本地隐藏，不删后端）
+      const dismissed = getDismissedAutoProjectIds();
+      if (dismissed.size > 0 && result?.projects) {
+        result.projects = result.projects.filter((p: ProjectNode) => !p.isAuto || !dismissed.has(p.id));
+      }
       setTree(result);
     } catch (e: any) {
       setError(e?.message || '加载失败');
@@ -518,6 +748,50 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
       notifyError(e, '激活项目失败');
     }
   }, [currentProfile, fetchTree]);
+
+  // 在文件管理器中显示（对齐 Hermes revealPath；tauri-opener 与文件面板同款）
+  const handleReveal = useCallback(async (path: string) => {
+    try {
+      const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
+      await revealItemInDir(path);
+    } catch (err) {
+      notifyError(err, '无法在文件管理器中显示');
+    }
+  }, []);
+
+  // 复制路径（对齐 Hermes copyPath）
+  const handleCopyPath = useCallback(async (path: string) => {
+    try {
+      await navigator.clipboard.writeText(path);
+      notifySuccess('路径已复制');
+    } catch (err) {
+      notifyError(err, '复制失败');
+    }
+  }, []);
+
+  // 显式项目删除（对齐 Hermes deleteProject：删 projects.db 记录，不删文件；
+  // 与归档（archive）并存——归档保留记录，删除移除记录）
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleting || deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      await call('projects_delete', { id: deleting.id, profile: currentProfile });
+      notifySuccess(`已删除「${deleting.label}」`);
+      setDeleting(null);
+      void fetchTree(true);
+    } catch (e) {
+      notifyError(e, '删除失败');
+    } finally {
+      setDeleteBusy(false);
+    }
+  }, [deleting, deleteBusy, currentProfile, fetchTree]);
+
+  // 自动项目「从侧边栏移除」（对齐 Hermes dismissAutoProject：本地隐藏，可刷新恢复）
+  const handleDismiss = useCallback((project: ProjectNode) => {
+    dismissAutoProject(project.id);
+    notifySuccess(`已从侧边栏移除「${project.label}」`);
+    void fetchTree(true);
+  }, [fetchTree]);
 
   // 🔴 冷启动竞态修复（同 ProfilePanel）：mount 时 WS 可能未连，等连接后再加载。
   useEffect(() => {
@@ -615,7 +889,8 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
                 {tree.projects.length === 0 ? (
                   <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground p-4">暂无项目</div>
                 ) : (
-                  tree.projects.map(p => (
+                  // 🔴 总览排序（对齐 Hermes sortProjectsForOverview）：激活置顶→显式→有会话→活跃→名称
+                  sortProjectsForOverview(tree.projects, tree.active_id).map(p => (
                     <ProjectItem
                       key={p.id}
                       project={p}
@@ -625,6 +900,11 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
                       onEdit={handleEdit}
                       onAddFolder={handleAddFolder}
                       onSetActive={handleSetActive}
+                      onReveal={handleReveal}
+                      onCopyPath={handleCopyPath}
+                      onDelete={setDeleting}
+                      onDismiss={handleDismiss}
+                      onNewSession={onNewSessionInProject}
                       isActiveProject={tree.active_id === p.id}
                       desktop={desktop}
                     />
@@ -644,6 +924,35 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
         onSaved={() => fetchTree(true)}
         profile={currentProfile}
       />
+
+      {/* 删除确认（对齐 Hermes deleteProject confirm；不删文件，仅删项目记录） */}
+      <Dialog open={!!deleting} onOpenChange={(o) => { if (!o && !deleteBusy) setDeleting(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>删除项目</DialogTitle>
+            <DialogDescription>
+              将从项目列表移除「{deleting?.label}」，不删除任何文件。
+              {deleting?.isAuto ? '' : ' 该操作不可撤销。'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button
+              className="rounded border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={() => setDeleting(null)}
+              disabled={deleteBusy}
+            >
+              取消
+            </button>
+            <button
+              className="rounded bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:opacity-50"
+              onClick={() => void handleDeleteConfirm()}
+              disabled={deleteBusy}
+            >
+              {deleteBusy ? '删除中…' : '删除'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
