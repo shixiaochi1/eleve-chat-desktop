@@ -201,6 +201,13 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   projects_set_primary:   'projects.set_primary',
   projects_set_active:    'projects.set_active',
   projects_archive:       'projects.archive',
+  // ── git worktree/branch（对齐 Hermes desktop-git worktree/branch 面）──
+  git_worktree_list:      'git.worktree_list',
+  git_worktree_add:       'git.worktree_add',
+  git_worktree_remove:    'git.worktree_remove',
+  git_branch_list:        'git.branch_list',
+  git_base_branch_list:   'git.base_branch_list',
+  git_branch_switch:      'git.branch_switch',
 };
 
 /**

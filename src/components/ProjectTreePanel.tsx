@@ -20,6 +20,10 @@ import { getWsClient } from '../services/ws-client';
 import { AGENT_PALETTE } from '../lib/agent-palette';
 import { PROJECT_ICON_KEYS, projectIconFor } from '../lib/project-icons';
 import { getDismissedAutoProjectIds, dismissAutoProject } from '../lib/dismissed-projects';
+import { mergeWorktreeLanes } from '../lib/worktree-lanes';
+import { getDismissedWorktrees, dismissWorktree } from '../lib/dismissed-worktrees';
+import { gitWorktreeList, gitWorktreeRemove, type HermesGitWorktree } from '../lib/git';
+import { WorktreeDialog } from './worktree/WorktreeDialog';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -167,20 +171,51 @@ function SessionItem({ s, isActive, onClick }: { s: SessionPreview; isActive: bo
   );
 }
 
-function LaneNode({ lane, sessionId, onSwitchSession }: { lane: LaneGroup; sessionId?: string; onSwitchSession?: (id: string) => void }) {
+function LaneNode({ lane, sessionId, onSwitchSession, onReveal, onCopyPath, onRemoveWorktree }: { lane: LaneGroup; sessionId?: string; onSwitchSession?: (id: string) => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void }) {
   const [expanded, setExpanded] = useState(false);
   const hasSessions = lane.sessions.length > 0;
+  // 仅 linked worktree lane 可移除（主检出/kanban 聚合无单一目标；对齐 Hermes WorkspaceMenu）
+  const removable = !lane.isMain && !lane.isKanban && !!lane.path && !!onRemoveWorktree;
 
   return (
     <div>
       <div
-        className="flex items-center gap-1.5 pl-6 pr-3 py-1 cursor-pointer hover:bg-accent/20 text-xs"
+        className="flex items-center gap-1.5 pl-6 pr-3 py-1 cursor-pointer hover:bg-accent/20 text-xs group/lane"
         onClick={() => hasSessions && setExpanded(!expanded)}
       >
         {hasSessions ? <TreeToggle expanded={expanded} onClick={() => setExpanded(!expanded)} /> : <span className="w-3.5" />}
         {lane.isKanban ? <Blocks size={12} className="text-info" /> : <GitBranch size={12} className="text-muted-foreground" />}
-        <span className="truncate flex-1">{lane.label}</span>
-        <span className="text-[10px] text-muted-foreground">{lane.sessions.length}</span>
+        <span className="truncate flex-1" title={lane.path || lane.label}>{lane.label}</span>
+        {lane.sessions.length > 0 && <span className="text-[10px] text-muted-foreground">{lane.sessions.length}</span>}
+        {/* linked worktree 菜单（对齐 Hermes WorkspaceMenu：reveal/copy/移除） */}
+        {removable && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors opacity-0 group-hover/lane:opacity-100 data-[state=open]:opacity-100"
+                onClick={(e) => e.stopPropagation()}
+                title="工作区操作"
+              >
+                <MoreVertical size={12} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem disabled={!lane.path} onSelect={() => lane.path && onReveal?.(lane.path)}>
+                <FolderOpen size={12} className="shrink-0" />
+                <span className="flex-1">在文件管理器中显示</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={!lane.path} onSelect={() => lane.path && onCopyPath?.(lane.path)}>
+                <Copy size={12} className="shrink-0" />
+                <span className="flex-1">复制路径</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => onRemoveWorktree?.(lane)}>
+                <Trash2 size={12} className="shrink-0" />
+                <span className="flex-1">移除工作区…</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
       {expanded && lane.sessions.map(s => (
         <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => onSwitchSession?.(s.id)} />
@@ -189,22 +224,33 @@ function LaneNode({ lane, sessionId, onSwitchSession }: { lane: LaneGroup; sessi
   );
 }
 
-function RepoNodeItem({ repo, sessionId, onSwitchSession, defaultExpanded = false }: { repo: RepoNode; sessionId?: string; onSwitchSession?: (id: string) => void; defaultExpanded?: boolean }) {
+function RepoNodeItem({ repo, sessionId, onSwitchSession, onStartWork, onReveal, onCopyPath, onRemoveWorktree, lanes, defaultExpanded = false }: { repo: RepoNode; sessionId?: string; onSwitchSession?: (id: string) => void; onStartWork?: (repoPath: string) => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void; /** 合并 git worktree 后的 lane 列表（对齐 Hermes mergeRepoWorktreeGroups 输出） */
+  lanes: LaneGroup[]; defaultExpanded?: boolean }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
     <div>
       <div
-        className="flex items-center gap-1.5 pl-4 pr-3 py-1 cursor-pointer hover:bg-accent/20 text-xs"
+        className="flex items-center gap-1.5 pl-4 pr-3 py-1 cursor-pointer hover:bg-accent/20 text-xs group/workspace"
         onClick={() => setExpanded(!expanded)}
       >
         <TreeToggle expanded={expanded} onClick={() => setExpanded(!expanded)} />
         <FolderGit size={13} className="text-muted-foreground shrink-0" />
-        <span className="truncate flex-1 font-medium">{repo.label}</span>
+        <span className="truncate flex-1 font-medium" title={repo.path}>{repo.label}</span>
         <span className="text-[10px] text-muted-foreground">{repo.sessionCount}</span>
+        {/* 新建工作区（对齐 Hermes StartWorkButton：hover 显示 git-branch 图标） */}
+        {onStartWork && repo.path && (
+          <button
+            className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors opacity-0 group-hover/workspace:opacity-100"
+            onClick={(e) => { e.stopPropagation(); onStartWork(repo.path); }}
+            title={`在「${repo.label}」新建工作区（worktree）`}
+          >
+            <GitBranch size={12} />
+          </button>
+        )}
       </div>
-      {expanded && repo.groups.map(g => (
-        <LaneNode key={g.id} lane={g} sessionId={sessionId} onSwitchSession={onSwitchSession} />
+      {expanded && lanes.map(g => (
+        <LaneNode key={g.id} lane={g} sessionId={sessionId} onSwitchSession={onSwitchSession} onReveal={onReveal} onCopyPath={onCopyPath} onRemoveWorktree={onRemoveWorktree} />
       ))}
     </div>
   );
@@ -793,6 +839,73 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
     void fetchTree(true);
   }, [fetchTree]);
 
+  // ═══════════════ git worktree（对齐 Hermes useRepoWorktreeMap / workspace-header）═══════════
+  const [wtDialogRepo, setWtDialogRepo] = useState<string | null>(null);
+  const [worktreesMap, setWorktreesMap] = useState<Record<string, HermesGitWorktree[]>>({});
+  const [wtRefresh, setWtRefresh] = useState(0);
+  const [removeTarget, setRemoveTarget] = useState<{ repoPath: string; lane: LaneGroup } | null>(null);
+  const [forceTarget, setForceTarget] = useState<{ repoPath: string; lane: LaneGroup } | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+
+  // 钻取视图：探测各 repo 的 git worktree（对齐 Hermes useRepoWorktreeMap：
+  // 从 git worktree list 注入空视觉 lane；wtRefresh 在 add/remove/dismiss 后重探测）
+  useEffect(() => {
+    if (!drillProject) return;
+    let cancelled = false;
+    const paths = drillProject.repos.map(r => r.path).filter(Boolean);
+    if (!paths.length) return;
+    void Promise.all(paths.map(async p => [p, await gitWorktreeList(p).catch(() => [])] as const)).then(entries => {
+      if (!cancelled) setWorktreesMap(Object.fromEntries(entries));
+    });
+    return () => { cancelled = true; };
+  }, [drillProject, wtRefresh]);
+
+  // StartWorkButton → WorktreeDialog（repoPath 受控）
+  const handleStartWork = useCallback((repoPath: string) => setWtDialogRepo(repoPath), []);
+
+  // worktree 创建/convert 成功 → 关闭对话框 + 刷新探测 + 在该路径新建会话
+  // （对齐 Hermes onStarted → requestStartWorkSession）
+  const handleWorktreeStarted = useCallback((path: string) => {
+    setWtDialogRepo(null);
+    setWtRefresh(n => n + 1);
+    void fetchTree(true);
+    onNewSessionInProject?.(path);
+  }, [fetchTree, onNewSessionInProject]);
+
+  // 移除 worktree（git worktree remove）；dirty/locked 报错 → force 升级（对齐 Hermes removeViaGit）
+  const handleRemoveWorktree = useCallback(async (repoPath: string, lane: LaneGroup, force: boolean) => {
+    if (!lane.path || removeBusy) return;
+    setRemoveBusy(true);
+    try {
+      await gitWorktreeRemove(repoPath, lane.path, force);
+      setRemoveTarget(null);
+      setForceTarget(null);
+      setWtRefresh(n => n + 1);
+      void fetchTree(true);
+    } catch (err) {
+      const msg = String((err as Error)?.message ?? '');
+      if (!force && /force|modified|untracked|dirty|locked|contains/i.test(msg)) {
+        // dirty 工作区 → 升级 force 确认（对齐 Hermes forceTarget 升级）
+        setRemoveTarget(null);
+        setForceTarget({ repoPath, lane });
+      } else {
+        notifyError(err, '移除工作区失败');
+        setRemoveTarget(null);
+        setForceTarget(null);
+      }
+    } finally {
+      setRemoveBusy(false);
+    }
+  }, [removeBusy, fetchTree]);
+
+  // 仅从侧边栏隐藏（不删 git worktree；对齐 Hermes dismissWorktree）
+  const handleDismissWorktree = useCallback((path: string) => {
+    dismissWorktree(path);
+    setRemoveTarget(null);
+    setForceTarget(null);
+    setWtRefresh(n => n + 1);
+  }, []);
+
   // 🔴 冷启动竞态修复（同 ProfilePanel）：mount 时 WS 可能未连，等连接后再加载。
   useEffect(() => {
     let cancelled = false;
@@ -844,7 +957,18 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
                 <div className="p-4 text-xs text-muted-foreground">无 Repo 分组</div>
               ) : (
                 drillProject.repos.map(r => (
-                  <RepoNodeItem key={r.id} repo={r} sessionId={sessionId} onSwitchSession={onSwitchSession} defaultExpanded />
+                  <RepoNodeItem
+                    key={r.id}
+                    repo={r}
+                    sessionId={sessionId}
+                    onSwitchSession={onSwitchSession}
+                    onStartWork={handleStartWork}
+                    onReveal={handleReveal}
+                    onCopyPath={handleCopyPath}
+                    onRemoveWorktree={(lane) => { if (r.path) setRemoveTarget({ repoPath: r.path, lane }); }}
+                    lanes={mergeWorktreeLanes(r.groups, worktreesMap[r.path ?? ''] ?? [], getDismissedWorktrees())}
+                    defaultExpanded
+                  />
                 ))
               )}
             </div>
@@ -950,6 +1074,88 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
             >
               {deleteBusy ? '删除中…' : '删除'}
             </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* worktree 新建/convert 对话框（对齐 Hermes WorktreeDialog） */}
+      <WorktreeDialog
+        repoPath={wtDialogRepo ?? ''}
+        open={!!wtDialogRepo}
+        onOpenChange={(o) => { if (!o) setWtDialogRepo(null); }}
+        onStarted={handleWorktreeStarted}
+      />
+
+      {/* 移除工作区确认（对齐 Hermes removeDialog：取消/仅隐藏/移除） */}
+      <Dialog open={!!removeTarget} onOpenChange={(o) => { if (!o && !removeBusy) setRemoveTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>移除工作区「{removeTarget?.lane.label}」？</DialogTitle>
+            <DialogDescription>
+              将执行 git worktree remove 从磁盘删除该工作区（分支与会话记录保留）。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-between">
+            <button
+              className="rounded border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={() => setRemoveTarget(null)}
+              disabled={removeBusy}
+            >
+              取消
+            </button>
+            <div className="flex items-center gap-2">
+              <button
+                className="rounded px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent transition-colors"
+                onClick={() => removeTarget && handleDismissWorktree(removeTarget.lane.path ?? '')}
+                disabled={removeBusy}
+              >
+                仅从侧边栏隐藏
+              </button>
+              <button
+                className="rounded bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:opacity-50"
+                onClick={() => removeTarget && void handleRemoveWorktree(removeTarget.repoPath, removeTarget.lane, false)}
+                disabled={removeBusy}
+              >
+                {removeBusy ? '移除中…' : '移除'}
+              </button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* dirty → force 升级（对齐 Hermes forceTarget：强制删除丢弃未提交改动） */}
+      <Dialog open={!!forceTarget} onOpenChange={(o) => { if (!o && !removeBusy) setForceTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>强制移除工作区？</DialogTitle>
+            <DialogDescription>
+              「{forceTarget?.lane.label}」有未提交/未跟踪改动，git 拒绝移除。强制删除将丢弃这些改动。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-between">
+            <button
+              className="rounded border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={() => setForceTarget(null)}
+              disabled={removeBusy}
+            >
+              取消
+            </button>
+            <div className="flex items-center gap-2">
+              <button
+                className="rounded px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent transition-colors"
+                onClick={() => forceTarget && handleDismissWorktree(forceTarget.lane.path ?? '')}
+                disabled={removeBusy}
+              >
+                仅从侧边栏隐藏
+              </button>
+              <button
+                className="rounded bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:opacity-50"
+                onClick={() => forceTarget && void handleRemoveWorktree(forceTarget.repoPath, forceTarget.lane, true)}
+                disabled={removeBusy}
+              >
+                {removeBusy ? '移除中…' : '强制移除'}
+              </button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
