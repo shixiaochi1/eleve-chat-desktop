@@ -70,6 +70,8 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
               resultStr: part.result != null ? (typeof part.result === 'string' ? part.result : JSON.stringify(part.result)) : undefined,
               // 🔴 Phase 3: 消费 isError（审查 #6：失败工具不再显示绿勾）
               status: part.isError ? 'error' : part.result != null ? 'done' : 'pending',
+              // 工具执行耗时（tool.complete 事件 → part.duration，ToolEntry 头部行显示）
+              duration: part.duration,
             },
           })
         } else if (part.type === 'reasoning') {

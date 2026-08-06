@@ -29,6 +29,8 @@ export interface ToolCallItem {
   /** 三值状态（🔴 Phase 3: error 由 part.isError 驱动，消费于 MessageRow） */
   status?: 'pending' | 'done' | 'error';
   resultStr?: string;
+  /** 工具执行耗时（秒）— 渲染于头部行状态图标旁（对齐 CLI "工具完成: X (12.1s)"） */
+  duration?: number;
 }
 
 /**
@@ -168,6 +170,12 @@ const ToolEntry = memo(function ToolEntry({ tool }: { tool: ToolCallItem }) {
         <span className={cn('text-xs shrink-0', isError ? 'text-destructive' : isDone ? 'text-success' : 'text-muted-foreground')}>
           {isError ? <ErrorIcon size={12} /> : isDone ? <CheckIcon size={12} /> : <LoadingIcon size={12} className="animate-spin" />}
         </span>
+        {/* 工具执行耗时 — 已落定时显示（对齐 CLI "工具完成: X (12.1s)"） */}
+        {isSettled && tool.duration !== undefined && tool.duration > 0 && (
+          <span className="text-xs text-muted-foreground shrink-0 font-mono">
+            {tool.duration.toFixed(1)}s
+          </span>
+        )}
         <span className="text-xs text-muted-foreground shrink-0">
           {expanded ? <CollapseIcon size={12} /> : <ExpandIcon size={12} />}
         </span>

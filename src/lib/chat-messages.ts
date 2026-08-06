@@ -32,6 +32,8 @@ export interface ToolCallMessagePart {
   readonly argsText: string
   readonly result?: unknown
   readonly isError?: boolean
+  /** 工具执行耗时（秒）— 来自 tool.complete 事件（对齐 CLI "工具完成: X (12.1s)"） */
+  readonly duration?: number
 }
 
 /** Union of all part types an assistant message can contain */
@@ -406,6 +408,8 @@ export function upsertToolPart(
       result: toolResult(payload, prevResult, prevArgs),
       isError: Boolean(payload?.error),
     }),
+    // 工具执行耗时（tool.complete 事件携带，渲染于 ToolEntry 头部行）
+    ...(phase === 'complete' && payload?.duration ? { duration: payload.duration } : {}),
   }
 
   if (index === -1) {

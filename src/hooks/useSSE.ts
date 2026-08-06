@@ -678,6 +678,10 @@ export function useSSE(
       if (result?.status === 'steered') {
         import('../utils/notifications').then(({ notifyInfo }) => notifyInfo('已注入当前轮（steer）', '消息已送达')).catch(() => {});
       }
+      // GAP-1: redirect 软重定向成功 → 修正已取消在飞模型请求并注入当前轮
+      if (result?.status === 'redirected') {
+        import('../utils/notifications').then(({ notifyInfo }) => notifyInfo('已重定向当前轮（redirect）', '修正已注入当前回复')).catch(() => {});
+      }
       // 对齐架构原则：后端是 session_id 的唯一权威源
       // 后端自动创建 session 时返回 session_id，前端消费并更新本地状态
       if (result?.session_id && result.session_id !== sessionId) {
