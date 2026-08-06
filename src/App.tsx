@@ -37,6 +37,7 @@ import { useOpenArtifact } from './store/artifacts';
 import ThemePanel from './components/ThemePanel';
 import SettingsPanel from './components/SettingsPanel';
 import AboutPanel from './components/AboutPanel';
+import LogsPanel from './components/LogsPanel';
 import ModelPickerPanel from './components/ModelPickerPanel';
 import ToolStatusBar from './components/ToolStatusBar'
 import MessageContainer from './components/MessageContainer';
@@ -1026,6 +1027,11 @@ export default function App() {
 
   // ── command center navigation ──
   const handleNavigate = useCallback((panel: string) => {
+    // Logs = 临时日志面板（对齐 Hermes ⌘K palette "Toggle logs" 召唤临时 zone）
+    if (panel === 'logs') {
+      setOverlayPanel('logs');
+      return;
+    }
     setActivePanel(panel);
   }, []);
 
@@ -1315,6 +1321,13 @@ export default function App() {
 
         {/* Artifact 预览：右栏「产物」tab（Hermes 右栏语义）；宫格视图浮层在 GridModeView 内挂载 */}
 
+        {overlayPanel === 'logs' && (
+          <ErrorBoundary>
+            <OverlayView onClose={handleCloseOverlay} title="日志">
+              <LogsPanel />
+            </OverlayView>
+          </ErrorBoundary>
+        )}
         {overlayPanel === 'settings' && (
           <ErrorBoundary>
             <OverlayView onClose={handleCloseOverlay} title="设置">

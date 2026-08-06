@@ -165,6 +165,7 @@ export default function CommandCenter({
       { id: 'settings', label: 'Settings', icon: 'settings', description: 'Configure application settings' },
       { id: 'about', label: 'About', icon: 'info', description: 'About Eleve Chat' },
       { id: 'gateway', label: 'Gateway', icon: 'globe', description: 'Gateway connection settings' },
+      { id: 'logs', label: 'Logs', icon: 'terminal', description: 'Agent activity logs (tail)' },
       { id: 'debug', label: 'Debug', icon: 'terminal', description: 'Debug information and logs' },
       { id: 'skills', label: 'Skills', icon: 'puzzle', description: 'Manage skills and plugins' },
     ];
