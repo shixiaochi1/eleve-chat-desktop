@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { File, Folder, FolderOpen, ChevronRight, ChevronDown, ChevronsDownUp, RefreshCw, Loader, ArrowUp, FolderInput } from 'lucide-react';
 import { useFileTree } from '../hooks/useFileTree';
-import { useWorkspaceTick, notifyWorkspaceChanged } from '../lib/workspace-events';
+import { useWorkspaceTick, consumeWorkspaceChange, notifyWorkspaceChanged } from '../lib/workspace-events';
 import { openPreview } from '@/store/preview';
 import { cn } from '@/lib/utils';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu';
@@ -462,24 +462,16 @@ export default function FileBrowserPanel({
   const visibleRows = flatList.slice(scrollStart, scrollEnd);
 
   // 工作区自动刷新（对齐 Hermes use-project-tree workspaceTick 消费）：
-  // Agent 写文件 / spot editor 保存 → 非破坏刷新（保留展开状态）。
-  // 虚拟滚动后无 TreeNode refreshNonce 重载——已展开目录在此显式重拉
-  // （对齐 Hermes revalidateTree 定向重读已加载目录）。
-  // 🔴 openState/loadedDirs 用 ref 镜像：进依赖数组会让展开/加载本身误触发
-  // invalidate（React effect 任一依赖变化都执行体）
+  // Agent 写文件 / spot editor 保存 → 精准失效（dirs/full）：
+  // - tool.complete 带路径 → 只重读已加载的变更目录（增量更新，不 refreshNonce）
+  // - terminal/多路径无法锚定 → full 全量（清缓存重拉根 + 已展开目录重载）
+  // 🔴 进依赖数组的只有 tick/invalidate——openState/loadedDirs 经 hook 内 ref 镜像读最新
   const workspaceTick = useWorkspaceTick();
-  const openStateRef = useRef(openState);
-  openStateRef.current = openState;
-  const loadedDirsRef = useRef(loadedDirs);
-  loadedDirsRef.current = loadedDirs;
   useEffect(() => {
     if (workspaceTick > 0) {
-      void invalidate();
-      for (const dir of Object.keys(openStateRef.current)) {
-        if (openStateRef.current[dir] && loadedDirsRef.current[dir] !== undefined) void loadChildren(dir);
-      }
+      void invalidate(consumeWorkspaceChange());
     }
-  }, [workspaceTick, invalidate, loadChildren]);
+  }, [workspaceTick, invalidate]);
 
   // 根目录跟随会话 cwd（对齐 Hermes RightSidebarPane：hasWorkspace ? cwd : ''）。
   // 会话切换（cwd 变化）→ 重置手动 override 重新跟随；无 cwd 的 detached

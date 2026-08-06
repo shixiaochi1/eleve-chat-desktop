@@ -1,18 +1,16 @@
 /**
- * workspace-events — 工作区变化信号（移植 Hermes store/workspace-events.ts 核心）
+ * workspace-events — 工作区变化信号（完整移植 Hermes store/workspace-events.ts）
  *
  * 事件驱动的"工作区树变了"信号——替代轮询（Hermes 明确：event-driven is the
  * smart replacement for polling）。Agent 只经工具改文件 → tool.complete（带
  * inline_diff 或写文件类工具名）是精准触发；spot editor 保存文件同样触发。
  *
- * 消费方：文件树自动刷新（非破坏——保留展开状态，重载数据）。webview 预览
- * 刷新走独立链路（preview-events.ts requestPreviewReload），不重复。
+ * 消费方：文件树自动刷新（非破坏——保留展开状态，增量更新数据）。
  *
- * 与 Hermes 差异（架构干净：只移植有消费方的面）：
- * - 去 dirs/full 精准失效（Hermes 供大仓库树精准子树刷新；ELEVE 树规模小，
- *   消费方统一全刷，不预置无消费方的复杂度）
- * - 保留 Hermes throttle 语义（500ms leading+trailing 合并 burst：连续编辑
- *   一次 tick，首击即时反馈、尾部补发收尾）
+ * 精准失效（dirs/full）：notifyWorkspaceChanged(changedPath) 携带绝对路径 →
+ * 记录其父目录到 pendingDirs，消费方只重读已加载的变更目录；无路径/相对路径/
+ * 无法锚定（terminal 等不透明变更）→ pendingFull，消费方全量 reconcile。
+ * 与 Hermes store/workspace-events.ts 完全同构。
  */
 
 import { useSyncExternalStore } from 'react';
@@ -36,8 +34,37 @@ function fire(): void {
   emit();
 }
 
-/** 工作区变化信号（Agent 写文件 / spot editor 保存）。burst 合并：leading 即时 + trailing 收尾 */
-export function notifyWorkspaceChanged(): void {
+// ── 精准失效负载（对齐 Hermes pendingDirs/pendingFull）──
+
+let pendingDirs = new Set<string>();
+let pendingFull = false;
+
+/** 消费自上次以来的变更（消费方 drain；对齐 Hermes consumeWorkspaceChange） */
+export function consumeWorkspaceChange(): { dirs: string[]; full: boolean } {
+  const change = { dirs: [...pendingDirs], full: pendingFull };
+  pendingDirs = new Set();
+  pendingFull = false;
+  return change;
+}
+
+/** 绝对路径的父目录（POSIX 或 `C:/…`）；相对路径无法锚定 → null（消费方全量重扫） */
+function dirOf(path: string): string | null {
+  const p = path.replace(/\\/g, '/').replace(/\/+$/, '');
+  const absolute = p.startsWith('/') || /^[a-z]:\//i.test(p);
+  const slash = p.lastIndexOf('/');
+  return absolute && slash >= 0 ? p.slice(0, slash) : null;
+}
+
+/** @param changedPath 工具触碰的绝对路径；省略（或相对/不可知路径）→ 全量重扫 */
+export function notifyWorkspaceChanged(changedPath?: string): void {
+  const dir = changedPath ? dirOf(changedPath) : null;
+
+  if (dir) {
+    pendingDirs.add(dir);
+  } else {
+    pendingFull = true;
+  }
+
   const since = Date.now() - lastFired;
   if (since >= MIN_INTERVAL_MS) {
     if (trailing !== null) {
@@ -70,4 +97,26 @@ export function toolMayMutateFiles(payload: Record<string, unknown>): boolean {
   }
   const name = String(payload.tool ?? payload.name ?? '');
   return MUTATING_TOOL_RE.test(name);
+}
+
+// 单文件写入/移动工具的目标参数键（对齐 Hermes PATH_ARG_KEYS）。
+// 命中 → 树精准刷新该目录；未命中（terminal/多路径/异构 schema）→ 全量重扫。
+const PATH_ARG_KEYS = ['path', 'file_path', 'filename', 'file', 'target_file', 'new_path', 'dest', 'destination'];
+
+/** 从工具 args 提取 best-effort 目标绝对路径；无（→ 全量重扫）时返回 undefined */
+export function toolChangedPath(payload: { args?: unknown; arguments?: unknown }): string | undefined {
+  const args = payload.args ?? payload.arguments;
+  if (!args || typeof args !== 'object') {
+    return undefined;
+  }
+
+  const record = args as Record<string, unknown>;
+  for (const key of PATH_ARG_KEYS) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return undefined;
 }

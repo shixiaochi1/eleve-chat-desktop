@@ -12,7 +12,7 @@
 
 import { getWsClient } from '@/services/ws-client'
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
-import { notifyWorkspaceChanged, toolMayMutateFiles } from '@/lib/workspace-events'
+import { notifyWorkspaceChanged, toolMayMutateFiles, toolChangedPath } from '@/lib/workspace-events'
 import {
   beginPreviewRestart,
   completePreviewRestart,
@@ -80,9 +80,10 @@ export function initPreviewEvents(options: PreviewEventsOptions): () => void {
           requestPreviewReload()
         }
         // 工作区变化信号 → 文件树等消费方自动刷新（对齐 Hermes
-        // notifyWorkspaceChanged：inline_diff 或写文件类工具名命中）
+        // notifyWorkspaceChanged(toolChangedPath(payload))：精准目录失效，
+        // terminal/多路径无法锚定 → 全量）
         if (toolMayMutateFiles(payload)) {
-          notifyWorkspaceChanged()
+          notifyWorkspaceChanged(toolChangedPath(payload))
         }
         return
       }

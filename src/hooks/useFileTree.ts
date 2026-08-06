@@ -57,6 +57,12 @@ export function useFileTree(initialPath: string | null = null) {
   const [dirErrors, setDirErrors] = useState<Record<string, string | null>>({});
   const cacheRef = useRef<CacheMap>({});
   const mountedRef = useRef(true);
+  // 🔴 定向刷新需要读最新 openState/loadedDirs（进依赖数组会让展开/加载本身误触发
+  // invalidate 重建——对齐 Hermes revalidateTree 在 hook 外读 state 的模式，用 ref 镜像）
+  const openStateRef = useRef<OpenStateMap>(openState);
+  openStateRef.current = openState;
+  const loadedDirsRef = useRef<Record<string, FileEntry[]>>(loadedDirs);
+  loadedDirsRef.current = loadedDirs;
 
   useEffect(() => {
     return () => { mountedRef.current = false; };
@@ -139,34 +145,6 @@ export function useFileTree(initialPath: string | null = null) {
   }, [rootPath, setRoot]);
 
   /**
-   * 非破坏刷新（对齐 Hermes revalidateTree）：失效全部缓存 + 重拉根数据，
-   * 保留展开状态（openState 不动）；已展开目录由 TreeNode 消费 refreshNonce
-   * 重新加载。workspace tick 自动刷新用；手动刷新按钮仍走 refresh()（含重置）。
-   */
-  const invalidate = useCallback(async () => {
-    if (!rootPath) return;
-    cacheRef.current = {};
-    setError(null);
-    setLoading(true);
-    try {
-      const entries = await listDir(rootPath);
-      if (mountedRef.current) {
-        setData(entries);
-      }
-    } catch (err: unknown) {
-      if (mountedRef.current) {
-        setError((err as Error).message || '读取目录失败');
-        setData([]);
-      }
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-      }
-      setRefreshNonce((n) => n + 1);
-    }
-  }, [rootPath, listDir]);
-
-  /**
    * 展开/折叠目录
    */
   const toggleOpen = useCallback(async (dirPath: string) => {
@@ -210,6 +188,76 @@ export function useFileTree(initialPath: string | null = null) {
       setLoadingDirs((prev) => (prev[dirPath] ? { ...prev, [dirPath]: false } : prev));
     }
   }, [listDir]);
+
+  /**
+   * 非破坏刷新（对齐 Hermes revalidateTree）：
+   * - 定向（change.dirs）：只重读已加载的变更目录（根或已展开目录），增量更新
+   *   data/loadedDirs；不动未变更目录（不 refreshNonce）。transient 读错保留旧数据。
+   * - 全量（full / 无路径可锚定 / 调用方未传）：清缓存 + 重拉根 + refreshNonce
+   *   （已展开目录重载，见下方循环）。
+   * workspace tick 自动刷新用；手动刷新按钮仍走 refresh()（含重置）。
+   */
+  const invalidate = useCallback(async (change?: { dirs: string[]; full: boolean }) => {
+    if (!rootPath) return;
+    const ch = change ?? { dirs: [], full: true };
+
+    // ── 定向：只重读变更目录中已加载的（根 或 已展开/已加载目录）──
+    if (!ch.full && ch.dirs.length > 0) {
+      const rootNorm = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
+      const targets = ch.dirs.filter((d) => {
+        const norm = d.replace(/\\/g, '/').replace(/\/+$/, '');
+        return norm === rootNorm || loadedDirsRef.current[d] !== undefined;
+      });
+      if (!targets.length) return;
+
+      for (const dir of targets) {
+        delete cacheRef.current[dir]; // 强制重读（绕过缓存）
+        try {
+          const entries = await fetchDir(dir);
+          cacheRef.current[dir] = entries;
+          if (!mountedRef.current) continue;
+          const norm = dir.replace(/\\/g, '/').replace(/\/+$/, '');
+          if (norm === rootNorm) {
+            setData(entries);
+          } else {
+            setLoadedDirs((prev) => (prev[dir] === entries ? prev : { ...prev, [dir]: entries }));
+          }
+          setDirErrors((prev) => (prev[dir] ? { ...prev, [dir]: null } : prev));
+        } catch (err) {
+          // 保留旧数据（对齐 Hermes：transient read error keep last-known children）
+          setDirErrors((prev) => ({ ...prev, [dir]: err instanceof Error ? err.message : String(err) }));
+        }
+      }
+      return;
+    }
+
+    // ── 全量（opaque）：清缓存 + 重拉根 + refreshNonce ──
+    cacheRef.current = {};
+    setError(null);
+    setLoading(true);
+    try {
+      const entries = await listDir(rootPath);
+      if (mountedRef.current) {
+        setData(entries);
+      }
+    } catch (err: unknown) {
+      if (mountedRef.current) {
+        setError((err as Error).message || '读取目录失败');
+        setData([]);
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+      setRefreshNonce((n) => n + 1);
+    }
+    // 已展开目录重载（对齐原 FileBrowserPanel effect 循环；定向分支已增量更新无需此步）
+    for (const dir of Object.keys(openStateRef.current)) {
+      if (openStateRef.current[dir] && loadedDirsRef.current[dir] !== undefined) {
+        void loadChildren(dir);
+      }
+    }
+  }, [rootPath, listDir, loadChildren]);
 
   /**
    * 折叠全部（对齐 Hermes collapseAll）：清空展开状态，整树收起。
