@@ -24,6 +24,8 @@ import { mergeWorktreeLanes } from '../lib/worktree-lanes';
 import { getDismissedWorktrees, dismissWorktree } from '../lib/dismissed-worktrees';
 import { useWorkspaceNodeOpen } from '../lib/sidebar-node-open';
 import { getProjectOrderIds, setProjectOrderIds, orderProjectsByIds } from '../lib/project-order';
+import { randomIdeaTemplates, type ProjectIdeaTemplate } from '../lib/project-idea-templates';
+import { generateProjectIdea } from '../lib/llm-oneshot';
 import { gitWorktreeList, gitWorktreeRemove, type HermesGitWorktree } from '../lib/git';
 import { WorktreeDialog } from './worktree/WorktreeDialog';
 import { notifySuccess, notifyError } from '../utils/notifications';
@@ -122,6 +124,19 @@ async function pickDirectory(title: string): Promise<string | null> {
   } catch (err) {
     console.error('[ProjectTreePanel] directory dialog failed:', err);
     return null;
+  }
+}
+
+/** 写 IDEA.md 到项目主文件夹（对齐 Hermes writeProjectIdea；best-effort，失败静默） */
+async function writeProjectIdea(folder: string, idea: string): Promise<void> {
+  const body = idea.trim();
+  if (!folder.trim() || !body) return;
+  try {
+    const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+    const dir = folder.replace(/[\\/]+$/, '');
+    await writeTextFile(`${dir}/IDEA.md`, body.endsWith('\n') ? body : `${body}\n`);
+  } catch {
+    // best-effort：项目创建不受 IDEA.md 落盘影响（对齐 Hermes 注释）
   }
 }
 
@@ -509,6 +524,11 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
   // 编辑模式：单主文件夹（folder，走 set_primary 更换）
   const [folders, setFolders] = useState<string[]>([]);
   const [folder, setFolder] = useState('');
+  // 项目 idea（对齐 Hermes project-dialog：textarea + 模板 chips + shuffle + AI 生成；
+  // 仅新建模式；保存后 best-effort 写 IDEA.md 到主文件夹）
+  const [idea, setIdea] = useState('');
+  const [templates, setTemplates] = useState<ProjectIdeaTemplate[]>([]);
+  const [generatingIdea, setGeneratingIdea] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const desktop = isTauri();
@@ -520,6 +540,9 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
       setIcon(initial?.icon ?? null);
       setFolders(initial?.path ? [initial.path] : []);
       setFolder(initial?.path ?? '');
+      setIdea('');
+      setTemplates(randomIdeaTemplates());
+      setGeneratingIdea(false);
       setConfirmArchive(false);
     }
   }, [open, initial]);
@@ -547,6 +570,7 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
     if (!name.trim()) { notifyError(null, '请输入项目名称'); return; }
     setSaving(true);
     try {
+      let savedFolder: string | undefined;
       if (initial && !initial.isAuto) {
         await call('projects_update', { id: initial.id, name: name.trim(), color, ...(icon ? { icon } : { icon: '' }), profile });
         notifySuccess('项目已更新');
@@ -560,6 +584,7 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
           ...(folder ? { folders: [folder], primary_path: folder } : {}),
           profile,
         });
+        savedFolder = folder || undefined;
         notifySuccess('已设为显式项目');
       } else {
         await call('projects_create', {
@@ -569,7 +594,12 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
           ...(folders.length > 0 ? { folders, primary_path: folders[0] } : {}),
           profile,
         });
+        savedFolder = folders[0];
         notifySuccess('项目已创建');
+      }
+      // 对齐 Hermes writeProjectIdea：best-effort 写 IDEA.md 到主文件夹（项目创建不受影响）
+      if (idea.trim() && savedFolder && isTauri()) {
+        void writeProjectIdea(savedFolder, idea);
       }
       onSaved();
       onClose();
@@ -578,7 +608,7 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
     } finally {
       setSaving(false);
     }
-  }, [name, color, icon, folders, folder, initial, onSaved, onClose, profile]);
+  }, [name, color, icon, folders, folder, idea, initial, onSaved, onClose, profile]);
 
   // 归档两步确认（防误触）
   const archive = useCallback(async () => {
@@ -596,6 +626,18 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
       setSaving(false);
     }
   }, [initial, confirmArchive, onSaved, onClose, profile]);
+
+  // AI 生成 idea（对齐 Hermes generateProjectIdea → llm.oneshot；失败静默保持现状）
+  const generateIdea = useCallback(async () => {
+    if (generatingIdea) return;
+    setGeneratingIdea(true);
+    try {
+      const text = await generateProjectIdea(name, profile);
+      if (text) setIdea(text);
+    } finally {
+      setGeneratingIdea(false);
+    }
+  }, [name, profile, generatingIdea]);
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -736,6 +778,52 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
               </div>
             )}
           </div>
+
+          {/* 项目 Idea（对齐 Hermes project-dialog：textarea + AI 生成 + 模板 chips + shuffle；仅新建） */}
+          {!initial && (
+            <div className="flex flex-col gap-1.5">
+              <label className="block text-xs text-muted-foreground mb-1">项目 Idea（可选）</label>
+              <div className="relative">
+                <textarea
+                  className="min-h-20 w-full rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs outline-none resize-y"
+                  value={idea}
+                  onChange={(e) => setIdea(e.target.value)}
+                  placeholder="一句话总结 + 3-5 个目标；创建后写入主文件夹 IDEA.md"
+                  disabled={saving}
+                />
+                <button
+                  className="absolute top-1 right-1 rounded border border-border bg-background px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  onClick={() => void generateIdea()}
+                  disabled={saving || generatingIdea}
+                  title="AI 生成项目 idea"
+                >
+                  {generatingIdea ? '生成中…' : '✨ 生成'}
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-1">
+                {templates.map((t) => (
+                  <button
+                    key={t.label}
+                    className="flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors disabled:opacity-50"
+                    onClick={() => setIdea(t.idea)}
+                    disabled={saving}
+                    title={t.label}
+                  >
+                    <span aria-hidden>{t.emoji}</span>
+                    {t.label}
+                  </button>
+                ))}
+                <button
+                  className="rounded-full p-1 text-muted-foreground/50 hover:text-foreground transition-colors"
+                  onClick={() => setTemplates(randomIdeaTemplates())}
+                  disabled={saving}
+                  title="换一批模板"
+                >
+                  <RefreshCw size={11} />
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* 归档危险区（仅显式项目编辑模式；自动项目无记录不可归档） */}
           {initial && !initial.isAuto && (

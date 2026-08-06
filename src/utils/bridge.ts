@@ -208,6 +208,8 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   git_branch_list:        'git.branch_list',
   git_base_branch_list:   'git.base_branch_list',
   git_branch_switch:      'git.branch_switch',
+  // ── llm.oneshot（对齐 Hermes llm.oneshot；项目 idea 生成等辅助任务）──
+  llm_oneshot:            'llm.oneshot',
 };
 
 /**
