@@ -30,9 +30,17 @@ export function setProjectOrderIds(ids: string[]): void {
 interface OrderableProject {
   id: string;
   isAuto: boolean;
+  isNoProject?: boolean;
   sessionCount: number;
   lastActive: number;
   label: string;
+}
+
+/** Home 桶恒首（对齐 Hermes homeFirst：fixture 不是项目，总在最前） */
+function homeFirst<T extends OrderableProject>(projects: T[]): T[] {
+  const home = projects.filter(p => p.isNoProject);
+  if (!home.length) return projects;
+  return [...home, ...projects.filter(p => !p.isNoProject)];
 }
 
 /** 确定性排序（激活→显式→有会话→活跃→名称）—— 与 ProjectTreePanel 的 sortProjectsForOverview 同规则 */
@@ -40,7 +48,7 @@ export function sortProjectsForOverview<T extends OrderableProject>(
   projects: T[],
   activeProjectId?: string | null,
 ): T[] {
-  return [...projects].sort((a, b) => {
+  const sorted = [...projects].sort((a, b) => {
     const aActive = Boolean(activeProjectId && a.id === activeProjectId && !a.isAuto);
     const bActive = Boolean(activeProjectId && b.id === activeProjectId && !b.isAuto);
     if (aActive !== bActive) return aActive ? -1 : 1;
@@ -52,6 +60,7 @@ export function sortProjectsForOverview<T extends OrderableProject>(
     if (recency !== 0) return recency;
     return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
   });
+  return homeFirst(sorted);
 }
 
 /** 手排 order 覆盖在确定性排序之上（对齐 Hermes orderProjectsByIds） */
@@ -70,14 +79,14 @@ export function orderProjectsByIds<T extends OrderableProject>(
   const fresh = projects.filter(p => !seen.has(p.id));
 
   if (!fresh.length) {
-    return ordered;
+    return homeFirst(ordered);
   }
 
-  return [
+  return homeFirst([
     // fresh 有会话的置顶（对齐 Hermes：用户刚起步的项目仍 surface）
     ...fresh.filter(p => p.sessionCount > 0),
     ...ordered,
     // fresh 零会话的沉底（磁盘扫描新发现不挤占手排列表）
     ...fresh.filter(p => p.sessionCount <= 0),
-  ];
+  ]);
 }

@@ -12,7 +12,7 @@
  *   projects.create/update/add_folder/set_primary/archive CRUD（对齐 Hermes 桌面端项目管理）。
  */
 import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
-import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, RefreshCw, Plus, MoreVertical, Pencil, FolderPlus, CheckCircle2, Copy, Trash2 } from 'lucide-react';
+import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, RefreshCw, Plus, MoreVertical, Pencil, FolderPlus, CheckCircle2, Copy, Trash2, Home } from 'lucide-react';
 import { isTauri } from '@tauri-apps/api/core';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
@@ -74,6 +74,8 @@ interface ProjectNode {
   color?: string;
   icon?: string;
   isAuto: boolean;
+  /** Home 桶（对齐 Hermes isNoProject：无归属且无 repo 的 detached 会话；恒首、无操作） */
+  isNoProject?: boolean;
   sessionCount: number;
   lastActive: number;
   repos: RepoNode[];
@@ -271,10 +273,13 @@ function RepoNodeItem({ repo, sessionId, onSwitchSession, onStartWork, onReveal,
 }
 
 // 项目行前置图标（对齐 Hermes projectIcon）：icon → 图标（color 着色）；
-// 无 icon 有 color → 纯色点；都无 → 默认 folder-library 图标
+// 无 icon 有 color → 纯色点；Home 桶 → home 图标；都无 → 默认 folder-library 图标
 function ProjectLeadIcon({ project }: { project: ProjectNode }) {
   if (project.color && !project.icon) {
     return <div className="w-3 h-3 rounded-full shrink-0" style={{ background: project.color }} />;
+  }
+  if (project.isNoProject) {
+    return <Home size={14} className="shrink-0 text-muted-foreground" />;
   }
   const Icon = projectIconFor(project.icon);
   return (
@@ -345,6 +350,11 @@ function projectMenuSpecs(project: ProjectNode, h: {
         onSelect: () => h.onDismiss(project),
       },
     ];
+  }
+
+  if (project.isNoProject) {
+    // Home 桶：无记录可操作（对齐 Hermes：Home 无 per-project actions/右键菜单）
+    return [];
   }
 
   return [
@@ -442,7 +452,7 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onA
         isDragOver && 'bg-accent/30',
       )}
       onClick={() => onDrill(project)}
-      draggable={!!onRowDragStart}
+      draggable={!!onRowDragStart && !project.isNoProject}
       onDragStart={(e) => { if (onRowDragStart) { e.dataTransfer.effectAllowed = 'move'; onRowDragStart(project.id); } }}
       onDragOver={(e) => { if (onRowDragOver) { e.preventDefault(); onRowDragOver(project.id); } }}
       onDrop={(e) => { if (onRowDrop) { e.preventDefault(); onRowDrop(project.id); } }}
@@ -460,8 +470,8 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onA
         <span className="text-[10px] text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">{project.sessionCount}</span>
       )}
       <span className="text-[10px] text-muted-foreground/50">{fmtTime(project.lastActive)}</span>
-      {/* 在该项目新建会话（对齐 Hermes WorkspaceAddButton：hover 显示 +） */}
-      {onNewSession && path && (
+      {/* 在该项目新建会话（对齐 Hermes WorkspaceAddButton：hover 显示 +；Home 无文件夹不显示） */}
+      {onNewSession && path && !project.isNoProject && (
         <button
           className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors opacity-0 group-hover/workspace:opacity-100"
           onClick={(e) => { e.stopPropagation(); onNewSession(path); }}
@@ -470,9 +480,25 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onA
           <Plus size={13} />
         </button>
       )}
-      {kebab}
+      {specs.length > 0 && kebab}
     </div>
   );
+
+  if (!specs.length) {
+    // Home 桶：无右键菜单（对齐 Hermes：isNoProject 无 ProjectContextMenu）
+    return (
+      <div className="border-b border-border/50">
+        {row}
+        {expanded && (previews.length > 0 ? (
+          previews.map(s => (
+            <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => onSwitchSession?.(s.id)} />
+          ))
+        ) : (
+          <div className="pl-8 pr-3 pb-1.5 text-[10px] text-muted-foreground/50">暂无会话</div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="border-b border-border/50">
