@@ -12,7 +12,7 @@
  *   projects.create/update/add_folder/set_primary/archive CRUD（对齐 Hermes 桌面端项目管理）。
  */
 import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
-import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, RefreshCw, Plus, MoreVertical, Pencil, FolderPlus, CheckCircle2, Copy, Trash2, Home } from 'lucide-react';
+import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, RefreshCw, Plus, MoreVertical, Pencil, FolderPlus, CheckCircle2, Copy, Trash2, Home, Pin, Download, Archive, ExternalLink, LayoutGrid } from 'lucide-react';
 import { isTauri } from '@tauri-apps/api/core';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
@@ -26,6 +26,9 @@ import { useWorkspaceNodeOpen } from '../lib/sidebar-node-open';
 import { getProjectOrderIds, setProjectOrderIds, orderProjectsByIds } from '../lib/project-order';
 import { randomIdeaTemplates, type ProjectIdeaTemplate } from '../lib/project-idea-templates';
 import { generateProjectIdea } from '../lib/llm-oneshot';
+import { deleteSessionAction, renameSessionAction, toggleArchiveSession, exportSessionAction, copySessionId } from '../lib/session-actions';
+import { openSessionWindow } from '../lib/session-window';
+import * as storage from '../utils/storage';
 import { gitWorktreeList, gitWorktreeRemove, type HermesGitWorktree } from '../lib/git';
 import { WorktreeDialog } from './worktree/WorktreeDialog';
 import { notifySuccess, notifyError } from '../utils/notifications';
@@ -100,6 +103,9 @@ interface ProjectTreePanelProps {
   /** 🔴 在该项目新建会话（对齐 Hermes onNewSessionInWorkspace → goToProject newSession）：
    *  项目行 hover + → 创建带 cwd 的新会话并切换（App 层接线） */
   onNewSessionInProject?: (cwd: string) => void;
+  /** 🔴 会话行「在新视图中打开」（对齐 Hermes openInNewTab）：ELEVE 等价 = 切到宫格
+   *  并在该会话归属 Agent 卡片打开（并行视图，不抢占当前会话）——App 层接线 */
+  onOpenSessionInNewTab?: (sessionId: string) => void;
 }
 
 // ── 辅助 ──
@@ -155,26 +161,161 @@ function TreeToggle({ expanded, onClick }: { expanded: boolean; onClick: () => v
   );
 }
 
-function SessionItem({ s, isActive, onClick }: { s: SessionPreview; isActive: boolean; onClick: () => void }) {
-  return (
+// ── 会话行操作规格（对齐 Hermes session-actions：kebab 与右键共享；Panel 层单一构造）──
+interface SessionRowActions {
+  onOpenInNewTab?: (sessionId: string) => void;
+  profile?: string;
+  onRenameRequest: (s: SessionPreview) => void;
+  onDeleted: (s: SessionPreview) => void;
+  isPinned: (s: SessionPreview) => boolean;
+  onTogglePin: (s: SessionPreview) => void;
+}
+
+// pin 状态与 SessionsPanel 共用同一 localStorage（eleve.pinned-sessions）
+const PINNED_KEY = 'eleve.pinned-sessions';
+
+function loadPinnedIds(): Set<string> {
+  try {
+    const v: unknown = storage.load(PINNED_KEY);
+    return new Set(v ? JSON.parse(v as string) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function savePinnedIds(ids: Set<string>): void {
+  try {
+    storage.save(PINNED_KEY, JSON.stringify([...ids]));
+  } catch { /* ignore */ }
+}
+
+function SessionItem({ s, isActive, onClick, actions }: {
+  s: SessionPreview;
+  isActive: boolean;
+  onClick: () => void;
+  actions: SessionRowActions;
+}) {
+  const title = s.title || s.id.slice(0, 8);
+  const isPinned = actions.isPinned(s);
+
+  // 对齐 Hermes session-actions-menu：打开（新视图·新窗口）/ 身份（重命名·固定）/
+  // 分享（复制ID·导出）/ 危险（归档·删除）
+  const menu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors opacity-0 group-hover/row:opacity-100 data-[state=open]:opacity-100"
+          onClick={(e) => e.stopPropagation()}
+          title="会话操作"
+        >
+          <MoreVertical size={12} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuItem disabled={!s.id} onSelect={() => actions.onOpenInNewTab?.(s.id)}>
+          <LayoutGrid size={12} className="shrink-0" />
+          <span className="flex-1">在新视图中打开</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!s.id} onSelect={() => void openSessionWindow(s.id, actions.profile)}>
+          <ExternalLink size={12} className="shrink-0" />
+          <span className="flex-1">在新窗口中打开</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem disabled={!s.id} onSelect={() => actions.onRenameRequest(s)}>
+          <Pencil size={12} className="shrink-0" />
+          <span className="flex-1">重命名</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!s.id} onSelect={() => actions.onTogglePin(s)}>
+          <Pin size={12} className="shrink-0" />
+          <span className="flex-1">{isPinned ? '取消固定' : '固定'}</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem disabled={!s.id} onSelect={() => void copySessionId(s.id)}>
+          <Copy size={12} className="shrink-0" />
+          <span className="flex-1">复制会话 ID</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!s.id} onSelect={() => void exportSessionAction(s.id, title)}>
+          <Download size={12} className="shrink-0" />
+          <span className="flex-1">导出会话</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem disabled={!s.id} onSelect={() => void toggleArchiveSession(s.id, false)}>
+          <Archive size={12} className="shrink-0" />
+          <span className="flex-1">归档</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem className="text-destructive focus:text-destructive" disabled={!s.id} onSelect={() => actions.onDeleted(s)}>
+          <Trash2 size={12} className="shrink-0" />
+          <span className="flex-1">删除</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const row = (
     <div
       className={cn(
-        'flex items-center gap-2 pl-8 pr-3 py-1 cursor-pointer text-xs hover:bg-accent/40 transition-colors',
+        'flex items-center gap-2 pl-8 pr-3 py-1 cursor-pointer text-xs hover:bg-accent/40 transition-colors group/row',
         isActive && 'bg-accent/30'
       )}
       onClick={onClick}
     >
       <MessageSquare size={12} className="text-muted-foreground shrink-0" />
-      <span className="truncate flex-1">{s.title || s.id.slice(0, 8)}</span>
+      <span className="truncate flex-1">{title}</span>
+      {isPinned && <Pin size={10} className="shrink-0 text-muted-foreground/50" />}
       <span className="text-[10px] text-muted-foreground shrink-0">{fmtTime(s.lastActive || s.startedAt)}</span>
+      {menu}
     </div>
+  );
+
+  // 右键菜单与 kebab 同款（对齐 Hermes SessionContextMenu）
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+      <ContextMenuContent onCloseAutoFocus={(e) => e.preventDefault()} className="w-48">
+        <ContextMenuItem disabled={!s.id} onSelect={() => actions.onOpenInNewTab?.(s.id)}>
+          <LayoutGrid size={12} className="shrink-0" />
+          <span className="flex-1">在新视图中打开</span>
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!s.id} onSelect={() => void openSessionWindow(s.id, actions.profile)}>
+          <ExternalLink size={12} className="shrink-0" />
+          <span className="flex-1">在新窗口中打开</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem disabled={!s.id} onSelect={() => actions.onRenameRequest(s)}>
+          <Pencil size={12} className="shrink-0" />
+          <span className="flex-1">重命名</span>
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!s.id} onSelect={() => actions.onTogglePin(s)}>
+          <Pin size={12} className="shrink-0" />
+          <span className="flex-1">{isPinned ? '取消固定' : '固定'}</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem disabled={!s.id} onSelect={() => void copySessionId(s.id)}>
+          <Copy size={12} className="shrink-0" />
+          <span className="flex-1">复制会话 ID</span>
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!s.id} onSelect={() => void exportSessionAction(s.id, title)}>
+          <Download size={12} className="shrink-0" />
+          <span className="flex-1">导出会话</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem disabled={!s.id} onSelect={() => void toggleArchiveSession(s.id, false)}>
+          <Archive size={12} className="shrink-0" />
+          <span className="flex-1">归档</span>
+        </ContextMenuItem>
+        <ContextMenuItem className="text-destructive focus:text-destructive" disabled={!s.id} onSelect={() => actions.onDeleted(s)}>
+          <Trash2 size={12} className="shrink-0" />
+          <span className="flex-1">删除</span>
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
 // lane 会话分页（对齐 Hermes SIDEBAR_GROUP_PAGE=5：已加载行分批显示）
 const SHOW_MORE_PAGE = 5;
 
-function LaneNode({ lane, sessionId, onSwitchSession, onReveal, onCopyPath, onRemoveWorktree }: { lane: LaneGroup; sessionId?: string; onSwitchSession?: (id: string) => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void }) {
+function LaneNode({ lane, sessionId, onSwitchSession, onReveal, onCopyPath, onRemoveWorktree, sessionActions }: { lane: LaneGroup; sessionId?: string; onSwitchSession?: (id: string) => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void; sessionActions: SessionRowActions }) {
   // 展开状态持久化（对齐 Hermes useWorkspaceNodeOpen；lane 默认折叠）
   const [expanded, toggleExpanded] = useWorkspaceNodeOpen(lane.id, false);
   // 会话分页：初始 5 条，点「显示更多」+5（对齐 Hermes WorkspaceShowMoreButton）
@@ -225,7 +366,7 @@ function LaneNode({ lane, sessionId, onSwitchSession, onReveal, onCopyPath, onRe
         )}
       </div>
       {expanded && visible.map(s => (
-        <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => onSwitchSession?.(s.id)} />
+        <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => onSwitchSession?.(s.id)} actions={sessionActions} />
       ))}
       {expanded && lane.sessions.length > visible.length && (
         <button
@@ -239,8 +380,8 @@ function LaneNode({ lane, sessionId, onSwitchSession, onReveal, onCopyPath, onRe
   );
 }
 
-function RepoNodeItem({ repo, sessionId, onSwitchSession, onStartWork, onReveal, onCopyPath, onRemoveWorktree, lanes, defaultExpanded = false }: { repo: RepoNode; sessionId?: string; onSwitchSession?: (id: string) => void; onStartWork?: (repoPath: string) => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void; /** 合并 git worktree 后的 lane 列表（对齐 Hermes mergeRepoWorktreeGroups 输出） */
-  lanes: LaneGroup[]; defaultExpanded?: boolean }) {
+function RepoNodeItem({ repo, sessionId, onSwitchSession, onStartWork, onReveal, onCopyPath, onRemoveWorktree, lanes, sessionActions, defaultExpanded = false }: { repo: RepoNode; sessionId?: string; onSwitchSession?: (id: string) => void; onStartWork?: (repoPath: string) => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void; /** 合并 git worktree 后的 lane 列表（对齐 Hermes mergeRepoWorktreeGroups 输出） */
+  lanes: LaneGroup[]; sessionActions: SessionRowActions; defaultExpanded?: boolean }) {
   // 展开状态持久化（对齐 Hermes useWorkspaceNodeOpen；repo 默认展开）
   const [expanded, toggleExpanded] = useWorkspaceNodeOpen(repo.id, defaultExpanded);
 
@@ -266,7 +407,7 @@ function RepoNodeItem({ repo, sessionId, onSwitchSession, onStartWork, onReveal,
         )}
       </div>
       {expanded && lanes.map(g => (
-        <LaneNode key={g.id} lane={g} sessionId={sessionId} onSwitchSession={onSwitchSession} onReveal={onReveal} onCopyPath={onCopyPath} onRemoveWorktree={onRemoveWorktree} />
+        <LaneNode key={g.id} lane={g} sessionId={sessionId} onSwitchSession={onSwitchSession} onReveal={onReveal} onCopyPath={onCopyPath} onRemoveWorktree={onRemoveWorktree} sessionActions={sessionActions} />
       ))}
     </div>
   );
@@ -390,7 +531,7 @@ function projectMenuSpecs(project: ProjectNode, h: {
   ];
 }
 
-function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, onNewSession, isActiveProject, desktop, isDragging, isDragOver, onRowDragStart, onRowDragOver, onRowDrop, onRowDragEnd }: {
+function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, onNewSession, isActiveProject, desktop, sessionActions, isDragging, isDragOver, onRowDragStart, onRowDragOver, onRowDrop, onRowDragEnd }: {
   project: ProjectNode;
   sessionId?: string;
   onSwitchSession?: (id: string) => void;
@@ -405,6 +546,7 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onA
   onNewSession?: (path: string) => void;
   isActiveProject: boolean;
   desktop: boolean;
+  sessionActions: SessionRowActions;
   // ── 拖拽排序（对齐 Hermes reorderable overview-row）──
   isDragging?: boolean;
   isDragOver?: boolean;
@@ -491,7 +633,7 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onA
         {row}
         {expanded && (previews.length > 0 ? (
           previews.map(s => (
-            <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => onSwitchSession?.(s.id)} />
+            <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => onSwitchSession?.(s.id)} actions={sessionActions} />
           ))
         ) : (
           <div className="pl-8 pr-3 pb-1.5 text-[10px] text-muted-foreground/50">暂无会话</div>
@@ -524,7 +666,7 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onA
       {/* 总览预览：previewSessions（每项目 Top3 最近会话，对齐 Hermes PROJECT_PREVIEW_COUNT） */}
       {expanded && (previews.length > 0 ? (
         previews.map(s => (
-          <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => onSwitchSession?.(s.id)} />
+          <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => onSwitchSession?.(s.id)} actions={sessionActions} />
         ))
       ) : (
         <div className="pl-8 pr-3 pb-1.5 text-[10px] text-muted-foreground/50">暂无会话</div>
@@ -887,9 +1029,68 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
   );
 }
 
+// ── 会话重命名对话框（对齐 Hermes RenameSessionDialog）──
+function SessionRenameDialog({ session, onClose, onRenamed }: {
+  session: SessionPreview;
+  onClose: () => void;
+  onRenamed: (id: string, title: string) => void;
+}) {
+  const [value, setValue] = useState(session.title || '');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    const next = value.trim();
+    if (!next || saving) return;
+    setSaving(true);
+    try {
+      await renameSessionAction(session.id, next, onRenamed);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o && !saving) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>重命名会话</DialogTitle>
+        </DialogHeader>
+        <input
+          autoFocus
+          className="desktop-input-chrome h-8 w-full rounded-md border px-2.5 text-sm outline-none"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); void submit(); }
+            else if (e.key === 'Escape') onClose();
+          }}
+          placeholder="会话标题"
+        />
+        <DialogFooter>
+          <button
+            className="h-8 rounded-md px-3 text-xs text-muted-foreground hover:bg-accent transition-colors"
+            onClick={onClose}
+            disabled={saving}
+          >
+            取消
+          </button>
+          <button
+            className="h-8 rounded-md bg-foreground px-3 text-xs text-background hover:opacity-90 transition-opacity disabled:opacity-50"
+            onClick={() => void submit()}
+            disabled={saving || !value.trim()}
+          >
+            {saving ? '保存中…' : '保存'}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Panel ──
 
-export default function ProjectTreePanel({ sessionId, onSwitchSession, currentProfile, onNewSessionInProject }: ProjectTreePanelProps) {
+export default function ProjectTreePanel({ sessionId, onSwitchSession, currentProfile, onNewSessionInProject, onOpenSessionInNewTab }: ProjectTreePanelProps) {
   const [tree, setTree] = useState<TreeResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -907,6 +1108,9 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
   const [projectOrder, setProjectOrder] = useState<string[]>(() => getProjectOrderIds());
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  // 会话行操作（对齐 Hermes session-actions-menu）
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => loadPinnedIds());
+  const [renameTarget, setRenameTarget] = useState<SessionPreview | null>(null);
   const desktop = isTauri();
 
   // 渲染列表：手排 order 覆盖在确定性排序之上（对齐 Hermes orderProjectsByIds）
@@ -959,6 +1163,44 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
       setLoading(false);
     }
   }, [currentProfile]);
+
+  // ── 会话行操作 handlers（对齐 Hermes session-actions-menu）──
+  const togglePin = useCallback((s: SessionPreview) => {
+    setPinnedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(s.id)) next.delete(s.id); else next.add(s.id);
+      savePinnedIds(next);
+      return next;
+    });
+  }, []);
+
+  const handleDeleteSession = useCallback((s: SessionPreview) => {
+    void deleteSessionAction(s.id, () => { void fetchTree(true); });
+  }, [fetchTree]);
+
+  // 重命名成功：总览刷新 + 钻取数据同步（title 即时生效）
+  const handleRenamed = useCallback((id: string, title: string) => {
+    void fetchTree(true);
+    setDrillProject(prev => {
+      if (!prev) return prev;
+      const updateSessions = (sessions: SessionPreview[]): SessionPreview[] =>
+        sessions.map(s => (s.id === id ? { ...s, title } : s));
+      return {
+        ...prev,
+        repos: prev.repos.map(r => ({ ...r, groups: r.groups.map(g => ({ ...g, sessions: updateSessions(g.sessions) })) })),
+      };
+    });
+  }, [fetchTree]);
+
+  // 行菜单共享规格（对齐 Hermes useProjectActions：kebab 与右键同一套）
+  const sessionActions = useMemo<SessionRowActions>(() => ({
+    onOpenInNewTab: onOpenSessionInNewTab,
+    profile: currentProfile,
+    onRenameRequest: setRenameTarget,
+    onDeleted: handleDeleteSession,
+    isPinned: (s) => pinnedIds.has(s.id),
+    onTogglePin: togglePin,
+  }), [onOpenSessionInNewTab, currentProfile, handleDeleteSession, pinnedIds, togglePin]);
 
   // 钻取：点击项目行 → 全量水合的 Repo/Lane/Session 树
   const handleDrill = useCallback(async (project: ProjectNode) => {
@@ -1186,6 +1428,7 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
                     onCopyPath={handleCopyPath}
                     onRemoveWorktree={(lane) => { if (r.path) setRemoveTarget({ repoPath: r.path, lane }); }}
                     lanes={mergeWorktreeLanes(r.groups, worktreesMap[r.path ?? ''] ?? [], getDismissedWorktrees())}
+                    sessionActions={sessionActions}
                     defaultExpanded
                   />
                 ))
@@ -1256,6 +1499,7 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
                       onRowDragOver={handleRowDragOver}
                       onRowDrop={handleRowDrop}
                       onRowDragEnd={handleRowDragEnd}
+                      sessionActions={sessionActions}
                     />
                   ))
                 )}
@@ -1263,6 +1507,15 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
             </>
           )}
         </>
+      )}
+
+      {/* 会话重命名对话框（对齐 Hermes RenameSessionDialog；钻取/总览行共用） */}
+      {renameTarget && (
+        <SessionRenameDialog
+          session={renameTarget}
+          onClose={() => setRenameTarget(null)}
+          onRenamed={handleRenamed}
+        />
       )}
 
       {/* 项目新建/编辑对话框 */}

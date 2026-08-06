@@ -62,6 +62,8 @@ interface SidePanelProps {
   messageCount?: number;
   /** 🔴 在该项目新建会话（对齐 Hermes onNewSessionInWorkspace）：ProjectTreePanel 项目行 + 按钮 → App 创建带 cwd 会话 */
   onNewSessionInProject?: (cwd: string) => void;
+  /** 🔴 会话行「在新视图中打开」（对齐 Hermes openInNewTab）：App 层宫格路由 */
+  onOpenSessionInNewTab?: (sessionId: string) => void;
 }
 
 export default function SidePanel({ activePanel, onPanelChange, ...props }: SidePanelProps) {
