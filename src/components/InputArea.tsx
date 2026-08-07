@@ -10,6 +10,7 @@ import WebWindowButton from './WebWindowButton';
 import SlashCommandPopup from './SlashCommandPopup';
 import QueuePanel from './QueuePanel';
 import { SendIcon, MicIcon, LoadingIcon } from './Icons';
+import { WakeWordButton } from './WakeWordButton';
 import { cn } from '@/lib/utils';
 import type { AttachedImage } from '@/hooks/useImageAttachments';
 import { useVoice } from '@/hooks/useVoice';
@@ -649,6 +650,8 @@ function InputArea({
             >
               {voice.status === 'transcribing' ? <LoadingIcon size={15} /> : <MicIcon size={15} />}
             </button>
+            {/* 唤醒词耳朵开关 — 对齐 Hermes composer WakeWordButton（persist 显式手势翻配置） */}
+            <WakeWordButton pausedForVoice={voice.status === 'recording'} />
             {/* 模型胶囊 — 模型显示 + 分组下拉切换（Hermes 式 Model Pill） */}
             <ModelPill />
             {/* 思考深度 — 低/中/高，config.set 持久化（对齐 Hermes reasoning_effort） */}

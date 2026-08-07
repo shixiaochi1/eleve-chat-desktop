@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import AttachMenu from './AttachMenu';
 import SlashCommandPopup from './SlashCommandPopup';
 import { SendIcon, MicIcon } from './Icons';
+import { WakeWordButton } from './WakeWordButton';
 import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
 import { useVoice } from '@/hooks/useVoice';
 import type { AttachedImage } from '@/hooks/useImageAttachments';
@@ -376,6 +377,9 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
         >
           <MicIcon size={14} />
         </button>
+
+        {/* 唤醒词耳朵开关 — 对齐 Hermes composer WakeWordButton（录音中暂停） */}
+        <WakeWordButton pausedForVoice={voice.status === 'recording'} size={14} />
 
         {/* 发送/停止 — 高对比圆形主按钮，最右侧（与单视图同一设计语言） */}
         <button

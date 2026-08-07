@@ -1108,13 +1108,26 @@ export default function App() {
   }, [gridAwareNewSession]);
 
   // ── wake.detected 订阅：唤醒词命中 → 开新会话（对齐 Hermes wiring.tsx:686
-  //   startFreshSessionDraft；提示音已在 handleGlobalEvent 播放）──
-  // 宫格/单视图统一走 gridAwareNewSession（同一套工具链，不重复造轮子）
+  //   newSessionInProfile / startFreshSessionDraft；提示音已在 handleGlobalEvent 播放）──
+  // 多 profile 路由：命中归属 profile ≠ 当前 → 切 profile + 开新会话（对齐 Hermes
+  //   targetProfile re-home + newSessionInProfile）；否则当前 profile 开新会话。
   useEffect(() => {
-    return onWakeDetected((_detail) => {
-      gridAwareNewSession();
+    return onWakeDetected((detail) => {
+      const targetProfile = detail.profile?.trim();
+      if (targetProfile && targetProfile !== currentProfile) {
+        // 对齐 Hermes：唤醒词归属 profile 先 re-home（切盖章）再开新会话
+        setWsActiveProfile(targetProfile);
+        getWsClient().switchSession('');
+        if (viewMode === 'grid') {
+          gridRef.current?.newSession(targetProfile);
+        } else {
+          handleNewSession();
+        }
+      } else {
+        gridAwareNewSession();
+      }
     });
-  }, [gridAwareNewSession]);
+  }, [gridAwareNewSession, currentProfile, viewMode, handleNewSession]);
 
   // ── titlebar controls ──
   const winMin = () => tauriWindow?.minimize();

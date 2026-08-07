@@ -14,6 +14,8 @@ const WAKE_EVENT = 'eleve:wake-detected'
 
 export interface WakeDetectedDetail {
   phrase: string
+  /** 命中归属 profile（单引擎/默认 = null，对齐 Hermes 多 profile 路由） */
+  profile?: string | null
   startNewSession: boolean
 }
 
