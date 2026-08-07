@@ -685,7 +685,7 @@ export function useGridChat(active: boolean): {
           }
           break;
         }
-        case 'interim.message': {
+        case 'message.interim': {
           const imContent = (payload.content as string) || '';
           // 🔴 #12: already_streamed 守卫（对齐单视图）— 流式已上屏的内容不重复 append
           if (imContent && !(payload.already_streamed as boolean)) {

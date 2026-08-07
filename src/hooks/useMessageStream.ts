@@ -924,7 +924,7 @@ export function useMessageStream({
     },
 
     // 中间助手消息（对齐 Hermes _emit_interim_assistant_message）
-    // 🔴 Phase 2: 独立 assistant 消息（对齐宫格 useGridChat interim.message）
+    // 🔴 Phase 2: 独立 assistant 消息（对齐宫格 useGridChat message.interim）
     onInterimMessage: (data: { content: string; alreadyStreamed: boolean }) => {
       if (data.content && !data.alreadyStreamed) {
         addDebugEvent('interim_message', data.content.slice(0, 60));

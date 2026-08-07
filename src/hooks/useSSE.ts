@@ -266,7 +266,7 @@ function processEvent(
       break;
 
     // P1: 中间助手消息（对齐 Hermes _emit_interim_assistant_message）
-    case 'interim.message':
+    case 'message.interim':
       cbs.onInterimMessage?.({
         content: (chunk.content as string) || '',
         alreadyStreamed: (chunk.already_streamed as boolean) || false,
