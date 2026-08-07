@@ -49,7 +49,8 @@
       "binaries/agent-browser-win32-x64.exe",
       "binaries/eleved.exe",
       "binaries/rg.exe",
-      "binaries/tirith.exe"
+      "binaries/tirith.exe",
+      "resources/wakewords/hey_hermes.onnx"
     ],
     "windows": {
       "nsis": {
