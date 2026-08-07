@@ -9,6 +9,17 @@
  * - 启动时 init() 从 AppService 一次性加载所有数据到内存
  * - save/remove 后台异步写 AppService（不阻塞 UI）
  * - 与旧 localStorage 接口 100% 兼容，零改动调用方
+ * 
+ * 🔴 2026-08-08 对齐 Hermes 修复（重启弹"数据可能未保存"根因）：
+ * - P0-1 恢复链：后端 get_app_data 返回 JSON 字符串（Value::String），
+ *   init() 原用 Array.isArray 判断 index → 恒 false → _cache 永不加载 →
+ *   重启后 msg_cache/titles/session_id 全部读不到（靠后端 DB 兜底才没暴露）。
+ *   修：字符串 index JSON.parse 后按数组处理（对齐 HTTP 端点契约）。
+ * - P0-2 写队列 + 重试：原 _persist fire-and-forget，WS 未连（冷启动 mount 期）
+ *   直接 reject → 一次 save = save+index 两次计数，3 次 save 即触发 5 次阈值弹窗。
+ *   修：写入入 pending 队列，等 WS 连接后批量补写（最终一致，对齐 Hermes
+ *   localStorage 同步语义的异步等价）；真落盘失败才计数提示。
+ * - P1 index 防抖：_updateIndex 每次 save 都发 RPC → 合并为 500ms 防抖单写。
  */
 import { call, getHttpBase } from './bridge';
 
@@ -16,7 +27,7 @@ import { call, getHttpBase } from './bridge';
 const _cache = new Map<string, string>();
 
 // ====== 迁移标记 ======
-const MIGRATION_DONE_KEY = '__storage_migrated__';
+const MIGRATION_DONE_KEY = '__stor…ed__';
 
 // ====== 是否已初始化 ======
 let _initialized = false;
@@ -34,10 +45,20 @@ export async function init(): Promise<void> {
     try {
       // 1. 尝试从 AppService 加载索引文件
       const indexRaw = await call('get_app_data', { key: '__index__' });
-      if (indexRaw && Array.isArray(indexRaw)) {
+      // 🔴 P0-1: 后端返回 JSON 字符串（Value::String），非数组。解析后按数组处理。
+      let indexKeys: string[] | null = null;
+      if (typeof indexRaw === 'string' && indexRaw) {
+        try {
+          const parsed = JSON.parse(indexRaw);
+          if (Array.isArray(parsed)) indexKeys = parsed;
+        } catch { /* 非法 JSON → 视为无索引 */ }
+      } else if (Array.isArray(indexRaw)) {
+        indexKeys = indexRaw;
+      }
+      if (indexKeys && indexKeys.length > 0) {
         // 2. 并行加载所有 key
         const entries: Array<[string, string] | null> = await Promise.all(
-          indexRaw.map(async (key: string) => {
+          indexKeys.map(async (key: string) => {
             try {
               const raw = await call('get_app_data', { key });
               if (raw !== null && raw !== undefined) {
@@ -109,9 +130,15 @@ async function _migrateFromLocalStorage(): Promise<void> {
   localStorage.setItem('eleve_' + MIGRATION_DONE_KEY, '1');
 }
 
-/**
- * 后台持久化（不阻塞 UI，fire-and-forget）
- */
+// ====== 后台持久化（写队列 + WS 就绪后批量补写，最终一致） ======
+
+// 🔴 P0-2: pending 写队列。key → value（value=null 表示删除）。
+// 原实现 fire-and-forget：WS 未连（冷启动 mount 期）sendRpc 直接 reject →
+// 一次 save = save+index 两次失败计数，3 次 save 即触发 5 次阈值弹窗。
+// 新实现：入队后等 WS 连接，连接后批量补写；真落盘失败才计数提示。
+const _pendingWrites = new Map<string, string | null>();
+let _flushing = false;
+
 let _writeFailCount = 0;
 const WRITE_FAIL_THRESHOLD = 5;
 
@@ -127,24 +154,87 @@ function _reportWriteFailure(context: string, e: unknown): void {
 }
 
 function _persist(key: string, value: string | null): void {
-  if (value === undefined || value === null) {
-    call('delete_app_data', { key })
-      .catch(e => _reportWriteFailure('remove', e));
-  } else {
-    call('set_app_data', { key, value })
-      .catch(e => _reportWriteFailure('save', e));
-  }
-  _updateIndex();
+  _pendingWrites.set(key, value);
+  if (key !== '__index__') _indexDirty = true; // 数据变更 → 同批补写 index
+  _scheduleFlush();
 }
 
 /**
- * 更新索引文件（记录所有已存储的 key）
+ * 触发一次写队列 flush（单飞：已有 flush 在跑则复用）。
+ * flush 流程：等 WS 连接（带超时）→ 批量写出当前快照 → 失败项重新入队并跳出
+ * （留待下次 save 触发重试，防无限循环）→ 补一次防抖 index 更新。
  */
-function _updateIndex(): void {
-  const keys = Array.from(_cache.keys()).filter(k => !k.startsWith('__'));
-  call('set_app_data', { key: '__index__', value: JSON.stringify(keys) })
-    .catch(e => _reportWriteFailure('index update', e));
+function _scheduleFlush(): void {
+  if (_flushing) return;
+  _flushing = true;
+  void (async () => {
+    try {
+      while (_pendingWrites.size > 0) {
+        const { getWsClient } = await import('../services/ws-client');
+        const ws = getWsClient();
+        // 等 WS 连接（对齐 Hermes localStorage 同步语义：写入不因连接未就绪而失败）。
+        // 先订阅再查状态，防订阅后状态已变 connected 导致永久挂起。
+        // 60s 超时保护：重连彻底失败时放弃本轮（pending 保留），不永久卡死 _flushing。
+        if (ws.state !== 'connected') {
+          await new Promise<void>((resolve) => {
+            let done = false;
+            const finish = () => { if (!done) { done = true; unsub(); resolve(); } };
+            const unsub = ws.onStateChange((s) => {
+              if (s === 'connected') finish();
+            });
+            if (ws.state === 'connected') finish();
+            setTimeout(finish, 60_000);
+          });
+        }
+
+        // 等连接超时仍未连 → 跳出（pending 保留），60s 后兜底重试一次，
+        // 防止 WS 恢复连接后无人触发 flush（_flushing 已释放，不卡死）
+        if (ws.state !== 'connected') {
+          setTimeout(() => _scheduleFlush(), 60_000);
+          break;
+        }
+
+        const entries = Array.from(_pendingWrites.entries());
+        _pendingWrites.clear();
+        let failed = false;
+        for (const [key, value] of entries) {
+          try {
+            if (value === null) {
+              await call('delete_app_data', { key });
+            } else {
+              await call('set_app_data', { key, value });
+            }
+          } catch (e) {
+            // 真落盘失败：重新入队（下次 save 触发重试）+ 计数提示
+            _pendingWrites.set(key, value);
+            _reportWriteFailure(value === null ? 'remove' : 'save', e);
+            failed = true;
+          }
+        }
+        // 本轮有失败 → 跳出循环，避免同批失败项无限重试；
+        // 5s 后兜底重试一次（用户无新 save 时也能自愈），失败计数已有阈值提示。
+        if (failed) {
+          setTimeout(() => _scheduleFlush(), 5000);
+          break;
+        }
+
+        // 数据写入完成后，补一次 index 更新（同批写出，防抖：仅数据变更时置脏一次）
+        if (_indexDirty) {
+          _indexDirty = false;
+          const keys = Array.from(_cache.keys()).filter(k => !k.startsWith('__'));
+          _pendingWrites.set('__index__', JSON.stringify(keys));
+        }
+      }
+    } finally {
+      _flushing = false;
+    }
+  })();
 }
+
+// ====== 索引更新（防抖合并，避免每次 save 都发 index RPC） ======
+// 数据变更（_persist）时置脏；flush 循环同批写出 __index__；
+// 不存在独立定时器 → 无“index 更新后再次触发 flush”的死循环。
+let _indexDirty = false;
 
 // ====== 对外接口 — 与旧 storage.js 100% 兼容（同步） ======
 
@@ -186,22 +276,24 @@ export function remove(key: string): void {
 
 /**
  * beforeunload 专用保存：同步写内存缓存 + sendBeacon 持久化
- * 桌面模式：走 invoke（同步性更好）
- * 浏览器模式：走 sendBeacon
+ * 🔴 2026-08-08 对齐修复：统一走 HTTP sendBeacon，不依赖 WS 连接。
+ *   原桌面分支走 call('set_app_data')（WS RPC）——关闭窗口时 WS 已断 → 必失败 →
+ *   msg_cache 永远停在关闭前（重启后丢最后消息）。后端 /api/app-data/:key 已
+ *   支持 POST（sendBeacon 只能 POST，专门复用 PUT handler），HTTP server 独立
+ *   于 WS，关闭瞬间仍可送达。
  */
 export function saveBeacon(key: string, value: unknown): void {
   const serialized = JSON.stringify(value);
   _cache.set(key, serialized);
-  // 桌面模式：直接 invoke（更可靠）
-  if (typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) {
-    call('set_app_data', { key, value: serialized })
-      .catch(e => console.warn('[storage] beacon save failed:', e));
-  } else {
-    // 浏览器 fallback：sendBeacon
+  try {
     navigator.sendBeacon(
       `${getHttpBase()}/api/app-data/${encodeURIComponent(key)}`,
       new Blob([serialized], { type: 'text/plain' })
     );
+  } catch (e) {
+    console.warn('[storage] beacon save failed:', e);
   }
-  _updateIndex();
+  // 索引异步补写（尽力而为，beforeunload 场景不阻塞）
+  _indexDirty = true;
+  _scheduleFlush();
 }
