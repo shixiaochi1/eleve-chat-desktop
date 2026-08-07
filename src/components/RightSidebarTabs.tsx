@@ -25,7 +25,7 @@ export default function RightSidebarTabs({ activeTab, onTabChange, onClose }: Ri
         <button
           key={key}
           className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-b-2 border-transparent',
+            'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-b-2 border-transparent shrink-0 whitespace-nowrap',
             activeTab === key
               ? 'text-accent-cyan border-accent-cyan'
               : 'text-accent-cyan/60 hover:text-accent-cyan hover:bg-accent/5',

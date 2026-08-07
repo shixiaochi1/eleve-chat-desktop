@@ -41,6 +41,9 @@ interface PaneShellProps {
   rightWidth?: string;
   minRightWidth?: number;
   maxRightWidth?: number;
+  /** 聊天区（主列）最小宽度（CSS px）。grid 主列 = minmax(minMainWidth, calc(...))
+   *  窗口极端不足时主列保底不挤压（溢出裁右抽屉）；正常情况 calc 恒等零抖动 */
+  minMainWidth?: number;
   /** 右抽屉宽度锚点（2026-08-06 v4 确定性推导）：
    *  { winW: 锚定时的窗口宽, rightW: 锚定时的右抽屉宽 }
    *  派生 rightW = clamp(rightW + (当前窗口宽 - winW), minR, maxR)
@@ -85,8 +88,9 @@ export default function PaneShell({
   maxLeftWidth = 500,
   rightOpen = false,
   rightWidth = '200px',
-  minRightWidth = 200,
+  minRightWidth = 320,
   maxRightWidth = 400,
+  minMainWidth = 480,
   rightAnchor,
   onLeftResize,
   onRightResize,
@@ -174,6 +178,8 @@ export default function PaneShell({
             );
             widthRef.current.right = right;
             el.style.setProperty('--pane-right-width', `${right}px`);
+            // 🔴 v6.1：resizer 热区位置同步跟随（窗口缩放零 React 渲染 → 热区实时）
+            el.style.setProperty('--pane-right-resizer-x', `${right + 4}px`);
           }
         }
       }
@@ -288,11 +294,14 @@ export default function PaneShell({
   //   右侧留空隙（右缘间距 8px 变 24px）。
   //   浏览器每次 reflow 都同步重算 calc → 聊天区列宽数学恒等，窗口缩放
   //   零中间态（旧 1fr 会在 CSS 变量更新前吸收窗口变化 → 弹簧抖动根因）。
+  //   🔴 v6（2026-08-08）：主列包 minmax(minMainWidth, calc(...)) ——
+  //   calc 空间不足时主列保底 minMainWidth（溢出，容器 overflow-hidden 裁右抽屉），
+  //   正常空间时 max=calc 恒等，零中间态特性保留 → 聊天区任何时刻不被挤压。
   const gridTemplate = useMemo(() => {
     const left = leftOpen ? 'var(--pane-left-width)' : '0px';
     const right = rightOpen ? 'var(--pane-right-width)' : '0px';
-    return `${left} calc(100% - ${left} - ${right} - 16px) ${right}`;
-  }, [leftOpen, rightOpen]);
+    return `${left} minmax(${minMainWidth}px, calc(100% - ${left} - ${right} - 16px)) ${right}`;
+  }, [leftOpen, rightOpen, minMainWidth]);
 
   // Emit pane widths as CSS variables for animation
   // 🔴 变量必须**永远**在 style 里（不能 dragging 时条件移除）：React 渲染 diff 会把
@@ -304,6 +313,8 @@ export default function PaneShell({
     gridTemplateColumns: gridTemplate,
     '--pane-left-width': `${widthRef.current.left}px`,
     '--pane-right-width': `${widthRef.current.right}px`,
+    // 🔴 v6.1：resizer 热区 x 基准（渲染时同步，rAF 每帧覆写实时值）
+    '--pane-right-resizer-x': `${widthRef.current.right + 4}px`,
   } as React.CSSProperties;
 
   const contextValue = useMemo(() => ({
@@ -345,19 +356,24 @@ export default function PaneShell({
             平时与 hover 都**零视觉元素**——鼠标移到两卡片缝隙中间时，
             只有光标变成左右拖拽箭头（cursor-col-resize），不显示任何滑块/竖条。
             缝隙大小 = grid gap-2 固定 8px 不变，拖拽只改 pane 宽度（grid-template-columns）。
-            拖拽中零 React（applyDrag 直接写 CSS 变量）。 */}
+            拖拽中零 React（applyDrag 直接写 CSS 变量）。
+            🔴 v6.1 定位修正（老大 2026-08-08 反馈“图标不在间隙中间”）：
+              原实现带 translate-x-1/2（±8px）→ 热区中心偏间隙 8px，悬在卡片上。
+              几何：右间隙中心距容器右边缘 = pr-2(8) + rightW + gap/2(4) = rightW+12；
+              元素右边缘定在 rightW+4 → 中心 = rightW+4+半宽8 = rightW+12 ✓ 正中。
+              16px 热区 = 间隙 8px 全覆盖 + 两侧卡片各 4px。 */}
         {leftOpen && (
           <div
-            className="absolute top-0 bottom-0 z-10 w-[16px] -translate-x-1/2 cursor-col-resize"
+            className="absolute top-0 bottom-0 z-10 w-[16px] cursor-col-resize"
             style={{ left: `calc(${leftWidth} + 4px)` }}
             onPointerDown={(e: React.PointerEvent) => handleResizerDown('left', e)}
           />
         )}
         {rightOpen && (
           <div
-            className="absolute top-0 bottom-0 z-10 w-[16px] translate-x-1/2 cursor-col-resize"
-            // 🔴 热区位置用 widthRef 实时值（窗口缩放后实际宽度是派生值，rightWidth prop 只是锚点）
-            style={{ right: `calc(${widthRef.current.right}px + 4px)` }}
+            className="absolute top-0 bottom-0 z-10 w-[16px] cursor-col-resize"
+            // 🔴 v6.1：位置用 CSS 变量（rAF 每帧同步）→ 窗口缩放零 React 渲染也实时跟随
+            style={{ right: 'var(--pane-right-resizer-x)' }}
             onPointerDown={(e: React.PointerEvent) => handleResizerDown('right', e)}
           />
         )}

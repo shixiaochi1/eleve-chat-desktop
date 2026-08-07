@@ -113,12 +113,25 @@ export default function App() {
       return false;
     }
   });
-  const [rightAnchor, setRightAnchor] = useState<{ winW: number; rightW: number }>(() => ({
+  const [rightAnchor, setRightAnchor] = useState<{ winW: number; rightW: number }>(() => {
     // 🔴 2026-08-06 v4 确定性推导：右抽屉宽度锚点（PaneShell 内部派生 = 锚点 + 窗口变化量）
-    // winW = 锚定时的窗口内容宽；rightW = 锚定时的右抽屉宽
-    winW: typeof window !== 'undefined' ? window.innerWidth : 900,
-    rightW: 280,
-  }));
+    // winW = 锚定时的窗口内容宽（CSS 像素）；rightW = 锚定时的右抽屉宽
+    // 🔴 2026-08-08 v6：锚点持久化（eleve.rightPane.v1 附带 winW/rightW）——
+    //   重启后恢复上次右抽屉宽度，不再回落默认 280；winW 随窗口恢复尺寸自动补偿
+    try {
+      const raw = localStorage.getItem('eleve.rightPane.v1');
+      const a = raw ? (JSON.parse(raw) as { winW?: number; rightW?: number }) : null;
+      return {
+        winW: typeof a?.winW === 'number' && a.winW > 0 ? a.winW : (typeof window !== 'undefined' ? window.innerWidth : 900),
+        rightW: typeof a?.rightW === 'number' ? Math.max(320, Math.min(800, a.rightW)) : 280,
+      };
+    } catch {
+      return {
+        winW: typeof window !== 'undefined' ? window.innerWidth : 900,
+        rightW: 280,
+      };
+    }
+  });
   const [rightTab, setRightTab] = useState<string>(() => {
     try {
       const raw = localStorage.getItem('eleve.rightPane.v1');
@@ -130,16 +143,22 @@ export default function App() {
   });
   useEffect(() => {
     try {
-      localStorage.setItem('eleve.rightPane.v1', JSON.stringify({ open: rightOpen, tab: rightTab }));
+      localStorage.setItem('eleve.rightPane.v1', JSON.stringify({ open: rightOpen, tab: rightTab, winW: rightAnchor.winW, rightW: rightAnchor.rightW }));
     } catch { /* 存储不可用静默降级 */ }
-  }, [rightOpen, rightTab]);
+  }, [rightOpen, rightTab, rightAnchor]);
   const handleToggleFiles = useCallback(() => setRightOpen(prev => !prev), []);
 
   // 🔴 2026-08-06 老大要求：右抽屉打开 = 窗口向右加宽（不挤压消息区）
   // - 窗口最小宽度 = 图标栏 52 + 左面板 panelWidth + 聊天区最小 480
-  //   + (抽屉开 ? 右抽屉最小 240 : 0) + padding/gap 32（SIDE_CHROME）
+  //   + (抽屉开 ? 右抽屉实际宽 : 0) + padding/gap 32（SIDE_CHROME）
   // - 开抽屉瞬间若窗口不足 → setSize 向右加宽（聊天区补到最小，右抽屉保持）
   // - widenedRef 防重复加宽：之后右抽屉/面板宽度变化只同步 min-size 不再 setSize
+  // 🔴 2026-08-08 v6 重启挤压根治三修正：
+  //   ① minSize 用实际右抽屉宽（原写死 240 → rightW=280/更大时窗口可缩到聊天区 < 480）
+  //   ② 物理/CSS 像素统一：setSize/setMinSize 输入物理 = CSS×scaleFactor+border；
+  //      锚点 winW 恒用 CSS（window.innerWidth）。原混用（after.width 物理写入锚点、
+  //      布局/渲染读 CSS）→ 系统缩放率 ≠ 100% 时 rightW 错位被压到下限 → 重启挤压
+  //   ③ 启动 1s 后重锚：窗口恢复/OS minSize 拉大等启动期窗口变化归零，不进入右抽屉增量
   const MIN_CHAT_WIDTH = 480;
   const SIDE_CHROME = 32; // pl-2/pr-2 padding 16 + grid gap-2 16
   const widenedRef = useRef(false);
@@ -151,27 +170,32 @@ export default function App() {
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
         const { PhysicalSize } = await import('@tauri-apps/api/dpi');
         const win = getCurrentWindow();
+        const scale = await win.scaleFactor();
         const size = await win.innerSize();
         // 🔴 物理宽 = 内容宽 + 边框差（setSize/setMinSize 是物理单位，calc 布局用内容宽）
         const border = Math.max(0, (await win.outerSize()).width - size.width);
-        const minW = 52 + panelWidth + MIN_CHAT_WIDTH + SIDE_CHROME + (rightOpen ? 240 : 0);
-        await win.setMinSize(new PhysicalSize(minW + border, 400));
+        const rightW = rightOpen ? rightAnchor.rightW : 0;
+        const minW = 52 + panelWidth + MIN_CHAT_WIDTH + SIDE_CHROME + rightW;
+        // 🔴 before 必须 setMinSize 前读（OS clamp 拉大后 innerWidth 已是新值，
+        //   1s 后比较恒等 → 重锚失效 → 拉大量仍算进右抽屉 → 挤压）
+        const before = window.innerWidth;
+        await win.setMinSize(new PhysicalSize(Math.round(minW * scale) + border, 400));
         if (rightOpen) {
           if (!widenedRef.current) {
             widenedRef.current = true;
-            const need = 52 + panelWidth + MIN_CHAT_WIDTH + SIDE_CHROME + rightAnchor.rightW;
-            if (size.width < need) {
-              await win.setSize(new PhysicalSize(need + border, size.height));
-              // 🔴 setSize 后同步锚点基准（否则窗口增量被算进右抽屉 → 聊天区被挤回）
-              const after = await win.innerSize();
-              setRightAnchor((prev) => ({ winW: after.width, rightW: prev.rightW }));
-            } else {
-              // 窗口本来就够宽 → 以当前宽度为基准（右抽屉保持默认）
-              setRightAnchor((prev) => ({ winW: size.width, rightW: prev.rightW }));
+            // 🔴 物理/CSS 换算：need 是 CSS 公式，setSize 输入物理 = CSS×scale+border
+            if (before < minW) {
+              await win.setSize(new PhysicalSize(Math.round(minW * scale) + border, size.height));
             }
           }
         } else {
           widenedRef.current = false;
+        }
+        // 🔴 启动 1s 后重锚（窗口恢复/minSize 拉大归零，不进入右抽屉增量 → 聊天区恒 ≥ 480）
+        await new Promise((r) => setTimeout(r, 1000));
+        if (cancelled) return;
+        if (window.innerWidth !== before) {
+          setRightAnchor((prev) => ({ winW: window.innerWidth, rightW: prev.rightW }));
         }
       } catch (err) {
         console.warn('[App] window size sync failed:', err);
@@ -1183,12 +1207,14 @@ export default function App() {
           rightOpen={rightOpen}
           rightWidth={`${rightAnchor.rightW}px`}
           rightAnchor={rightAnchor}
-          // 🔴 右栏宽度范围放宽（老大 2026-08-05）：原 200-400 只有 120px 可拖 →
-          // 拖一点就到底。min 240 保证内容可读，max 800 覆盖窗口增量分配上限。
-          onRightResize={(w: number) => setRightAnchor({ winW: window.innerWidth, rightW: Math.max(240, Math.min(800, w)) })}
+          // 🔴 右栏宽度范围（2026-08-05 放宽至 240-800；2026-08-08 下限提至 320）：
+          // 顶部 4 个 tab 按钮（文件/终端/预览/产物 + 关闭钮）需要 ~314px，
+          // 240 时文字被压缩变形。max 800 覆盖窗口增量分配上限。
+          onRightResize={(w: number) => setRightAnchor({ winW: window.innerWidth, rightW: Math.max(320, Math.min(800, w)) })}
           onRightToggle={handleToggleFiles}
-          minRightWidth={240}
+          minRightWidth={320}
           maxRightWidth={800}
+          minMainWidth={MIN_CHAT_WIDTH}
           className="app-pane-shell"
         >
           {/* 左侧面板：图标栏 + 侧边面板卡片 */}
