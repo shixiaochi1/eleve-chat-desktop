@@ -469,10 +469,12 @@ function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boo
       </div>
 
       {/* Terminal container (xterm.js) — 文件树路径拖入（对齐 Hermes
-          use-terminal-session drop：路径写入 shell 输入，按 shell 类型转义）+ 选区浮动按钮 */}
+          use-terminal-session drop：路径写入 shell 输入，按 shell 类型转义）+ 选区浮动按钮
+          🔴 host 必须 h-full：父级 `relative flex-1` 非 flex 容器，flex-1 失效 →
+          host 高度 0 → FitAddon rows=0 → 终端空白（对齐 Hermes HOST_CLASS=h-full） */}
       <div className="relative flex-1 min-h-0">
         <div
-          className="flex-1 min-h-0 p-1"
+          className="h-full min-h-0 p-1"
           ref={term.containerRef}
           onDragOver={(e) => {
             if (dragHasPaths(e.dataTransfer)) e.preventDefault();
