@@ -49,6 +49,7 @@ import { profileFromSessionId, sessionIdMatchesProfile, persistSessionPointer } 
 import { toChatMessages, textPart, type SessionMessage, type ChatMessagePart } from '@/lib/chat-messages';
 import { createAccumulator, resetAccumulator, resetAccumulatorForStep, processAccumulatorEvent, finalizeAccumulator, extractPendingInteractions, type StreamAccumulator } from '@/lib/ws-event-processor';
 import { handleGlobalEvent } from '@/lib/global-events';
+import { burstVibeHearts } from '@/lib/vibe-hearts';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
 import { enqueue as queueEnqueue, dequeue as queueDequeue, peek as queuePeek, clearQueue, getQueueLength, getQueue, removeEntry, promoteEntry, MAX_DRAIN_ATTEMPTS, getDrainFailures, incrementDrainFailures, clearDrainFailures, resetAllDrainFailures, stashAttachmentData, takeAttachmentData, type QueuedAttachment } from '@/lib/message-queue';
 import type { ChatMessage } from '@/types';
@@ -693,6 +694,13 @@ export function useGridChat(active: boolean): {
           }
           break;
         }
+        // reaction — 用户 affection（ily / <3 / good bot / 心形 emoji）→ 爱心彩蛋
+        // 对齐 Hermes: gateway-event.ts reaction → burstVibeHearts()；纯 UI，永不触碰对话
+        case 'reaction':
+          if ((payload.kind as string) === 'vibe') {
+            burstVibeHearts();
+          }
+          break;
         case 'background.review': {
           const brSummary = (payload.summary as string) || '';
           if (brSummary) {

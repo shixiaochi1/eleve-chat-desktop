@@ -1420,3 +1420,28 @@ canvas {
 .prose .hljs-variable, .prose .hljs-template-variable, .prose .hljs-name { color: var(--ui-cyan); }
 .prose .hljs-attribute, .prose .hljs-symbol, .prose .hljs-bullet, .prose .hljs-link { color: var(--ui-yellow); }
 .prose .hljs-params, .prose .hljs-selector-id, .prose .hljs-selector-class { color: var(--ui-pink); }
+
+/* ── vibe hearts（对齐 Hermes burstVibeHearts：用户 affection → 上浮爱心彩蛋）──
+   纯 UI 彩蛋：由后端 reaction 事件触发，动画结束自动清理，永不触碰对话。 */
+.vibe-hearts-overlay {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 9999;
+}
+.vibe-heart {
+  position: absolute;
+  bottom: 0;
+  line-height: 1;
+  animation: vibe-rise 1.5s ease-out forwards;
+  will-change: transform, opacity;
+  filter: drop-shadow(0 2px 6px rgb(255 158 196 / 0.35));
+}
+@keyframes vibe-rise {
+  0%   { opacity: 0; transform: translate(0, 0) scale(0.6) rotate(-8deg); }
+  12%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--sway, 12px), -260px) scale(1.15) rotate(8deg); }
+}

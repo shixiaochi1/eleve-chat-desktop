@@ -3,6 +3,7 @@ import { useSSE, type SSECallbacks } from './useSSE';
 import * as storage from '../utils/storage';
 import { profileFromSessionId, persistSessionPointer } from '../utils/session';
 import { handleGlobalEvent } from '@/lib/global-events';
+import { burstVibeHearts } from '@/lib/vibe-hearts';
 import { writeAgentTerminalChunk } from '@/lib/agent-terminal-stream';
 import {
   setMessages as storeSetMessages,
@@ -938,6 +939,15 @@ export function useMessageStream({
       if (data.summary) {
         addDebugEvent('background_review', data.summary.slice(0, 60));
         appendIndependentMessage({ id: genId(), role: 'system' as const, parts: [textPart(`🔍 后台审查: ${data.summary}`)], timestamp: Date.now() });
+      }
+    },
+
+    // reaction — 用户 affection（ily / <3 / good bot / 心形 emoji）→ 爱心彩蛋
+    // 对齐 Hermes: gateway-event.ts isActiveEvent → burstVibeHearts()；纯 UI，永不触碰对话
+    onReaction: (data: { kind: string }) => {
+      if (data.kind === 'vibe') {
+        addDebugEvent('reaction', 'vibe hearts');
+        burstVibeHearts();
       }
     },
 

@@ -133,6 +133,9 @@ export interface SSECallbacks {
   onSkinChanged?: (data: { skin: unknown }) => void
   // Phase 6: 终端关闭（对齐 Hermes terminal.close）
   onTerminalClose?: (data: { process_id: string }) => void
+  // reaction — 用户 affection（ily / <3 / good bot / 心形 emoji，对齐 Hermes reaction 事件）
+  // 纯 UI 彩蛋：前端播放爱心动画，永不触碰对话
+  onReaction?: (data: { kind: string }) => void
   // Agent 后台进程输出流（对齐 Hermes agent.terminal.output）
   onAgentTerminalOutput?: (data: { process_id: string; chunk: string }) => void
   // 对齐 Hermes pending_title: 后端应用 pending_title 后推送 session.title 事件
@@ -380,6 +383,12 @@ function processEvent(
     // Phase 6: 终端关闭（对齐 Hermes terminal.close）
     case 'terminal.close':
       cbs.onTerminalClose?.({ process_id: chunk.process_id as string });
+      break;
+
+    // reaction — 用户 affection（ily / <3 / good bot / 心形 emoji）→ 爱心彩蛋
+    // 对齐 Hermes: server.py _emit("reaction", sid, {"kind": kind}) → burstVibeHearts()
+    case 'reaction':
+      cbs.onReaction?.({ kind: (chunk.kind as string) || 'vibe' });
       break;
 
     // Agent 后台进程输出流（对齐 Hermes agent.terminal.output）
