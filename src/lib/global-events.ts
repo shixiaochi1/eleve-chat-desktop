@@ -92,7 +92,7 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
     case 'wake.detected': {
       playWakeSound();
       dispatchWakeDetected({
-        phrase: (payload.phrase as string) || 'hey eleve',
+        phrase: (payload.phrase as string) || 'hey eleven',
         profile: (payload.profile as string | null) ?? null,
         startNewSession: (payload.start_new_session as boolean) ?? true,
       });
