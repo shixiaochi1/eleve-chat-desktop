@@ -121,6 +121,10 @@ export interface SSECallbacks {
   onStepComplete?: (data: { stepNumber: number; toolResults: Array<{ toolName: string; success: boolean }> }) => void
   // P1: 中间助手消息（对齐 Hermes _emit_interim_assistant_message）
   onInterimMessage?: (data: { content: string; alreadyStreamed: boolean }) => void
+  // E-3: MoA 参考模型输出（对齐 Hermes moa.reference — 带标签推理块）
+  onMoaReference?: (data: { index?: number; count?: number; label: string; text: string }) => void
+  // E-3: MoA 聚合开始（对齐 Hermes moa.phase aggregator）
+  onMoaAggregating?: (data: { aggregator?: string; refCount?: number }) => void
   // P1: 后台 Review 结果（对齐 Hermes background_review_callback）
   onBackgroundReview?: (data: { summary: string }) => void
   // Phase 6: 浏览器连接进度（对齐 Hermes browser.progress）
@@ -266,6 +270,26 @@ function processEvent(
       cbs.onInterimMessage?.({
         content: (chunk.content as string) || '',
         alreadyStreamed: (chunk.already_streamed as boolean) || false,
+      });
+      break;
+
+    // ── E-3: MoA 参考模型输出（对齐 Hermes moa.reference，累加器已处理）──
+    case 'moa.reference':
+      processAccumulatorEvent(acc, eventName, chunk);
+      cbs.onMoaReference?.({
+        index: typeof chunk.index === 'number' ? chunk.index : undefined,
+        count: typeof chunk.count === 'number' ? chunk.count : undefined,
+        label: (chunk.label as string) || 'reference',
+        text: (chunk.text as string) || '',
+      });
+      break;
+
+    // ── E-3: MoA 聚合开始（对齐 Hermes moa.phase aggregator，累加器已处理）──
+    case 'moa.aggregating':
+      processAccumulatorEvent(acc, eventName, chunk);
+      cbs.onMoaAggregating?.({
+        aggregator: (chunk.aggregator as string) || undefined,
+        refCount: typeof chunk.ref_count === 'number' ? chunk.ref_count : undefined,
       });
       break;
 

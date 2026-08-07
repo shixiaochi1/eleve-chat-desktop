@@ -940,6 +940,38 @@ export function useMessageStream({
         appendIndependentMessage({ id: genId(), role: 'system' as const, parts: [textPart(`🔍 后台审查: ${data.summary}`)], timestamp: Date.now() });
       }
     },
+
+    // ── E-3: MoA 参考模型输出（对齐 Hermes use-message-stream moa.reference #64658）──
+    // 作为带标签的推理块展示（◇ Reference idx/cnt — label）；首个参考替换（清 stale 推理），
+    // 后续累积防互相覆盖。单视图走 mutateStream 直改 parts（与累加器 appendReasoningPart 同构）。
+    onMoaReference: (data: { index?: number; count?: number; label: string; text: string }) => {
+      addDebugEvent('moa_reference', `${data.index}/${data.count} ${data.label}`);
+      flushQueuedDeltas();
+      const header =
+        data.index !== undefined && data.count !== undefined
+          ? `◇ Reference ${data.index}/${data.count} — ${data.label}`
+          : `◇ Reference — ${data.label}`;
+      const block = `${header}\n${data.text || ''}\n\n`;
+      mutateStream(
+        (parts) => {
+          if (data.index === undefined || data.index <= 1) {
+            return appendReasoningPart(parts.filter((p) => p.type !== 'reasoning'), block);
+          }
+          return appendReasoningPart(parts, block);
+        },
+        () => [reasoningPart(block)],
+      );
+    },
+
+    // ── E-3: MoA 聚合开始（对齐 Hermes moa.phase aggregator 一行标记）──
+    onMoaAggregating: () => {
+      addDebugEvent('moa_aggregating', '');
+      flushQueuedDeltas();
+      mutateStream(
+        (parts) => appendReasoningPart(parts, '◇ MoA aggregating…\n'),
+        () => [reasoningPart('◇ MoA aggregating…\n')],
+      );
+    },
   } satisfies SSECallbacks;
 
   const { isStreaming, send, abort, resetStream: resetSSEStream, drainFinalParts } = useSSE(sseCallbacks.current, currentSessionIdRef, enabled);

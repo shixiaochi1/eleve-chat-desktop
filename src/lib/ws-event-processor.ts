@@ -116,6 +116,33 @@ export function processAccumulatorEvent(
       // 推理块结束 → 冻结尾部块（下一个 reasoning.delta 自然新开块 — 多推理块支持）
       acc.parts = freezeReasoningPart(acc.parts);
       return true;
+    case 'moa.reference': {
+      // MoA 参考模型输出（对齐 Hermes use-message-stream gateway-event.ts moa.reference）
+      // 作为带标签的推理块展示（◇ Reference idx/cnt — label），复用推理展示区，零平行 UI。
+      // 首个参考（idx<=1）替换/清除上一轮残留推理（对齐 Hermes appendReasoningDelta replace=true），
+      // 后续参考累积（#64658 防互相覆盖）。ELEVE 无 moa.progress/moa.phase —— MoaReference 带
+      // index/count 语义等价覆盖 fan-out 进度展示。
+      const label = (payload.label as string) || 'reference';
+      const idx = typeof payload.index === 'number' ? payload.index : undefined;
+      const cnt = typeof payload.count === 'number' ? payload.count : undefined;
+      const header =
+        idx !== undefined && cnt !== undefined
+          ? `◇ Reference ${idx}/${cnt} — ${label}`
+          : `◇ Reference — ${label}`;
+      const body = (payload.text as string) || '';
+      const block = `${header}\n${body}\n\n`;
+      if (idx === undefined || idx <= 1) {
+        acc.parts = appendReasoningPart(acc.parts.filter((p) => p.type !== 'reasoning'), block);
+      } else {
+        acc.parts = appendReasoningPart(acc.parts, block);
+      }
+      return true;
+    }
+    case 'moa.aggregating': {
+      // 聚合器开始工作（对齐 Hermes moa.phase phase="aggregator" 的一行标记）
+      acc.parts = appendReasoningPart(acc.parts, '◇ MoA aggregating…\n');
+      return true;
+    }
     case 'tool.start':
     case 'tool.generating':
       acc.parts = upsertToolPart(acc.parts, toolPayloadFromEvent(eventName, payload), 'running');
