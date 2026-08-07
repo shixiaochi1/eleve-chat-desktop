@@ -1,4 +1,4 @@
-; NSIS uninstall hook - 对齐 Hermes Windows 桌面端架构
+﻿; NSIS uninstall hook - 对齐 Hermes Windows 桌面端架构
 ; 数据目录: %LOCALAPPDATA%\Eleve（对齐 Hermes %LOCALAPPDATA%\hermes）
 ; 环境变量: ELEVE_HOME 写入注册表 HKCU\Environment（不广播）
 ;
@@ -12,6 +12,9 @@
 ; 无条件删除用户数据，使"删除应用数据"复选框门控失效。现改用 LOCALAPPDATA。
 
 Var ELEVE_HOME_PATH
+; 🔴 2026-08-08 卸载数据保留询问：0=删除数据 1=保留数据（默认 1 安全优先）
+; 默认保留：MB_DEFBUTTON1（默认焦点在「是」= 保留），防误删用户配置
+Var KEEP_DATA
 
 !macro NSIS_HOOK_POSTINSTALL
   ; 🔴 Phase 3：数据目录默认 %LOCALAPPDATA%\Eleve（不在 $INSTDIR 内，卸载不误删）
@@ -38,6 +41,21 @@ Var ELEVE_HOME_PATH
   
   ; 短等待（500ms 足够，不用 2000ms）
   Sleep 500
+
+  ; 🔴 2026-08-08 老大诉求：卸载必须明确提示是否保留数据
+  ; 更新模式（$UpdateMode=1）绝不询问（升级保留 providers.yaml/state.db）；
+  ; 已在确认页勾选"删除应用程序数据"（$DeleteAppDataCheckboxState=1）则不重复询问。
+  StrCpy $KEEP_DATA 1
+  ${If} $UpdateMode <> 1
+  ${AndIf} $DeleteAppDataCheckboxState <> 1
+    MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON1 \
+      "是否保留应用数据（配置/会话/日志/模型凭据）？$\r$\n$\r$\n选择「是」= 保留数据（推荐）$\r$\n选择「否」= 连同应用数据一起删除。" IDYES keep_data
+    StrCpy $KEEP_DATA 0
+    Goto ask_done
+  keep_data:
+    StrCpy $KEEP_DATA 1
+  ask_done:
+  ${EndIf}
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
@@ -47,11 +65,13 @@ Var ELEVE_HOME_PATH
   ; 删除 ELEVE_HOME 环境变量（始终执行）
   DeleteRegValue HKCU "Environment" "ELEVE_HOME"
   
-  ; 🔴 用户数据清理：尊重 Tauri 内置"删除应用程序数据"复选框
+  ; 🔴 用户数据清理：尊重 Tauri 内置"删除应用程序数据"复选框 + 卸载弹窗询问结果
   ; 对齐 installer.nsi:812 的条件逻辑（$DeleteAppDataCheckboxState + $UpdateMode）
   ; 覆盖安装（$UpdateMode=1）时绝不清理数据（升级保留 providers.yaml/state.db）
-  ${If} $DeleteAppDataCheckboxState = 1
-  ${AndIf} $UpdateMode <> 1
+  ; 🔴 2026-08-08 弹窗结果并入：$KEEP_DATA=0（用户明确选择删除）也执行清理
+  ${If} $UpdateMode <> 1
+  ${AndIf} $DeleteAppDataCheckboxState = 1
+  ${OrIf} $KEEP_DATA = 0
     ; 删除数据目录（新版为 %LOCALAPPDATA%\Eleve，旧版存量为 $INSTDIR\data）
     ${If} $ELEVE_HOME_PATH != ""
       RmDir /r "$ELEVE_HOME_PATH"
@@ -60,6 +80,20 @@ Var ELEVE_HOME_PATH
     ReadEnvStr $R2 "USERPROFILE"
     ${If} $R2 != ""
       RmDir /r "$R2\.eleve"
+    ${EndIf}
+  ${Else}
+    ; 🔴 2026-08-08 数据保护（Phase 3 盲点修复）：用户选择保留数据，但 ELEVE_HOME 若位于
+    ;    $INSTDIR 内（旧版兼容分支：安装时检测到 $INSTDIR\data 已存在 → 数据目录指到安装目录内），
+    ;    下方 RmDir /r "$INSTDIR" 会连带删掉数据 → 先迁出到 %LOCALAPPDATA%\Eleve 再删安装目录。
+    ;    前缀判断用原生 StrLen/StrCpy/StrCmp（StrLoc 宏在卸载器段有 un 前缀问题，弃用）
+    ${If} $ELEVE_HOME_PATH != ""
+      StrLen $1 "$INSTDIR"
+      StrCpy $2 "$ELEVE_HOME_PATH" $1
+      ${If} $2 == "$INSTDIR"
+        CreateDirectory "$LOCALAPPDATA\Eleve"
+        nsExec::ExecToLog 'cmd /c xcopy /E /I /Y "$ELEVE_HOME_PATH\*" "$LOCALAPPDATA\Eleve\"'
+        RmDir /r "$ELEVE_HOME_PATH"
+      ${EndIf}
     ${EndIf}
   ${EndIf}
   
