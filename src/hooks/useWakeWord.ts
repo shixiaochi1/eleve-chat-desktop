@@ -19,7 +19,7 @@ export interface WakeWordState {
   pending: boolean;
   /** 最后失败原因（tooltip 展示） */
   notice: string;
-  /** 人类可读唤醒短语（如 "hey hermes"） */
+  /** 人类可读唤醒短语（如 "hey eleve"） */
   phrase: string;
 }
 
@@ -28,7 +28,7 @@ const INITIAL: WakeWordState = {
   enabled: false,
   pending: false,
   notice: '',
-  phrase: 'hey hermes',
+  phrase: 'hey eleve',
 };
 
 export function useWakeWord() {
@@ -48,7 +48,7 @@ export function useWakeWord() {
         ...s,
         listening: !!res.listening,
         enabled: !!res.enabled,
-        phrase: (res.phrase as string) || s.phrase || 'hey hermes',
+        phrase: (res.phrase as string) || s.phrase || 'hey eleve',
       }));
     } catch {
       // status 查询失败静默——toggle 时 RPC 会再报
