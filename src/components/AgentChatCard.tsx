@@ -22,6 +22,8 @@ import { call } from '../utils/bridge';
 import { getProfileAvatar } from '../utils/api';
 import { AgentAvatarSvg } from '../lib/agent-avatars';
 import { getWsClient } from '../services/ws-client';
+import { loadConnection, isRemoteMode } from '../lib/connection';
+import { getRememberedWorkspaceCwd } from '../lib/workspace-cwd';
 import MessageRow from './MessageRow';
 import ApprovalCard from './ApprovalCard';
 import ClarifyCard from './ClarifyCard';
@@ -264,7 +266,14 @@ export const AgentChatCard = memo(function AgentChatCard({
       let sid = stateRef.current.sessionId ?? undefined;
       if (!sid) {
         try {
-          const created = await ws.sessionCreate({ profile: name });
+          // 🔴 Remote 记忆（对齐 Hermes workspaceCwdForNewSession）：remote 模式下
+          // 未显式指定目录的新会话落在上次工作目录（local 由后端 resolve 决定）
+          let cwd: string | undefined;
+          const conn = loadConnection();
+          if (isRemoteMode(conn) && conn.baseUrl) {
+            cwd = getRememberedWorkspaceCwd({ baseUrl: conn.baseUrl, profile: name }) || undefined;
+          }
+          const created = await ws.sessionCreate({ profile: name, ...(cwd ? { cwd } : {}) });
           sid = created.session_id;
         } catch (err) {
           console.error('[AgentChatCard] sessionCreate failed, aborting send:', err);

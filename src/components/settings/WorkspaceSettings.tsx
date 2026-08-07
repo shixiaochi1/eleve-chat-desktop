@@ -106,7 +106,7 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
           onChange={e => update('cwd', e.target.value)}
         />
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          子进程运行的默认工作目录，留空使用应用根目录。
+          子进程运行的默认工作目录，留空使用应用根目录。优先于系统「默认工作目录」（仅影响未指定目录的新会话；会话已有目录时不受影响）。
         </p>
       </div>
 

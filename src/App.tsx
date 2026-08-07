@@ -23,6 +23,8 @@ import { loadMarkdownDeps } from './utils/markdown';
 import * as storage from './utils/storage';
 import { loadSettingsFromRust } from './utils/settings-store';
 import { discoverPort, call, isDesktop } from './utils/bridge';
+import { loadConnection, isRemoteMode, applyConnection } from './lib/connection';
+import { getRememberedWorkspaceCwd, rememberWorkspaceCwd } from './lib/workspace-cwd';
 import { getActiveProfile, fetchProfiles } from './utils/api';
 import { getWsClient, setWsActiveProfile, type SessionCreateResponse } from './services/ws-client';
 import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer, loadProfilePointers, saveProfilePointer, removeProfilePointer } from './utils/session';
@@ -374,6 +376,17 @@ export default function App() {
   // 会话切换时清空，等新会话的 session.info 重新推送
   const [sessionCwd, setSessionCwd] = useState('');
   useEffect(() => { setSessionCwd(''); }, [sess.sessionId]);
+
+  // 🔴 Remote 记忆（对齐 Hermes setCurrentCwd → persistString workspaceCwdKey）：
+  // remote 模式下会话 cwd 变化 → 按 baseUrl+profile 记忆，未显式指定目录的
+  // 新会话复用（handleSend/AgentCard 建会话时消费）
+  useEffect(() => {
+    if (!sessionCwd) return;
+    const conn = loadConnection();
+    if (isRemoteMode(conn) && conn.baseUrl) {
+      rememberWorkspaceCwd({ baseUrl: conn.baseUrl, profile: currentProfile }, sessionCwd);
+    }
+  }, [sessionCwd, currentProfile]);
 
   // 🔴 预览域 WS 事件路由（对齐 Hermes use-preview-routing）：
   // preview.restart.progress/complete / preview.open / tool.complete+inline_diff 自动刷新
@@ -829,9 +842,17 @@ export default function App() {
       let sid = sess.sessionId ?? undefined;
       if (!sid) {
         try {
+          // 🔴 Remote 记忆（对齐 Hermes workspaceCwdForNewSession）：remote 模式下
+          // 未显式指定目录的新会话落在上次工作目录（local 由后端 resolve 决定）
+          let cwd: string | undefined;
+          const conn = loadConnection();
+          if (isRemoteMode(conn) && conn.baseUrl) {
+            cwd = getRememberedWorkspaceCwd({ baseUrl: conn.baseUrl, profile: currentProfile }) || undefined;
+          }
           const created = await ws.sessionCreate({
             profile: currentProfile,
             title: sess.pendingTitle ?? undefined,
+            ...(cwd ? { cwd } : {}),
           });
           sid = created.session_id;
           sess.setSessionId(sid);
@@ -930,7 +951,15 @@ export default function App() {
     loadMarkdownDeps().then(() => setDepsReady(true));
 
     if (typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) {
-      const portPromise = discoverPort();
+      // 🔴 Remote 模式（对齐 Hermes remote gateway）：跳过本地端口发现，
+      // 直连远程 base（settings.json connection 配置；Tauri 壳可能仍本地
+      // spawn eleved——远程部署时壳侧不 spawn 见 src-tauri 启动分支）
+      const conn = loadConnection();
+      if (isRemoteMode(conn) && conn.baseUrl) {
+        applyConnection(conn);
+        setPortReady(true);
+      } else {
+        const portPromise = discoverPort();
 
       // 🔴 P0-1: 只预加载 cache/titles，不设 sessionId、不加载消息
       // 冷启动时 WS 未连，init() 会失败（不置 _initialized），WS onOpen 后重试
@@ -963,8 +992,14 @@ export default function App() {
         });
       };
       tryDiscover(0);
+      }
     } else {
       setPortReady(true);
+      // 🔴 浏览器模式同样支持 remote（dev 直连远程后端；对齐 Hermes remote）
+      const conn = loadConnection();
+      if (isRemoteMode(conn) && conn.baseUrl) {
+        applyConnection(conn);
+      }
       // 🔴 P0-1: 同 Tauri 分支，只预加载 cache/titles
       storage.init().then(async () => {
         if (!storage.isReady()) return;

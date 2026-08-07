@@ -20,6 +20,7 @@ import VoiceSettings from './settings/VoiceSettings';
 import AdvancedSettings from './settings/AdvancedSettings';
 import MCPSettings from './settings/MCPSettings';
 import GatewaySettings from './settings/GatewaySettings';
+import ConnectionSettings from './settings/ConnectionSettings';
 import SystemSettings from './settings/SystemSettings';
 
 interface Provider extends ProviderEntry {
@@ -646,6 +647,8 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
         return <MCPSettings />;
       case 'gateway':
         return <GatewaySettings />;
+      case 'connection':
+        return <ConnectionSettings />;
       case 'security':
         return (
           <SecuritySettings

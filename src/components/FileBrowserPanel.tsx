@@ -17,6 +17,9 @@ import { isDesktop, call } from '@/utils/bridge';
 import { setPathsDragPayload } from '@/lib/paths-dnd';
 import FolderPickerDialog from './FolderPickerDialog';
 import ErrorBoundary from './ErrorBoundary';
+import { loadSettings } from '../utils/settings-store';
+import { loadConnection, isRemoteMode } from '../lib/connection';
+import { isFsRemoteMode } from '../lib/remote-fs';
 
 interface FileEntry {
   name: string;
@@ -447,15 +450,29 @@ export default function FileBrowserPanel({
   }, [data, loadedDirs, openState, dirErrors]);
 
   // 虚拟滚动窗口（对齐 Hermes react-arborist：固定行高 + overscan，只渲染可视行）
+  // 🔴 修复 2026-08-08：原 useEffect([]) 只在组件挂载时跑一次，而挂载瞬间
+  // rootPath=null（“未打开项目”界面）→ scrollRef.current=null → ResizeObserver
+  // 永久失效 → viewportH 恒 0 → 虚拟滚动窗口 = OVERSCAN(5) 行 → 目录只显示
+  // 前 5 个文件夹（后端 files.list 实测返回全量 175 项，后端无问题）。
+  // 对齐 Hermes useResizeObserver：observer 挂在始终存在的容器上；ELEVE 的
+  // 树容器是条件渲染（data && !error），改用 callback ref——div 真正挂载才
+  // observe、卸载即 disconnect，并立即读一次初始高度（不等 RO 首回调，避免
+  // 抽屉展开动画期间首帧高度为 0 的竞态）。
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const roRef = useRef<ResizeObserver | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportH, setViewportH] = useState(0);
-  useEffect(() => {
-    const el = scrollRef.current;
+  const setScrollEl = useCallback((el: HTMLDivElement | null) => {
+    scrollRef.current = el; // 保持 scrollRef 可用（ensureVisible/滚动逻辑读它）
+    if (roRef.current) {
+      roRef.current.disconnect();
+      roRef.current = null;
+    }
     if (!el) return;
     const ro = new ResizeObserver(() => setViewportH(el.clientHeight));
     ro.observe(el);
-    return () => ro.disconnect();
+    roRef.current = ro;
+    setViewportH(el.clientHeight);
   }, []);
   const scrollStart = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const scrollEnd = Math.min(flatList.length, Math.ceil((scrollTop + viewportH) / ROW_HEIGHT) + OVERSCAN);
@@ -560,15 +577,37 @@ export default function FileBrowserPanel({
   }, [toggleOpen, loadChildren]);
 
   // ── fallback root（对齐 Hermes sanitizeWorkspaceCwd → usingFallback 探针）──
-  // 会话 cwd 读取失败（目录被删/换机器）→ 回退到激活项目的主文件夹（ELEVE
-  // projects.primary_path，等价 Hermes「默认项目目录」）；回退期间 3s 探针原
-  // cwd，一旦恢复自动切回（Hermes use-project-tree 同款两段逻辑）。
+  // 会话 cwd 读取失败（目录被删/换机器）→ 回退候选链（对齐 Hermes
+  // sanitizeWorkspaceCwd → resolveHermesCwd 的候选顺序）：
+  //   ① 系统设置「默认工作目录」（settings.json default_project_dir，Hermes
+  //      readDefaultProjectDir 第一优先）
+  //   ② 激活项目主文件夹（ELEVE projects.primary_path，Hermes 无激活项目
+  //      持久化概念，保留为第二候选）
+  //   都无 → 维持报错+3s 重试（ROOT_ERROR_RETRY_MS self-heal，原逻辑）。
+  // 回退期间 3s 探针原 cwd，一旦恢复自动切回（Hermes use-project-tree 同款两段逻辑）。
   const [usingFallback, setUsingFallback] = useState(false);
   const originalCwdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!cwd || !error || usingFallback) return;
+    // 🔴 Remote 模式不 fallback（对齐 Hermes fallbackRootFor：remote → null）——
+    // 远程树读远程后端 fs，cwd 无效时保持报错+3s 重试即可，不落本地候选
+    if (isRemoteMode(loadConnection())) return;
     let cancelled = false;
+    // 候选①：系统默认工作目录（settings.json；未配置/不存在 → 继续候选②）
+    const configuredDefault = loadSettings().default_project_dir?.trim() || '';
+    const tryFallback = (path: string): boolean => {
+      if (cancelled || !path) return false;
+      if (path.replace(/\\/g, '/').replace(/\/+$/, '') === cwd.replace(/\\/g, '/').replace(/\/+$/, '')) return false;
+      originalCwdRef.current = cwd;
+      setUsingFallback(true);
+      void setRoot(path);
+      return true;
+    };
+    if (configuredDefault) {
+      if (tryFallback(configuredDefault)) return;
+    }
+    // 候选②：激活项目主文件夹（对齐原实现；失败/无激活项目 → 维持报错+3s 重试）
     call('projects_tree', { preview_limit: 1, include_discovered: false })
       .then((d) => {
         if (cancelled) return;
@@ -577,12 +616,7 @@ export default function FileBrowserPanel({
           projects?: Array<{ id: string; path?: string | null }>;
         };
         const active = (t.projects ?? []).find((p) => p.id === t.active_id);
-        const fallbackPath = active?.path;
-        if (fallbackPath && fallbackPath !== cwd) {
-          originalCwdRef.current = cwd;
-          setUsingFallback(true);
-          void setRoot(fallbackPath);
-        }
+        if (active?.path) tryFallback(active.path);
       })
       .catch(() => { /* 无激活项目/查询失败 → 维持报错+3s 重试 */ });
     return () => {
@@ -618,7 +652,9 @@ export default function FileBrowserPanel({
   // （对齐 Hermes RemoteFolderPicker——原生 dialog 不可用时自绘，不再静默无操作）
   const [pickerOpen, setPickerOpen] = useState(false);
   const handlePickRoot = useCallback(async () => {
-    if (isDesktop()) {
+    // 🔴 remote 模式：原生 dialog 选的是本地路径，files.list 读远程必然失败——
+    // 走 FolderPickerDialog（远程浏览，对齐 Hermes selectDesktopPaths remote → remotePicker）
+    if (isDesktop() && !isFsRemoteMode()) {
       const sel = await pickDirectory('选择工作目录');
       if (sel) await setRoot(sel);
     } else {
@@ -815,7 +851,7 @@ export default function FileBrowserPanel({
       {data && !error && (
         <ErrorBoundary key={rootPath ?? ''}>
         <div
-          ref={scrollRef}
+          ref={setScrollEl}
           className="flex-1 overflow-y-auto"
           tabIndex={-1}
           onKeyDown={handleTreeKeyDown}

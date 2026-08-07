@@ -45,6 +45,12 @@ export interface SettingsV2 {
    * 本字段 = 进程 cwd 种子；terminal.cwd = 会话 cwd 覆盖。
    */
   default_project_dir?: string;
+  /**
+   * 连接模式（对齐 Hermes connection-config 持久化）：local = Tauri 壳本地
+   * spawn eleved；remote = 直连远程 eleved（--listen/--port 部署）。
+   * 结构见 lib/connection.ts ConnectionState。
+   */
+  connection?: { mode: 'local' | 'remote'; baseUrl: string; remoteVersion?: string | null };
 }
 
 // ====== 提供商注册表预设（含 Base URL 和模型，无 Key） ======

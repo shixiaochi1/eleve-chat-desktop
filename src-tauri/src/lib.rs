@@ -548,6 +548,39 @@ fn is_packaged_install_path(path: &std::path::Path) -> bool {
     false
 }
 
+/// 读取 {ELEVE_HOME}/app-data/settings.json（兼容 app-data 信封格式，对齐后端
+/// settings_service::unwrap_settings_content 两格式）：
+/// 1. {"key":"settings","value":"<json_string>"} — 前端 app-data 包裹写入
+/// 2. {"data": {...}} — 历史遗留格式
+fn read_settings_json() -> Option<serde_json::Value> {
+    let eleve_home = resolve_eleve_home();
+    let settings_path = eleve_home.join("app-data").join("settings.json");
+    let content = std::fs::read_to_string(&settings_path).ok()?;
+    let mut v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    if v.get("default_project_dir").is_none() && v.get("connection").is_none() {
+        if let Some(inner) = v.get("value").and_then(|x| x.as_str()) {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(inner) {
+                v = parsed;
+            }
+        } else if let Some(data) = v.get("data").cloned() {
+            v = data;
+        }
+    }
+    Some(v)
+}
+
+/// 读取连接模式（对齐前端 lib/connection.ts ConnectionState.mode）：
+/// remote = 壳不 spawn 本地 eleved，前端直连远程后端；local/缺失 = 默认本地。
+fn read_connection_mode() -> Option<String> {
+    let v = read_settings_json()?;
+    let mode = v.get("connection")?.get("mode")?.as_str()?;
+    if mode == "remote" {
+        Some("remote".to_string())
+    } else {
+        Some("local".to_string())
+    }
+}
+
 /// 读取用户配置的项目目录（对齐 Hermes readDefaultProjectDir）
 ///
 /// 从 {ELEVE_HOME}/app-data/settings.json 读取 default_project_dir 字段。
@@ -560,23 +593,7 @@ fn is_packaged_install_path(path: &std::path::Path) -> bool {
 /// 🔴 2026-08-05 W-2 补写入方：前端 SystemSettings 写入该字段；读取侧
 /// 兼容 app-data 信封格式（对齐后端 settings_service::unwrap_settings_content）。
 fn read_default_project_dir() -> Option<String> {
-    let eleve_home = resolve_eleve_home();
-
-    let settings_path = eleve_home.join("app-data").join("settings.json");
-    let content = std::fs::read_to_string(&settings_path).ok()?;
-    let mut v: serde_json::Value = serde_json::from_str(&content).ok()?;
-    // 信封兼容（与后端 unwrap_settings_content 两格式对齐）：
-    // 1. {"key":"settings","value":"<json_string>"} — 前端 app-data 包裹写入
-    // 2. {"data": {...}} — 历史遗留格式
-    if v.get("default_project_dir").is_none() {
-        if let Some(inner) = v.get("value").and_then(|x| x.as_str()) {
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(inner) {
-                v = parsed;
-            }
-        } else if let Some(data) = v.get("data").cloned() {
-            v = data;
-        }
-    }
+    let v = read_settings_json()?;
     let dir = v.get("default_project_dir")?.as_str()?;
     if dir.trim().is_empty() {
         return None;
@@ -1008,6 +1025,27 @@ pub fn run() {
 
             let eleve_home = resolve_eleve_home();
             eprintln!("[TAURI] eleve_home = {:?}", eleve_home);
+
+            // 🔴 Remote 模式（对齐 Hermes remote gateway）：壳不 spawn 本地 eleved，
+            // 前端直连远程后端（settings.json connection.mode=remote）。
+            // TauriAppState 照常 manage（get_gateway_port 返回 0，前端 remote 分支不消费）；
+            // 预览控制台/文件 watcher 等壳能力照常初始化。
+            if read_connection_mode().as_deref() == Some("remote") {
+                eprintln!("[TAURI] Remote mode: skipping local eleved spawn");
+                let tauri_state = TauriAppState {
+                    gateway_port: Arc::new(AtomicU16::new(0)),
+                    eleved_pid: std::sync::Mutex::new(None),
+                    shutting_down: AtomicBool::new(false),
+                    restarting: AtomicBool::new(false),
+                };
+                app.manage(tauri_state);
+                let preview_console = PreviewConsoleState::default();
+                preview_console.spawn_flusher(app.handle().clone());
+                app.manage(preview_console);
+                app.manage(PreviewWebviewManager::default());
+                app.manage(PreviewFileWatchManager::default());
+                return Ok(());
+            }
 
             // 确保目录结构存在
             std::fs::create_dir_all(&eleve_home).ok();

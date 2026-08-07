@@ -32,6 +32,7 @@ import ModeSwitcher from '@/components/preview/ModeSwitcher';
 import WindowedSourceView from '@/components/preview/WindowedSourceView';
 import { enhanceRichFences } from '@/lib/rich-fence';
 import { isDesktop, call } from '@/utils/bridge';
+import { isFsRemoteMode, remoteReadText, remoteReadDataUrl, remoteStat, remoteWriteText } from '@/lib/remote-fs';
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']);
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown', '.mdown']);
@@ -124,25 +125,42 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
       try {
         // 🔴 先 stat 预检大小（对齐 Hermes byteSize 前置判断）
         let size = 0;
-        try {
-          const info = await stat(path);
-          size = info.size;
-        } catch { /* stat 失败则回退整读 */ }
+        // 🔴 remote 模式：文件在远端，Tauri plugin-fs 直读必然失败——走 HTTP
+        // /api/fs/*（对齐 Hermes desktop-fs remote 分支；见 lib/remote-fs.ts）
+        if (isFsRemoteMode()) {
+          try {
+            const info = await remoteStat(path);
+            size = info.size;
+          } catch { /* stat 失败则回退整读 */ }
+        } else {
+          try {
+            const info = await stat(path);
+            size = info.size;
+          } catch { /* stat 失败则回退整读 */ }
+        }
         if (cancelled) return;
         setByteSize(size);
 
         if (isImage) {
-          const bytes = await readFile(path);
-          if (cancelled) return;
-          const blob = new Blob([bytes], {
-            type: ext === '.svg' ? 'image/svg+xml' : `image/${ext.slice(1)}`,
-          });
-          setImageUrl(URL.createObjectURL(blob));
+          if (isFsRemoteMode()) {
+            const mime = ext === '.svg' ? 'image/svg+xml' : `image/${ext.slice(1)}`;
+            const { dataUrl } = await remoteReadDataUrl(path, mime);
+            if (cancelled) return;
+            const blob = await (await fetch(dataUrl)).blob();
+            setImageUrl(URL.createObjectURL(blob));
+          } else {
+            const bytes = await readFile(path);
+            if (cancelled) return;
+            const blob = new Blob([bytes], {
+              type: ext === '.svg' ? 'image/svg+xml' : `image/${ext.slice(1)}`,
+            });
+            setImageUrl(URL.createObjectURL(blob));
+          }
         } else if (size > LARGE_FILE_THRESHOLD && !forcePreview) {
           // 大文本文件：拦截（不读内容），用户确认后才读
           setLargeBlocked(true);
         } else {
-          const value = await readTextFile(path);
+          const value = isFsRemoteMode() ? (await remoteReadText(path)).text : await readTextFile(path);
           if (cancelled) return;
           const bin = isLikelyBinary(value);
           setText(value);
@@ -255,8 +273,14 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   // ── 下载：blob → a[download] ──
   const handleDownload = useCallback(async () => {
     try {
-      const bytes = await readFile(path);
-      const blob = new Blob([bytes]);
+      let blob: Blob;
+      if (isFsRemoteMode()) {
+        const { dataUrl } = await remoteReadDataUrl(path);
+        blob = await (await fetch(dataUrl)).blob();
+      } else {
+        const bytes = await readFile(path);
+        blob = new Blob([bytes]);
+      }
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -346,7 +370,7 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     try {
       if (!force) {
         try {
-          const current = await readTextFile(path);
+          const current = isFsRemoteMode() ? (await remoteReadText(path)).text : await readTextFile(path);
           if (current !== baselineRef.current) {
             setConflict(true);
             setSaving(false);
@@ -357,7 +381,11 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
         }
       }
 
-      await writeTextFile(path, draftRef.current);
+      if (isFsRemoteMode()) {
+        await remoteWriteText(path, draftRef.current);
+      } else {
+        await writeTextFile(path, draftRef.current);
+      }
       baselineRef.current = draftRef.current;
       setDirty(false);
       setConflict(false);
