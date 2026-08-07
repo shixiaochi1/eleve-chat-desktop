@@ -951,6 +951,18 @@ export function useMessageStream({
       }
     },
 
+    // wake.detected — 唤醒词命中 → 委托共享处理器（与宫格同一权威源）
+    onWakeDetected: (data: { phrase: string; start_new_session?: boolean }) => {
+      addDebugEvent('wake_detected', `phrase=${data.phrase}`);
+      handleGlobalEvent('wake.detected', data as Record<string, unknown>);
+    },
+
+    // voice.interrupted — full-duplex barge-in 打断（TTS 已切 + turn 已中断，
+    // 纯后端语义事件；前端无额外 UI，debug 留痕）
+    onVoiceInterrupted: (_data: Record<string, unknown>) => {
+      addDebugEvent('voice_interrupted', 'TTS cut + turns interrupted');
+    },
+
     // ── E-3: MoA 参考模型输出（对齐 Hermes use-message-stream moa.reference #64658）──
     // 作为带标签的推理块展示（◇ Reference idx/cnt — label）；首个参考替换（清 stale 推理），
     // 后续累积防互相覆盖。单视图走 mutateStream 直改 parts（与累加器 appendReasoningPart 同构）。

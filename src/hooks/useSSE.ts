@@ -136,6 +136,10 @@ export interface SSECallbacks {
   // reaction — 用户 affection（ily / <3 / good bot / 心形 emoji，对齐 Hermes reaction 事件）
   // 纯 UI 彩蛋：前端播放爱心动画，永不触碰对话
   onReaction?: (data: { kind: string }) => void
+  // wake.detected — 唤醒词命中（对齐 Hermes wake.detected → 提示音 + 开新会话）
+  onWakeDetected?: (data: { phrase: string; start_new_session?: boolean }) => void
+  // voice.interrupted — full-duplex barge-in 打断（对齐 Hermes voice.interrupted）
+  onVoiceInterrupted?: (data: Record<string, unknown>) => void
   // Agent 后台进程输出流（对齐 Hermes agent.terminal.output）
   onAgentTerminalOutput?: (data: { process_id: string; chunk: string }) => void
   // 对齐 Hermes pending_title: 后端应用 pending_title 后推送 session.title 事件
@@ -389,6 +393,20 @@ function processEvent(
     // 对齐 Hermes: server.py _emit("reaction", sid, {"kind": kind}) → burstVibeHearts()
     case 'reaction':
       cbs.onReaction?.({ kind: (chunk.kind as string) || 'vibe' });
+      break;
+
+    // wake.detected — 唤醒词命中（对齐 Hermes wake.detected → 提示音 + 开新会话）
+    // 单视图路径：委托共享处理器（与宫格 useGridChat !profile 分支同一权威源）
+    case 'wake.detected':
+      cbs.onWakeDetected?.({
+        phrase: (chunk.phrase as string) || 'hey hermes',
+        start_new_session: (chunk.start_new_session as boolean) ?? true,
+      });
+      break;
+
+    // voice.interrupted — full-duplex barge-in 打断（后端已切 TTS + 中断 turn）
+    case 'voice.interrupted':
+      cbs.onVoiceInterrupted?.(chunk as Record<string, unknown>);
       break;
 
     // Agent 后台进程输出流（对齐 Hermes agent.terminal.output）

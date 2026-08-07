@@ -16,6 +16,7 @@ import { useMessageStream } from './hooks/useMessageStream';
 import { usePromptActions } from './hooks/usePromptActions';
 import { useImageAttachments } from './hooks/useImageAttachments';
 import { useSessionActions } from './hooks/useSessionActions';
+import { onWakeDetected } from './lib/wake-events';
 import useModels from './hooks/useModels';
 import { useMediaQuery } from './hooks/use-media-query';
 import { loadMarkdownDeps } from './utils/markdown';
@@ -1104,6 +1105,15 @@ export default function App() {
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
+  }, [gridAwareNewSession]);
+
+  // ── wake.detected 订阅：唤醒词命中 → 开新会话（对齐 Hermes wiring.tsx:686
+  //   startFreshSessionDraft；提示音已在 handleGlobalEvent 播放）──
+  // 宫格/单视图统一走 gridAwareNewSession（同一套工具链，不重复造轮子）
+  useEffect(() => {
+    return onWakeDetected((_detail) => {
+      gridAwareNewSession();
+    });
   }, [gridAwareNewSession]);
 
   // ── titlebar controls ──

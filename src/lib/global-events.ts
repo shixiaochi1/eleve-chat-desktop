@@ -15,6 +15,7 @@
  * ═══════════════════════════════════════════════════════════════════
  */
 import { getWsClient } from '@/services/ws-client';
+import { playWakeSound, dispatchWakeDetected } from './wake-events';
 
 /**
  * 处理全局 WS 事件（无 session_id）。
@@ -84,6 +85,23 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
     // 宫格模式 useSSE 暂停时由此处兜底，消灭静默丢弃
     case 'skin.changed':
       console.debug('[global-events] skin.changed', payload.skin);
+      return true;
+
+    // wake.detected — 唤醒词命中（常开监听，全局广播无 session_id）
+    // 对齐 Hermes wiring.tsx:686：提示音 + 事件总线（App 层开新会话 + 语音）
+    case 'wake.detected': {
+      playWakeSound();
+      dispatchWakeDetected({
+        phrase: (payload.phrase as string) || 'hey hermes',
+        startNewSession: (payload.start_new_session as boolean) ?? true,
+      });
+      return true;
+    }
+
+    // voice.interrupted — full-duplex barge-in 打断（TTS 已切 + turn 已中断，
+    // 纯后端语义事件；前端无额外 UI，debug 留痕防静默丢弃）
+    case 'voice.interrupted':
+      console.debug('[global-events] voice.interrupted (TTS cut + turns interrupted)');
       return true;
 
     default:
