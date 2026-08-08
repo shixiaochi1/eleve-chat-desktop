@@ -21,7 +21,6 @@ import {
   reasoningPart,
   appendTextPart,
   appendReasoningPart,
-  freezeReasoningPart,
   type ChatMessagePart,
   type GatewayEventPayload,
 } from './chat-messages';
@@ -104,18 +103,17 @@ export function processAccumulatorEvent(
       acc.parts = appendReasoningPart(acc.parts, (payload.text as string) || '');
       return true;
     case 'reasoning.available': {
-      // 推理开始通知（无文本）：种空占位块（与单视图 live onReasoningStart 同构），
-      // 宫格流式经 flush 立即得到 shimmer 占位；尾部已是未冻结块则不重复种。
-      const last = acc.parts.at(-1);
-      if (!(last && last.type === 'reasoning' && !last.done)) {
-        acc.parts = [...acc.parts, reasoningPart('')];
-      }
+      // 🔴 2026-08-08 对齐 Hermes：available = 推理块完成后的摘要（带 text），
+      // replace 语义（对齐 Hermes appendReasoningDelta(text, true)）：
+      // 移除全部未冻结 reasoning 块 → 追加冻结摘要块（done=true 保持多块边界，
+      // 下一个 reasoning.delta 经 appendReasoningPart 自然新开块）。
+      const text = (payload.text as string) || '';
+      const filtered = acc.parts.filter((p) => !(p.type === 'reasoning' && !p.done));
+      acc.parts = [...filtered, { ...reasoningPart(text), done: true }];
       return true;
     }
-    case 'reasoning.end':
-      // 推理块结束 → 冻结尾部块（下一个 reasoning.delta 自然新开块 — 多推理块支持）
-      acc.parts = freezeReasoningPart(acc.parts);
-      return true;
+    // 🔴 reasoning.end 已删除（2026-08-08 对齐 Hermes：Hermes 无此事件，
+    // 块冻结由 reasoning.available 完成态 replace 承担）
     case 'moa.reference': {
       // MoA 参考模型输出（对齐 Hermes use-message-stream gateway-event.ts moa.reference）
       // 作为带标签的推理块展示（◇ Reference idx/cnt — label），复用推理展示区，零平行 UI。
