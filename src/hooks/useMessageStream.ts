@@ -168,6 +168,12 @@ export function useMessageStream({
         clearTimeout(flushHandleRef.current)
         flushHandleRef.current = null
       }
+      // 🔴 P3-2（Coder 复审 2026-08-09）：unmount 漏清 sessionsRefreshRef timer
+      //（对齐 Hermes index.ts:175-183）。React 18 下仅潜在 no-op setState 警告，低风险。
+      if (sessionsRefreshRef.current !== null) {
+        clearTimeout(sessionsRefreshRef.current)
+        sessionsRefreshRef.current = null
+      }
     }
   }, [])
 
@@ -725,6 +731,13 @@ export function useMessageStream({
         // 对齐 Eleve session.info running=false: 重置全部流式状态
         // Eleve: streamId=null, busy=false, awaitingResponse=false,
         //         pendingBranchGroup=null, turnStartedAt=null
+        // 🔴 P1-2（Coder 复审 2026-08-09）：兜底路径置 turn 结束标志——
+        // 该分支的存在意义就是"message.complete 永远不到达"（turn 崩溃/断线），
+        // 此时 onDone 不触发、turnEndedRef 不置位 → 迟到 delta 仍可 seed 新气泡，
+        // 守卫在最需要它的场景失效。对齐 Hermes gateway-event.ts:492-509
+        // （running=false 把 streamId/pendingBranchGroup/turnStartedAt 全置 null）。
+        turnEndedRef.current = true;
+        interimSealedRef.current = false;
         // 先 flush 残留 delta，再 finalize pending 消息
         if (flushHandleRef.current !== null) {
           clearTimeout(flushHandleRef.current);
@@ -790,13 +803,17 @@ export function useMessageStream({
       //  - !hasInlineError：列表已有 assistant error 不 hydrate
       //  - drainedParts 空 = !sawAssistantPayload || !finalText（累加器含 reasoning/
       //    tool parts，收到过任何 payload 都不空；Hermes 的 sawAssistantPayload 同义）
-      //  - 不加"消息列表为空"限制：Hermes 的 unresolvedUserTail 场景——会话有历史但
-      //    本轮回复丢失（最后可见是 user），同样要 hydrate 重载
+      //  - !unresolvedUserTail（🔴 P2-1 补）：Hermes index.ts:655-657 最后可见消息是
+      //    user 时不 hydrate——若后端其实没收到本轮 user 消息（提交失败/断连丢帧），
+      //    loadHistory 重载会把乐观上屏的用户消息覆盖丢；宁可保持现状等下次交互自愈
       const hasInlineError = getMessages()?.some(m => m.role === 'assistant' && m.error && !m.hidden) ?? false
+      const lastVisible = [...(getMessages() ?? [])].reverse().find(m => !m.hidden)
+      const unresolvedUserTail = lastVisible?.role === 'user'
       if (
         drainedParts.length === 0 &&
         !failure?.error &&
         !hasInlineError &&
+        !unresolvedUserTail &&
         effectiveId
       ) {
         sess.loadHistory(effectiveId).then((msgs) => {
@@ -1211,6 +1228,14 @@ export function useMessageStream({
     resetSSEStream();
     streamIdRef.current = null;
     queuedDeltasRef.current = { assistant: '', reasoning: '' };
+    // 🔴 P1-1（Coder 复审 2026-08-09）：切换会话时同步清 turn 级 ref——
+    // 否则会话 A done/abort 后 turnEndedRef=true 残留，切到 B 若 B 的 turn
+    // 已在进行（message.start 早于切换发出）→ B 的 delta 全被守卫丢弃
+    // （流式静默丢失）；interimSealedRef 残留则可能让 B 的 complete 误
+    // settle 到 A 的 sealed interim 上覆盖历史。Hermes 这些状态是
+    // per-session state（切换天然隔离），ELEVE 全局单 ref 必须显式清理。
+    turnEndedRef.current = false;
+    interimSealedRef.current = false;
     if (flushHandleRef.current !== null) {
       clearTimeout(flushHandleRef.current);
       flushHandleRef.current = null;
