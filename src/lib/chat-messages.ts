@@ -57,6 +57,10 @@ export interface ChatMessage {
   parts: ChatMessagePart[]
   timestamp?: number
   pending?: boolean
+  /** 🔴 #5/#6（对齐 Hermes chat-messages.ts:22-25）：interim 标记——step/interim 边界
+   *  密封的中间助手消息（工具调用轮次的过程文本）。渲染隐藏 action footer，
+   *  complete 时若 final 文本延续 interim 则原地 settle（防重复气泡）。 */
+  interim?: boolean
   error?: string
   hidden?: boolean
   /** 附件引用（对齐 Hermes submit.ts optimisticAttachmentRef → ChatMessage.attachmentRefs）：

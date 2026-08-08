@@ -82,6 +82,9 @@ interface QueuedStreamDeltas {
 
 // Minimum gap between two assistant-text flushes — same as Eleve (33ms).
 const STREAM_DELTA_FLUSH_MS = 33
+// 🔴 #3（对齐 Hermes utils.ts:73 MAX_STREAM_FLUSH_GAP_MS）：自适应 flush 上限——
+// 昂贵 flush 延到 250ms（4/s 文本增长下限），防多流并发时主线程卡顿。
+const MAX_STREAM_FLUSH_GAP_MS = 250
 
 /**
  * useMessageStream — SSE streaming callbacks, aligned 1:1 with Eleve
@@ -136,6 +139,15 @@ export function useMessageStream({
   const queuedDeltasRef = useRef<QueuedStreamDeltas>({ assistant: '', reasoning: '' })
   const flushHandleRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastFlushAtRef = useRef<number>(0)
+  // 🔴 #3：上次 flush 实测耗时（ms）→ 自适应间隔 = max(33, cost*3) capped 250
+  const lastFlushCostRef = useRef<number>(0)
+  // 🔴 #4：turn 结束标志（对齐 Hermes state.interrupted 语义）——onDone（含 abort 路径）
+  // 置 true 后丢弃迟到 delta（mutateStream 入口守卫），onRunStart 重置。
+  // Hermes 注释原话：迟到事件会 seed 一条"看起来属于下一条用户消息"的全新气泡。
+  const turnEndedRef = useRef<boolean>(false)
+  // 🔴 #7：侧边栏刷新合并（对齐 Hermes scheduleSessionsRefresh index.ts:145-173）——
+  // 300ms debounce，多次 completion 合并为一次 refresh，防多会话并发时列表频繁刷新
+  const sessionsRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // 🔴 多 Agent 隔离：跟踪当前显示的 session_id，传给 useSSE 做 WS 事件过滤
   const currentSessionIdRef = useRef<string | null>(sess.sessionId)
@@ -152,6 +164,17 @@ export function useMessageStream({
       }
     }
   }, [])
+
+  // ── scheduleSessionsRefresh — 对齐 Hermes index.ts:145-173 ──
+  // 300ms debounce：多次 completion 合并为一次 refresh（标题更新后列表已变）
+  const scheduleSessionsRefresh = useCallback(() => {
+    if (sessionsRefreshRef.current !== null) return
+    sessionsRefreshRef.current = setTimeout(() => {
+      sessionsRefreshRef.current = null
+      sess.refresh()
+      if (setSessionListVersion) setSessionListVersion(v => v + 1)
+    }, 300)
+  }, [sess, setSessionListVersion])
 
   // ── mutateStream — 1:1 from Eleve mutateStream ──
   // Single entry point for all streaming message mutations.
@@ -171,6 +194,12 @@ export function useMessageStream({
       const streamId = streamIdRef.current
 
       storeSetMessages((prev) => {
+        // 🔴 #4：中断守卫（对齐 Hermes index.ts:94-100，位于 mutateStream 状态回调入口）——
+        // 停止/完成后迟到的 delta/tool 事件直接丢弃，不得 seed 新气泡（Hermes 注释原话：
+        // "a brand-new bubble that appears to belong to the next user message"）
+        if (turnEndedRef.current) {
+          return prev
+        }
         if (prev.some(m => m.id === streamId)) {
           // Message exists — transform its parts
           return prev.map(m =>
@@ -229,26 +258,35 @@ export function useMessageStream({
     )
   }, [mutateStream])
 
-  // ── scheduleDeltaFlush — 1:1 from Eleve scheduleDeltaFlush ──
+  // ── scheduleDeltaFlush — 对齐 Hermes index.ts:255-291 ──
+  // 🔴 #3：恒用 setTimeout，绝不用 requestAnimationFrame。Chromium 对隐藏 renderer
+  // 暂停 rAF（最小化/离屏/compositor parked 都算）——rAF 门控的 flush 永不执行，
+  // 完整回答堆在队列里直到某次输入/聚焦唤醒帧，表现=回复停滞、切回时一次性涌出。
+  // Timer 保持同样的合并节奏（floor 就是为此）且无需交互保证送达；后台 renderer
+  // 只钳制 timer 不挂起，流式期间的 unthrottle 连钳制都解除。
+  // 自适应间隔：yield 3x 实测成本——廉价 flush 保持 30fps 文本增长，昂贵多流 flush
+  // 降文本 fps 而非交互性，capped 250ms 保证文本更新不低于 4/s。
   const scheduleDeltaFlush = useCallback(() => {
     if (flushHandleRef.current !== null) return
 
     const sinceLast = performance.now() - lastFlushAtRef.current
+    const adaptiveFloor = Math.min(
+      Math.max(STREAM_DELTA_FLUSH_MS, lastFlushCostRef.current * 3),
+      MAX_STREAM_FLUSH_GAP_MS,
+    )
+
     const runFlush = () => {
       flushHandleRef.current = null
-      lastFlushAtRef.current = performance.now()
+      const startedAt = performance.now()
+      lastFlushAtRef.current = startedAt
       flushQueuedDeltas()
+      lastFlushCostRef.current = performance.now() - startedAt
     }
 
-    if (sinceLast >= STREAM_DELTA_FLUSH_MS) {
-      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-        flushHandleRef.current = window.requestAnimationFrame(runFlush) as unknown as ReturnType<typeof setTimeout>
-      } else {
-        flushHandleRef.current = setTimeout(runFlush, 0)
-      }
-    } else {
-      flushHandleRef.current = setTimeout(runFlush, Math.max(0, STREAM_DELTA_FLUSH_MS - sinceLast))
-    }
+    flushHandleRef.current = window.setTimeout(
+      runFlush,
+      Math.max(0, adaptiveFloor - sinceLast),
+    )
   }, [flushQueuedDeltas])
 
   // ── queueDelta — 1:1 from Eleve queueDelta ──
@@ -317,25 +355,52 @@ export function useMessageStream({
           })
         }
 
-        // Fallback: find the last pending assistant message
+        // Fallback: 对齐 Hermes index.ts:528-582 去重决策树——找最后一条 assistant
+        //（不限 pending；Hermes 是 `!m.hidden`），按 pending / interim 延续 / exact match
+        // 分流 settle，防重复气泡：
+        //  - pending → 原地 settle（原逻辑）
+        //  - interim && finalContinuesInterim（文本前缀互匹配，Hermes :552-557）→
+        //    原地 settle（工具轮次密封的 interim 就是同一轮的回答，#63679）
+        //  - 非 interim && exact match → settle（finalizeStepBoundary 密封后 complete
+        //    到达且文本一致——修正 2 确认的现实重复路径，旧 fallback 只查 pending 漏掉）
         const fallbackIndex = [...prev]
           .reverse()
-          .findIndex(m => m.role === 'assistant' && m.pending)
+          .findIndex(m => m.role === 'assistant' && !m.hidden)
 
         if (fallbackIndex >= 0) {
           const index = prev.length - 1 - fallbackIndex
-          return prev.map((m, i) => {
-            if (i !== index) return m
-            return {
-              ...m,
-              parts: effectiveParts.length ? effectiveParts : m.parts,
-              pending: false,
-              ...errorField,
-            }
-          })
+          const existing = prev[index]
+          const existingText = existing.parts
+            .filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text')
+            .map((p) => p.text)
+            .join('')
+            .trim()
+          const finalContinuesInterim = Boolean(
+            existing.interim &&
+            finalText &&
+            existingText &&
+            (finalText === existingText || finalText.startsWith(existingText) || existingText.startsWith(finalText)),
+          )
+
+          const settleInPlace = existing.pending ||
+            (existing.interim && finalContinuesInterim) ||
+            (!existing.interim && Boolean(finalText) && existingText === finalText)
+
+          if (settleInPlace) {
+            return prev.map((m, i) => {
+              if (i !== index) return m
+              return {
+                ...m,
+                parts: effectiveParts.length ? effectiveParts : m.parts,
+                pending: false,
+                interim: false,
+                ...errorField,
+              }
+            })
+          }
         }
 
-        // No pending message — create a completed one
+        // No pending/sealed interim to settle — create a completed one
         if (effectiveParts.length || completionError) {
           return [...prev, { id: genId(), role: 'assistant' as const, parts: effectiveParts, pending: false, timestamp: Date.now(), ...errorField }]
         }
@@ -472,6 +537,8 @@ export function useMessageStream({
     },
 
     onRunStart: (sessionId: string) => {
+      // 🔴 #4：新 turn 开始 → 解除中断封锁（迟到 delta 重新放行）
+      turnEndedRef.current = false
       if (sessionId && sessionId !== sess.sessionId) {
         addDebugEvent('run_start', `new session: ${sessionId?.slice(0, 8)}`);
         if (sess.sessionId && getMessages()?.length) {
@@ -674,6 +741,11 @@ export function useMessageStream({
     onDone: (newSessionId: string | null, failure?: { error: string; partial: boolean }) => {
       addDebugEvent('done', newSessionId ? `new session: ${newSessionId?.slice(0, 8)}` : 'complete');
 
+      // 🔴 #4：置 turn 结束标志——此后的迟到 delta/tool 事件全部丢弃（对齐 Hermes
+      // state.interrupted 语义：停止后迟到 token 不得 seed 新气泡）。正常完成路径
+      // 后端已发完事件，置位无副作用；abort 路径（onDone(null)）正是防线。
+      turnEndedRef.current = true
+
       // Cancel any pending flush timer
       if (flushHandleRef.current !== null) {
         clearTimeout(flushHandleRef.current)
@@ -685,7 +757,8 @@ export function useMessageStream({
 
       // 3.3: drain 共享累加器 → 权威 parts（reasoning → tools → text）
       // drain 语义：取出+重置。interrupted 双触发时第二次 drain 返回空 → 不创建重复消息
-      completeAssistantMessage(drainFinalParts(), failure)
+      const drainedParts = drainFinalParts()
+      completeAssistantMessage(drainedParts, failure)
 
       // 🔴 修复：显式重置 isStreaming 状态（对齐 Hermes session.info(running=false)）
       // 后端在对话完成后发送 message.complete，前端 onDone 被调用，
@@ -696,13 +769,31 @@ export function useMessageStream({
 
       const currentSessionId = sess.sessionId;
       const effectiveId = newSessionId || currentSessionId;
+
+      // 🔴 #8: Hydrate fallback（对齐 Hermes index.ts:587-622 shouldHydrate）——
+      // complete 到达但零 payload（delta 丢失/流中断），会话显示空消息。Hermes 从本地
+      // 存储重载（3 次重试）；ELEVE 后端是消息唯一权威源，直接 loadHistory 重载一次
+      //（复用现有 prop，零新增 RPC）。有 completionError 不 hydrate（Hermes 同：
+      // `!completionError && !hasInlineError`——错误本身是有效终态）。
+      if (
+        drainedParts.length === 0 &&
+        !failure?.error &&
+        effectiveId &&
+        getMessages()?.length === 0
+      ) {
+        sess.loadHistory(effectiveId).then((msgs) => {
+          if (msgs && msgs.length) {
+            storeSetMessages(() => msgs)
+          }
+        }).catch(() => { /* hydrate 失败静默：下次交互自愈 */ })
+      }
       if (effectiveId && getMessages()?.length) {
         sess.saveCache((cache) => ({ ...cache, [effectiveId]: getMessages() }));
       }
 
       if (drainQueueRef.current) drainQueueRef.current();
 
-      // 🔴 对齐 Hermes：onDone 后无条件 refresh 列表（确保新session标题更新）
+      // 🔴 对齐 Hermes：onDone 后无条件刷新列表（300ms debounce 合并，确保新 session 标题更新）
       if (newSessionId && newSessionId !== currentSessionId) {
         if (currentSessionId && getMessages()?.length) {
           sess.saveCache((cache) => ({ ...cache, [currentSessionId]: getMessages() }));
@@ -710,13 +801,12 @@ export function useMessageStream({
         setTimeout(() => {
           sess.setSessionId(newSessionId);
           persistSessionPointer(newSessionId);
-          sess.refresh();
-          if (setSessionListVersion) setSessionListVersion(v => v + 1);
+          // 🔴 #7：refresh 走 debounce（新 session 切换后 300ms 内合并）
+          scheduleSessionsRefresh();
         }, 0);
       } else {
-        // 🔴 对齐 Hermes：即使无新session，也刷新列表（标题可能已更新）
-        sess.refresh();
-        if (setSessionListVersion) setSessionListVersion(v => v + 1);
+        // 🔴 对齐 Hermes：即使无新 session，也刷新列表（标题可能已更新）——300ms debounce
+        scheduleSessionsRefresh();
       }
     },
 
@@ -973,12 +1063,33 @@ export function useMessageStream({
       finalizeStepBoundary();
     },
 
-    // 中间助手消息（对齐 Hermes _emit_interim_assistant_message）
-    // 🔴 Phase 2: 独立 assistant 消息（对齐宫格 useGridChat message.interim）
+    // 中间助手消息（对齐 Hermes finalizeInterimAssistantMessage index.ts:410-464）
+    // 🔴 #5：interim 到达时：① 先密封当前流式气泡（pending:false, interim:true）——
+    // 过程文本到此为止，下一步 delta 创建新气泡；② alreadyStreamed=false（内容未上屏）
+    // 时再 append 独立 interim 消息（Hermes 无气泡时的独立消息语义）。
+    // 旧实现 alreadyStreamed=true 直接跳过：流式气泡继续累积 + interim 语义丢失，
+    // complete 时密封气泡因 pending:false 被 fallback 漏掉 → 重复气泡。
     onInterimMessage: (data: { content: string; alreadyStreamed: boolean }) => {
-      if (data.content && !data.alreadyStreamed) {
+      if (data.content) {
         addDebugEvent('interim_message', data.content.slice(0, 60));
-        appendIndependentMessage({ id: genId(), role: 'assistant' as const, parts: [textPart(data.content)], timestamp: Date.now() });
+        // ① 先刷尽排队 delta（Hermes gateway-event.ts:584-594 先 flush 再 finalize）
+        if (flushHandleRef.current !== null) {
+          clearTimeout(flushHandleRef.current)
+          flushHandleRef.current = null
+        }
+        flushQueuedDeltas()
+        // ② 密封当前流式气泡（Hermes :433-438 原地 pending:false, interim:true）
+        const streamId = streamIdRef.current
+        if (streamId) {
+          storeSetMessages((prev) =>
+            prev.map(m => m.id === streamId ? { ...m, pending: false, interim: true } : m),
+          )
+          streamIdRef.current = null // 下一步 delta 创建新气泡（Hermes :457）
+        }
+        // ③ 未上屏内容 → 独立 interim 消息（Hermes :439-451）
+        if (!data.alreadyStreamed) {
+          appendIndependentMessage({ id: genId(), role: 'assistant' as const, parts: [textPart(data.content)], interim: true, timestamp: Date.now() });
+        }
       }
     },
 
