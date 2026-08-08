@@ -583,6 +583,15 @@ export function useMessageStream({
       }
       mcp_servers: Array<{ name: string; status: string }>
       system_prompt: string
+      // C-5: inflight turn 快照（对齐 Hermes _inflight_snapshot）——failed turn 恢复
+      inflight?: {
+        user?: string
+        assistant?: string
+        streaming?: boolean
+        error?: string
+        status?: string
+        recoverable?: boolean
+      }
       // T5: pending_prompts
       pending_prompts?: {
         clarify?: { clarify_id: string; question: string; choices: string[]; awaiting_text: boolean }
@@ -594,6 +603,25 @@ export function useMessageStream({
       }
     }) => {
       addDebugEvent('session_info', `model=${data.model} running=${data.running} branch=${data.branch}`);
+      // C-5（2026-08-08 对齐 Hermes resume inflight 投影）：failed turn 恢复——
+      // 断线窗口错误帧丢失后，session.info 携带 inflight.error；重建失败气泡（错误语义
+      // 优先，不把部分文本当健康回复——对齐 Hermes localPendingSupersedes 语义）。
+      // 幂等：按 error 文本匹配已存在消息（session.info 每次状态变化都会推送）。
+      const inflightErr = data.inflight?.error;
+      if (inflightErr && !getMessages().some((m) => m.error === inflightErr)) {
+        const partial = (data.inflight?.assistant || '').trim();
+        storeSetMessages((prev) => [
+          ...prev,
+          {
+            id: genId(),
+            role: 'assistant' as const,
+            parts: partial ? [textPart(partial)] : [],
+            error: inflightErr,
+            pending: false,
+            timestamp: Date.now(),
+          },
+        ]);
+      }
       // 🔴 W-7: 同步会话 cwd（后端 session.info 携带；旧版丢弃 → preview.restart cwd 恒空）
       setSessionCwd?.(data.cwd || '');
       // T5: 恢复 pending 交互 UI — 归一化提取（与宫格 useGridChat 同一权威源）

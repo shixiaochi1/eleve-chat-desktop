@@ -757,6 +757,21 @@ export function useGridChat(active: boolean): {
           // 同步 model/usage（重连后状态对齐）
           const siModel = payload.model as string | undefined;
           const siUsage = payload.usage as Record<string, unknown> | undefined;
+          // C-5（2026-08-08 对齐 Hermes resume inflight 投影）：failed turn 恢复——
+          // 断线窗口错误帧丢失后，session.info 携带 inflight.error；重建失败气泡（幂等：
+          // 按 error 文本匹配，session.info 每次状态变化都会推送）。
+          const inflight = payload.inflight as { error?: string; assistant?: string } | undefined;
+          if (inflight?.error && !statesRef.current[profile]?.messages.some((m) => m.error === inflight.error)) {
+            const partial = (inflight.assistant || '').trim();
+            patch(profile, (s) => ({
+              ...s,
+              messages: [
+                ...s.messages,
+                { id: gridMsgId(), role: 'assistant' as const, parts: partial ? [textPart(partial)] : [], error: inflight.error, timestamp: Date.now() },
+              ].slice(-WINDOW_MAX),
+              lastActivity: Date.now(),
+            }));
+          }
           const pending = extractPendingInteractions(
             payload.pending_prompts as Record<string, Record<string, unknown>> | undefined,
             (payload.run_id as string) ?? statesRef.current[profile]?.sessionId ?? undefined,

@@ -95,6 +95,17 @@ export interface SSECallbacks {
     }
     mcp_servers: Array<{ name: string; status: string }>
     system_prompt: string
+    // C-5: inflight turn 快照（对齐 Hermes _inflight_snapshot L7549）——
+    // 断线重连时携带 failed turn（error/status/recoverable + 部分文本），
+    // 前端重建失败气泡（错误语义优先，不把部分文本当健康回复）
+    inflight?: {
+      user?: string
+      assistant?: string
+      streaming?: boolean
+      error?: string
+      status?: string
+      recoverable?: boolean
+    }
     // T5: pending_prompts — 对齐 Hermes _pending_prompt_payloads
     // 前端刷新后恢复交互弹窗（clarify/approval/sudo/secret/slash_confirm）
     pending_prompts?: {
@@ -481,6 +492,8 @@ function processEvent(
         system_prompt: (chunk.system_prompt as string) || '',
         // T5: pending_prompts — 透传给回调消费
         pending_prompts: chunk.pending_prompts as any,
+        // C-5: inflight turn 快照透传（对齐 Hermes resume inflight 投影）
+        inflight: chunk.inflight as any,
       });
       break;
 
