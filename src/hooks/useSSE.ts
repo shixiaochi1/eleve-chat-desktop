@@ -549,22 +549,6 @@ function processEvent(
       cbs.onDone?.(chunk.session_id as string | null, failure);
       return 'done';
 
-    // ── 用量汇总（对齐 Hermes: Done时推送usage统计）──
-    case 'usage.summary':
-      cbs.onUsage?.({
-        input: (chunk.usage as any)?.input_tokens,
-        output: (chunk.usage as any)?.output_tokens,
-        cacheRead: (chunk.usage as any)?.cache_read_tokens,
-        cacheWrite: (chunk.usage as any)?.cache_write_tokens,
-        reasoning: (chunk.usage as any)?.reasoning_tokens,
-        total: (chunk.usage as any)?.total_tokens,
-        apiCalls: (chunk.usage as any)?.api_calls,
-        contextUsed: (chunk.usage as any)?.context_used,
-        contextMax: (chunk.usage as any)?.context_max,
-        compressions: (chunk.usage as any)?.compressions,
-      });
-      break;
-
     default:
       console.warn('[useSSE] Unknown event:', eventName, chunk);
       break;

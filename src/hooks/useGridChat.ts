@@ -517,8 +517,8 @@ export function useGridChat(active: boolean): {
           // 🔴 P2-D: 复用 finalizeAccumulator（与单视图同一 parts 组装逻辑）
           const finalParts = finalizeAccumulator(acc);
           resetAccumulator(acc);
-          // 🔴 Phase 4b #5: 后端 message.complete 不带 usage（走独立 usage.summary 事件），
-          // payload.usage 恒 undefined —— 仅在真有值时覆盖，避免冲掉 usage.summary 已写入的 lastUsage
+          // 🔴 Phase 4b #5: 后端 message.complete 带 usage（C-3 2026-08-08 对齐 Hermes 内嵌，
+          // 原独立 usage.summary 事件已删）——有值才覆盖，避免冲掉 session.info 已写入的 lastUsage
           const mUsage = payload.usage as Record<string, unknown> | undefined;
           const usageData = mUsage ? {
             input: (mUsage.input_tokens as number) || 0,
@@ -779,14 +779,8 @@ export function useGridChat(active: boolean): {
           }
           break;
         }
-        // ── 用量汇总（对齐单视图 usage.summary）──
-        case 'usage.summary': {
-          const us = payload.usage as Record<string, unknown> | undefined;
-          if (us) {
-            patch(profile, (s) => ({ ...s, lastUsage: { input: (us.input_tokens as number) || 0, output: (us.output_tokens as number) || 0, reasoning: us.reasoning_tokens as number | undefined, total: us.total_tokens as number | undefined } }));
-          }
-          break;
-        }
+        // 🔴 C-3（2026-08-08 对齐 Hermes）：usage 已内嵌 message.complete（唯一权威），
+        // 删独立 usage.summary 消费（后端不再推此事件）
         default:
           // 🔴 P0-1.4: 带 session_id 的全局事件兜底（后端 build_ws_event 给几乎所有事件注入 session_id，
           // 不能仅凭“有无 session_id”区分全局/局部）—— notification/terminal.read.request/browser.progress 等
