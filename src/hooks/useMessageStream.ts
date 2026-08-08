@@ -145,6 +145,12 @@ export function useMessageStream({
   // 置 true 后丢弃迟到 delta（mutateStream 入口守卫），onRunStart 重置。
   // Hermes 注释原话：迟到事件会 seed 一条"看起来属于下一条用户消息"的全新气泡。
   const turnEndedRef = useRef<boolean>(false)
+  // 🔴 #6b：interim 边界已发生标志（对齐 Hermes state.interimBoundaryPending）——
+  // interim 密封时置位，complete 消费后清位。语义：interim 边界后的 complete 就是
+  // 同一轮的回答，应原地 settle（Hermes index.ts:563 无条件 settle 分支；ELEVE 后端
+  // 无 response_previewed 字段，responsePreviewed 场景不存在，interimSealedRef 覆盖其
+  // "final 被重写不再共享前缀"的等价格——#63679 修复族）。
+  const interimSealedRef = useRef<boolean>(false)
   // 🔴 #7：侧边栏刷新合并（对齐 Hermes scheduleSessionsRefresh index.ts:145-173）——
   // 300ms debounce，多次 completion 合并为一次 refresh，防多会话并发时列表频繁刷新
   const sessionsRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -324,6 +330,9 @@ export function useMessageStream({
     (finalParts: ChatMessagePart[], failure?: { error: string; partial: boolean }) => {
       const streamId = streamIdRef.current
       streamIdRef.current = null // Clear streamId — turn is over
+      // 🔴 #6b: complete 无条件清 interim 边界标志（对齐 Hermes index.ts:596
+      // interimBoundaryPending: false——无论 settle 还是新建）
+      interimSealedRef.current = false
 
       // 对齐 Hermes：completionError = 结构化 failure 优先，legacy 文本启发式兜底
       const finalText = finalParts
@@ -383,7 +392,7 @@ export function useMessageStream({
           )
 
           const settleInPlace = existing.pending ||
-            (existing.interim && finalContinuesInterim) ||
+            (existing.interim && (interimSealedRef.current || finalContinuesInterim)) ||
             (!existing.interim && Boolean(finalText) && existingText === finalText)
 
           if (settleInPlace) {
@@ -539,6 +548,9 @@ export function useMessageStream({
     onRunStart: (sessionId: string) => {
       // 🔴 #4：新 turn 开始 → 解除中断封锁（迟到 delta 重新放行）
       turnEndedRef.current = false
+      // 🔴 #6b: 新 turn 清 interim 边界标志（对齐 Hermes gateway-event.ts:573
+      // message.start 重置 interimBoundaryPending: false）
+      interimSealedRef.current = false
       if (sessionId && sessionId !== sess.sessionId) {
         addDebugEvent('run_start', `new session: ${sessionId?.slice(0, 8)}`);
         if (sess.sessionId && getMessages()?.length) {
@@ -770,16 +782,22 @@ export function useMessageStream({
       const currentSessionId = sess.sessionId;
       const effectiveId = newSessionId || currentSessionId;
 
-      // 🔴 #8: Hydrate fallback（对齐 Hermes index.ts:587-622 shouldHydrate）——
+      // 🔴 #8: Hydrate fallback（对齐 Hermes index.ts:583-622 shouldHydrate）——
       // complete 到达但零 payload（delta 丢失/流中断），会话显示空消息。Hermes 从本地
       // 存储重载（3 次重试）；ELEVE 后端是消息唯一权威源，直接 loadHistory 重载一次
-      //（复用现有 prop，零新增 RPC）。有 completionError 不 hydrate（Hermes 同：
-      // `!completionError && !hasInlineError`——错误本身是有效终态）。
+      //（复用现有 prop，零新增 RPC）。条件对齐 Hermes：
+      //  - !completionError：错误本身是有效终态，不 hydrate
+      //  - !hasInlineError：列表已有 assistant error 不 hydrate
+      //  - drainedParts 空 = !sawAssistantPayload || !finalText（累加器含 reasoning/
+      //    tool parts，收到过任何 payload 都不空；Hermes 的 sawAssistantPayload 同义）
+      //  - 不加"消息列表为空"限制：Hermes 的 unresolvedUserTail 场景——会话有历史但
+      //    本轮回复丢失（最后可见是 user），同样要 hydrate 重载
+      const hasInlineError = getMessages()?.some(m => m.role === 'assistant' && m.error && !m.hidden) ?? false
       if (
         drainedParts.length === 0 &&
         !failure?.error &&
-        effectiveId &&
-        getMessages()?.length === 0
+        !hasInlineError &&
+        effectiveId
       ) {
         sess.loadHistory(effectiveId).then((msgs) => {
           if (msgs && msgs.length) {
@@ -1070,7 +1088,8 @@ export function useMessageStream({
     // 旧实现 alreadyStreamed=true 直接跳过：流式气泡继续累积 + interim 语义丢失，
     // complete 时密封气泡因 pending:false 被 fallback 漏掉 → 重复气泡。
     onInterimMessage: (data: { content: string; alreadyStreamed: boolean }) => {
-      if (data.content) {
+      // 对齐 Hermes :418-421：权威文本 trim 后为空 → 直接 return（不密封不创建）
+      if (data.content && data.content.trim()) {
         addDebugEvent('interim_message', data.content.slice(0, 60));
         // ① 先刷尽排队 delta（Hermes gateway-event.ts:584-594 先 flush 再 finalize）
         if (flushHandleRef.current !== null) {
@@ -1082,13 +1101,28 @@ export function useMessageStream({
         const streamId = streamIdRef.current
         if (streamId) {
           storeSetMessages((prev) =>
-            prev.map(m => m.id === streamId ? { ...m, pending: false, interim: true } : m),
+            prev.map(m => {
+              if (m.id !== streamId) return m
+              // 🔴 文本合并（对齐 Hermes mergeFinalAssistantText：interim 权威文本替换
+              // 流式 delta 文本，reasoning/tool parts 保留）——流式 delta 可能丢尾字符
+              const mergedParts = data.content
+                ? [...m.parts.filter(p => p.type !== 'text'), textPart(data.content)]
+                : m.parts
+              return { ...m, parts: mergedParts, pending: false, interim: true }
+            }),
           )
           streamIdRef.current = null // 下一步 delta 创建新气泡（Hermes :457）
+          // 🔴 #6b: interim 边界已发生 → complete 无条件 settle（Hermes :563）
+          interimSealedRef.current = true
         }
         // ③ 未上屏内容 → 独立 interim 消息（Hermes :439-451）
         if (!data.alreadyStreamed) {
           appendIndependentMessage({ id: genId(), role: 'assistant' as const, parts: [textPart(data.content)], interim: true, timestamp: Date.now() });
+        }
+        // 🔴 #6b: interim 边界已发生（Hermes 两种路径无条件置 interimBoundaryPending: true，
+        // index.ts:458）——独立消息路径也要置位，否则 complete 只按文本前缀匹配 settle
+        if (!streamId) {
+          interimSealedRef.current = true
         }
       }
     },
