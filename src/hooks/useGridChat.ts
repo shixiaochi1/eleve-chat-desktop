@@ -525,9 +525,23 @@ export function useGridChat(active: boolean): {
             reasoning: mUsage.reasoning_tokens as number | undefined,
             total: mUsage.total_tokens as number | undefined,
           } : null;
+          // 🔴 C-1（2026-08-08）：结构化 failure 语义（对齐 Hermes gateway-event.ts L722-733）——
+          // status=error 时消息带 error 标记（MessageRow 渲染 type=error 气泡）；
+          // partial=true 保留流式部分文本，非 partial 剥文本只显错误。
+          const failure =
+            payload.status === 'error'
+              ? {
+                  error: ((payload.error as string) || (payload.content as string) || 'Agent 错误').trim(),
+                  partial: Boolean(payload.partial),
+                }
+              : undefined;
+          const effectiveParts =
+            failure && !failure.partial
+              ? finalParts.filter((p) => p.type !== 'text')
+              : finalParts;
           patch(profile, (s) => {
-            const msgs = finalParts.length
-              ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: finalParts, timestamp: Date.now() }]
+            const msgs = effectiveParts.length || failure
+              ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: effectiveParts, timestamp: Date.now(), ...(failure ? { error: failure.error } : {}) }]
               : s.messages;
             return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamParts: [], activityHint: '', lastUsage: usageData ?? s.lastUsage, lastActivity: Date.now() };
           });

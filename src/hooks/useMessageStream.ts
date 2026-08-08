@@ -18,7 +18,6 @@ import {
   upsertToolPart,
   appendTextPart,
   appendReasoningPart,
-  freezeReasoningPart,
   type ChatMessagePart,
   type GatewayEventPayload,
 } from '@/lib/chat-messages';
@@ -276,20 +275,32 @@ export function useMessageStream({
   // ── completeAssistantMessage — 3.3: 改用 drainFinalParts 共享累加器权威 parts ──
   // On stream end, replace streaming message parts with accumulator-finalized parts.
   // 消灭旧版 fullTextRef 影子累加器 + reasoning 去重 hack（累加器已正确分离 reasoning/text）。
+  // 🔴 C-1（2026-08-08）：failure 语义对齐 Hermes index.ts L558-565——
+  // failure.error 时消息带 error 标记（MessageRow 渲染 type=error 气泡）；
+  // partial=true 保留流式文本（错误帧的部分输出），非 partial 剥文本只显错误。
   const completeAssistantMessage = useCallback(
-    (finalParts: ChatMessagePart[]) => {
+    (finalParts: ChatMessagePart[], failure?: { error: string; partial: boolean }) => {
       const streamId = streamIdRef.current
       streamIdRef.current = null // Clear streamId — turn is over
 
+      // 对齐 Hermes：非 partial 错误剥除文本 parts（仅保留 reasoning/tool 骨架），
+      // 避免错误帧的半截文本被当成正常回复
+      const effectiveParts =
+        failure && !failure.partial
+          ? finalParts.filter((p) => p.type !== 'text')
+          : finalParts
+
       storeSetMessages((prev) => {
+        const errorField = failure?.error ? { error: failure.error } : {}
         if (streamId && prev.some(m => m.id === streamId)) {
           // Found our streaming message — finalize with accumulator parts
           return prev.map(m => {
             if (m.id !== streamId) return m
             return {
               ...m,
-              parts: finalParts.length ? finalParts : m.parts,
+              parts: effectiveParts.length ? effectiveParts : m.parts,
               pending: false,
+              ...errorField,
             }
           })
         }
@@ -305,15 +316,16 @@ export function useMessageStream({
             if (i !== index) return m
             return {
               ...m,
-              parts: finalParts.length ? finalParts : m.parts,
+              parts: effectiveParts.length ? effectiveParts : m.parts,
               pending: false,
+              ...errorField,
             }
           })
         }
 
         // No pending message — create a completed one
-        if (finalParts.length) {
-          return [...prev, { id: genId(), role: 'assistant' as const, parts: finalParts, pending: false, timestamp: Date.now() }]
+        if (effectiveParts.length || failure?.error) {
+          return [...prev, { id: genId(), role: 'assistant' as const, parts: effectiveParts, pending: false, timestamp: Date.now(), ...errorField }]
         }
         return prev
       })
@@ -374,18 +386,24 @@ export function useMessageStream({
       queueDelta('reasoning', delta)
     },
 
-    // reasoning.available = 推理开始通知（拆变体后不带文本）
-    // 🔴 Phase 1: 种空未冻结推理块占位（与累加器 reasoning.available 处理同构）。
-    // 多块支持：尾部已是未冻结推理块则跳过（不重复种）；flush 先走保证前序 delta 落定。
-    onReasoningStart: () => {
+    // reasoning.available = 推理块完成后的摘要（对齐 Hermes appendReasoningDelta(text, true) replace 语义）
+    // 🔴 2026-08-08 对齐 Hermes（老大纠正）：Hermes 基线 reasoning.delta 流式必推 +
+    // reasoning.available 完成态带摘要；reasoning.end 是 ELEVE 自创（Hermes 无）已删。
+    // replace：移除全部 reasoning 块 → 冻结摘要块（done=true 保持多块边界，
+    // 下一个 reasoning.delta 经 appendReasoningPart 自然新开块）。
+    // 守卫：消息已有正文文本时不替换（对齐 Hermes chatMessageText 守卫，推理块保留）。
+    onReasoningAvailable: (text: string) => {
       flushQueuedDeltas()
+      const streamId = streamIdRef.current
+      if (!streamId) return
+      if (!getMessages().some(m => m.id === streamId)) return
       mutateStream(
-        (parts) => {
-          const last = parts.at(-1)
-          if (last && last.type === 'reasoning' && !last.done) return parts
-          return [...parts, reasoningPart('')]
+        (parts, message) => {
+          if (message.parts.some(p => p.type === 'text' && p.text)) return parts
+          return [...parts.filter((p) => p.type !== 'reasoning'), { ...reasoningPart(text), done: true }]
         },
-        () => [reasoningPart('')],
+        () => [{ ...reasoningPart(text), done: true }],
+        { pending: m => m.pending ?? true },
       )
     },
     // ── Tool start — 1:1 with Eleve tool.start ──
@@ -611,7 +629,9 @@ export function useMessageStream({
 
     // ── Done — 1:1 with Hermes message.complete ──
     // 3.3: drainFinalParts() 从共享累加器取权威 parts（消灭影子累加器 fullTextRef）
-    onDone: (newSessionId: string | null) => {
+    // 🔴 C-1（2026-08-08）：onDone 携带结构化 failure（对齐 Hermes gateway-event.ts L725-733），
+    // status=error 时消息带 error 标记渲染（MessageRow type=error），不再静默吞错误。
+    onDone: (newSessionId: string | null, failure?: { error: string; partial: boolean }) => {
       addDebugEvent('done', newSessionId ? `new session: ${newSessionId?.slice(0, 8)}` : 'complete');
 
       // Cancel any pending flush timer
@@ -625,7 +645,7 @@ export function useMessageStream({
 
       // 3.3: drain 共享累加器 → 权威 parts（reasoning → tools → text）
       // drain 语义：取出+重置。interrupted 双触发时第二次 drain 返回空 → 不创建重复消息
-      completeAssistantMessage(drainFinalParts())
+      completeAssistantMessage(drainFinalParts(), failure)
 
       // 🔴 修复：显式重置 isStreaming 状态（对齐 Hermes session.info(running=false)）
       // 后端在对话完成后发送 message.complete，前端 onDone 被调用，
@@ -867,19 +887,8 @@ export function useMessageStream({
     },
 
     // ── Reasoning completed — 推理块结束 → 冻结 live 尾部推理块 ──
-    // 🔴 Phase 1: 与累加器 reasoning.end 处理同构（freezeReasoningPart）。
-    // 冻结后下一个 reasoning.delta 经 appendReasoningPart 自然新开块 — 多推理块流式不合并。
-    // 守卫：streamId 存在但消息未生成（run.started 预分配）时不种空气泡。
-    onReasoningComplete: () => {
-      const streamId = streamIdRef.current
-      if (!streamId) return
-      if (!getMessages().some(m => m.id === streamId)) return
-      mutateStream(
-        (parts) => freezeReasoningPart(parts),
-        () => [],
-        { pending: m => m.pending ?? true },
-      )
-    },
+    // 🔴 2026-08-08 已删除（对齐 Hermes：Hermes 无 reasoning.end 事件，
+    // 块冻结由 reasoning.available 完成态 replace 承担，见 onReasoningAvailable）。
 
     // ── 🔴 Phase 2b: 补齐单视图缺失的 8 个事件（对齐宫格 useGridChat 已处理）──
 

@@ -13,7 +13,10 @@ import type { ChatMessagePart } from '@/lib/chat-messages';
 export interface SSECallbacks {
   onText?: (delta: string) => void
   onReasoning?: (delta: string) => void
-  onReasoningStart?: () => void
+  // 🔴 2026-08-08 对齐 Hermes：available = 推理块完成后的摘要（带 text，replace 语义）。
+  // 原 onReasoningStart（推理开始空占位）与 onReasoningComplete（reasoning.end 冻结）已随
+  // Hermes 基线合并为此单一回调（Hermes 无 reasoning.end，available 即完成态）。
+  onReasoningAvailable?: (text: string) => void
   onToolStart?: (data: { id: string | null; name: string; preview?: string }) => void
   onToolGenerating?: (name: string) => void
   onToolArgs?: (data: { id: string; delta: string; accumulated: string }) => void
@@ -103,11 +106,10 @@ export interface SSECallbacks {
       approval?: { request_id: string; command: string; choices?: string[] }
     }
   }) => void
-  onDone?: (sessionId: string | null) => void
+  onDone?: (sessionId: string | null, failure?: { error: string; partial: boolean }) => void
   onError?: (msg: string) => void
   /** 后端自动创建 session 后通知前端更新 sessionId（架构原则：后端是权威源） */
   onSessionCreated?: (newSessionId: string) => void
-  onReasoningComplete?: () => void
   onSessionReset?: (data: { old_session_id: string; new_session_id: string }) => void
   // 对齐 Eleve thinking_callback → thinking.delta 事件（Agent 思考状态，如"正在思考..."）
   onThinking?: (text: string) => void
@@ -189,17 +191,14 @@ function processEvent(
     }
 
     case 'reasoning.available':
-      // 拆变体后: ReasoningStart 不带文本，只是"推理开始"通知
-      // 🔴 Phase 1: 累加器种空占位块（与单视图 live onReasoningStart 同构，宫格经 flush 得 shimmer 占位）
+      // 🔴 2026-08-08 对齐 Hermes：available = 推理块完成后的摘要（后端带 text），
+      // replace 语义（对齐 Hermes appendReasoningDelta(text, true)）。
       processAccumulatorEvent(acc, eventName, chunk);
-      cbs.onReasoningStart?.();
+      cbs.onReasoningAvailable?.((chunk.text as string) || '');
       break;
 
-    // ── 推理结束（对齐 Hermes: reasoning.end 冻结当前块，多块支持）──
-    case 'reasoning.end':
-      processAccumulatorEvent(acc, eventName, chunk);
-      cbs.onReasoningComplete?.();
-      break;
+    // 🔴 reasoning.end 已删除（2026-08-08 对齐 Hermes：Hermes 无此事件，
+    // 块冻结由 reasoning.available 完成态 replace 承担）
 
     // ── Agent 思考状态（对齐 Eleve thinking_callback → thinking.delta）──
     case 'thinking.delta':
@@ -500,6 +499,11 @@ function processEvent(
       cbs.onRunStart?.(chunk.session_id as string);
       break;
 
+    case 'keepalive':
+      // 🔴 2026-08-08：WS 保活帧（对齐 Hermes SSE `: keepalive` 的 WS 等价物）—
+      // 显式忽略，避免每 30s 走 default 刷 console.warn。
+      break;
+
     case 'error':
       cbs.onError?.((chunk.message as string) || 'Unknown error');
       return 'error';
@@ -522,6 +526,17 @@ function processEvent(
           compressions: (chunk.usage as any).compressions,
         });
       }
+      // 🔴 C-1（2026-08-08）：结构化 failure 语义（对齐 Hermes gateway-event.ts L722-733）。
+      // status=error 时携带错误信息 + partial 标记（content 是流式部分输出 → 保留文本+
+      // error 标记；非 partial → 消费方剥文本只显错误）。旧实现零消费 status/error →
+      // LLM 4xx/限流/预算错误被当成普通半截回复，错误信息完全丢失。
+      const failure =
+        chunk.status === 'error'
+          ? {
+              error: ((chunk.error as string) || (chunk.content as string) || 'Agent 错误').trim(),
+              partial: Boolean(chunk.partial),
+            }
+          : undefined;
       // 中断处理（原 onRunComplete 的中断逻辑）
       if (chunk.interrupted) {
         cbs.onRunComplete?.({
@@ -531,7 +546,7 @@ function processEvent(
           usage: chunk.usage,
         });
       }
-      cbs.onDone?.(chunk.session_id as string | null);
+      cbs.onDone?.(chunk.session_id as string | null, failure);
       return 'done';
 
     // ── 用量汇总（对齐 Hermes: Done时推送usage统计）──
