@@ -817,6 +817,7 @@ export default function App() {
     uploading: imageUploading,
     error: imageError,
     addImage,
+    addImageFromPath,
     removeImage,
     clearImages,
     clearError: clearImageError,
@@ -895,6 +896,11 @@ export default function App() {
   const handleAddImage = useCallback(async (file: File): Promise<void> => {
     await addImage(file);
   }, [addImage]);
+
+  // 同款适配：Tauri 路径快路径（本地 image.attach / remote attach_bytes）
+  const handleAddImageFromPath = useCallback(async (path: string): Promise<void> => {
+    await addImageFromPath(path);
+  }, [addImageFromPath]);
 
   // 适配 removeImage 签名
   const handleRemoveImage = useCallback(async (id: string): Promise<void> => {
@@ -1417,6 +1423,7 @@ export default function App() {
                 imageUploading={imageUploading}
                 imageError={imageError}
                 onAddImage={handleAddImage}
+                onAddImageFromPath={handleAddImageFromPath}
                 onRemoveImage={handleRemoveImage}
                 onClearImageError={clearImageError}
                 queueProfile={currentProfile}

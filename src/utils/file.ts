@@ -26,3 +26,31 @@ export function base64FromDataURL(dataUrl: string): string {
   const comma = dataUrl.indexOf(',');
   return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
 }
+
+/** 从文件扩展名推断 MIME（本地路径读图/读文件预览用；对齐后端扩展名白名单） */
+export function mimeFromExt(path: string): string | undefined {
+  const ext = path.split('.').pop()?.toLowerCase() ?? '';
+  switch (ext) {
+    case 'png': return 'image/png';
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg';
+    case 'gif': return 'image/gif';
+    case 'webp': return 'image/webp';
+    case 'bmp': return 'image/bmp';
+    case 'svg': return 'image/svg+xml';
+    case 'ico': return 'image/x-icon';
+    case 'tiff':
+    case 'tif': return 'image/tiff';
+    default: return undefined;
+  }
+}
+
+/** Uint8Array → base64（Tauri plugin-fs 读出的字节；浏览器 btoa 处理二进制需分块） */
+export function arrayBufferToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}

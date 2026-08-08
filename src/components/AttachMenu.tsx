@@ -19,11 +19,15 @@ import {
 import { NewIcon, ImageIcon, FileIcon, FolderIcon, GlobeIcon } from './Icons';
 
 interface AttachMenuProps {
-  /** 选择图片 — 已接通后端（image.attach_bytes 真实落盘） */
+  /** 选择图片（浏览器 fallback）— 已接通后端（image.attach_bytes 真实落盘） */
   onPickImage?: () => void;
+  /** 选择图片（Tauri 原生对话框路径）— 本地模式走 image.attach 快路径，remote 走 attach_bytes */
+  onPickImagePaths?: (paths: string[]) => void;
+  /** 文件附件 — Tauri 原生对话框路径 → file.attach staging（ref_text 注入输入框） */
+  onAttachFiles?: (paths: string[]) => void;
   /** 添加链接 — 纯前端，URL 插入输入框（立即可用） */
   onAddUrl?: (url: string) => void;
-  /** 选择文件/文件夹 — Tauri 原生对话框（对齐 Hermes composer selectDesktopPaths），路径插入输入框 */
+  /** 选择文件夹 — Tauri 原生对话框（对齐 Hermes composer selectDesktopPaths），路径插入输入框 */
   onAddPaths?: (paths: string[]) => void;
 }
 
@@ -32,34 +36,63 @@ interface AttachMenuProps {
  *
  * 替换原单一 📎 按钮，统一为 Hermes 的 "+" 心智模型。
  * 能力边界：
- * - 「选择图片」接通后端（image.attach_bytes 真实落盘）
+ * - 「选择图片」Tauri 原生对话框拿本地路径 → 本地模式 image.attach 快路径（零拷贝）/ remote attach_bytes；
+ *   浏览器开发模式 fallback File input（image.attach_bytes）
+ * - 「选择文件」Tauri 原生对话框 → file.attach staging（对齐 Hermes uploadComposerAttachment 文件分支）
  * - 「添加链接」纯前端（URL 插入输入框，随消息发送）
- * - 「选择文件 / 文件夹」接通 Tauri 原生对话框（tauri-plugin-dialog，对齐 Hermes
- *   selectDesktopPaths）；浏览器开发模式（非 Tauri）禁用并标注“仅桌面端”
+ * - 「选择文件夹」Tauri 原生对话框（对齐 Hermes selectDesktopPaths）；浏览器开发模式（非 Tauri）禁用
  *
  * 微交互：菜单展开时 "+" 旋转 45° 呈关闭态。
  */
-export default function AttachMenu({ onPickImage, onAddUrl, onAddPaths }: AttachMenuProps) {
+export default function AttachMenu({ onPickImage, onPickImagePaths, onAttachFiles, onAddUrl, onAddPaths }: AttachMenuProps) {
   const [urlOpen, setUrlOpen] = useState(false);
   const [urlValue, setUrlValue] = useState('');
   const urlInputRef = useRef<HTMLInputElement | null>(null);
   const desktop = isTauri();
 
-  // 原生文件/文件夹选择（对齐 Hermes selectDesktopPaths）— 动态 import 避免浏览器模式加载插件
-  const pickPaths = useCallback(async (directory: boolean) => {
+  // 原生图片选择（Tauri dialog，拿路径 → 快路径）— 对齐 Hermes attachImagePath
+  const pickImages = useCallback(async () => {
+    if (!desktop || !onPickImagePaths) return;
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({
+        multiple: true,
+        title: '选择图片',
+        filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico', 'tiff', 'tif'] }],
+      });
+      if (!selected) return;
+      const paths = Array.isArray(selected) ? selected : [selected];
+      if (paths.length) onPickImagePaths(paths);
+    } catch (err) {
+      console.error('[AttachMenu] native image dialog failed:', err);
+    }
+  }, [desktop, onPickImagePaths]);
+
+  // 原生文件选择（Tauri dialog，路径 → file.attach staging）— 对齐 Hermes 文件附件
+  const pickFiles = useCallback(async () => {
+    if (!desktop || !onAttachFiles) return;
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({ multiple: true, title: '选择文件' });
+      if (!selected) return;
+      const paths = Array.isArray(selected) ? selected : [selected];
+      if (paths.length) onAttachFiles(paths);
+    } catch (err) {
+      console.error('[AttachMenu] native file dialog failed:', err);
+    }
+  }, [desktop, onAttachFiles]);
+
+  // 原生文件夹选择（Tauri dialog，路径插入输入框）— 对齐 Hermes selectDesktopPaths
+  const pickPaths = useCallback(async () => {
     if (!desktop) return;
     try {
       const { open } = await import('@tauri-apps/plugin-dialog');
-      const selected = await open(
-        directory
-          ? { directory: true, multiple: false, title: '选择文件夹' }
-          : { multiple: true, title: '选择文件' }
-      );
+      const selected = await open({ directory: true, multiple: false, title: '选择文件夹' });
       if (!selected) return;
       const paths = Array.isArray(selected) ? selected : [selected];
       if (paths.length) onAddPaths?.(paths);
     } catch (err) {
-      console.error('[AttachMenu] native dialog failed:', err);
+      console.error('[AttachMenu] native folder dialog failed:', err);
     }
   }, [desktop, onAddPaths]);
 
@@ -91,10 +124,18 @@ export default function AttachMenu({ onPickImage, onAddUrl, onAddPaths }: Attach
         </DropdownMenuTrigger>
 
         <DropdownMenuContent side="top" align="start" className="w-56">
-          <DropdownMenuItem onSelect={() => onPickImage?.()}>
+          <DropdownMenuItem
+            onSelect={() => {
+              if (desktop && onPickImagePaths) {
+                void pickImages()
+              } else {
+                onPickImage?.()
+              }
+            }}
+          >
             <ImageIcon className="shrink-0" />
             <span className="flex-1">选择图片</span>
-            <span className="text-[10px] text-muted-foreground/60">支持粘贴拖拽</span>
+            <span className="text-[10px] text-muted-foreground/60">{desktop ? '原生对话框' : '支持粘贴拖拽'}</span>
           </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={() => {
@@ -109,12 +150,12 @@ export default function AttachMenu({ onPickImage, onAddUrl, onAddPaths }: Attach
             <span className="flex-1">添加链接</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem disabled={!desktop} onSelect={() => void pickPaths(false)}>
+          <DropdownMenuItem disabled={!desktop || !onAttachFiles} onSelect={() => void pickFiles()}>
             <FileIcon className="shrink-0" />
             <span className="flex-1">选择文件</span>
-            <span className="text-[10px] text-muted-foreground/50">{desktop ? '原生对话框' : '仅桌面端'}</span>
+            <span className="text-[10px] text-muted-foreground/50">{desktop ? 'file.attach 附件' : '仅桌面端'}</span>
           </DropdownMenuItem>
-          <DropdownMenuItem disabled={!desktop} onSelect={() => void pickPaths(true)}>
+          <DropdownMenuItem disabled={!desktop} onSelect={() => void pickPaths()}>
             <FolderIcon className="shrink-0" />
             <span className="flex-1">选择文件夹</span>
             <span className="text-[10px] text-muted-foreground/50">{desktop ? '原生对话框' : '仅桌面端'}</span>

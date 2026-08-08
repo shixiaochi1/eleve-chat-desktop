@@ -590,6 +590,30 @@ export class GatewayWsClient {
     return result as ImageAttachResponse
   }
 
+  /** 附加图片（本地路径引用）— 对齐 Hermes image.attach：本地模式快路径
+   * 后端校验路径存在 + 后缀白名单后直接引用（零拷贝，不落盘复制）
+   */
+  async imageAttach(path: string, sessionId?: string): Promise<ImageAttachResponse> {
+    const result = await this.sendRpc('image.attach', {
+      session_id: sessionId || this.sessionId || '',
+      path,
+    })
+    return result as ImageAttachResponse
+  }
+
+  /** 文件附件 staging — 对齐 Hermes file.attach：三 case（workspace 内直用 / 外复制 / data_url 写入）
+   * 返回 {attached, name, path, ref_path, ref_text, uploaded}，ref_text 注入 prompt 文本
+   */
+  async fileAttach(opts: { path?: string; data_url?: string; name?: string; sessionId?: string }): Promise<FileAttachResponse> {
+    const result = await this.sendRpc('file.attach', {
+      session_id: opts.sessionId || this.sessionId || '',
+      ...(opts.path ? { path: opts.path } : {}),
+      ...(opts.data_url ? { data_url: opts.data_url } : {}),
+      ...(opts.name ? { name: opts.name } : {}),
+    })
+    return result as FileAttachResponse
+  }
+
   /** 分离图片 — 对齐 Eleve image.detach
    * 后端接收 path，从 session.attached_images 移除，返回 {detached, count}
    */
@@ -665,11 +689,27 @@ export interface ImageAttachResponse {
   count?: number
   bytes?: number
   text?: string
+  /** _image_meta（对齐 Hermes：width/height/token_estimate，解析失败只有 name） */
+  name?: string
+  width?: number
+  height?: number
+  token_estimate?: number
 }
 
 export interface ImageDetachResponse {
   detached?: boolean
   count?: number
+}
+
+// ── 文件附件 RPC 响应类型（对齐后端 ws/mod.rs file.attach）──
+
+export interface FileAttachResponse {
+  attached?: boolean
+  name?: string
+  path?: string
+  ref_path?: string
+  ref_text?: string
+  uploaded?: boolean
 }
 
 // ── 会话创建 RPC 响应类型（对齐后端 ws/rpc_session.rs session.create）──

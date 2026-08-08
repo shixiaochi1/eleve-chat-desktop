@@ -13,7 +13,8 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { getWsClient, type ImageAttachResponse } from '@/services/ws-client';
-import { readFileAsDataURL, base64FromDataURL } from '@/utils/file';
+import { readFileAsDataURL, base64FromDataURL, mimeFromExt, arrayBufferToBase64 } from '@/utils/file';
+import { isRemoteMode, loadConnection } from '@/lib/connection';
 
 export interface AttachedImage {
   /** 本地唯一 ID（用于 React key + 删除定位） */
@@ -52,8 +53,7 @@ export function useImageAttachments(options?: {
   /** 正在上传的文件名集合（防止重复上传） */
   const uploadingFiles = useRef<Set<string>>(new Set());
 
-  const addImage = useCallback(async (file: File): Promise<AttachedImage | null> => {
-    // 1. 客户端预检：MIME 类型
+  const addImage = useCallback(async (file: File): Promise<AttachedImage | null> => {    // 1. 客户端预检：MIME 类型
     if (!file.type.startsWith(ACCEPTED_MIME_PREFIX)) {
       setError(`不支持的文件类型: ${file.type}（仅支持图片）`);
       return null;
@@ -108,6 +108,62 @@ export function useImageAttachments(options?: {
       setUploading((n) => Math.max(0, n - 1));
     }
   }, [attachedImages.length]);
+
+  /** 从本地路径附加图片（Tauri 原生对话框场景）— 对齐 Hermes attachImagePath：
+   * 本地模式 → image.attach 路径引用快路径（后端直接读原文件，零拷贝）；
+   * remote 模式 → 读文件字节 attach_bytes 上传（后端读不到客户端路径）。
+   */
+  const addImageFromPath = useCallback(async (path: string): Promise<AttachedImage | null> => {
+    let dataUrl: string
+    let fileSize = 0
+    try {
+      // 读文件字节 → data URL（预览用；Tauri 环境 plugin-fs，浏览器模式不可达）
+      const { readFile } = await import('@tauri-apps/plugin-fs');
+      const bytes = await readFile(path);
+      fileSize = bytes.byteLength;
+      if (fileSize > MAX_IMAGE_SIZE) {
+        setError(`图片过大: ${(fileSize / 1024 / 1024).toFixed(1)}MB（上限 25MB）`);
+        return null;
+      }
+      const mime = mimeFromExt(path) ?? 'image/png';
+      const b64 = arrayBufferToBase64(bytes);
+      dataUrl = `data:${mime};base64,${b64}`;
+    } catch (err) {
+      setError(`读取图片失败: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+
+    const name = path.split(/[\\/]/).pop() || 'image';
+    try {
+      const wsClient = getWsClient();
+      const sessionId = getSessionIdRef.current?.() ?? undefined;
+      let result: ImageAttachResponse;
+      if (isRemoteMode(loadConnection())) {
+        // remote：后端看不到客户端路径 → 字节上传（Hermes readImageForRemoteAttach 语义）
+        result = await wsClient.imageAttachBytes(base64FromDataURL(dataUrl), name, sessionId);
+      } else {
+        // 本地快路径：路径引用，后端直接读原文件（Hermes image.attach 语义）
+        result = await wsClient.imageAttach(path, sessionId);
+      }
+      if (!result.attached || !result.path) {
+        setError((result as unknown as { error?: string }).error || '后端未确认附件');
+        return null;
+      }
+      const newImage: AttachedImage = {
+        id: crypto.randomUUID(),
+        path: result.path,
+        name,
+        preview: dataUrl,
+        size: result.bytes ?? fileSize,
+        uploaded: true,
+      };
+      setAttachedImages((prev) => [...prev, newImage]);
+      return newImage;
+    } catch (err) {
+      setError(`图片上传失败: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+  }, []);
 
   const removeImage = useCallback(async (id: string): Promise<void> => {
     const image = attachedImages.find((img) => img.id === id);
@@ -195,6 +251,7 @@ export function useImageAttachments(options?: {
     uploading,
     error,
     addImage,
+    addImageFromPath,
     removeImage,
     clearImages,
     clearError,

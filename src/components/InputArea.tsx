@@ -16,6 +16,8 @@ import { cn } from '@/lib/utils';
 import type { AttachedImage } from '@/hooks/useImageAttachments';
 import { useVoice } from '@/hooks/useVoice';
 import { getWsClient } from '@/services/ws-client';
+import { mimeFromExt, arrayBufferToBase64 } from '@/utils/file';
+import { isRemoteMode, loadConnection } from '@/lib/connection';
 import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
 import { useQueue, updateEntry, type QueuedMessage } from '@/lib/message-queue';
 import { onComposerInsertRequest, LINE_REF_MIME, fileLineRef } from '@/lib/composer-events';
@@ -36,6 +38,8 @@ interface InputAreaProps {
   imageError?: string | null;
   /** 添加图片（粘贴/拖拽/选择时调用） */
   onAddImage?: (file: File) => Promise<void>;
+  /** 添加图片（Tauri 本地路径，image.attach 快路径 / remote attach_bytes） */
+  onAddImageFromPath?: (path: string) => Promise<void>;
   /** 移除图片（点击删除按钮时调用） */
   onRemoveImage?: (id: string) => Promise<void>;
   /** 清除错误信息 */
@@ -84,6 +88,7 @@ function InputArea({
   imageUploading,
   imageError,
   onAddImage,
+  onAddImageFromPath,
   onRemoveImage,
   onClearImageError,
   queueProfile,
@@ -337,6 +342,48 @@ function InputArea({
   // 原生对话框选中的文件/文件夹路径 — 插入输入框（对齐 Hermes 附件路径入输入区语义）
   const handleAddPaths = useCallback((paths: string[]) => {
     insertTextAtCursor(paths.join(' ') + ' ');
+  }, [insertTextAtCursor]);
+
+  // Tauri 对话框图片路径 → 逐个走快路径（本地 image.attach / remote attach_bytes）
+  const handlePickImagePaths = useCallback(async (paths: string[]) => {
+    if (!onAddImageFromPath) return;
+    for (const p of paths) {
+      try {
+        await onAddImageFromPath(p);
+      } catch (err) {
+        console.error('[InputArea] Add image from path failed:', err);
+      }
+    }
+  }, [onAddImageFromPath]);
+
+  // 文件附件 → file.attach staging（对齐 Hermes uploadComposerAttachment 文件分支）：
+  // 本地模式传 path（后端三 case：workspace 内直用 / 外复制 / 不存在才要 data_url）；
+  // remote 模式读文件字节 data_url 上传（后端看不到客户端路径）；ref_text 注入输入框。
+  const handleAttachFiles = useCallback(async (paths: string[]) => {
+    for (const path of paths) {
+      try {
+        const conn = loadConnection();
+        const remote = isRemoteMode(conn);
+        const ws = getWsClient();
+        const name = path.split(/[\\/]/).pop() || 'attachment';
+        let result;
+        if (remote) {
+          const { readFile } = await import('@tauri-apps/plugin-fs');
+          const bytes = await readFile(path);
+          const mime = mimeFromExt(path) ?? 'application/octet-stream';
+          result = await ws.fileAttach({ path, data_url: `data:${mime};base64,${arrayBufferToBase64(bytes)}`, name });
+        } else {
+          result = await ws.fileAttach({ path, name });
+        }
+        if (result.attached && result.ref_text) {
+          insertTextAtCursor(result.ref_text + ' ');
+        } else {
+          console.warn('[InputArea] file attach failed:', path);
+        }
+      } catch (err) {
+        console.warn('[InputArea] file attach error:', err);
+      }
+    }
   }, [insertTextAtCursor]);
 
   // ── 预览控制台“发送到输入区”（对齐 Hermes focus.ts 总线：外部面板 → composer）──
@@ -647,7 +694,7 @@ function InputArea({
           <div className="flex items-center gap-(--composer-control-gap)">
             <CommandMenu commands={slash.commands} onCommand={handleCommandExec} />
             {/* 附件 "+" 菜单 — Hermes 式附件入口（图片接通后端、链接纯前端、文件/文件夹接通 Tauri 原生对话框） */}
-            {onAddImage && <AttachMenu onPickImage={handleFileSelect} onAddUrl={handleAddUrl} onAddPaths={handleAddPaths} />}
+            {onAddImage && <AttachMenu onPickImage={handleFileSelect} onPickImagePaths={handlePickImagePaths} onAttachFiles={handleAttachFiles} onAddUrl={handleAddUrl} onAddPaths={handleAddPaths} />}
             {/* 麦克风 — P4 解禁：后端 voice.record 已真实接线（VAD 录音 + 静音自动停止 + 转录回推） */}
             <button
               type="button"
