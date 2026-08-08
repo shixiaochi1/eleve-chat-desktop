@@ -38,13 +38,6 @@ const MAX_IMAGES = 10;
 /** 支持的图片 MIME 类型 */
 const ACCEPTED_MIME_PREFIX = 'image/';
 
-export class ImageAttachError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ImageAttachError';
-  }
-}
-
 export function useImageAttachments(options?: {
   /** per-agent 场景：返回当前目标 session_id（空则走全局 this.sessionId） */
   getSessionId?: () => string | null | undefined;
