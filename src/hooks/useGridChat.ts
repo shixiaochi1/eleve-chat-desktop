@@ -531,6 +531,12 @@ export function useGridChat(active: boolean): {
           acc.serverContent = (payload.content as string) || '';
           // 🔴 P2-D: 复用 finalizeAccumulator（与单视图同一 parts 组装逻辑）
           const finalParts = finalizeAccumulator(acc);
+          // 🔴 P2-2 自审（2026-08-09）：interim 密封置 sawStepComplete=true → 上面的
+          // serverContent 兜底被禁（P1-8 防 step 边界后整轮兜底重复）→ 此处 finalParts
+          // 可能为空（interim 把 delta 全密封走了）。此时后端权威终稿在
+          // payload.content（对齐 Hermes finalText = coerceGatewayText(payload.text)），
+          // 必须显式兜底，否则 settle/append 判断全失效 → 终稿静默丢失。
+          const serverText = ((payload.content as string) || '').trim();
           resetAccumulator(acc);
           // 🔴 Phase 4b #5: 后端 message.complete 带 usage（C-3 2026-08-08 对齐 Hermes 内嵌，
           // 原独立 usage.summary 事件已删）——有值才覆盖，避免冲掉 session.info 已写入的 lastUsage
@@ -558,12 +564,20 @@ export function useGridChat(active: boolean): {
             .filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text')
             .map((p) => p.text)
             .join('')
+            // 🔴 P2-2 自审（2026-08-09）：interim 密封后 finalParts 可能为空——
+            // 用后端权威终稿兜底（Hermes finalText = payload text 语义）。
+            || serverText
           const completionError = failure?.error ?? completionErrorText(finalText)
           const keepFailedPartialText = Boolean(failure?.partial && finalText)
           const effectiveParts =
             completionError && !keepFailedPartialText
               ? finalParts.filter((p) => p.type !== 'text')
               : finalParts;
+          // 🔴 P2-2 自审（2026-08-09）：settle 场景必须优先 serverText（后端权威完整终稿）——
+          // interim 密封后 acc 已重置（30fps 镜像防重复），finalParts 只剩 interim 后的
+          // 部分 delta，用它 settle 会丢 interim 前的内容。Hermes 同：settle 文本来自
+          // payload text（完整终稿），不是累加器拼接。append 场景保持 finalParts
+          //（含 runtime footer，后端 content 不含，覆盖会丢 footer）。
           // 🔴 P2-2（Coder 复审 2026-08-09）：complete settle（对齐 Hermes
           // index.ts:559-567 双 settle 分支）——interim 密封气泡若 final 文本延续
           // （finalContinuesInterim 共享谓词）→ 原地替换文本去 interim 标记，
@@ -571,9 +585,22 @@ export function useGridChat(active: boolean): {
           //（interim 是独立过程文本，终稿是新气泡——Hermes 同）。
           // 判断在 patch updater 内（用权威 s.messages）：interim→complete 同 tick
           // 时 statesRef 还是 render 镜像，读它会漏掉刚密封的气泡（竞态）。
+          // 🔴 P2-2 自审（2026-08-09）：settle 判定与 parts 用 serverText 优先
+          //（interim 密封后 acc 重置，finalParts 只剩 interim 后部分 delta，非完整
+          // 终稿；后端 payload.content 是权威完整终稿——Hermes finalText 同源）。
+          const settleFinalText = serverText || finalText
+          // 🔴 自审（2026-08-09）：settleParts 必须尊重 completionError 语义——
+          // 非 partial 错误剥文本只显错误（对齐 effectiveParts 同款逻辑），
+          // 错误文本不得经 serverText 上屏。正常场景 serverText 是权威完整终稿。
+          const settleParts = completionError && !keepFailedPartialText
+            ? (effectiveParts.length ? effectiveParts : null)
+            : serverText
+              ? [textPart(serverText)]
+              : (effectiveParts.length ? effectiveParts : null)
           patch(profile, (s) => {
             const lastVisible = [...s.messages].reverse().find(m => !m.hidden)
-            const settleId = lastVisible?.role === 'assistant' && lastVisible.interim && finalText && finalContinuesInterim(lastVisible, finalText)
+            const hasInterimTail = lastVisible?.role === 'assistant' && lastVisible.interim === true
+            const settleId = hasInterimTail && settleFinalText && finalContinuesInterim(lastVisible, settleFinalText)
               ? lastVisible.id
               : null
             if (settleId) {
@@ -582,15 +609,27 @@ export function useGridChat(active: boolean): {
                 ...s,
                 messages: s.messages.map(m =>
                   m.id === settleId
-                    ? { ...m, parts: effectiveParts.length ? effectiveParts : m.parts, interim: false, pending: false, ...(completionError ? { error: completionError } : {}) }
+                    ? { ...m, parts: settleParts ?? m.parts, interim: false, pending: false, ...(completionError ? { error: completionError } : {}) }
                     : m
                 ).slice(-WINDOW_MAX),
                 status: 'idle', streamParts: [], activityHint: '', lastUsage: usageData ?? s.lastUsage, lastActivity: Date.now(),
               };
             }
-            const msgs = effectiveParts.length || completionError
-              ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: effectiveParts, timestamp: Date.now(), ...(completionError ? { error: completionError } : {}) }]
-              : s.messages;
+            // 🔴 P2-2 自审（2026-08-09）：append 分支三态：
+            // ① 正常流式（无 interim 尾部）：append finalParts（含 runtime footer，
+            //    后端 content 不含，覆盖会丢 footer）——旧行为不变；
+            // ② interim 尾部未 settle（interim 是独立过程文本，终稿是新气泡，Hermes 同）：
+            //    append 完整终稿 serverText 优先（权威终稿，interim 后 delta 只是部分），
+            //    effectiveParts 兜底；
+            // ③ step.complete 后无 delta（无 interim）：不 append（P1-8 防线——
+            //    serverContent 整轮兜底会与 step 气泡重复前文，保持旧行为）。
+            const msgs = hasInterimTail
+              ? ((settleParts ?? effectiveParts)?.length || completionError
+                  ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: settleParts ?? effectiveParts, timestamp: Date.now(), ...(completionError ? { error: completionError } : {}) }]
+                  : s.messages)
+              : (effectiveParts.length || completionError
+                  ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: effectiveParts, timestamp: Date.now(), ...(completionError ? { error: completionError } : {}) }]
+                  : s.messages);
             return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamParts: [], activityHint: '', lastUsage: usageData ?? s.lastUsage, lastActivity: Date.now() };
           });
           // 🔴 Phase B: 释放发送锁 + 排队消息自动发送（单一权威终止入口）
@@ -761,20 +800,26 @@ export function useGridChat(active: boolean): {
           //（interim 标记），后续 delta 新气泡；再补未上屏的独立 interim 消息。
           // 旧实现只做 alreadyStreamed 守卫 + 独立 append（无密封、无标记），
           // complete 时无条件 append 终稿 → interim 内容与终稿双气泡（形态分叉）。
-          // ① 密封当前累加器内容为独立气泡（对齐 Hermes :433-438 原地密封语义）
+          // ① 密封当前累加器内容为独立气泡（对齐 Hermes :433-438 原地密封语义）。
+          // 🔴 自审（2026-08-09）：密封后必须 resetAccumulatorForStep（sawStepComplete=true）——
+          // ① 30fps flush 把 acc.parts 镜像到 streamParts，不 reset 会把已密封内容重新
+          // 镜像上屏（重复显示）；② sawStepComplete 禁 serverContent 整轮兜底（P1-8 防
+          // 步骤边界后兜底重复前文）。complete 的终稿由 serverText 显式兜底（下方）。
           const interimParts = finalizeAccumulator(acc);
           resetAccumulatorForStep(acc);
           if (interimParts.length) {
+            // ① 密封分支：累加器有内容 → 密封为 interim 气泡（对齐 Hermes streamId
+            //    exists 分支 index.ts:495-504）
             patch(profile, (s) => ({
               ...s,
               messages: [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: interimParts, interim: true, timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
               streamParts: [],
               lastActivity: Date.now(),
             }));
-          }
-          // ② 未上屏内容 → 独立 interim 消息（对齐 Hermes :439-451 无流式气泡时
-          //    独立消息语义；密封分支已上屏则跳过）
-          if (imContent && !(payload.already_streamed as boolean)) {
+          } else if (imContent && !(payload.already_streamed as boolean)) {
+            // ② 无流式内容 → 独立 interim 消息（对齐 Hermes no streamId 分支
+            //    index.ts:505-514）。与密封分支互斥（Hermes if/else 同构），
+            //    防同轮双气泡。
             patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'assistant', parts: [textPart(imContent)], interim: true, timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
           }
           break;
