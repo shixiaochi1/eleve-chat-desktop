@@ -134,6 +134,7 @@ export function useImageAttachments(options?: {
     }
 
     const name = path.split(/[\\/]/).pop() || 'image';
+    setUploading((n) => n + 1);
     try {
       const wsClient = getWsClient();
       const sessionId = getSessionIdRef.current?.() ?? undefined;
@@ -162,6 +163,8 @@ export function useImageAttachments(options?: {
     } catch (err) {
       setError(`图片上传失败: ${err instanceof Error ? err.message : String(err)}`);
       return null;
+    } finally {
+      setUploading((n) => Math.max(0, n - 1));
     }
   }, []);
 

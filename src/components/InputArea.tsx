@@ -46,6 +46,8 @@ interface InputAreaProps {
   onClearImageError?: () => void;
   /** 队列键控 profile（对齐 Hermes activeQueueSessionKey） */
   queueProfile?: string;
+  /** 当前会话 ID — 附件 RPC 显式传参（禁止 fallback ws-client 全局，profile 切换瞬间全局可能是目标 Agent） */
+  sessionId?: string | null;
   /** 🔴 W-6：会话 cwd（session.info 推送）— 透传给 complete.path 作补全基准目录 */
   sessionCwd?: string;
   /** 立即发送排队条目（对齐 Hermes sendQueuedNow） */
@@ -92,6 +94,7 @@ function InputArea({
   onRemoveImage,
   onClearImageError,
   queueProfile,
+  sessionId,
   sessionCwd,
   onQueueSendNow,
   onQueueDelete,
@@ -371,20 +374,26 @@ function InputArea({
           const { readFile } = await import('@tauri-apps/plugin-fs');
           const bytes = await readFile(path);
           const mime = mimeFromExt(path) ?? 'application/octet-stream';
-          result = await ws.fileAttach({ path, data_url: `data:${mime};base64,${arrayBufferToBase64(bytes)}`, name });
+          result = await ws.fileAttach({ path, data_url: `data:${mime};base64,${arrayBufferToBase64(bytes)}`, name, sessionId: sessionId ?? undefined });
         } else {
-          result = await ws.fileAttach({ path, name });
+          result = await ws.fileAttach({ path, name, sessionId: sessionId ?? undefined });
         }
         if (result.attached && result.ref_text) {
           insertTextAtCursor(result.ref_text + ' ');
         } else {
           console.warn('[InputArea] file attach failed:', path);
+          import('../utils/notifications').then(({ notifyError }) => {
+            notifyError(`文件附件失败: ${name}（后端未确认）`, '附件失败');
+          });
         }
       } catch (err) {
         console.warn('[InputArea] file attach error:', err);
+        import('../utils/notifications').then(({ notifyError }) => {
+          notifyError(`文件附件失败: ${err instanceof Error ? err.message : String(err)}`, '附件失败');
+        });
       }
     }
-  }, [insertTextAtCursor]);
+  }, [insertTextAtCursor, sessionId]);
 
   // ── 预览控制台“发送到输入区”（对齐 Hermes focus.ts 总线：外部面板 → composer）──
   // 订阅 window CustomEvent，复用 insertTextAtCursor（零重复逻辑）；卸载自动取消

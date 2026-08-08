@@ -1427,6 +1427,7 @@ export default function App() {
                 onRemoveImage={handleRemoveImage}
                 onClearImageError={clearImageError}
                 queueProfile={currentProfile}
+                sessionId={sess.sessionId}
                 onQueueSendNow={sendQueueNow}
                 onQueueDelete={deleteQueueEntry}
               />
