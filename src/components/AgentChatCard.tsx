@@ -354,11 +354,24 @@ export const AgentChatCard = memo(function AgentChatCard({
         </div>
       </div>
 
-      {/* ── 消息区 ── */}
+      {/* ── 消息区（🔴 2026-08-08 图片拖入消息区 → 附件预览，对齐 Hermes useFileDropZone）── */}
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 py-2 overscroll-contain"
         onScroll={handleScroll}
+        onDragOver={(e) => {
+          if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          const files = Array.from(e.dataTransfer.files);
+          const imageFiles = files.filter((f) => f.type.startsWith('image/'));
+          if (imageFiles.length === 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          for (const file of imageFiles) {
+            void addImage(file);
+          }
+        }}
       >
         {/* 上翻加载指示 */}
         {state.hasMore && (

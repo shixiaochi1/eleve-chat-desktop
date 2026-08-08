@@ -1322,7 +1322,24 @@ export default function App() {
                 </svg>
               </button>
             )}
-            <main className="chat-area" id="page-chat">
+            <main
+              className="chat-area"
+              id="page-chat"
+              onDragOver={(e) => {
+                // 🔴 2026-08-08 拖拽图片到消息区（对齐 Hermes useFileDropZone）：
+                // 仅图片文件触发（文件树路径/行引用由 InputArea 自行处理，已 stopPropagation）
+                if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
+              }}
+              onDrop={(e) => {
+                const files = Array.from(e.dataTransfer.files);
+                const imageFiles = files.filter((f) => f.type.startsWith('image/'));
+                if (imageFiles.length === 0) return;
+                e.preventDefault();
+                for (const file of imageFiles) {
+                  void handleAddImage(file);
+                }
+              }}
+            >
               <ToolStatusBar sessionId={sess.sessionId} isStreaming={isStreaming} onToggleViewMode={toggleViewMode} />
               {!portReady && messageCount === 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', opacity: 0.6 }}>

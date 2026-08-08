@@ -37,7 +37,35 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
   if (m.parts && m.parts.length > 0) {
     if (m.role === 'user') {
       const text = m.parts.filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text').map(p => p.text).join('')
-      return <div data-message-id={m.id} className="flex justify-end px-4 mb-1.5"><MessageBubble type="user" content={text} timestamp={m.timestamp} messageId={m.id} onDelete={onDelete} /></div>
+      return (
+        <div data-message-id={m.id} className="flex justify-end px-4 mb-1.5">
+          <div className="flex flex-col items-end gap-1 max-w-[80%]">
+            <MessageBubble type="user" content={text} timestamp={m.timestamp} messageId={m.id} onDelete={onDelete} />
+            {/* 🔴 2026-08-08 图片附件缩略图（对齐 Hermes user-message.tsx：
+                attachmentRefs 渲染在气泡下方，-mt-3 mb-2 flex-wrap gap-1；
+                图片 refs = data URL 直接 <img>，其它引用文本降级 chip） */}
+            {m.attachmentRefs && m.attachmentRefs.length > 0 && (
+              <div className="flex flex-wrap justify-end gap-1 -mt-3 mb-2">
+                {m.attachmentRefs.map((ref, i) =>
+                  ref.startsWith('data:') ? (
+                    <img
+                      key={`${m.id}-att-${i}`}
+                      src={ref}
+                      alt="attachment"
+                      className="w-16 h-16 object-cover rounded-md border border-border"
+                      draggable={false}
+                    />
+                  ) : (
+                    <span key={`${m.id}-att-${i}`} className="max-w-[160px] truncate rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {ref}
+                    </span>
+                  ),
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )
     }
 
     if (m.role === 'assistant') {

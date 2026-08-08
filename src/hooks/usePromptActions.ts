@@ -277,8 +277,9 @@ export function usePromptActions({
       if (attachmentDataURLs?.length) {
         stashAttachmentData(entry.id, attachmentDataURLs);
       }
-      // 乐观上屏（对齐 Hermes：排队时已显示用户消息）
-      storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage]);
+      // 乐观上屏（对齐 Hermes：排队时已显示用户消息；图片附件以 data URL 形式
+      // 挂 attachmentRefs，MessageRow 渲染缩略图）
+      storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], attachmentRefs: attachmentDataURLs?.length ? attachmentDataURLs : undefined, timestamp: Date.now() } as ChatMessage]);
       return;
     }
     // busy 纯文本 → fall through 直发（乐观上屏由下方统一路径负责）
@@ -286,7 +287,7 @@ export function usePromptActions({
     // 直接发送（idle 直发 / busy 直发共用；wasBusy 不加锁——锁归属 live turn，
     // 对齐宫格 sendTo：早释放会打开双提交窗口，早持有会让旧 turn 的 complete 误 drain）
     if (!wasBusy) isSendingRef.current = true;
-    storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage]);
+    storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], attachmentRefs: attachmentDataURLs?.length ? attachmentDataURLs : undefined, timestamp: Date.now() } as ChatMessage]);
 
     const wsClient = getWsClient();
     await wsClient.ensureConnected(10000);

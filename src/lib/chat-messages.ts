@@ -59,6 +59,10 @@ export interface ChatMessage {
   pending?: boolean
   error?: string
   hidden?: boolean
+  /** 附件引用（对齐 Hermes submit.ts optimisticAttachmentRef → ChatMessage.attachmentRefs）：
+   *  图片 = data URL（可直接 <img> 渲染缩略图）；文件/路径 = 引用文本。
+   *  乐观消息/历史恢复两条路径共用，MessageRow 渲染在用户气泡下方。 */
+  attachmentRefs?: string[]
 
   // ── Legacy flat fields (kept for backward compatibility during migration) ──
   /** @deprecated Use parts instead */
@@ -442,6 +446,42 @@ export interface SessionMessage {
   display_kind?: string
   /** 展示元数据（对标 Hermes display_metadata，如委派 task_count） */
   display_metadata?: unknown
+  /** 🔴 2026-08-08 发送字节 sidecar（含多模态图片 wire parts）——历史恢复提取图片附件 */
+  api_content?: unknown
+}
+
+/** 从后端 content / api_content 提取图片 data URL / URL（对齐 Hermes history 消息的
+ *  image parts → attachmentRefs）。两种格式都处理：
+ *  ① OpenAI wire 格式：{"type":"image_url","image_url":{"url":...}}
+ *  ② ELEVE 枚举序列化：{"ImageUrl": "..."}
+ *  本地模式后端 native 路由把图片读成 data URL（image_routing.rs file_to_data_url），
+ *  恢复时可直接 <img> 渲染。 */
+export function extractImageUrlsFromContent(content: unknown, max = 8): string[] {
+  if (!Array.isArray(content)) return []
+  const urls: string[] = []
+  for (const item of content) {
+    if (urls.length >= max) break
+    if (!item || typeof item !== 'object') continue
+    const row = item as Record<string, unknown>
+    // ① OpenAI wire image part
+    if (row.type === 'image_url') {
+      const img = row.image_url as Record<string, unknown> | undefined
+      if (typeof img?.url === 'string' && img.url) urls.push(img.url)
+    } else if (row.type === 'input_image') {
+      const url = row.image_url ?? row.url
+      if (typeof url === 'string' && url) urls.push(url)
+    } else {
+      // ② ELEVE ContentPart 枚举序列化（externally tagged）：{"ImageUrl": "..."}
+      const imgUrl = row.ImageUrl
+      if (typeof imgUrl === 'string' && imgUrl) urls.push(imgUrl)
+      // 嵌套 wire 形状兜底：{"ImageUrl": {"url": ...}}
+      if (imgUrl && typeof imgUrl === 'object') {
+        const u = (imgUrl as Record<string, unknown>).url
+        if (typeof u === 'string' && u) urls.push(u)
+      }
+    }
+  }
+  return urls
 }
 
 function textFromUnknown(value: unknown, depth = 0): string {
@@ -451,6 +491,8 @@ function textFromUnknown(value: unknown, depth = 0): string {
   if (Array.isArray(value)) return value.map((item) => textFromUnknown(item, depth + 1)).join('')
   if (typeof value === 'object') {
     const row = value as Record<string, unknown>
+    // 图片 part 不是文本——跳过（防止 JSON 噪音拼进用户气泡正文）
+    if (row.type === 'image_url' || row.type === 'input_image' || 'ImageUrl' in row) return ''
     const textValue = row.text ?? row.output_text ?? row.content ?? row.message
     const nestedText = textFromUnknown(textValue, depth + 1)
     if (nestedText) return nestedText
@@ -711,6 +753,18 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
       message.display_kind,
       timelineDisplayContent(message, displayContentForMessage(message.role, content)),
     )
+    // 🔴 2026-08-08 图片附件恢复：user 消息的多模态图片提取为 attachmentRefs
+    // （对齐 Hermes history → attachmentRefs 渲染缩略图）。来源：
+    //  ① content 列（ELEVE 枚举格式数组，如有）
+    //  ② api_content sidecar（OpenAI wire 格式，含完整 image_url data URL——
+    //     content 列仅存 msg.text() 纯文本，图片只保留在 sidecar）
+    const imageRefs =
+      message.role === 'user'
+        ? [
+            ...extractImageUrlsFromContent(content),
+            ...extractImageUrlsFromContent(message.api_content),
+          ].slice(0, 8)
+        : []
     const parts: ChatMessagePart[] = []
 
     const reasoning =
@@ -730,7 +784,7 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
       parts.push(...message.tool_calls.map((call, callIndex) => toolPartFromStoredCall(call, callIndex)))
     }
 
-    if (!parts.length) {
+    if (!parts.length && !(displayRole === 'user' && imageRefs.length > 0)) {
       if (displayRole !== 'assistant') {
         flushPendingTools(index)
         activeAssistantIndex = null
@@ -781,6 +835,8 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
       role: displayRole,
       parts,
       timestamp: message.timestamp ?? Date.now(),
+      // 用户消息带图片附件（对齐 Hermes attachmentRefs）
+      ...(displayRole === 'user' && imageRefs.length > 0 ? { attachmentRefs: imageRefs } : {}),
     })
 
     activeAssistantIndex = displayRole === 'assistant' ? result.length - 1 : null
@@ -792,7 +848,8 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
     result.filter(
       (m) =>
         m.parts.some((part) => part.type === 'text' && part.text.trim()) ||
-        m.parts.some((part) => part.type !== 'text'),
+        m.parts.some((part) => part.type !== 'text') ||
+        (m.attachmentRefs?.length ?? 0) > 0,
     ),
   )
 }

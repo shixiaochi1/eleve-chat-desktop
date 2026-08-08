@@ -220,7 +220,7 @@ export function useGridChat(active: boolean): {
         if (opts.attachmentDataURLs?.length) stashAttachmentData(entry.id, opts.attachmentDataURLs);
         patch(profile, (st) => ({
           ...st,
-          messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
+          messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(text)], attachmentRefs: opts.attachmentDataURLs?.length ? opts.attachmentDataURLs : undefined, timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
         }));
         return;
       }
@@ -248,6 +248,8 @@ export function useGridChat(active: boolean): {
     if (!fromDrain) {
       const userMsg: ChatMessage = {
         id: gridMsgId(), role: 'user', parts: [textPart(text)], timestamp: Date.now(),
+        // 图片附件 data URL → 缩略图（对齐 Hermes attachmentRefs）
+        ...(opts?.attachmentDataURLs?.length ? { attachmentRefs: opts.attachmentDataURLs } : {}),
       };
       patch(profile, (st) => ({
         ...st,

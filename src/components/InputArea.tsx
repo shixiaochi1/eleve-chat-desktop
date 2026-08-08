@@ -365,6 +365,7 @@ function InputArea({
     // 行级引用拖拽（源码视图 gutter 拖出；对齐 Hermes HERMES_PATHS_MIME → composer ref）
     if (Array.from(e.dataTransfer.types).includes(LINE_REF_MIME)) {
       e.preventDefault();
+      e.stopPropagation();
       try {
         const parsed = JSON.parse(e.dataTransfer.getData(LINE_REF_MIME)) as {
           path?: string;
@@ -382,6 +383,7 @@ function InputArea({
       const paths = collectDroppedPaths(e.dataTransfer);
       if (paths.length > 0) {
         e.preventDefault();
+        e.stopPropagation();
         insertTextAtCursor(paths.map((p) => `@file:"${p}"`).join(' ') + ' ');
       }
       return;
@@ -391,6 +393,9 @@ function InputArea({
     const imageFiles = files.filter(f => f.type.startsWith('image/'));
     if (imageFiles.length === 0) return;
     e.preventDefault();
+    // 🔴 2026-08-08 阻止冒泡：chat-area 层也有图片 drop 处理（消息区拖入），
+    // 不 stop 会导致图片双份附加
+    e.stopPropagation();
     for (const file of imageFiles) {
       try {
         await onAddImage(file);
@@ -500,7 +505,58 @@ function InputArea({
         />
       )}
 
-      {/* Hermes 式容器表面 — 图片预览/输入区在上，控制行在下 */}
+      {/* 🔴 2026-08-08 图片附件预览条——消息区左下角（输入框容器之外）：
+          老大要求缩略图显示在消息区左下角而不是输入框里面；
+          对齐 Hermes AttachmentList（composer 上方独立附件条）。 */}
+      {attachedImages && attachedImages.length > 0 && (
+        <div className="flex gap-2 pt-1 pb-2 flex-wrap items-start">
+          {attachedImages.map(img => (
+            <div key={img.id} className="relative group">
+              <img
+                src={img.preview}
+                alt={img.name}
+                className="w-16 h-16 object-cover rounded-md border border-border"
+                draggable={false}
+              />
+              <button
+                onClick={() => onRemoveImage?.(img.id)}
+                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive text-primary-foreground rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/90"
+                title="移除图片"
+                aria-label={`Remove ${img.name}`}
+              >
+                ✕
+              </button>
+              <div className="text-xs text-muted-foreground truncate mt-1 max-w-[64px]" title={img.name}>
+                {img.name}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 图片上传错误提示 */}
+      {imageError && (
+        <div className="flex items-center gap-2 mt-1 mb-2 px-3 py-1.5 rounded-md bg-destructive/10 border border-destructive/30 text-destructive text-xs">
+          <span className="flex-1 truncate">{imageError}</span>
+          <button
+            onClick={onClearImageError}
+            className="shrink-0 hover:opacity-70"
+            aria-label="Dismiss error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* 上传中指示器 */}
+      {(imageUploading ?? 0) > 0 && (
+        <div className="mt-1 mb-2 text-xs text-muted-foreground flex items-center gap-1.5">
+          <span className="inline-block w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          上传图片中… ({imageUploading})
+        </div>
+      )}
+
+      {/* Hermes 式容器表面 — 输入区在上，控制行在下 */}
       <div className="composer-surface relative rounded-2xl border">
         {/* `/` 命令补全弹窗 — 共享 SlashCommandPopup，锚定在容器表面上方 */}
         <div ref={popupRef}>
@@ -554,55 +610,6 @@ function InputArea({
         )}
 
         <div className="flex flex-col gap-(--composer-row-gap) px-(--composer-surface-pad-x) py-(--composer-surface-pad-y)">
-          {/* 图片预览区 — 已附加的图片缩略图 + 删除按钮 */}
-          {attachedImages && attachedImages.length > 0 && (
-            <div className="flex gap-2 pt-1 flex-wrap items-start">
-              {attachedImages.map(img => (
-                <div key={img.id} className="relative group">
-                  <img
-                    src={img.preview}
-                    alt={img.name}
-                    className="w-16 h-16 object-cover rounded-md border border-border"
-                    draggable={false}
-                  />
-                  <button
-                    onClick={() => onRemoveImage?.(img.id)}
-                    className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive text-primary-foreground rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/90"
-                    title="移除图片"
-                    aria-label={`Remove ${img.name}`}
-                  >
-                    ✕
-                  </button>
-                  <div className="text-xs text-muted-foreground truncate mt-1 max-w-[64px]" title={img.name}>
-                    {img.name}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* 图片上传错误提示 */}
-          {imageError && (
-            <div className="flex items-center gap-2 mt-1 px-3 py-1.5 rounded-md bg-destructive/10 border border-destructive/30 text-destructive text-xs">
-              <span className="flex-1 truncate">{imageError}</span>
-              <button
-                onClick={onClearImageError}
-                className="shrink-0 hover:opacity-70"
-                aria-label="Dismiss error"
-              >
-                ✕
-              </button>
-            </div>
-          )}
-
-          {/* 上传中指示器 */}
-          {(imageUploading ?? 0) > 0 && (
-            <div className="mt-1 text-xs text-muted-foreground flex items-center gap-1.5">
-              <span className="inline-block w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              上传图片中… ({imageUploading})
-            </div>
-          )}
-
           {/* 语音活动状态条 — 录音/转录时显示（对齐 Hermes VoiceActivity） */}
           {voice.status !== 'idle' && (
             <VoiceActivityBar
