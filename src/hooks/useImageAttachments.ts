@@ -101,7 +101,7 @@ export function useImageAttachments(options?: {
       return staged;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(`图片上传失败: ${msg}`);
+      setError(`图片读取失败: ${msg}`);
       return null;
     } finally {
       uploadingFiles.current.delete(fileKey);
@@ -116,15 +116,22 @@ export function useImageAttachments(options?: {
   const addImageFromPath = useCallback(async (path: string): Promise<AttachedImage | null> => {
     let dataUrl: string
     let fileSize = 0
+    // 数量限制（与 addImage 的 MAX_IMAGES 同款内存保护）
+    if (attachedImages.length >= MAX_IMAGES) {
+      setError(`最多附加 ${MAX_IMAGES} 张图片`);
+      return null;
+    }
     try {
-      // 读文件字节 → data URL（预览用；Tauri 环境 plugin-fs，浏览器模式不可达）
-      const { readFile } = await import('@tauri-apps/plugin-fs');
-      const bytes = await readFile(path);
-      fileSize = bytes.byteLength;
+      // 先 stat 后读：25MB+ 文件不读字节直接拒绝（对齐后端上限；防止大文件先爆内存）
+      const { readFile, stat } = await import('@tauri-apps/plugin-fs');
+      const info = await stat(path);
+      fileSize = Number(info.size ?? 0);
       if (fileSize > MAX_IMAGE_SIZE) {
         setError(`图片过大: ${(fileSize / 1024 / 1024).toFixed(1)}MB（上限 25MB）`);
         return null;
       }
+      // 读文件字节 → data URL（预览用；Tauri 环境 plugin-fs，浏览器模式不可达）
+      const bytes = await readFile(path);
       const mime = mimeFromExt(path) ?? 'image/png';
       const b64 = arrayBufferToBase64(bytes);
       dataUrl = `data:${mime};base64,${b64}`;
@@ -166,7 +173,7 @@ export function useImageAttachments(options?: {
     } finally {
       setUploading((n) => Math.max(0, n - 1));
     }
-  }, []);
+  }, [attachedImages.length]);
 
   const removeImage = useCallback(async (id: string): Promise<void> => {
     const image = attachedImages.find((img) => img.id === id);
