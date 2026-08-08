@@ -2,6 +2,7 @@ import { useRef, useCallback, type MutableRefObject } from 'react';
 import * as storage from '../utils/storage';
 import { persistSessionPointer } from '../utils/session';
 import { setMessages as storeSetMessages, getMessages, getIsStreaming } from '../store/messages';
+import { useSessionStatus } from '../store/session-status';
 import { setMonitor } from '../store/debug';
 import { textPart } from '@/lib/chat-messages'
 import { getWsClient } from '../services/ws-client';
@@ -67,6 +68,10 @@ export function usePromptActions({
 } {
   const isSendingRef = useRef(false);
   const drainQueueRef = useRef<(() => void) | null>(null);
+  // 压缩中状态（对齐 Hermes composer compacting：压缩中 busy 输入排队不打断，
+  // canSteer=false → busyAction=queue）。store/session-status 是既有权威源，
+  // 不新建平行状态。
+  const compacting = useSessionStatus(sess.sessionId ?? '').compacting;
 
   // ── drain：per-entry 失败计数 + 附件附着（对齐 Hermes runDrain + autoDrainNext）──
   const drainQueue = useCallback(async () => {
@@ -280,6 +285,18 @@ export function usePromptActions({
       // 乐观上屏（对齐 Hermes：排队时已显示用户消息；图片附件以 data URL 形式
       // 挂 attachmentRefs，MessageRow 渲染缩略图）
       storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], attachmentRefs: attachmentDataURLs?.length ? attachmentDataURLs : undefined, timestamp: Date.now() } as ChatMessage]);
+      return;
+    }
+    // 压缩中 busy 纯文本也排队（对齐 Hermes use-composer-submit：busy && compacting
+    // → queue，不 steer/interrupt 打断压缩）；非压缩中 busy 纯文本直发后端由
+    // route_busy_submit 三模式决策
+    if (wasBusy && compacting) {
+      const modelOpts = currentModel ? { model: currentModel, provider: currentProvider } : undefined;
+      const entry = enqueue(currentProfile, { text, modelOpts });
+      if (attachmentDataURLs?.length) {
+        stashAttachmentData(entry.id, attachmentDataURLs);
+      }
+      storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage]);
       return;
     }
     // busy 纯文本 → fall through 直发（乐观上屏由下方统一路径负责）

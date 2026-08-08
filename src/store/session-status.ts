@@ -34,10 +34,13 @@ export interface SessionLiveState {
   stalled: boolean;
   /** 有 running 的后台进程（Hermes $backgroundRunningSessionIds 等价） */
   background: boolean;
+  /** 压缩中（Hermes $compactingSessions 等价）：status.update kind=compacting/compacted 驱动，
+   *  恢复信号（首个模型输出/工具事件）提前退役（对齐 Hermes compactedTurnRef + COMPACTION_RESUME_EVENT_TYPES） */
+  compacting: boolean;
   lastActive: number;
 }
 
-const IDLE_STATE: SessionLiveState = { running: false, needsInput: false, unread: false, stalled: false, background: false, lastActive: 0 };
+const IDLE_STATE: SessionLiveState = { running: false, needsInput: false, unread: false, stalled: false, background: false, compacting: false, lastActive: 0 };
 
 /** 对齐 Hermes SESSION_WATCHDOG_TIMEOUT_MS = 8min：权威 running 但流活动静默即 stalled */
 export const SESSION_WATCHDOG_TIMEOUT_MS = 8 * 60 * 1000;
@@ -87,6 +90,7 @@ function patch(sessionId: string, p: Partial<SessionLiveState>): void {
     prev.unread === next.unread &&
     prev.stalled === next.stalled &&
     prev.background === next.background &&
+    prev.compacting === next.compacting &&
     prev.lastActive === next.lastActive
   ) {
     return;
@@ -126,7 +130,23 @@ getWsClient().addEventListener((eventName: string, data: unknown) => {
       }
       break;
     }
+    // ── 压缩生命周期（对齐 Hermes gateway-event.ts L1076-1081）：
+    //    kind=compacting → 压缩中；kind=compacted → 压缩完成。
+    //    Hermes 用 compactedTurnRef 记录开始态，恢复信号命中即提前退役；
+    //    ELEVE 的 compacting 标志本身即"本次压缩中"，恢复信号分支直接清。 ──
+    case 'status.update': {
+      const kind = payload.kind as string | undefined;
+      if (kind === 'compacting') {
+        patch(sid, { compacting: true, lastActive: Date.now() });
+      } else if (kind === 'compacted') {
+        patch(sid, { compacting: false, lastActive: Date.now() });
+      }
+      break;
+    }
     // ── 流活动证据：任何 delta/工具事件 = 会话正在工作（即时反馈，不等心跳） ──
+    // 恢复信号（对齐 Hermes COMPACTION_RESUME_EVENT_TYPES）：压缩中收到首个
+    // 模型输出/工具事件 = 摘要完成、turn 已恢复 → 提前退役压缩态（不依赖
+    // compacted 事件——Hermes 同语义：mid-turn 压缩不重发 message.start）
     case 'message.start':
     case 'message.delta':
     case 'reasoning.available':
@@ -137,7 +157,7 @@ getWsClient().addEventListener((eventName: string, data: unknown) => {
     case 'tool.progress':
     case 'tool.failed':
     case 'step.complete': {
-      patch(sid, { running: true, stalled: false, lastActive: Date.now() });
+      patch(sid, { running: true, stalled: false, compacting: false, lastActive: Date.now() });
       armWatchdog(sid);
       break;
     }
@@ -150,6 +170,7 @@ getWsClient().addEventListener((eventName: string, data: unknown) => {
         running: false,
         needsInput: false,
         stalled: false,
+        compacting: false, // 对齐 Hermes message.complete/error 清 compactedTurnRef（L544/L1158）
         unread: wasRunning && sid !== activeSessionId() ? true : (states[sid] ?? IDLE_STATE).unread,
         lastActive: Date.now(),
       });
@@ -217,6 +238,14 @@ export function markSessionRead(sessionId: string): void {
 }
 
 // ── 订阅 hook ──
+
+/**
+ * 同步读取单个会话的实时状态（非 hook 版，供事件回调/useCallback 内使用，
+ * 对齐 Hermes getter 语义）。未收录会话返回 IDLE。
+ */
+export function getSessionStatus(sessionId: string): SessionLiveState {
+  return states[sessionId] ?? IDLE_STATE;
+}
 
 /**
  * 订阅单个会话的实时状态。快照引用稳定（无变化不重渲染，

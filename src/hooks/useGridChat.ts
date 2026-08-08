@@ -53,6 +53,7 @@ import { handleGlobalEvent } from '@/lib/global-events';
 import { burstVibeHearts } from '@/lib/vibe-hearts';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
 import { enqueue as queueEnqueue, dequeue as queueDequeue, peek as queuePeek, clearQueue, getQueueLength, getQueue, removeEntry, promoteEntry, MAX_DRAIN_ATTEMPTS, getDrainFailures, incrementDrainFailures, clearDrainFailures, resetAllDrainFailures, stashAttachmentData, takeAttachmentData, type QueuedAttachment } from '@/lib/message-queue';
+import { getSessionStatus } from '@/store/session-status';
 import type { ChatMessage } from '@/types';
 
 const WINDOW_MAX = 100;   // 每 Agent 内存最多保留消息数（超出 evict 头部）
@@ -221,6 +222,18 @@ export function useGridChat(active: boolean): {
         patch(profile, (st) => ({
           ...st,
           messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(text)], attachmentRefs: opts.attachmentDataURLs?.length ? opts.attachmentDataURLs : undefined, timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
+        }));
+        return;
+      }
+      // 压缩中纯文本也排队（对齐 Hermes use-composer-submit：busy && compacting
+      // → queue，不 steer/interrupt 打断压缩）；非压缩中纯文本 fall through 直发
+      const sid = statesRef.current[profile]?.sessionId;
+      if (sid && getSessionStatus(sid).compacting) {
+        const entry = queueEnqueue(profile, { text, modelOpts });
+        if (opts?.attachmentDataURLs?.length) stashAttachmentData(entry.id, opts.attachmentDataURLs);
+        patch(profile, (st) => ({
+          ...st,
+          messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
         }));
         return;
       }
@@ -621,9 +634,15 @@ export function useGridChat(active: boolean): {
               }));
               persistSessionPointer(newSid);
             }
-          } else if ((suKind === 'goal' || suKind === 'compressing') && suText) {
+          } else if ((suKind === 'goal' || suKind === 'compacting') && suText) {
             // 目标状态 / 压缩进度 → 系统消息 + 活动提示
+            // kind 对齐 Hermes gateway-event.ts L1076：后端压缩开始发 compacting
+            //（旧分支名 'compressing' 是 Hermes 手动压缩 RPC 的开始 kind）
             patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(suText)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), activityHint: suText, lastActivity: Date.now() }));
+          } else if (suKind === 'compacted') {
+            // 压缩完成（对齐 Hermes gateway-event.ts L1079-1081）：退役压缩态。
+            // 压缩态由 store/session-status 统一管理，这里仅活动提示刷新。
+            if (suText) patch(profile, (s) => ({ ...s, activityHint: suText, lastActivity: Date.now() }));
           } else if (suText) {
             // 其他 status.update → 活动提示
             patch(profile, (s) => ({ ...s, activityHint: suText, lastActivity: Date.now() }));

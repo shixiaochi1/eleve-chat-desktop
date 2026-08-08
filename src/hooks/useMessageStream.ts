@@ -999,11 +999,20 @@ export function useMessageStream({
       const { kind, text } = data;
       switch (kind) {
         case 'goal':
-        case 'compressing':
+        case 'compacting':
           // 🔴 Phase 2: 压缩/目标变更 → 独立 system 消息（对齐宫格）+ 状态栏
           // （旧实现混进流式气泡，完成时被 finalize 抹掉 — 审查 #2）
+          // kind 对齐 Hermes gateway-event.ts L1076：后端压缩开始发 compacting
+          //（旧分支名 'compressing' 是 Hermes 手动压缩 RPC 的开始 kind，ELEVE
+          //  统一走 compress_context 内部，只发 compacting——消费方以 compacting 为准）
           if (text) appendIndependentMessage({ id: genId(), role: 'system' as const, parts: [textPart(text)], timestamp: Date.now() });
           setMonitorState((prev) => ({ ...prev, modelName: prev.modelName, statusText: text }));
+          break;
+        case 'compacted':
+          // 压缩完成（对齐 Hermes gateway-event.ts L1079-1081）：退役压缩态。
+          // 压缩态退役由 store/session-status 统一处理（status.update 接线），
+          // 这里只需更新状态栏为完成文案（Hermes 同：compacted 后 status 恢复）。
+          if (text) setMonitorState((prev) => ({ ...prev, modelName: prev.modelName, statusText: text }));
           break;
         case 'background':
           // 🔴 Phase 2: 后台任务结果回推（对齐 Hermes _run_background_task deliver）→ 独立 system 消息（对齐宫格）+ toast
