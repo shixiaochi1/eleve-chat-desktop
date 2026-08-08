@@ -46,7 +46,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { getWsClient } from '@/services/ws-client';
 import { call } from '../utils/bridge';
 import { profileFromSessionId, sessionIdMatchesProfile, persistSessionPointer } from '../utils/session';
-import { toChatMessages, textPart, type SessionMessage, type ChatMessagePart } from '@/lib/chat-messages';
+import { toChatMessages, textPart, finalContinuesInterim, type SessionMessage, type ChatMessagePart } from '@/lib/chat-messages';
 import { createAccumulator, resetAccumulator, resetAccumulatorForStep, processAccumulatorEvent, finalizeAccumulator, extractPendingInteractions, type StreamAccumulator } from '@/lib/ws-event-processor';
 import { completionErrorText } from '@/lib/completion-error';
 import { handleGlobalEvent } from '@/lib/global-events';
@@ -564,7 +564,30 @@ export function useGridChat(active: boolean): {
             completionError && !keepFailedPartialText
               ? finalParts.filter((p) => p.type !== 'text')
               : finalParts;
+          // 🔴 P2-2（Coder 复审 2026-08-09）：complete settle（对齐 Hermes
+          // index.ts:559-567 双 settle 分支）——interim 密封气泡若 final 文本延续
+          // （finalContinuesInterim 共享谓词）→ 原地替换文本去 interim 标记，
+          // 不 append 新气泡（防 interim 内容 + 终稿双气泡）。不延续则正常 append
+          //（interim 是独立过程文本，终稿是新气泡——Hermes 同）。
+          // 判断在 patch updater 内（用权威 s.messages）：interim→complete 同 tick
+          // 时 statesRef 还是 render 镜像，读它会漏掉刚密封的气泡（竞态）。
           patch(profile, (s) => {
+            const lastVisible = [...s.messages].reverse().find(m => !m.hidden)
+            const settleId = lastVisible?.role === 'assistant' && lastVisible.interim && finalText && finalContinuesInterim(lastVisible, finalText)
+              ? lastVisible.id
+              : null
+            if (settleId) {
+              // 原地 settle：替换 parts + 去 interim 标记（保留 reasoning/tool parts）
+              return {
+                ...s,
+                messages: s.messages.map(m =>
+                  m.id === settleId
+                    ? { ...m, parts: effectiveParts.length ? effectiveParts : m.parts, interim: false, pending: false, ...(completionError ? { error: completionError } : {}) }
+                    : m
+                ).slice(-WINDOW_MAX),
+                status: 'idle', streamParts: [], activityHint: '', lastUsage: usageData ?? s.lastUsage, lastActivity: Date.now(),
+              };
+            }
             const msgs = effectiveParts.length || completionError
               ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: effectiveParts, timestamp: Date.now(), ...(completionError ? { error: completionError } : {}) }]
               : s.messages;
@@ -733,9 +756,26 @@ export function useGridChat(active: boolean): {
         }
         case 'message.interim': {
           const imContent = (payload.content as string) || '';
-          // 🔴 #12: already_streamed 守卫（对齐单视图）— 流式已上屏的内容不重复 append
+          // 🔴 P2-2（Coder 复审 2026-08-09）：对齐 Hermes finalizeInterimAssistantMessage
+          //（index.ts:410-464）——interim 是消息分界：先密封当前流式内容为独立气泡
+          //（interim 标记），后续 delta 新气泡；再补未上屏的独立 interim 消息。
+          // 旧实现只做 alreadyStreamed 守卫 + 独立 append（无密封、无标记），
+          // complete 时无条件 append 终稿 → interim 内容与终稿双气泡（形态分叉）。
+          // ① 密封当前累加器内容为独立气泡（对齐 Hermes :433-438 原地密封语义）
+          const interimParts = finalizeAccumulator(acc);
+          resetAccumulatorForStep(acc);
+          if (interimParts.length) {
+            patch(profile, (s) => ({
+              ...s,
+              messages: [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: interimParts, interim: true, timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
+              streamParts: [],
+              lastActivity: Date.now(),
+            }));
+          }
+          // ② 未上屏内容 → 独立 interim 消息（对齐 Hermes :439-451 无流式气泡时
+          //    独立消息语义；密封分支已上屏则跳过）
           if (imContent && !(payload.already_streamed as boolean)) {
-            patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'assistant', parts: [textPart(imContent)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
+            patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'assistant', parts: [textPart(imContent)], interim: true, timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
           }
           break;
         }

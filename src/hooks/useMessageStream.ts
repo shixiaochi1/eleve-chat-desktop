@@ -18,6 +18,7 @@ import {
   upsertToolPart,
   appendTextPart,
   appendReasoningPart,
+  finalContinuesInterim as finalContinuesInterimPredicate,
   type ChatMessagePart,
   type GatewayEventPayload,
 } from '@/lib/chat-messages';
@@ -390,12 +391,11 @@ export function useMessageStream({
             .map((p) => p.text)
             .join('')
             .trim()
-          const finalContinuesInterim = Boolean(
-            existing.interim &&
-            finalText &&
-            existingText &&
-            (finalText === existingText || finalText.startsWith(existingText) || existingText.startsWith(finalText)),
-          )
+          // 🔴 P2-2（Coder 复审 2026-08-09）：finalContinuesInterim 抽共享谓词
+          //（chat-messages.ts 单一权威源），宫格/单视图同语义。
+          const finalContinuesInterim = existing.interim
+            ? finalContinuesInterimPredicate(existing, finalText)
+            : false
 
           const settleInPlace = existing.pending ||
             (existing.interim && (interimSealedRef.current || finalContinuesInterim)) ||

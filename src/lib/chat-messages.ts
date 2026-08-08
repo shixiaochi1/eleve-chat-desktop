@@ -194,6 +194,28 @@ export function freezeReasoningPart(parts: ChatMessagePart[]): ChatMessagePart[]
   return next
 }
 
+/**
+ * final 文本是否延续 interim 消息（对齐 Hermes index.ts:552-557 finalContinuesInterim）。
+ * 两视图（单视图 useMessageStream / 宫格 useGridChat）complete settle 共用——
+ * 单一权威源，防重复气泡判定语义漂移。
+ * 双向 startsWith：final 完整包含 interim（正常延续）或 interim 已是完整终稿（
+ * final 是它的前缀——后端终稿回传被截断时仍能 settle）。
+ */
+export function finalContinuesInterim(existing: ChatMessage, finalText: string): boolean {
+  if (!existing.interim) return false
+  const existingText = existing.parts
+    .filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text')
+    .map((p) => p.text)
+    .join('')
+    .trim()
+  if (!finalText || !existingText) return false
+  return (
+    finalText === existingText ||
+    finalText.startsWith(existingText) ||
+    existingText.startsWith(finalText)
+  )
+}
+
 // ── Tool part ID extraction ──
 
 function toolId(payload: GatewayEventPayload | undefined): string {
