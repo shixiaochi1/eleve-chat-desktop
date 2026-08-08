@@ -48,6 +48,7 @@ import { call } from '../utils/bridge';
 import { profileFromSessionId, sessionIdMatchesProfile, persistSessionPointer } from '../utils/session';
 import { toChatMessages, textPart, type SessionMessage, type ChatMessagePart } from '@/lib/chat-messages';
 import { createAccumulator, resetAccumulator, resetAccumulatorForStep, processAccumulatorEvent, finalizeAccumulator, extractPendingInteractions, type StreamAccumulator } from '@/lib/ws-event-processor';
+import { completionErrorText } from '@/lib/completion-error';
 import { handleGlobalEvent } from '@/lib/global-events';
 import { burstVibeHearts } from '@/lib/vibe-hearts';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
@@ -535,13 +536,22 @@ export function useGridChat(active: boolean): {
                   partial: Boolean(payload.partial),
                 }
               : undefined;
+          // 🔴 C-2（2026-08-08）：legacy 错误文本启发式（对齐 Hermes completionErrorText）——
+          // 结构化 failure 优先，否则匹配 "API call failed after N retries:" / "HTTP xxx" /
+          // "Provider error:" 文本（provider 200 但返回错误串的场景）
+          const finalText = finalParts
+            .filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text')
+            .map((p) => p.text)
+            .join('')
+          const completionError = failure?.error ?? completionErrorText(finalText)
+          const keepFailedPartialText = Boolean(failure?.partial && finalText)
           const effectiveParts =
-            failure && !failure.partial
+            completionError && !keepFailedPartialText
               ? finalParts.filter((p) => p.type !== 'text')
               : finalParts;
           patch(profile, (s) => {
-            const msgs = effectiveParts.length || failure
-              ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: effectiveParts, timestamp: Date.now(), ...(failure ? { error: failure.error } : {}) }]
+            const msgs = effectiveParts.length || completionError
+              ? [...s.messages, { id: gridMsgId(), role: 'assistant' as const, parts: effectiveParts, timestamp: Date.now(), ...(completionError ? { error: completionError } : {}) }]
               : s.messages;
             return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamParts: [], activityHint: '', lastUsage: usageData ?? s.lastUsage, lastActivity: Date.now() };
           });

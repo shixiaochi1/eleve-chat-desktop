@@ -22,6 +22,7 @@ import {
   type GatewayEventPayload,
 } from '@/lib/chat-messages';
 import { extractPendingInteractions } from '@/lib/ws-event-processor';
+import { completionErrorText } from '@/lib/completion-error';
 import type { ChatMessage } from '@/types';
 import type { Session } from '@/types';
 
@@ -278,20 +279,31 @@ export function useMessageStream({
   // 🔴 C-1（2026-08-08）：failure 语义对齐 Hermes index.ts L558-565——
   // failure.error 时消息带 error 标记（MessageRow 渲染 type=error 气泡）；
   // partial=true 保留流式文本（错误帧的部分输出），非 partial 剥文本只显错误。
+  // 🔴 C-2（2026-08-08）：legacy 错误文本启发式——结构化 failure 优先，否则
+  // 匹配 "API call failed after N retries:" / "HTTP xxx" / "Provider error:" 文本
+  // （对齐 Hermes completionErrorText），同样标 error 剥文本。
   const completeAssistantMessage = useCallback(
     (finalParts: ChatMessagePart[], failure?: { error: string; partial: boolean }) => {
       const streamId = streamIdRef.current
       streamIdRef.current = null // Clear streamId — turn is over
 
+      // 对齐 Hermes：completionError = 结构化 failure 优先，legacy 文本启发式兜底
+      const finalText = finalParts
+        .filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text')
+        .map((p) => p.text)
+        .join('')
+      const completionError = failure?.error ?? completionErrorText(finalText)
+      const keepFailedPartialText = Boolean(failure?.partial && finalText)
+
       // 对齐 Hermes：非 partial 错误剥除文本 parts（仅保留 reasoning/tool 骨架），
       // 避免错误帧的半截文本被当成正常回复
       const effectiveParts =
-        failure && !failure.partial
+        completionError && !keepFailedPartialText
           ? finalParts.filter((p) => p.type !== 'text')
           : finalParts
 
       storeSetMessages((prev) => {
-        const errorField = failure?.error ? { error: failure.error } : {}
+        const errorField = completionError ? { error: completionError } : {}
         if (streamId && prev.some(m => m.id === streamId)) {
           // Found our streaming message — finalize with accumulator parts
           return prev.map(m => {
@@ -324,7 +336,7 @@ export function useMessageStream({
         }
 
         // No pending message — create a completed one
-        if (effectiveParts.length || failure?.error) {
+        if (effectiveParts.length || completionError) {
           return [...prev, { id: genId(), role: 'assistant' as const, parts: effectiveParts, pending: false, timestamp: Date.now(), ...errorField }]
         }
         return prev
