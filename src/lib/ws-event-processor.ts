@@ -107,7 +107,15 @@ export function processAccumulatorEvent(
       // replace 语义（对齐 Hermes appendReasoningDelta(text, true)）：
       // 移除全部未冻结 reasoning 块 → 追加冻结摘要块（done=true 保持多块边界，
       // 下一个 reasoning.delta 经 appendReasoningPart 自然新开块）。
+      // 🔴 2026-08-08 21:10 BUG 修复（对齐 Hermes text 守卫）：消息已有正文文本时跳过——
+      // 思考块已通过 reasoning.delta 流式展示在 text 之前，replace 会把思考块
+      // 挪到消息末尾（思考气泡与回复气泡上下颠倒）。Hermes 基线：
+      // appendReasoningDelta(text, true) 内 `chatMessageText(message).trim()` 非空 → 不动。
       const text = (payload.text as string) || '';
+      const hasText = acc.parts.some((p) => p.type === 'text' && p.text.trim());
+      if (hasText) {
+        return true;
+      }
       const filtered = acc.parts.filter((p) => !(p.type === 'reasoning' && !p.done));
       acc.parts = [...filtered, { ...reasoningPart(text), done: true }];
       return true;
