@@ -10,7 +10,7 @@
  *
  * onDelete 为 undefined 时（宫格场景）MessageBubble 自动隐藏删除按钮。
  */
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import MessageBubble from './MessageBubble'
 import SystemMessage from './SystemMessage'
 import ChangedFilesCard from './ChangedFilesCard'
@@ -18,6 +18,7 @@ import ReasoningBlock from './ReasoningBlock'
 import ToolEntry, { type ToolCallItem } from './ToolEntry'
 import HoistedTodoPanel, { todosFromMessageParts } from './HoistedTodoPanel'
 import StreamStallIndicator from './StreamStallIndicator'
+import ImageLightbox from './ImageLightbox'
 import type { ChatMessage, ChatMessagePart } from '@/types'
 
 interface MessageRowProps {
@@ -31,6 +32,8 @@ interface MessageRowProps {
 }
 
 export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessionId, isLast = false }: MessageRowProps) {
+  // 图片点击放大（对齐 Hermes ImageLightbox）——UI 局部状态，不违背 store 解耦
+  const [lightbox, setLightbox] = useState<{ src: string; name?: string } | null>(null)
   if (!m || m.hidden) return null
 
   // ── Parts-based rendering ──
@@ -52,8 +55,9 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
                       key={`${m.id}-att-${i}`}
                       src={ref}
                       alt="attachment"
-                      className="w-16 h-16 object-cover rounded-md border border-border"
+                      className="w-16 h-16 object-cover rounded-md border border-border cursor-zoom-in"
                       draggable={false}
+                      onClick={() => setLightbox({ src: ref })}
                     />
                   ) : (
                     <span key={`${m.id}-att-${i}`} className="max-w-[160px] truncate rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -63,6 +67,8 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
                 )}
               </div>
             )}
+            {/* 图片大图预览（对齐 Hermes ImageLightbox：Esc/遮罩关闭 + 下载） */}
+            {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.name} onClose={() => setLightbox(null)} />}
           </div>
         </div>
       )

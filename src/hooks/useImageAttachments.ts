@@ -92,52 +92,20 @@ export function useImageAttachments(options?: {
       // 5. 读取文件为 base64 data URL（用于本地预览）
       const dataUrl = await readFileAsDataURL(file);
 
-      // 6. 会话门槛（对齐 Hermes "Images are intentionally NOT eager-uploaded"）：
-      //    无会话 → 仅本地暂存（uploaded=false），submit 时由 uploadUnuploaded() 上传；
-      //    有会话 → eager 上传（对齐 Hermes eagerlyUploadAttachment 的转圈 UX）。
-      //    Rust 长生命周期：会话是常驻 Actor，禁止为新会话草稿 eager 建会话（会泄漏持久 Actor），
-      //    因此无会话时绝不触发后端，纯客户端暂存。
-      const sessionId = getSessionIdRef.current?.() ?? undefined;
-      if (!sessionId) {
-        const staged: AttachedImage = {
-          id: crypto.randomUUID(),
-          path: '',
-          name: file.name,
-          preview: dataUrl,
-          size: file.size,
-          uploaded: false,
-        };
-        setAttachedImages((prev) => [...prev, staged]);
-        return staged;
-      }
-
-      // 7. 有会话：提取纯 base64 内容并调用后端 image.attach_bytes 上传
-      const contentBase64 = base64FromDataURL(dataUrl);
-      const wsClient = getWsClient();
-      const result: ImageAttachResponse = await wsClient.imageAttachBytes(
-        contentBase64,
-        file.name,
-        sessionId,
-      );
-
-      if (!result.attached || !result.path) {
-        throw new ImageAttachError(
-          (result as unknown as { error?: string }).error || '后端未确认附件',
-        );
-      }
-
-      // 8. 添加到本地状态（已上传到后端）
-      const newImage: AttachedImage = {
+      // 🔴 对齐 Hermes "Images are intentionally NOT eager-uploaded"（submit.ts 注释）：
+      // 图片从不 eager 上传——Hermes 理由：previewUrl 二次写入竞争 + 不发送则后端零残留；
+      // 全部在 submit 时由 uploadUnuploaded() 统一 image.attach_bytes。
+      // Rust 长生命周期：会话是常驻 Actor，禁止为新会话草稿 eager 建会话（会泄漏持久 Actor）。
+      const staged: AttachedImage = {
         id: crypto.randomUUID(),
-        path: result.path,
+        path: '',
         name: file.name,
         preview: dataUrl,
-        size: result.bytes ?? file.size,
-        uploaded: true,
+        size: file.size,
+        uploaded: false,
       };
-      setAttachedImages((prev) => [...prev, newImage]);
-
-      return newImage;
+      setAttachedImages((prev) => [...prev, staged]);
+      return staged;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(`图片上传失败: ${msg}`);
@@ -175,6 +143,9 @@ export function useImageAttachments(options?: {
     const pending = attachedImages.filter((img) => !img.uploaded);
     if (pending.length === 0) return true;
 
+    // 对齐 Hermes uploadState spinner：submit 时统一上传转圈（lazy 语义下 uploading 仅此处活跃）
+    setUploading(pending.length);
+
     const wsClient = getWsClient();
     const updatedPaths = new Map<string, string>();
     let allOk = true;
@@ -199,6 +170,8 @@ export function useImageAttachments(options?: {
         setError(`图片上传失败: ${msg}`);
       }
     }
+
+    setUploading(0);
 
     // 标记已上传 + 补后端 path（供后续 detach / busy 排队分离使用）
     if (updatedPaths.size > 0) {

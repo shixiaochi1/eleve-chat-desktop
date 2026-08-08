@@ -9,6 +9,7 @@ import FastModeButton from './FastModeButton';
 import WebWindowButton from './WebWindowButton';
 import SlashCommandPopup from './SlashCommandPopup';
 import QueuePanel from './QueuePanel';
+import ImageLightbox from './ImageLightbox';
 import { SendIcon, MicIcon, LoadingIcon } from './Icons';
 import { WakeWordButton } from './WakeWordButton';
 import { cn } from '@/lib/utils';
@@ -91,6 +92,8 @@ function InputArea({
   onQueueDelete,
 }: InputAreaProps) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // 图片大图预览（对齐 Hermes ImageLightbox：点击缩略图 → 遮罩大图 + 下载）
+  const [lightbox, setLightbox] = useState<{ src: string; name?: string } | null>(null);
   // `/` 命令补全 — 共享 hook（与宫格 AgentCardComposer 同一权威源）
   const slash = useSlashAutocomplete({ enabled: !!portReady, refreshKey: portVersion });
   /** 输入框是否有内容 — 驱动发送键的置灰态（仅布尔翻转时触发渲染） */
@@ -507,7 +510,8 @@ function InputArea({
 
       {/* 🔴 2026-08-08 图片附件预览条——消息区左下角（输入框容器之外）：
           老大要求缩略图显示在消息区左下角而不是输入框里面；
-          对齐 Hermes AttachmentList（composer 上方独立附件条）。 */}
+          对齐 Hermes AttachmentList（composer 上方独立附件条）。
+          点击缩略图 → ImageLightbox 大图预览（对齐 Hermes AttachmentPill）。 */}
       {attachedImages && attachedImages.length > 0 && (
         <div className="flex gap-2 pt-1 pb-2 flex-wrap items-start">
           {attachedImages.map(img => (
@@ -515,8 +519,9 @@ function InputArea({
               <img
                 src={img.preview}
                 alt={img.name}
-                className="w-16 h-16 object-cover rounded-md border border-border"
+                className="w-16 h-16 object-cover rounded-md border border-border cursor-zoom-in"
                 draggable={false}
+                onClick={() => setLightbox({ src: img.preview, name: img.name })}
               />
               <button
                 onClick={() => onRemoveImage?.(img.id)}
@@ -547,6 +552,9 @@ function InputArea({
           </button>
         </div>
       )}
+
+      {/* 图片大图预览（对齐 Hermes ImageLightbox：Esc/遮罩关闭 + 下载） */}
+      {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.name} onClose={() => setLightbox(null)} />}
 
       {/* 上传中指示器 */}
       {(imageUploading ?? 0) > 0 && (
