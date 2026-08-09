@@ -13,12 +13,24 @@ const STORAGE_KEY = 'settings';
 
 // ====== Interfaces ======
 
+/**
+ * 单个模型条目（对齐后端 ModelEntry：per-model 上下文/输出能力参数）
+ * 🔴 2026-08-10 重构：models 从 string[] 升级为带能力参数的结构化条目，
+ * 对齐 Hermes CustomEndpoint.context_length 手动输入语义（Hermes 是 endpoint 级，
+ * ELEVE 是 per-model 级，落在 ModelEntry 上）
+ */
+export interface ProviderModel {
+  name: string;
+  context_length: number;
+  max_output: number;
+}
+
 export interface ProviderEntry {
   id: string;
   name: string;
   baseUrl: string;
   transport?: string; // 协议：auto | openai_chat | anthropic_messages | codex_responses
-  models: string[];
+  models: ProviderModel[];
 }
 
 export interface AuxTaskEntry {
@@ -55,7 +67,7 @@ export interface SettingsV2 {
 
 // ====== 提供商注册表预设（含 Base URL 和模型，无 Key） ======
 export const PROVIDER_REGISTRY: ProviderEntry[] = [
-  { id: 'aliyun-bailian',  name: '阿里云百炼', baseUrl: 'https://coding.dashscope.aliyuncs.com/v1',  models: ['qwen3.7-plus'] },
+  { id: 'aliyun-bailian',  name: '阿里云百炼', baseUrl: 'https://coding.dashscope.aliyuncs.com/v1',  models: [{ name: 'qwen3.7-plus', context_length: 128000, max_output: 16384 }] },
 ];
 
 export const AUX_TASKS: AuxTaskEntry[] = [
@@ -190,7 +202,7 @@ export function findProvider(providers: ProviderEntry[], id: string): ProviderEn
 
 export function getProviderModels(providers: ProviderEntry[], id: string): string[] {
   const p = findProvider(providers, id);
-  return p ? p.models : [];
+  return p ? p.models.map(m => m.name) : [];
 }
 
 

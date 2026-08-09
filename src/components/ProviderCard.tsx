@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Eye, EyeOff, Trash2, Plus, X } from 'lucide-react';
+import { Eye, EyeOff, Trash2, Plus, X, KeyRound, Globe, Cpu } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { lookupModelCapabilities } from '@/utils/settings-store';
+import type { ProviderModel } from '@/utils/settings-store';
 
 interface Provider {
   id: string;
@@ -11,7 +12,7 @@ interface Provider {
   apiKey?: string;
   baseUrl?: string;
   transport?: string;
-  models: string[];
+  models: ProviderModel[];
   // Phase P5: 全局池状态
   hasKey?: boolean;
   credentialType?: string;
@@ -23,7 +24,7 @@ interface ProviderCardProps {
   expanded: boolean;
   onToggle: () => void;
   onUpdate: (id: string, field: string, value: string) => void;
-  onAddModel: (id: string, modelName: string) => void;
+  onAddModel: (id: string, model: ProviderModel) => void;
   onRemoveModel: (id: string, modelName: string) => void;
   onDelete: (id: string) => void;
   onRequestUnlock: (id: string) => void;
@@ -31,19 +32,22 @@ interface ProviderCardProps {
   keyVisible: boolean;
 }
 
+/** 数字格式化：128000 → 128K */
+function fmtTokens(n: number | undefined | null): string {
+  if (!n || n <= 0) return '—';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (n >= 1000) return `${Math.round(n / 1000)}K`;
+  return String(n);
+}
+
 /**
- * 提供商卡片 — 展示/编辑单个 API 提供商
+ * 服务商卡片 — 展示/编辑单个 API 服务商
  *
- * Props:
- *   provider:     { id, name, apiKey, baseUrl, models }
- *   expanded:     boolean — 是否展开详情
- *   onToggle:     () => void — 切换展开
- *   onUpdate:     (id, field, value) => void — 更新字段
- *   onAddModel:   (id, modelName) => void
- *   onRemoveModel:(id, modelName) => void
- *   onDelete:     (id) => void
- *   onRequestUnlock: (id) => void — 请求密码解锁以查看 Key
- *   keyVisible:   boolean — 当前 Key 是否可见
+ * 🔴 2026-08-10 UI 重构（对齐 Hermes custom-endpoints-settings）：
+ * - 模型列表表格化（模型名 + 上下文/输出徽章 + 行删除），取代原 select 下拉
+ * - 添加模型支持手动输入上下文大小 / 最大输出（对齐 Hermes CustomEndpoint.context_length）
+ * - models.dev 命中时自动填充能力参数，仍可手改
+ * - 添加按钮不再被查询状态锁死（查询仅是提示）
  */
 export default function ProviderCard({
   provider,
@@ -58,13 +62,12 @@ export default function ProviderCard({
   keyVisible,
 }: ProviderCardProps) {
   const [newModel, setNewModel] = useState('');
-  const [selectedModel, setSelectedModel] = useState('');
+  const [newCtx, setNewCtx] = useState('');
+  const [newOut, setNewOut] = useState('');
   const [modelHint, setModelHint] = useState<string | null>(null);
   const [modelLooking, setModelLooking] = useState(false);
 
-  // 输入模型名时异步查询 models.dev 参数
-  // 🔴 2026-08-10 修复：查询仅作提示，绝不阻塞添加（此前 WS 排队时 modelLooking 卡 60s
-  // → 添加按钮长期禁用 → 表现"添加不了"）。加 3s 短超时防止提示状态悬挂。
+  // 输入模型名时异步查询 models.dev 参数 → 命中自动填充 ctx/output（可手改）
   const lookupModel = useCallback(
     async (name: string) => {
       if (!name.trim()) { setModelHint(null); return; }
@@ -76,14 +79,17 @@ export default function ProviderCard({
         ]);
         if (caps) {
           const parts: string[] = [];
-          if (caps.context_length) parts.push(`ctx ${Math.round((caps.context_length as number) / 1024)}K`);
-          if (caps.max_output) parts.push(`out ${Math.round((caps.max_output as number) / 1024)}K`);
+          if (caps.context_length) parts.push(`ctx ${fmtTokens(caps.context_length as number)}`);
+          if (caps.max_output) parts.push(`out ${fmtTokens(caps.max_output as number)}`);
           if (caps.supports_vision) parts.push('vision');
           if (caps.reasoning) parts.push('reasoning');
           if (caps.tool_call) parts.push('tools');
           setModelHint(parts.length > 0 ? `✓ ${parts.join(' · ')}` : '✓ found');
+          // 自动填充能力参数（仅当用户还没手填过）
+          if (!newCtx && (caps.context_length as number) > 0) setNewCtx(String(caps.context_length));
+          if (!newOut && (caps.max_output as number) > 0) setNewOut(String(caps.max_output));
         } else {
-          setModelHint('— not in models.dev, manual config');
+          setModelHint('— not in models.dev，可手动填写参数');
         }
       } catch {
         setModelHint(null);
@@ -91,6 +97,7 @@ export default function ProviderCard({
         setModelLooking(false);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [provider.id],
   );
 
@@ -100,25 +107,23 @@ export default function ProviderCard({
     return () => clearTimeout(t);
   }, [newModel, lookupModel]);
 
-  // models 变化时重置选中（比如删除后）
-  useEffect(() => {
-    if (provider.models.length === 0) {
-      setSelectedModel('');
-    } else if (!provider.models.includes(selectedModel)) {
-      setSelectedModel(provider.models[0]);
-    }
-  }, [provider.models]);
-
   const handleAddModel = () => {
     const name = newModel.trim();
     if (!name) return;
-    if (provider.models.includes(name)) {
-      // 🔴 2026-08-10 修复：重复添加静默无反馈 → 用户误以为"添加不了"。显式提示。
+    if (provider.models.some(m => m.name === name)) {
       setModelHint('⚠ 该模型已在列表中');
       return;
     }
-    onAddModel(provider.id, name);
+    const ctx = parseInt(newCtx, 10);
+    const out = parseInt(newOut, 10);
+    onAddModel(provider.id, {
+      name,
+      context_length: Number.isFinite(ctx) && ctx > 0 ? ctx : 128000,
+      max_output: Number.isFinite(out) && out > 0 ? out : 16384,
+    });
     setNewModel('');
+    setNewCtx('');
+    setNewOut('');
     setModelHint(null);
   };
 
@@ -133,46 +138,55 @@ export default function ProviderCard({
   );
 
   return (
-    <div className={cn('border border-border rounded-lg mb-2 bg-card overflow-hidden')}>
-      {/* 卡片头部 */}
-      <button className={cn('flex items-center justify-between w-full px-3 py-2 cursor-pointer bg-transparent border-none text-left hover:bg-muted/30 transition-colors')} onClick={onToggle} type="button">
+    <div className={cn('border border-border rounded-xl bg-card overflow-hidden transition-colors hover:border-border/80')}>
+      {/* ── 卡片头部 ── */}
+      <button
+        className={cn('flex items-center justify-between w-full px-3.5 py-2.5 cursor-pointer bg-transparent border-none text-left hover:bg-muted/30 transition-colors')}
+        onClick={onToggle}
+        type="button"
+      >
         <div className={cn('flex items-center gap-2 min-w-0')}>
           <span className={cn('text-sm font-medium text-foreground truncate')}>{provider.name}</span>
-          <span className={cn('text-xs text-muted-foreground shrink-0')}>({provider.id})</span>
-          {/* Phase P5: 全局池状态指示 */}
+          <span className={cn('text-[11px] font-mono text-muted-foreground/70 shrink-0')}>{provider.id}</span>
+          {/* 状态徽章 */}
           {provider.source === 'global_pool' && (
-            <span className={cn('text-[10px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-500 shrink-0')}>池</span>
+            <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-500 shrink-0 font-medium')}>池</span>
+          )}
+          {provider.source === 'preset' && (
+            <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0 font-medium')}>预设</span>
           )}
           {provider.hasKey !== undefined && (
-            <span className={cn('text-[10px] px-1 py-0.5 rounded shrink-0',
-              provider.hasKey ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-400'
+            <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full shrink-0 font-medium',
+              provider.hasKey ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-500'
             )}>
-              {provider.hasKey ? '🔑' : '无key'}
+              {provider.hasKey ? '已配 Key' : '未配 Key'}
             </span>
           )}
         </div>
-        <span className={cn('text-xs text-muted-foreground shrink-0')}>
-          {expanded ? '▾' : '▸'}
+        <span className={cn('text-xs text-muted-foreground shrink-0 transition-transform', expanded && 'rotate-180')}>
+          ▾
         </span>
       </button>
 
-      {/* 展开详情 */}
+      {/* ── 展开详情 ── */}
       {expanded && (
-        <div className={cn('border-t border-border px-3 py-3 space-y-3')}>
+        <div className={cn('border-t border-border/60 px-3.5 py-3.5 space-y-3.5')}>
           {/* API Key */}
-          <div className={cn('space-y-1.5')}>
-            <label className={cn('block text-xs text-muted-foreground')}>API Key</label>
+          <div className={cn('grid gap-1.5')}>
+            <label className={cn('flex items-center gap-1.5 text-xs text-muted-foreground')}>
+              <KeyRound size={12} strokeWidth={1.5} /> API Key
+            </label>
             <div className={cn('flex items-center gap-1')}>
               <Input
                 type={keyVisible ? 'text' : 'password'}
-                className={cn('h-7 text-xs')}
+                className={cn('h-7.5 text-xs')}
                 value={provider.apiKey || ''}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => onUpdate(provider.id, 'apiKey', e.target.value)}
                 placeholder="输入 API Key"
                 autoComplete="off"
               />
               <button
-                className={cn('inline-flex items-center justify-center size-6 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors bg-transparent border-none cursor-pointer shrink-0')}
+                className={cn('inline-flex items-center justify-center size-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors bg-transparent border-none cursor-pointer shrink-0')}
                 title={keyVisible ? '隐藏' : '显示'}
                 onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRequestUnlock(provider.id); }}
                 type="button"
@@ -185,11 +199,13 @@ export default function ProviderCard({
           </div>
 
           {/* Base URL */}
-          <div className={cn('space-y-1.5')}>
-            <label className={cn('block text-xs text-muted-foreground')}>Base URL</label>
+          <div className={cn('grid gap-1.5')}>
+            <label className={cn('flex items-center gap-1.5 text-xs text-muted-foreground')}>
+              <Globe size={12} strokeWidth={1.5} /> Base URL
+            </label>
             <Input
               type="text"
-              className={cn('h-7 text-xs')}
+              className={cn('h-7.5 text-xs')}
               value={provider.baseUrl || ''}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => onUpdate(provider.id, 'baseUrl', e.target.value)}
               placeholder="https://api.example.com/v1"
@@ -197,8 +213,10 @@ export default function ProviderCard({
           </div>
 
           {/* 协议/传输方式 */}
-          <div className={cn('space-y-1.5')}>
-            <label className={cn('block text-xs text-muted-foreground')}>协议</label>
+          <div className={cn('grid gap-1.5')}>
+            <label className={cn('flex items-center gap-1.5 text-xs text-muted-foreground')}>
+              <Cpu size={12} strokeWidth={1.5} /> 协议
+            </label>
             <select
               className={selectClasses}
               value={provider.transport || 'auto'}
@@ -217,49 +235,73 @@ export default function ProviderCard({
           </div>
 
           {/* 模型列表 */}
-          <div className={cn('space-y-1.5')}>
-            <label className={cn('block text-xs text-muted-foreground')}>模型列表</label>
-            <div className={cn('flex items-center gap-1')}>
-              <select
-                className={selectClasses}
-                value={selectedModel}
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedModel(e.target.value)}
-              >
-                <option value="" disabled>选择模型</option>
-                {provider.models.map(m => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-              {provider.models.length > 0 && (
-                <button
-                  className={cn('inline-flex items-center justify-center size-6 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors bg-transparent border-none cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0')}
-                  onClick={() => {
-                    if (selectedModel) {
-                      onRemoveModel(provider.id, selectedModel);
-                      setSelectedModel('');
-                    }
-                  }}
-                  disabled={!selectedModel}
-                  title="删除选中模型"
-                  type="button"
-                >
-                  <X size={14} />
-                </button>
+          <div className={cn('grid gap-1.5')}>
+            <label className={cn('flex items-center justify-between text-xs text-muted-foreground')}>
+              <span className={cn('flex items-center gap-1.5')}>模型列表</span>
+              <span className={cn('text-[11px] text-muted-foreground/50')}>{provider.models.length} 个模型</span>
+            </label>
+
+            {/* 模型行 */}
+            <div className={cn('rounded-lg border border-border/60 divide-y divide-border/40 bg-muted/10')}>
+              {provider.models.length === 0 ? (
+                <div className={cn('px-3 py-2.5 text-xs text-muted-foreground/60')}>暂无模型，请在下方添加</div>
+              ) : (
+                provider.models.map(m => (
+                  <div key={m.name} className={cn('flex items-center gap-2 px-2.5 py-1.5 group/row')}>
+                    <span className={cn('flex-1 min-w-0 truncate text-xs text-foreground')}>{m.name}</span>
+                    <span className={cn('shrink-0 rounded-md bg-primary/8 px-1.5 py-0.5 text-[10px] font-medium text-primary')} title={`上下文窗口 ${m.context_length} tokens`}>
+                      ctx {fmtTokens(m.context_length)}
+                    </span>
+                    <span className={cn('shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground')} title={`最大输出 ${m.max_output} tokens`}>
+                      out {fmtTokens(m.max_output)}
+                    </span>
+                    <button
+                      className={cn('shrink-0 inline-flex items-center justify-center size-5.5 rounded text-muted-foreground/50 opacity-0 group-hover/row:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all bg-transparent border-none cursor-pointer')}
+                      onClick={() => onRemoveModel(provider.id, m.name)}
+                      title={`删除 ${m.name}`}
+                      type="button"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))
               )}
             </div>
-            <div className={cn('flex items-center gap-1 mt-2')}>
+
+            {/* 添加模型：名称 + 上下文 + 输出 */}
+            <div className={cn('flex items-start gap-1 mt-1')}>
               <Input
                 type="text"
-                className={cn('h-7 text-xs')}
-                placeholder="添加模型名"
+                className={cn('h-7.5 flex-1 text-xs')}
+                placeholder="模型名（如 glm-5）"
                 value={newModel}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewModel(e.target.value)}
                 onKeyDown={handleKeyDown}
               />
+              <Input
+                type="text"
+                inputMode="numeric"
+                className={cn('h-7.5 w-[88px] text-xs')}
+                placeholder="上下文"
+                title="上下文窗口大小（tokens），留空默认 128000"
+                value={newCtx}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewCtx(e.target.value)}
+                onKeyDown={handleKeyDown}
+              />
+              <Input
+                type="text"
+                inputMode="numeric"
+                className={cn('h-7.5 w-[76px] text-xs')}
+                placeholder="输出"
+                title="最大输出 tokens，留空默认 16384"
+                value={newOut}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewOut(e.target.value)}
+                onKeyDown={handleKeyDown}
+              />
               <button
-                className={cn('inline-flex items-center justify-center size-6 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors bg-transparent border-none cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0')}
+                className={cn('inline-flex items-center justify-center size-7.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors bg-transparent border-none cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0')}
                 onClick={handleAddModel}
-                // 🔴 2026-08-10 修复：不再被 modelLooking 锁禁用——查询只是提示，添加不依赖网络
+                // 添加不依赖查询状态（查询仅是提示，不再锁按钮）
                 disabled={!newModel.trim()}
                 title="添加模型"
                 type="button"
@@ -268,14 +310,14 @@ export default function ProviderCard({
               </button>
             </div>
             {modelHint && (
-              <p className={cn('text-[11px] mt-1', modelHint.startsWith('✓') ? 'text-success' : 'text-muted-foreground')}>
-                {modelHint}
+              <p className={cn('text-[11px] mt-0.5', modelHint.startsWith('✓') ? 'text-emerald-600' : 'text-muted-foreground')}>
+                {modelLooking ? '查询中…' : modelHint}
               </p>
             )}
           </div>
 
           {/* 删除按钮 + 保存按钮 */}
-          <div className={cn('flex items-center justify-between pt-3 border-t border-border')}>
+          <div className={cn('flex items-center justify-between pt-3 border-t border-border/60')}>
             <Button
               variant="destructive"
               size="sm"

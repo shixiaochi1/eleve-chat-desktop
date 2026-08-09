@@ -1,4 +1,4 @@
-import { Plus, X } from 'lucide-react';
+import { Plus, X, GitBranch, Cog, Users } from 'lucide-react';
 import { CollapseIcon, ExpandIcon } from '../Icons';
 import { AUX_TASKS, getProviderModels } from '../../utils/settings-store';
 import type { AuxTaskEntry } from '../../utils/settings-store';
@@ -42,12 +42,13 @@ export default function ModelSettings({
 }) {
   const delModels = getProviderModels(providers, delProvider);
 
-  const SectionHeader = ({ title, section }: { title: string; section: string }) => (
+  const SectionHeader = ({ title, section, icon: Icon }: { title: string; section: string; icon: typeof GitBranch }) => (
     <button
-      className="flex items-center w-full gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer transition-colors rounded"
+      className="flex items-center w-full gap-2 px-2.5 py-2 text-xs text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer transition-colors rounded-lg hover:bg-muted/40"
       onClick={() => setExpanded(expanded === section ? null : section)}
       type="button"
     >
+      <Icon size={14} strokeWidth={1.5} className="shrink-0" />
       <span className="font-medium">{title}</span>
       <span className="ml-auto">
         {expanded === section ? <CollapseIcon /> : <ExpandIcon />}
@@ -58,12 +59,12 @@ export default function ModelSettings({
   return (
     <div>
       {/* ══════════ Fallback 链 ══════════ */}
-      <SectionHeader title="Fallback 链" section="fallback" />
+      <SectionHeader title="Fallback 链" section="fallback" icon={GitBranch} />
       {expanded === 'fallback' && (
         <div className="ml-1 pl-2 border-l-2 border-border/50 space-y-3 mt-2">
           <p className="text-xs text-muted-foreground/70 leading-relaxed">主模型不可用时自动切换的备用提供商列表。</p>
           {fallbackList.map((fb: { providerId: string; model: string }, idx: number) => (
-            <div key={idx} className="border border-border rounded-lg p-3 bg-card">
+            <div key={idx} className="border border-border/60 rounded-xl p-3 bg-card">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium">Fallback #{idx + 1}</span>
                 <Button variant="ghost" size="icon-xs" onClick={() => removeFallback(idx)} title="移除"><X size={14} /></Button>
@@ -102,12 +103,12 @@ export default function ModelSettings({
       )}
 
       {/* ══════════ Auxiliary 任务 ══════════ */}
-      <SectionHeader title="Auxiliary 任务" section="auxiliary" />
+      <SectionHeader title="Auxiliary 任务" section="auxiliary" icon={Cog} />
       {expanded === 'auxiliary' && (
         <div className="ml-1 pl-2 border-l-2 border-border/50 space-y-3 mt-2">
           <p className="text-xs text-muted-foreground/70 leading-relaxed">非对话类辅助任务使用的模型配置。</p>
           {AUX_TASKS.filter((t: AuxTaskEntry) => !t.deprecated).map((t: AuxTaskEntry) => (
-            <div key={t.key} className="border border-border rounded-lg p-3 bg-card">
+            <div key={t.key} className="border border-border/60 rounded-xl p-3 bg-card">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium">{t.label}</span>
               </div>
@@ -171,10 +172,11 @@ export default function ModelSettings({
       )}
 
       {/* ══════════ 子 Agent 委派 ══════════ */}
-      <SectionHeader title="子 Agent 委派" section="delegation" />
+      <SectionHeader title="子 Agent 委派" section="delegation" icon={Users} />
       {expanded === 'delegation' && (
         <div className="ml-1 pl-2 border-l-2 border-border/50 space-y-3 mt-2">
           <p className="text-xs text-muted-foreground/70 leading-relaxed">子 Agent（delegate_task）使用的模型与参数。</p>
+          <div className="border border-border/60 rounded-xl p-3 bg-card space-y-3">
           <div className="mb-3">
             <label className="block text-xs text-muted-foreground mb-1">提供商</label>
             <select
@@ -199,6 +201,7 @@ export default function ModelSettings({
             <label className="block text-xs text-muted-foreground mb-1">最大迭代次数</label>
             <Input type="number" className="w-full" value={delMaxIterations} min="5" max="200"
               onChange={e => setDelMaxIterations(parseInt(e.target.value) || 30)} />
+          </div>
           </div>
         </div>
       )}

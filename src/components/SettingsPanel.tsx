@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { call } from '../utils/bridge';
 import { loadSettings, saveSettings, slugifyProviderName, AUX_TASKS, PROVIDER_REGISTRY, findProvider, listPoolProviders, upsertPoolProvider, removePoolProvider, savePoolProviderKey, disconnectPoolProvider } from '../utils/settings-store';
-import type { ProviderEntry, AuxTaskEntry, PoolProvider } from '../utils/settings-store';
+import type { ProviderEntry, ProviderModel, AuxTaskEntry, PoolProvider } from '../utils/settings-store';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { AlertTriangle, Upload, Download } from 'lucide-react';
 import { Button } from './ui/button';
@@ -54,6 +54,8 @@ interface NewProviderForm {
   baseUrl: string;
   transport: string; // 协议：auto | openai_chat | anthropic_messages | codex_responses
   modelsRaw: string;
+  contextLength: string; // 🔴 2026-08-10 对齐 Hermes：新模型上下文大小手动输入（默认留空=128000）
+  maxOutput: string;     // 最大输出 tokens（默认留空=16384）
 }
 
 interface DeleteConfirm {
@@ -160,7 +162,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
   };
 
   // ── 新建提供商表单 ──
-  const [newProvider, setNewProvider] = useState<NewProviderForm>({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', transport: 'auto', modelsRaw: '' });
+  const [newProvider, setNewProvider] = useState<NewProviderForm>({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', transport: 'auto', modelsRaw: '', contextLength: '', maxOutput: '' });
 
   // ====== 加载（F5: 池=provider权威源，config.yaml=aux/fallback/del权威源） ======
   useEffect(() => {
@@ -183,7 +185,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
           name: pp.name || pp.id,
           baseUrl: pp.base_url,
           transport: pp.transport,
-          models: pp.models.map(m => m.name),
+          models: pp.models.map(m => ({ name: m.name, context_length: m.context_length, max_output: m.max_output })),
           hasKey: pp.has_key,
           credentialType: pp.credential_type,
           source: 'global_pool' as const,
@@ -295,15 +297,18 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     setProviders(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
   };
 
-  const addProviderModel = (id: string, modelName: string) => {
+  // 🔴 2026-08-10 重构：models 升级为 ProviderModel[]（带上下文/输出能力参数）
+  const addProviderModel = (id: string, model: ProviderModel) => {
     setProviders(prev => prev.map(p =>
-      p.id === id ? { ...p, models: [...p.models, modelName] } : p
+      p.id === id && !p.models.some(m => m.name === model.name)
+        ? { ...p, models: [...p.models, model] }
+        : p
     ));
   };
 
   const removeProviderModel = (id: string, modelName: string) => {
     setProviders(prev => prev.map(p =>
-      p.id === id ? { ...p, models: p.models.filter(m => m !== modelName) } : p
+      p.id === id ? { ...p, models: p.models.filter(m => m.name !== modelName) } : p
     ));
   };
 
@@ -366,19 +371,26 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
   // ====== 添加提供商 ======
   const handleAddProvider = () => {
     if (!newProvider.name.trim() || !newProvider.slug.trim()) return;
-    const models = newProvider.modelsRaw
+    const ctx = parseInt(newProvider.contextLength, 10);
+    const out = parseInt(newProvider.maxOutput, 10);
+    const models: ProviderModel[] = newProvider.modelsRaw
       .split(',')
       .map(s => s.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .map(name => ({
+        name,
+        context_length: Number.isFinite(ctx) && ctx > 0 ? ctx : 128000,
+        max_output: Number.isFinite(out) && out > 0 ? out : 16384,
+      }));
     const provider: Provider = {
       id: newProvider.slug.trim(),
       name: newProvider.name.trim(),
       apiKey: newProvider.apiKey.trim(),
       baseUrl: newProvider.baseUrl.trim(),
       transport: newProvider.transport,
-      models: models.length > 0 ? models : [],
+      models,
     };
-    setNewProvider({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', transport: 'auto', modelsRaw: '' });
+    setNewProvider({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', transport: 'auto', modelsRaw: '', contextLength: '', maxOutput: '' });
     setAddProviderOpen(false);
 
     // F-P1-2 修复：先写池、成功后才入 UI（防幽灵 Provider）。
@@ -390,7 +402,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       name: provider.name,
       base_url: provider.baseUrl || 'https://api.openai.com/v1',
       transport,
-      models: Object.fromEntries(provider.models.map(m => [m, { context_length: 128000, max_output: 16384 }])),
+      models: Object.fromEntries(provider.models.map(m => [m.name, { context_length: m.context_length, max_output: m.max_output }])),
     }).then(() => {
       setProviders(prev => [...prev, { ...provider, source: 'global_pool' as const }]);
       // 如果有 API key，同步保存到池（Provider 已入池，key 失败不回滚 Provider，可重试）
@@ -419,7 +431,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
         slug: preset.id,
         keyEnv: preset.id.toUpperCase().replace(/-/g, '_') + '_API_KEY',
         baseUrl: preset.baseUrl,
-        modelsRaw: preset.models.join(', '),
+        modelsRaw: preset.models.map(m => m.name).join(', '),
       }));
       return;
     }
@@ -519,7 +531,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     const poolPromises = providers.map(async (p) => {
       const transport = (p.transport && p.transport !== 'auto') ? p.transport : undefined;
       const modelsMap: Record<string, Record<string, unknown>> = {};
-      for (const m of p.models) { modelsMap[m] = { context_length: 128000, max_output: 16384 }; }
+      for (const m of p.models) { modelsMap[m.name] = { context_length: m.context_length, max_output: m.max_output }; }
       await upsertPoolProvider({
         id: p.id,
         name: p.name,
@@ -557,7 +569,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
           const pp = fresh.find(f => f.id === p.id);
           if (!pp) return p;
           // FIX-B：从权威源同步回 models + hasKey，预设卡片入池后标记 global_pool
-          const poolModels = pp.models.map(m => m.name);
+          const poolModels = pp.models.map(m => ({ name: m.name, context_length: m.context_length, max_output: m.max_output }));
           return {
             ...p,
             models: poolModels.length > 0 ? poolModels : p.models,
