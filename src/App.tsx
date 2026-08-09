@@ -23,7 +23,7 @@ import useModels from './hooks/useModels';
 import { useMediaQuery } from './hooks/use-media-query';
 import { loadMarkdownDeps } from './utils/markdown';
 import * as storage from './utils/storage';
-import { loadSettingsFromRust } from './utils/settings-store';
+import { loadSettingsFromRust, loadSettings, isSettingsReady } from './utils/settings-store';
 import { discoverPort, call, isDesktop } from './utils/bridge';
 import { loadConnection, isRemoteMode, applyConnection } from './lib/connection';
 import { getRememberedWorkspaceCwd, rememberWorkspaceCwd } from './lib/workspace-cwd';
@@ -388,6 +388,52 @@ export default function App() {
   const [sessionCwd, setSessionCwd] = useState('');
   useEffect(() => { setSessionCwd(''); }, [sess.sessionId]);
 
+  // 🔴 2026-08-09 启动 seed（对齐 Hermes ensureDefaultWorkspaceCwd + $currentCwd
+  // 初始值 = getRememberedWorkspaceCwd）：无会话时把工作目录 seed 到当前 cwd——
+  //   remote → 上次工作目录记忆（per baseUrl+profile）
+  //   local → 设置「默认工作目录」（settings.json default_project_dir；settings
+  //     可能未从后端加载完 → isSettingsReady 轮询，SystemSettings 同款）
+  // 对齐 Hermes seedLiveCwd：文件面板/终端/预览显示该目录；无会话新聊天
+  // （getNewSessionCwd 链）继承它 = 新会话落默认目录（Hermes 新会话继承 currentCwd）。
+  // 目录不存在时 FileBrowserPanel setRoot 失败 → error → fallback（默认目录→home）
+  // 自洽；会话切换后 session.info 覆盖。profile 变化不重跑（Hermes $currentCwd
+  // 亦非 per-profile——会话 cwd 由 session.info 管）。
+  useEffect(() => {
+    let cancelled = false;
+    const trySeed = (): boolean => {
+      if (cancelled) return true;
+      const conn = loadConnection();
+      if (isRemoteMode(conn) && conn.baseUrl) {
+        const r = getRememberedWorkspaceCwd({ baseUrl: conn.baseUrl, profile: currentProfile });
+        if (r) {
+          seededCwdRef.current = r;
+          setSessionCwd(r);
+        }
+        return true; // remote：记忆有无都算完成
+      }
+      if (!isSettingsReady()) return false;
+      const def = loadSettings().default_project_dir?.trim() || '';
+      if (def) {
+        seededCwdRef.current = def;
+        setSessionCwd(def);
+      }
+      return true;
+    };
+    if (!trySeed()) {
+      const t = setInterval(() => {
+        if (trySeed()) clearInterval(t);
+      }, 500);
+      return () => {
+        cancelled = true;
+        clearInterval(t);
+      };
+    }
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // 🔴 2026-08-09 项目 scope（对齐 Hermes $projectScope / workspaceTarget）：
   // 进入项目钻取时设置（新会话落点 = 项目根目录），退出钻取清除。
   // Hermes 同款：scope 只决定"新聊天落在哪"，不改文件面板 cwd（那是
@@ -395,6 +441,10 @@ export default function App() {
   const [projectScopeCwd, setProjectScopeCwd] = useState<string | null>(null);
   const projectScopeCwdRef = useRef<string | null>(null);
   projectScopeCwdRef.current = projectScopeCwd;
+  // 🔴 2026-08-09 启动 seed 值快照（ref 持久）：[sess.sessionId] effect 会把
+  // sessionCwd 清空（会话切换/新建），seed 的默认目录不能丢——getNewSessionCwd
+  // 用它兜底（无会话新聊天仍落默认目录，Hermes resolveNewSessionCwd 继承语义）
+  const seededCwdRef = useRef<string | null>(null);
 
   // 🔴 Remote 记忆（对齐 Hermes setCurrentCwd → persistString workspaceCwdKey）：
   // remote 模式下会话 cwd 变化 → 按 baseUrl+profile 记忆，未显式指定目录的
@@ -847,15 +897,18 @@ export default function App() {
     })(),
     onSlashConfirm: (data) => setActiveSlashConfirm(data),
     currentProfile,
-    // 🔴 2026-08-09 新会话 cwd：项目 scope 优先（进入项目后新聊天落项目），
-    // 否则 remote 记忆（对齐 Hermes workspaceTarget → remembered 链）
+    // 🔴 2026-08-09 新会话 cwd（对齐 Hermes createBackendSessionForSend 的
+    // workspaceTarget/currentCwd 链）：项目 scope 优先（进入项目后新聊天落项目）；
+    // 否则继承当前显示 cwd（sessionCwdRef——无会话时 = 启动 seed 的默认工作目录 /
+    // 手动选择目录）；再否则启动 seed 快照（sessionCwd 被会话切换清空后兜底，
+    // Hermes resolveNewSessionCwd 继承 currentCwd 同款）；全无 → 不传 cwd
     getNewSessionCwd: () => {
       const scope = projectScopeCwdRef.current;
       if (scope) return scope;
-      const conn = loadConnection();
-      if (isRemoteMode(conn) && conn.baseUrl) {
-        return getRememberedWorkspaceCwd({ baseUrl: conn.baseUrl, profile: currentProfile }) || null;
-      }
+      const cur = sessionCwdRef.current.trim();
+      if (cur) return cur;
+      const seeded = seededCwdRef.current?.trim();
+      if (seeded) return seeded;
       return null;
     },
   });
@@ -919,17 +972,21 @@ export default function App() {
       let sid = sess.sessionId ?? undefined;
       if (!sid) {
         try {
-          // 🔴 Remote 记忆（对齐 Hermes workspaceCwdForNewSession）：remote 模式下
-          // 未显式指定目录的新会话落在上次工作目录（local 由后端 resolve 决定）
-          // 🔴 2026-08-09 项目 scope 优先（进入项目后带图首条消息也落项目根目录）
+          // 🔴 2026-08-09 新会话 cwd 链（对齐 Hermes createBackendSessionForSend）：
+          // 项目 scope → 当前显示 cwd（启动 seed 默认目录/手动选择）→ remote 记忆
           let cwd: string | undefined;
           const scopeCwd = projectScopeCwdRef.current;
           if (scopeCwd) {
             cwd = scopeCwd;
           } else {
-            const conn = loadConnection();
-            if (isRemoteMode(conn) && conn.baseUrl) {
-              cwd = getRememberedWorkspaceCwd({ baseUrl: conn.baseUrl, profile: currentProfile }) || undefined;
+            const cur = sessionCwdRef.current.trim();
+            if (cur) {
+              cwd = cur;
+            } else {
+              const seeded = seededCwdRef.current?.trim();
+              if (seeded) {
+                cwd = seeded;
+              }
             }
           }
           const created = await ws.sessionCreate({
