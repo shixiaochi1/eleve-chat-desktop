@@ -63,12 +63,17 @@ export default function ProviderCard({
   const [modelLooking, setModelLooking] = useState(false);
 
   // 输入模型名时异步查询 models.dev 参数
+  // 🔴 2026-08-10 修复：查询仅作提示，绝不阻塞添加（此前 WS 排队时 modelLooking 卡 60s
+  // → 添加按钮长期禁用 → 表现"添加不了"）。加 3s 短超时防止提示状态悬挂。
   const lookupModel = useCallback(
     async (name: string) => {
       if (!name.trim()) { setModelHint(null); return; }
       setModelLooking(true);
       try {
-        const caps = await lookupModelCapabilities(provider.id, name.trim());
+        const caps = await Promise.race([
+          lookupModelCapabilities(provider.id, name.trim()),
+          new Promise<null>(resolve => setTimeout(() => resolve(null), 3000)),
+        ]);
         if (caps) {
           const parts: string[] = [];
           if (caps.context_length) parts.push(`ctx ${Math.round((caps.context_length as number) / 1024)}K`);
@@ -106,11 +111,15 @@ export default function ProviderCard({
 
   const handleAddModel = () => {
     const name = newModel.trim();
-    if (name && !provider.models.includes(name)) {
-      onAddModel(provider.id, name);
-      setNewModel('');
-      setModelHint(null);
+    if (!name) return;
+    if (provider.models.includes(name)) {
+      // 🔴 2026-08-10 修复：重复添加静默无反馈 → 用户误以为"添加不了"。显式提示。
+      setModelHint('⚠ 该模型已在列表中');
+      return;
     }
+    onAddModel(provider.id, name);
+    setNewModel('');
+    setModelHint(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -250,7 +259,8 @@ export default function ProviderCard({
               <button
                 className={cn('inline-flex items-center justify-center size-6 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors bg-transparent border-none cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0')}
                 onClick={handleAddModel}
-                disabled={!newModel.trim() || modelLooking}
+                // 🔴 2026-08-10 修复：不再被 modelLooking 锁禁用——查询只是提示，添加不依赖网络
+                disabled={!newModel.trim()}
                 title="添加模型"
                 type="button"
               >
