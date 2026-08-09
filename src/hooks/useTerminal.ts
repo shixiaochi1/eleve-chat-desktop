@@ -94,6 +94,10 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
         void warmTerminalFontFamily(bootFont);
 
         const term = new Terminal({
+          // 🔴 xterm 6.0 必须：proposed API 需显式开启，否则 new Terminal() 直接抛错
+          //   （“You must set the allowProposedApi option to true”→ terminalRef 空 →
+          //   终端全空白。对齐 Hermes use-terminal-session.ts L508 同配置）
+          allowProposedApi: true,
           cursorBlink: true,
           cursorStyle: 'bar',
           fontSize: 13,
