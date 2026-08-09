@@ -143,6 +143,14 @@ export default function App() {
       return 'files';
     }
   });
+  // 🔴 2026-08-09 v2（对齐 Hermes PersistentTerminal mounted 语义）：
+  // 首次“抽屉打开且终端 tab”才挂载 TerminalPanel——xterm open 必须有真实尺寸
+  // （display:none 0×0 open → canvas 空、终端“什么都没有”）；之后保持挂载，
+  // PTY 存活于隐藏（Tauri 侧 pty 不销毁，重开由 reviveBuffer 恢复屏幕）
+  const [terminalMounted, setTerminalMounted] = useState(false);
+  useEffect(() => {
+    if (rightOpen && rightTab === 'terminal') setTerminalMounted(true);
+  }, [rightOpen, rightTab]);
   useEffect(() => {
     try {
       localStorage.setItem('eleve.rightPane.v1', JSON.stringify({ open: rightOpen, tab: rightTab, winW: rightAnchor.winW, rightW: rightAnchor.rightW }));
@@ -1457,12 +1465,16 @@ export default function App() {
                 )}
               </>
             )}
-            {/* 🔴 终端常驻挂载：始终渲染（对齐 Hermes PersistentTerminal
-                "shell 存活于隐藏" 语义）——rightOpen=false 或 rightTab≠terminal 时
-                CSS hidden，xterm/PTY 不销毁，重开面板秒恢复 */}
-            <div className={rightOpen && rightTab === 'terminal' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}>
-              <TerminalPanel cwd={sessionCwd} sessionId={sess.sessionId ?? undefined} />
-            </div>
+            {/* 🔴 终端挂载（2026-08-09 v2 对齐 Hermes mounted 延迟）：
+                terminalMounted 首次可见才置位 → xterm open 时有真实尺寸；
+                之后常驻（hidden 时 PTY/快照存活，重开秒恢复）。
+                原 be1b8e5 启动即挂载 + display:none → xterm 0×0 open →
+                终端空白“什么都没有”（Hermes persistent.tsx 注释明确禁止 0×0 启动） */}
+            {terminalMounted && (
+              <div className={rightOpen && rightTab === 'terminal' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}>
+                <TerminalPanel cwd={sessionCwd} sessionId={sess.sessionId ?? undefined} />
+              </div>
+            )}
           </Pane>
         </PaneShell>
         </ErrorBoundary>

@@ -223,52 +223,117 @@ const SNAPSHOT_SCROLLBACK = 200;
 
 /**
  * 清理 revive 快照：去除尾部 idle prompt，防止每次重启多一行 prompt
- * 对齐 Hermes cleanReviveSnapshot
+ * 对齐 Hermes cleanReviveSnapshot（use-terminal-session.ts L200-224）
+ */
+
+// 剥除 ANSI 转义序列，仅留可见文本
+function stripEscapeSequences(data: string): string {
+  let index = 0;
+  let text = '';
+  while (index < data.length) {
+    const sequence = readEscapeSequence(data, index);
+    if (sequence) {
+      index += sequence.length;
+    } else {
+      text += data[index];
+      index += 1;
+    }
+  }
+  return text;
+}
+
+// 只保留 ANSI 转义序列，丢弃可见文本（应用控制码而不写 spacer）
+function keepEscapeSequences(data: string): string {
+  let index = 0;
+  let out = '';
+  while (index < data.length) {
+    if (data.charCodeAt(index) === 0x1b) {
+      const sequence = readEscapeSequence(data, index);
+      if (sequence) {
+        out += sequence;
+        index += sequence.length;
+        continue;
+      }
+    }
+    index += 1;
+  }
+  return out;
+}
+
+// 识别一个 ANSI 转义序列（CSI/OSC/三字节字符集/短 ESC 形式）
+function readEscapeSequence(data: string, index: number): string | null {
+  if (data.charCodeAt(index) !== 0x1b || index + 1 >= data.length) return null;
+  const kind = data[index + 1];
+  if (kind === '[') {
+    for (let i = index + 2; i < data.length; i += 1) {
+      const code = data.charCodeAt(i);
+      if (code >= 0x40 && code <= 0x7e) return data.slice(index, i + 1);
+    }
+  }
+  if (kind === ']') {
+    for (let i = index + 2; i < data.length; i += 1) {
+      if (data.charCodeAt(i) === 0x07) return data.slice(index, i + 1);
+      if (data.charCodeAt(i) === 0x1b && data[i + 1] === '\\') return data.slice(index, i + 2);
+    }
+  }
+  // 字符集等三字节 ESC 形式（ESC ( B）。只认 ESC+( 会把选择符当可打印文本，
+  // 提前解除 prompt-gap 剥离器（Hermes 注释原文）
+  if (['(', ')', '*', '+', '-', '.', '/'].includes(kind) && index + 2 < data.length) {
+    return data.slice(index, index + 3);
+  }
+  return data.slice(index, Math.min(index + 2, data.length));
+}
+
+// 行内容去 ANSI + 全部空白 + zsh `%` 标记 —— '' 表示 spacer/prompt-gap/标记行
+const visibleText = (line: string) => stripEscapeSequences(line).replace(/[\s%]/g, '');
+
+/**
+ * 对齐 Hermes cleanReviveSnapshot：剥尾部 idle prompt（双形态：
+ * spaced 多行 prompt 剥到最后一个空行；单行 prompt 剥最后一行）
  */
 function cleanReviveSnapshot(serialized: string): string {
   const lines = serialized.split(/\r?\n/);
-  
-  // 去除尾部空行
-  while (lines.length && !lines[lines.length - 1].trim()) {
+  while (lines.length && !visibleText(lines[lines.length - 1])) {
     lines.pop();
   }
-  
   if (lines.length === 0) return '';
-  
-  // 找到最后一个非空行，判断是否是 prompt
-  // 简化版：如果最后几行看起来像 prompt（短、无命令输出），就删掉
-  // Hermes 版更复杂，这里先做基础清理
-  const lastIdx = lines.length - 1;
-  const lastLine = lines[lastIdx];
-  
-  // 如果最后一行很短且包含 $ 或 > 或 %，可能是 prompt
-  if (lastLine.length < 80 && /[$>%#]\s*$/.test(lastLine)) {
-    lines.pop();
+  // findLastIndex 兼容（tsconfig lib < es2023）
+  let lastBlank = -1;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (!visibleText(lines[i])) { lastBlank = i; break; }
   }
-  
+  const spacedPrompt = lastBlank >= 0 && lines.length - 1 - lastBlank <= 3;
+  lines.length = spacedPrompt ? lastBlank : lines.length - 1;
   return lines.join('\r\n');
 }
 
 /**
- * 检测 revive buffer 是否只有 idle prompt（无真实历史）
- * 对齐 Hermes isIdlePromptOnly
+ * 对齐 Hermes isIdlePromptOnly：无真实 scrollback（空、或仅重复同一行 idle prompt）
+ * 才判定 idle——真实会话（prompt+命令+输出）行必然多样，短历史不会被误判
  */
 function isIdlePromptOnly(serialized: string): boolean {
-  if (!serialized.trim()) return true;
-  const lines = serialized.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  if (lines.length === 0) return true;
-  // 如果所有行都相似（都是 prompt），认为是 idle
-  const first = lines[0];
-  return lines.every(l => l === first || l.length < 20);
+  const lines = serialized.split(/\r?\n/).map(visibleText).filter(Boolean);
+  return lines.length === 0 || lines.every((line) => line === lines[0]);
 }
 
 /**
- * 清理 shell 启动时的初始空行和 prompt gap
- * 对齐 Hermes stripInitialPromptGap
+ * 对齐 Hermes stripInitialPromptGap：剥离开头空白行但保留 ANSI 控制码前缀
  */
 function stripInitialPromptGap(data: string): string {
-  // 移除开头的空白行和常见的 shell 初始化输出
-  return data.replace(/^(\s*\r?\n)+/, '');
+  let index = 0;
+  let prefix = '';
+  while (index < data.length) {
+    const sequence = readEscapeSequence(data, index);
+    if (sequence) {
+      prefix += sequence;
+      index += sequence.length;
+    } else if (data[index] === '\r' || data[index] === '\n') {
+      index += 1;
+    } else {
+      return prefix + data.slice(index);
+    }
+  }
+  return prefix;
 }
 
 /**
@@ -412,12 +477,23 @@ function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boo
         }
 
         detach = attachPtyWriter(entry.id, (data) => {
-          // 首次输出时 strip 初始 prompt gap（对齐 Hermes armedWrite）
+          // 🔴 armedWrite（对齐 Hermes use-terminal-session.ts armedWrite）：
+          // 首次输出 strip 初始 prompt gap；纯 spacer（无可见内容：spacer/清屏/
+          // zsh % 标记）只应用控制码、丢弃空白文本并保持武装 → prompt 始终落顶部
           if (stripLeadingRef.current) {
-            data = stripInitialPromptGap(data);
-            if (data.trim()) stripLeadingRef.current = false;
+            const next = stripInitialPromptGap(data);
+            const visible = stripEscapeSequences(next).replace(/[\s%]/g, '');
+            if (!visible) {
+              const controls = keepEscapeSequences(next);
+              if (controls) term.write?.(controls);
+              // 保持武装：spacer 不解除，下个输出继续剥
+            } else {
+              stripLeadingRef.current = false;
+              term.write?.(next);
+            }
+          } else {
+            term.write?.(data);
           }
-          term.write?.(data);
           // 输出到达 → 节流快照（revive buffer）
           // 🔴 activity 门控（对齐 Hermes hasSessionActivityRef）：无用户输入的
           // idle tab 不重存——live buffer 是重放的快照 + 新 prompt，重存 = 每
