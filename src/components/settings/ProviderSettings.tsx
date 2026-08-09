@@ -57,8 +57,8 @@ export default function ProviderSettings({
   handleSave: () => void;
   addProviderOpen: boolean;
   setAddProviderOpen: (v: boolean) => void;
-  newProvider: { name: string; slug: string; keyEnv: string; apiKey: string; baseUrl: string; transport: string; modelsRaw: string; contextLength: string; maxOutput: string };
-  setNewProvider: (v: { name: string; slug: string; keyEnv: string; apiKey: string; baseUrl: string; transport: string; modelsRaw: string; contextLength: string; maxOutput: string }) => void;
+  newProvider: { name: string; slug: string; keyEnv: string; apiKey: string; baseUrl: string; transport: string; modelsRaw: string; contextLength: string };
+  setNewProvider: (v: { name: string; slug: string; keyEnv: string; apiKey: string; baseUrl: string; transport: string; modelsRaw: string; contextLength: string }) => void;
   handleAddProvider: () => void;
   onProviderNameChange: (name: string) => void;
 }) {
@@ -153,8 +153,8 @@ export default function ProviderSettings({
             </select>
           </div>
 
-          {/* 模型列表 + 默认上下文/输出（对齐 Hermes Default Model + Context） */}
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_6.5rem]">
+          {/* 模型列表 + 默认上下文（对齐 Hermes Default Model + Context，UI 不暴露输出） */}
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_7rem]">
             <div className="grid gap-1">
               <label className="text-xs text-muted-foreground">模型列表（逗号分隔）</label>
               <Input
@@ -174,18 +174,6 @@ export default function ProviderSettings({
                 title="上面所有模型的默认上下文窗口（tokens），留空=128000"
                 value={newProvider.contextLength}
                 onChange={e => setNewProvider({ ...newProvider, contextLength: e.target.value })}
-              />
-            </div>
-            <div className="grid gap-1">
-              <label className="text-xs text-muted-foreground">输出</label>
-              <Input
-                className="h-7.5 text-xs"
-                type="text"
-                inputMode="numeric"
-                placeholder="16384"
-                title="上面所有模型的默认最大输出（tokens），留空=16384"
-                value={newProvider.maxOutput}
-                onChange={e => setNewProvider({ ...newProvider, maxOutput: e.target.value })}
               />
             </div>
           </div>

@@ -55,7 +55,6 @@ interface NewProviderForm {
   transport: string; // 协议：auto | openai_chat | anthropic_messages | codex_responses
   modelsRaw: string;
   contextLength: string; // 🔴 2026-08-10 对齐 Hermes：新模型上下文大小手动输入（默认留空=128000）
-  maxOutput: string;     // 最大输出 tokens（默认留空=16384）
 }
 
 interface DeleteConfirm {
@@ -162,7 +161,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
   };
 
   // ── 新建提供商表单 ──
-  const [newProvider, setNewProvider] = useState<NewProviderForm>({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', transport: 'auto', modelsRaw: '', contextLength: '', maxOutput: '' });
+  const [newProvider, setNewProvider] = useState<NewProviderForm>({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', transport: 'auto', modelsRaw: '', contextLength: '' });
 
   // ====== 加载（F5: 池=provider权威源，config.yaml=aux/fallback/del权威源） ======
   useEffect(() => {
@@ -372,7 +371,6 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
   const handleAddProvider = () => {
     if (!newProvider.name.trim() || !newProvider.slug.trim()) return;
     const ctx = parseInt(newProvider.contextLength, 10);
-    const out = parseInt(newProvider.maxOutput, 10);
     const models: ProviderModel[] = newProvider.modelsRaw
       .split(',')
       .map(s => s.trim())
@@ -380,7 +378,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       .map(name => ({
         name,
         context_length: Number.isFinite(ctx) && ctx > 0 ? ctx : 128000,
-        max_output: Number.isFinite(out) && out > 0 ? out : 16384,
+        max_output: 16384, // UI 不暴露输出字段（老大 2026-08-10）
       }));
     const provider: Provider = {
       id: newProvider.slug.trim(),
@@ -390,7 +388,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       transport: newProvider.transport,
       models,
     };
-    setNewProvider({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', transport: 'auto', modelsRaw: '', contextLength: '', maxOutput: '' });
+    setNewProvider({ name: '', slug: '', keyEnv: '', apiKey: '', baseUrl: '', transport: 'auto', modelsRaw: '', contextLength: '' });
     setAddProviderOpen(false);
 
     // F-P1-2 修复：先写池、成功后才入 UI（防幽灵 Provider）。

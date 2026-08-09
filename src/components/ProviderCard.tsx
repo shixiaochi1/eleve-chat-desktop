@@ -63,11 +63,12 @@ export default function ProviderCard({
 }: ProviderCardProps) {
   const [newModel, setNewModel] = useState('');
   const [newCtx, setNewCtx] = useState('');
-  const [newOut, setNewOut] = useState('');
   const [modelHint, setModelHint] = useState<string | null>(null);
   const [modelLooking, setModelLooking] = useState(false);
+  // 🔴 2026-08-10：添加成功后的明显提示（独立于查询 hint，防 debounce 覆盖）
+  const [addSuccess, setAddSuccess] = useState<string | null>(null);
 
-  // 输入模型名时异步查询 models.dev 参数 → 命中自动填充 ctx/output（可手改）
+  // 输入模型名时异步查询 models.dev 参数 → 命中自动填充 ctx（可手改）
   const lookupModel = useCallback(
     async (name: string) => {
       if (!name.trim()) { setModelHint(null); return; }
@@ -80,14 +81,12 @@ export default function ProviderCard({
         if (caps) {
           const parts: string[] = [];
           if (caps.context_length) parts.push(`ctx ${fmtTokens(caps.context_length as number)}`);
-          if (caps.max_output) parts.push(`out ${fmtTokens(caps.max_output as number)}`);
           if (caps.supports_vision) parts.push('vision');
           if (caps.reasoning) parts.push('reasoning');
           if (caps.tool_call) parts.push('tools');
           setModelHint(parts.length > 0 ? `✓ ${parts.join(' · ')}` : '✓ found');
-          // 自动填充能力参数（仅当用户还没手填过）
+          // 自动填充上下文（仅当用户还没手填过）
           if (!newCtx && (caps.context_length as number) > 0) setNewCtx(String(caps.context_length));
-          if (!newOut && (caps.max_output as number) > 0) setNewOut(String(caps.max_output));
         } else {
           setModelHint('— not in models.dev，可手动填写参数');
         }
@@ -115,16 +114,18 @@ export default function ProviderCard({
       return;
     }
     const ctx = parseInt(newCtx, 10);
-    const out = parseInt(newOut, 10);
     onAddModel(provider.id, {
       name,
       context_length: Number.isFinite(ctx) && ctx > 0 ? ctx : 128000,
-      max_output: Number.isFinite(out) && out > 0 ? out : 16384,
+      // UI 不暴露输出字段（老大 2026-08-10）：后端保留默认 16384
+      max_output: 16384,
     });
     setNewModel('');
     setNewCtx('');
-    setNewOut('');
     setModelHint(null);
+    // 🔴 明显成功提示（3s 后自动消失）
+    setAddSuccess(`✓ 已添加「${name}」，点底部「保存」后生效`);
+    setTimeout(() => setAddSuccess(null), 3000);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -252,9 +253,6 @@ export default function ProviderCard({
                     <span className={cn('shrink-0 rounded-md bg-primary/8 px-1.5 py-0.5 text-[10px] font-medium text-primary')} title={`上下文窗口 ${m.context_length} tokens`}>
                       ctx {fmtTokens(m.context_length)}
                     </span>
-                    <span className={cn('shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground')} title={`最大输出 ${m.max_output} tokens`}>
-                      out {fmtTokens(m.max_output)}
-                    </span>
                     <button
                       className={cn('shrink-0 inline-flex items-center justify-center size-5.5 rounded text-muted-foreground/50 opacity-0 group-hover/row:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all bg-transparent border-none cursor-pointer')}
                       onClick={() => onRemoveModel(provider.id, m.name)}
@@ -268,8 +266,8 @@ export default function ProviderCard({
               )}
             </div>
 
-            {/* 添加模型：名称 + 上下文 + 输出 */}
-            <div className={cn('flex items-start gap-1 mt-1')}>
+            {/* 添加模型：名称 + 上下文（🔴 + 号改明显文字按钮，UI 不暴露输出字段） */}
+            <div className={cn('flex items-center gap-1.5 mt-1')}>
               <Input
                 type="text"
                 className={cn('h-7.5 flex-1 text-xs')}
@@ -281,46 +279,42 @@ export default function ProviderCard({
               <Input
                 type="text"
                 inputMode="numeric"
-                className={cn('h-7.5 w-[88px] text-xs')}
+                className={cn('h-7.5 w-[100px] text-xs')}
                 placeholder="上下文"
                 title="上下文窗口大小（tokens），留空默认 128000"
                 value={newCtx}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewCtx(e.target.value)}
                 onKeyDown={handleKeyDown}
               />
-              <Input
-                type="text"
-                inputMode="numeric"
-                className={cn('h-7.5 w-[76px] text-xs')}
-                placeholder="输出"
-                title="最大输出 tokens，留空默认 16384"
-                value={newOut}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewOut(e.target.value)}
-                onKeyDown={handleKeyDown}
-              />
-              <button
-                className={cn('inline-flex items-center justify-center size-7.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors bg-transparent border-none cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0')}
+              <Button
+                className={cn('h-7.5 shrink-0 px-3 text-xs')}
+                variant="default"
+                size="sm"
                 onClick={handleAddModel}
                 // 添加不依赖查询状态（查询仅是提示，不再锁按钮）
                 disabled={!newModel.trim()}
-                title="添加模型"
                 type="button"
               >
-                <Plus size={14} strokeWidth={1.5} />
-              </button>
+                <Plus size={13} strokeWidth={2} /> 添加
+              </Button>
             </div>
-            {modelHint && (
-              <p className={cn('text-[11px] mt-0.5', modelHint.startsWith('✓') ? 'text-emerald-600' : 'text-muted-foreground')}>
-                {modelLooking ? '查询中…' : modelHint}
-              </p>
+            {addSuccess ? (
+              <p className={cn('text-[11px] mt-1.5 font-medium text-emerald-600')}>{addSuccess}</p>
+            ) : (
+              modelHint && (
+                <p className={cn('text-[11px] mt-0.5', modelHint.startsWith('✓') ? 'text-emerald-600' : 'text-muted-foreground')}>
+                  {modelLooking ? '查询中…' : modelHint}
+                </p>
+              )
             )}
           </div>
 
-          {/* 删除按钮 + 保存按钮 */}
+          {/* 删除按钮 + 保存按钮（🔴 2026-08-10 统一尺寸） */}
           <div className={cn('flex items-center justify-between pt-3 border-t border-border/60')}>
             <Button
               variant="destructive"
               size="sm"
+              className={cn('h-7.5 px-3 text-xs')}
               onClick={() => onDelete(provider.id)}
               type="button"
             >
@@ -330,6 +324,7 @@ export default function ProviderCard({
             <Button
               variant="default"
               size="sm"
+              className={cn('h-7.5 px-4 text-xs')}
               onClick={onSave}
               type="button"
             >
