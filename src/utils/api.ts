@@ -133,13 +133,34 @@ export async function setDelegationPause(sessionId: string, paused: boolean): Pr
 }
 
 /** 获取委托状态 */
-export async function getDelegationStatus(sessionId: string): Promise<{ running: boolean; has_subagents: boolean; paused: boolean }> {
+export interface ActiveSubagent {
+  subagent_id: string;
+  goal: string;
+  depth: number;
+  model: string | null;
+  status: string;
+  tool_count: number;
+  current_tool: string | null;
+  elapsed_seconds: number;
+  interrupt_message?: string | null;
+}
+
+export async function getDelegationStatus(sessionId: string): Promise<{
+  running: boolean;
+  has_subagents: boolean;
+  paused: boolean;
+  max_spawn_depth?: number;
+  max_concurrent_children?: number;
+  active?: ActiveSubagent[];
+}> {
   return call('delegation_status', { session_id: sessionId });
 }
 
-/** 中断子 Agent */
-export async function interruptSubagent(sessionId: string): Promise<{ status: string }> {
-  return call('subagent_interrupt', { session_id: sessionId });
+/** 中断子 Agent（带 subagent_id = 精准中断单个；不带 = 兼容旧语义中断父会话） */
+export async function interruptSubagent(sessionId: string, subagentId?: string): Promise<{ status: string }> {
+  const params: Record<string, unknown> = { session_id: sessionId };
+  if (subagentId) params.subagent_id = subagentId;
+  return call('subagent_interrupt', params);
 }
 
 // F3: 输入增强
