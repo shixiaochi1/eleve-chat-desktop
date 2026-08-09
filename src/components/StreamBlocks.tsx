@@ -2,6 +2,7 @@ import { forwardRef, memo, useEffect, useMemo, useRef } from 'react';
 import { renderMarkdown, repairMarkdownTail, splitMarkdownBlocksCached, autolinkOutsideFences, mergeSingleNewlines } from '@/utils/markdown';
 import { detectArtifact, type ArtifactDetection } from '@/lib/artifact-detect';
 import { enhanceRichFences } from '@/lib/rich-fence';
+import { resolveMediaSrc, mediaName } from '@/utils/media';
 import { ArtifactCard } from './ArtifactCard';
 
 /**
@@ -94,7 +95,11 @@ const Block = memo(
       if (!highlight) return;
       const el = ref.current;
       if (!el) return;
-      return enhanceRichFences(el);
+      const cleanup = enhanceRichFences(el);
+      // 🔴 2026-08-09 本地媒体异步挂载（对齐 Hermes MarkdownImageContent）：
+      // 扫描 data-media-src 占位 → 读文件 → img.src（图片不进 markdown 文本）
+      void loadLocalMedia(el);
+      return cleanup;
     }, [html, highlight]);
 
     if (artifact) {
@@ -108,6 +113,33 @@ const Block = memo(
     prev.highlight === next.highlight &&
     (prev.artifact?.streaming ?? false) === (next.artifact?.streaming ?? false)
 );
+
+/**
+ * 本地媒体异步挂载（对齐 Hermes MarkdownImageContent）：
+ * 扫描 markdown 渲染产物中的 img[data-media-src] 占位，逐个读文件挂载 img.src。
+ * - data-media-src 由 rehypeLocalMediaPlaceholder 插件生成（本地路径 img）
+ * - 加载中标记 data-media-loading 防重复请求（html 变化重扫时跳过）
+ * - 失败 → 显示加载失败文案（对齐 Hermes failed → Couldn't load + Open image）
+ */
+async function loadLocalMedia(root: HTMLElement) {
+  const imgs = Array.from(root.querySelectorAll<HTMLImageElement>('img[data-media-src]'));
+  if (imgs.length === 0) return;
+  await Promise.all(
+    imgs.map(async (img) => {
+      if (img.dataset.mediaLoading === '1') return;
+      const path = img.getAttribute('data-media-src') || '';
+      img.dataset.mediaLoading = '1';
+      const src = await resolveMediaSrc(path);
+      img.removeAttribute('data-media-src');
+      delete img.dataset.mediaLoading;
+      if (src) {
+        img.setAttribute('src', src);
+      } else {
+        img.alt = `${img.alt || mediaName(path)}（图片加载失败）`;
+      }
+    }),
+  );
+}
 
 /** 按行数分块（大文本降级渲染用）— 对齐 Hermes chunkByLines */
 function chunkByLines(text: string, linesPerChunk: number): { text: string; lines: number }[] {
@@ -129,7 +161,13 @@ export default forwardRef<HTMLDivElement, StreamBlocksProps>(function StreamBloc
 
     // 大文本降级：跳过解析管线，直接折叠单换行纯文本显示。
     // 流式中 40k（每 flush 重复解析不可承受）；完成态 100k（一次性也重）。
-    if (text.length > (streaming ? MAX_STREAM_RENDER_CHARS : MAX_FINAL_RENDER_CHARS)) {
+    // 🔴 2026-08-09 修复（send_local_image 乱码事故根因）：含 data:image/ 内联图片的
+    // 文本不降级——base64 长度远超阈值，降级 = 把图片二进制当纯文本显示（“一堆乱码”）。
+    // 图片消息 markdown 结构简单（文本 + img），解析开销可控，不触发卡顿。
+    if (
+      text.length > (streaming ? MAX_STREAM_RENDER_CHARS : MAX_FINAL_RENDER_CHARS) &&
+      !/data:image\//.test(text)
+    ) {
       return { kind: 'plain' as const, body: text.replace(/\n(?!\n)/g, ' ') };
     }
 

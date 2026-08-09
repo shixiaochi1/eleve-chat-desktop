@@ -9,11 +9,9 @@ import FastModeButton from './FastModeButton';
 import WebWindowButton from './WebWindowButton';
 import SlashCommandPopup from './SlashCommandPopup';
 import QueuePanel from './QueuePanel';
-import ImageLightbox from './ImageLightbox';
 import { SendIcon, MicIcon, LoadingIcon } from './Icons';
 import { WakeWordButton } from './WakeWordButton';
 import { cn } from '@/lib/utils';
-import type { AttachedImage } from '@/hooks/useImageAttachments';
 import { useVoice } from '@/hooks/useVoice';
 import { getWsClient } from '@/services/ws-client';
 import { mimeFromExt, arrayBufferToBase64 } from '@/utils/file';
@@ -30,20 +28,10 @@ interface InputAreaProps {
   isStreaming?: boolean;
   portReady?: boolean;
   portVersion?: string;
-  /** 已附加的图片列表（来自 useImageAttachments） */
-  attachedImages?: AttachedImage[];
-  /** 上传中状态（用于显示 loading） */
-  imageUploading?: number;
-  /** 图片上传错误信息 */
-  imageError?: string | null;
   /** 添加图片（粘贴/拖拽/选择时调用） */
   onAddImage?: (file: File) => Promise<void>;
   /** 添加图片（Tauri 本地路径，image.attach 快路径 / remote attach_bytes） */
   onAddImageFromPath?: (path: string) => Promise<void>;
-  /** 移除图片（点击删除按钮时调用） */
-  onRemoveImage?: (id: string) => Promise<void>;
-  /** 清除错误信息 */
-  onClearImageError?: () => void;
   /** 队列键控 profile（对齐 Hermes activeQueueSessionKey） */
   queueProfile?: string;
   /** 当前会话 ID — 附件 RPC 显式传参（禁止 fallback ws-client 全局，profile 切换瞬间全局可能是目标 Agent） */
@@ -59,7 +47,8 @@ interface InputAreaProps {
 /**
  * 输入区 — Hermes 式容器化 Composer（对齐 Hermes Desktop，阶段一）
  *
- * 结构：[图片预览 / 提示] + [透明输入区] + [控制行] 共处一个玻璃质感容器表面
+ * 结构：[透明输入区] + [控制行] 共处一个玻璃质感容器表面
+ * （🔴 2026-08-09 图片附件预览条已移至聊天区底部，InputArea 只保留事件捕获）
  * - 容器表面：.composer-surface（rounded-2xl + border + 玻璃填充，hover/focus-within 梯度反馈）
  * - 控制行：[≡ 命令菜单] [📎 附件] … [高对比圆形发送/停止键]
  * - 发送键：bg-foreground 圆形 + arrow-up（Hermes PRIMARY CTA），空内容置灰，按压缩放
@@ -70,13 +59,13 @@ interface InputAreaProps {
  * - textarea 自动调高 + Enter 发送 / Shift+Enter 换行 / 排队提示
  *
  * 图片附件架构（对齐 Hermes Desktop）：
- * - UI 层：InputArea 只负责事件捕获和渲染预览
+ * - UI 层：InputArea 只负责事件捕获（粘贴/拖拽/选择），预览渲染在聊天区底部（App.tsx）
  * - 状态层：useImageAttachments 管理 attachedImages 状态 + WS 调用
  * - 传输层：ws-client.ts 的 imageAttachBytes/imageDetach
  * - 后端：image.attach_bytes 写入磁盘 + session.attached_images
  *
  * 图片生命周期：用户操作 → onAddImage → useImageAttachments.addImage → ws-client.imageAttachBytes
- *                → 后端存储 → 返回 path → 本地状态更新 → InputArea 预览渲染
+ *                → 后端存储 → 返回 path → 本地状态更新 → 聊天区底部预览渲染（App.tsx）
  * 发送时后端自动 drain：prompt.submit → run_stream_with_trace → 消费 attached_images
  */
 function InputArea({
@@ -86,13 +75,8 @@ function InputArea({
   isStreaming,
   portReady,
   portVersion,
-  attachedImages,
-  imageUploading,
-  imageError,
   onAddImage,
   onAddImageFromPath,
-  onRemoveImage,
-  onClearImageError,
   queueProfile,
   sessionId,
   sessionCwd,
@@ -100,8 +84,6 @@ function InputArea({
   onQueueDelete,
 }: InputAreaProps) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  // 图片大图预览（对齐 Hermes ImageLightbox：点击缩略图 → 遮罩大图 + 下载）
-  const [lightbox, setLightbox] = useState<{ src: string; name?: string } | null>(null);
   // `/` 命令补全 — 共享 hook（与宫格 AgentCardComposer 同一权威源）
   const slash = useSlashAutocomplete({ enabled: !!portReady, refreshKey: portVersion });
   /** 输入框是否有内容 — 驱动发送键的置灰态（仅布尔翻转时触发渲染） */
@@ -562,62 +544,6 @@ function InputArea({
           onEdit={beginQueueEdit}
           onSendNow={(id) => onQueueSendNow?.(id)}
         />
-      )}
-
-      {/* 🔴 2026-08-08 图片附件预览条——消息区左下角（输入框容器之外）：
-          老大要求缩略图显示在消息区左下角而不是输入框里面；
-          对齐 Hermes AttachmentList（composer 上方独立附件条）。
-          点击缩略图 → ImageLightbox 大图预览（对齐 Hermes AttachmentPill）。 */}
-      {attachedImages && attachedImages.length > 0 && (
-        <div className="flex gap-2 pt-1 pb-2 flex-wrap items-start">
-          {attachedImages.map(img => (
-            <div key={img.id} className="relative group">
-              <img
-                src={img.preview}
-                alt={img.name}
-                className="w-16 h-16 object-cover rounded-md border border-border cursor-zoom-in"
-                draggable={false}
-                onClick={() => setLightbox({ src: img.preview, name: img.name })}
-              />
-              <button
-                onClick={() => onRemoveImage?.(img.id)}
-                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive text-primary-foreground rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/90"
-                title="移除图片"
-                aria-label={`Remove ${img.name}`}
-              >
-                ✕
-              </button>
-              <div className="text-xs text-muted-foreground truncate mt-1 max-w-[64px]" title={img.name}>
-                {img.name}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* 图片上传错误提示 */}
-      {imageError && (
-        <div className="flex items-center gap-2 mt-1 mb-2 px-3 py-1.5 rounded-md bg-destructive/10 border border-destructive/30 text-destructive text-xs">
-          <span className="flex-1 truncate">{imageError}</span>
-          <button
-            onClick={onClearImageError}
-            className="shrink-0 hover:opacity-70"
-            aria-label="Dismiss error"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {/* 图片大图预览（对齐 Hermes ImageLightbox：Esc/遮罩关闭 + 下载） */}
-      {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.name} onClose={() => setLightbox(null)} />}
-
-      {/* 上传中指示器 */}
-      {(imageUploading ?? 0) > 0 && (
-        <div className="mt-1 mb-2 text-xs text-muted-foreground flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          上传图片中… ({imageUploading})
-        </div>
       )}
 
       {/* Hermes 式容器表面 — 输入区在上，控制行在下 */}

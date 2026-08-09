@@ -34,6 +34,8 @@ import CardContextGauge from './CardContextGauge';
 import SlashConfirmCard from './SlashConfirmCard';
 import QueuePanel from './QueuePanel';
 import { useImageAttachments } from '@/hooks/useImageAttachments';
+import { useFileAttachments } from '@/hooks/useFileAttachments';
+import { collectDroppedPaths, dragHasPaths } from '@/lib/paths-dnd';
 import { useQueue, updateEntry, type QueuedMessage } from '@/lib/message-queue';
 import type { AgentChatState } from '../hooks/useGridChat';
 
@@ -205,8 +207,19 @@ export const AgentChatCard = memo(function AgentChatCard({
   const stateRef = useRef(state);
   stateRef.current = state;
   const {
-    attachedImages, uploading: imageUploading, addImage, removeImage, clearImages, uploadUnuploaded,
+    attachedImages, uploading: imageUploading, addImage, addImageFromPath, removeImage, clearImages, uploadUnuploaded,
   } = useImageAttachments({ getSessionId: () => stateRef.current.sessionId });
+
+  // 🔴 2026-08-09 文件附件（文件树拖入消息区 → 附件条 pill，对齐 Hermes 附件语义）
+  const {
+    attachedFiles,
+    attaching: fileAttaching,
+    error: fileError,
+    attachPaths,
+    removeFile: removeFileAttachment,
+    clearFiles: clearFileAttachments,
+    clearError: clearFileError,
+  } = useFileAttachments({ getSessionId: () => stateRef.current.sessionId });
 
   // ── 消息虚拟化（对齐单视图 MessageContainer natural-flow 模式）──
   // 上翻加载按钮/空态/流式气泡在虚拟列表外渲染；padding spacers 撑起滚动高度
@@ -288,7 +301,12 @@ export const AgentChatCard = memo(function AgentChatCard({
     // 准备附件元数据 + base64（排队用）
     const queuedAttachments = images.map((img) => ({ id: img.id, name: img.name, size: img.size, preview: img.preview }));
     const dataURLs = images.map((img) => img.preview);
-    onSend(name, text, queuedAttachments.length > 0 ? queuedAttachments : undefined, dataURLs.length > 0 ? dataURLs : undefined, explicitSid);
+
+    // 🔴 2026-08-09 文件附件 ref_text 注入（对齐 Hermes attachment.refText 语义）
+    const fileRefs = attachedFiles.map((f) => f.refText).join(' ');
+    const finalText = fileRefs ? `${fileRefs}\n${text}` : text;
+
+    onSend(name, finalText, queuedAttachments.length > 0 ? queuedAttachments : undefined, dataURLs.length > 0 ? dataURLs : undefined, explicitSid);
     // 🔴 busy 时排队：从 session 分离图片（防下次发送误消费）
     // 🔴 P2: 显式传本 Agent sessionId（禁止 fallback 到 ws-client 全局 sessionId，宫格多 Agent 并发会 detach 错 session）
     if (wasBusy && images.length > 0) {
@@ -300,7 +318,8 @@ export const AgentChatCard = memo(function AgentChatCard({
       }
     }
     if (images.length > 0) clearImages();
-  }, [onSend, name, clearImages, attachedImages, state.status, uploadUnuploaded]);
+    if (attachedFiles.length > 0) clearFileAttachments();
+  }, [onSend, name, clearImages, attachedImages, state.status, uploadUnuploaded, attachedFiles, clearFileAttachments]);
 
   const approval = state.pendingApproval as ApprovalPayload | null;
   const clarify = state.pendingClarify as ClarifyPayload | null;
@@ -363,6 +382,25 @@ export const AgentChatCard = memo(function AgentChatCard({
           if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
         }}
         onDrop={(e) => {
+          // 🔴 2026-08-09 文件树路径拖入 → 附件条（图片走缩略图，文件走 pill）
+          if (dragHasPaths(e.dataTransfer)) {
+            const paths = collectDroppedPaths(e.dataTransfer);
+            if (paths.length > 0) {
+              e.preventDefault();
+              e.stopPropagation();
+              const imagePaths: string[] = [];
+              const filePaths: string[] = [];
+              for (const p of paths) {
+                if (/\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(p)) imagePaths.push(p);
+                else filePaths.push(p);
+              }
+              if (imagePaths.length > 0) {
+                for (const p of imagePaths) void addImageFromPath(p);
+              }
+              if (filePaths.length > 0) void attachPaths(filePaths);
+            }
+            return;
+          }
           const files = Array.from(e.dataTransfer.files);
           const imageFiles = files.filter((f) => f.type.startsWith('image/'));
           if (imageFiles.length === 0) return;
@@ -545,6 +583,11 @@ export const AgentChatCard = memo(function AgentChatCard({
         imageUploading={imageUploading}
         onAddImage={addImage}
         onRemoveImage={removeImage}
+        attachedFiles={attachedFiles}
+        fileAttaching={fileAttaching}
+        fileError={fileError}
+        onRemoveFile={removeFileAttachment}
+        onClearFileError={clearFileError}
         queueEditingId={queueEdit?.entryId ?? null}
         onQueueStep={(dir) => stepQueueEdit(dir, composerRef.current?.getValue() ?? '')}
         onQueueExit={(action) => exitQueueEdit(action, composerRef.current?.getValue() ?? '')}

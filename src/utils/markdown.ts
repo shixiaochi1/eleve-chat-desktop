@@ -173,6 +173,29 @@ export async function loadMarkdownDeps(): Promise<void> {
     };
   };
 
+  // ── 插件 3：本地媒体占位（🔴 2026-08-09 对齐 Hermes MarkdownImageContent）──
+  // <img src="本地路径">（用户/模型直接写 ![](C:\...)）→ 转 data-media-src 占位：
+  // 图片永远不进 markdown 文本流（base64 内联会触发大文本降级/DOMPurify 过滤/
+  // 解析卡顿三连，send_local_image 乱码事故根因），由 StreamBlocks 渲染后
+  // 异步 resolveMediaSrc() 读文件挂载 img.src。网络/data/blob URL 不受影响。
+  // （MEDIA:path 标签不走此管线——MessageBubble 用块级 MediaImage 组件直读，
+  //   对齐 Hermes MediaAttachment，见 utils/media.ts extractMediaRefs）
+  const rehypeLocalMediaPlaceholder = function rehypeLocalMediaPlaceholder() {
+    return (tree: unknown) => {
+      visitParents(tree, 'element', (node: any) => {
+        if (!node || !node.properties || node.tagName !== 'img') return undefined;
+        const src: unknown = node.properties?.src;
+        if (typeof src !== 'string' || src === '') return undefined;
+        if (/^(https?:|data:|#|\/\/)/i.test(src)) return undefined;
+        // 本地路径（C:\... / /home/... / 相对路径）→ 占位，渲染后异步加载
+        node.properties['data-media-src'] = src;
+        node.properties['src'] = undefined;
+        node.properties['alt'] = node.properties['alt'] ?? src;
+        return undefined;
+      });
+    };
+  };
+
   // 构建两套 processor（高亮版 / 无高亮版，流式尾块延迟高亮）
   // allowDangerousHtml：保留 LLM 输出中的原始 HTML（与旧 marked 行为一致），
   // 最终经 DOMPurify 清洗（安全模型不变）。
@@ -183,7 +206,8 @@ export async function loadMarkdownDeps(): Promise<void> {
       .use(remarkMath, { singleDollarTextMath: true })
       .use(remarkRehype, { allowDangerousHtml: true })
       .use(rehypeRichFencePlaceholder)
-      .use(rehypeKatexMemo);
+      .use(rehypeKatexMemo)
+      .use(rehypeLocalMediaPlaceholder);
     if (withHighlight) {
       p = p.use(rehypeHighlight, { languages: langMap, detect: true });
     }
@@ -290,6 +314,10 @@ export function renderMarkdown(text: string, opts: { highlight?: boolean } = {})
       ? DOMPurify!.sanitize(raw, {
           ADD_ATTR: ['target'],
           ADD_URI_SAFE_ATTR: ['src'],
+          // 🔴 2026-08-09 修复（send_local_image 破图）：DOMPurify 默认 URI 白名单
+          // 不含 data: → resolve_media 输出的 data:image/... 内联图片 src 被剥掉。
+          // 仅放行 data:image/（图片 base64），其它 data: 仍拦截。
+          ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix):|data:image\/|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
         })
       : raw;
     return addCopyButtons(safe);

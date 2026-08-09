@@ -112,13 +112,10 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
           点击预览区展开；展开态无 max-h 无内部滚动条 → 自然撑开跟随页面滚动。 */}
       <div
         className={cn(
-          // 🔴 字体颜色（老大 2026-08-05 定调）：与回复正文（text-card-foreground 全强度）
-          // 拉开轻重——思考内容更淡（muted-foreground × 半透明），hover 提升可读性，
-          // 对齐 Hermes disclosure opacity 0.67 → 1.0 语义；思考中（pending）比查看时更淡。
-          'text-xs leading-snug break-words select-text transition-colors',
-          pending
-            ? 'text-muted-foreground/50 hover:text-muted-foreground/80'
-            : 'text-muted-foreground/65 hover:text-muted-foreground/90',
+          // 🔴 字体颜色（老大 2026-08-05 定调 + 2026-08-09 三次调淡）：推理过程文字
+          // 必须比回复正文淡很多。2026-08-09 12:14 定位：内联 color 被子元素覆盖，
+          // 改用 .reasoning-content !important 规则（style.css）强制压制所有子元素。
+          'reasoning-content text-xs leading-snug break-words select-text transition-colors',
           // 折叠态：漏两行 + 光标提示可点击展开
           !open && 'line-clamp-2 cursor-pointer'
         )}

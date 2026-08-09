@@ -1212,6 +1212,24 @@ canvas {
   line-height: 1.65;
   word-break: break-word;
 }
+
+/* 🔴 2026-08-09 推理过程文字颜色（老大三次调淡后最终方案）：
+   内联样式/普通 class 均被子元素覆盖（实测红色验证：组件生效但文字不变色），
+   用 !important 强制压制推理块内所有子元素（markdown p/span/strong/a/code…）。
+   查看时 55% 中灰、思考中 35%——与回复正文（--dt-foreground 全强度）拉开层次。
+   hover 轻微提升可读性（对齐 Hermes disclosure opacity 0.67→1.0 语义）。 */
+.reasoning-content,
+.reasoning-content * {
+  color: rgba(120, 120, 125, 0.55) !important;
+}
+.reasoning-content:hover,
+.reasoning-content:hover * {
+  color: rgba(120, 120, 125, 0.8) !important;
+}
+.reasoning-content .code-block-header,
+.reasoning-content .code-block-header * {
+  color: inherit !important;
+}
 .prose > :first-child { margin-top: 0; }
 .prose > :last-child { margin-bottom: 0; }
 

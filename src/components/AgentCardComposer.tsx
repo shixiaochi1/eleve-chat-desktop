@@ -26,6 +26,8 @@ import { WakeWordButton } from './WakeWordButton';
 import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
 import { useVoice } from '@/hooks/useVoice';
 import type { AttachedImage } from '@/hooks/useImageAttachments';
+import type { AttachedFile } from '@/hooks/useFileAttachments';
+import { FileText } from 'lucide-react';
 
 /** 输入框向上撑大的最大高度（px），超出内部滚动 */
 const MAX_INPUT_HEIGHT = 120;
@@ -43,6 +45,12 @@ interface AgentCardComposerProps {
   imageUploading: number;
   onAddImage: (file: File) => Promise<unknown>;
   onRemoveImage: (id: string) => Promise<void>;
+  /** 🔴 2026-08-09 文件附件（文件树拖入 → pill，对齐 Hermes AttachmentPill 文件分支） */
+  attachedFiles?: AttachedFile[];
+  fileAttaching?: number;
+  fileError?: string | null;
+  onRemoveFile?: (id: string) => void;
+  onClearFileError?: () => void;
   /** 队列编辑状态（对齐 Hermes stepQueuedEdit / exitQueuedEdit） */
   queueEditingId?: string | null;
   onQueueStep?: (direction: -1 | 1) => { text: string; done: boolean } | null;
@@ -68,6 +76,11 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
   imageUploading,
   onAddImage,
   onRemoveImage,
+  attachedFiles,
+  fileAttaching,
+  fileError,
+  onRemoveFile,
+  onClearFileError,
   queueEditingId,
   onQueueStep,
   onQueueExit,
@@ -323,6 +336,36 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
           ))}
           {imageUploading > 0 && (
             <span className="inline-block w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          )}
+        </div>
+      )}
+
+      {/* 🔴 2026-08-09 文件附件 pill（文件树拖入，对齐 Hermes AttachmentPill 文件分支） */}
+      {((attachedFiles && attachedFiles.length > 0) || (fileAttaching ?? 0) > 0 || !!fileError) && (
+        <div className="flex gap-1.5 flex-wrap items-center mb-1.5">
+          {attachedFiles?.map((f) => (
+            <div
+              key={f.id}
+              className="group flex items-center gap-1 px-2 py-1 rounded-md border border-border bg-card/70 text-[11px] max-w-[200px]"
+              title={f.path}
+            >
+              <FileText size={12} className="shrink-0 text-muted-foreground" />
+              <span className="truncate min-w-0 flex-1">{f.name}</span>
+              <button
+                onClick={() => onRemoveFile?.(f.id)}
+                className="shrink-0 text-muted-foreground/60 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                title="移除附件"
+                aria-label={`Remove ${f.name}`}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          {(fileAttaching ?? 0) > 0 && (
+            <span className="inline-block w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          )}
+          {fileError && (
+            <span className="text-[10px] text-destructive truncate max-w-[180px]">{fileError}</span>
           )}
         </div>
       )}

@@ -1,6 +1,6 @@
-import { useState, useCallback, useEffect, useRef, useDeferredValue } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
-import { resolveMediaText } from '../utils/media';
+import { extractMediaRefs, resolveMediaSrc, mayHaveLocalImage } from '../utils/media';
 import { formatMessageTime } from '../utils/time';
 import { CopyIcon, CheckIcon, TrashIcon } from './Icons';
 import { cn } from '@/lib/utils';
@@ -21,12 +21,48 @@ interface MessageBubbleProps {
 }
 
 /**
- * 检查文本是否可能包含需要解析的本地图片
+ * 本地图片块级渲染（🔴 2026-08-09 方案 C，对齐 Hermes MediaAttachment）：
+ * 异步读文件 → img.src（data URL，不进 markdown 文本），加载中占位，
+ * 失败显示文件名。点击放大走 MessageBubble 的 zoomedSrc lightbox。
  */
-function mayHaveLocalImage(text?: string): boolean {
-  if (!text) return false;
-  if (text.includes('MEDIA:')) return true;
-  return /!\[[^\]]*\]\((?!https?:|data:|#|\/\/)[^)]+\)/.test(text);
+function MediaImage({ path, name, onZoom }: { path: string; name: string; onZoom: (src: string) => void }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSrc(null);
+    setFailed(false);
+    resolveMediaSrc(path)
+      .then((s) => { if (!cancelled) { if (s) setSrc(s); else setFailed(true); } })
+      .catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, [path]);
+
+  if (failed) {
+    return (
+      <div className="text-xs text-muted-foreground border border-dashed border-border rounded-md px-3 py-2">
+        {name}（图片加载失败）
+      </div>
+    );
+  }
+  if (!src) {
+    return (
+      <div className="text-xs text-muted-foreground/70 animate-pulse flex items-center gap-1.5 py-1">
+        <span className="inline-block w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        加载图片：{name}
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={name}
+      title={name}
+      className="max-w-[320px] max-h-[240px] object-contain rounded-lg border border-border cursor-zoom-in"
+      onClick={() => onZoom(src)}
+    />
+  );
 }
 
 /**
@@ -40,26 +76,20 @@ function mayHaveLocalImage(text?: string): boolean {
  */
 export default function MessageBubble({ type, content, streaming, timestamp, messageId, onDelete, sessionId }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
-  const [resolvedMedia, setResolvedMedia] = useState<string | null>(null);
   const [zoomedSrc, setZoomedSrc] = useState<string | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
 
-  // 🔴 P2-3: 本地图片异步解析（仅非流式且可能含本地图时）。
-  // 旧实现所有 content 都经 displayContent state 中转 → 完成首帧慢一拍（闪旧内容/二次重排）。
-  // 新实现：无图路径 displayContent 直接由 props 派生（与渲染同帧）；仅图片解析结果走 state 覆盖。
-  useEffect(() => {
-    if (streaming || !mayHaveLocalImage(content ?? "")) {
-      setResolvedMedia(null);
-      return;
-    }
-    let cancelled = false;
-    resolveMediaText(content ?? "").then((resolved) => {
-      if (!cancelled) setResolvedMedia(resolved);
-    });
-    return () => { cancelled = true; };
+  // 🔴 2026-08-09 本地媒体解析（方案 C：块级 MediaImage 组件，不走 markdown 管线）：
+  // MEDIA:path 独立行 → 从文本提取 → 气泡文本下方渲染 React 图片组件
+  // （对齐 Hermes MediaAttachment 块级组件）。绕开 StreamBlocks 预处理/插件/
+  // DOMPurify——send_local_image 显示异常已证明 markdown 管线链路不可靠。
+  const mediaRefs = useMemo(() => {
+    if (streaming) return { clean: content ?? "", refs: [] as { path: string; name: string }[] };
+    if (!mayHaveLocalImage(content ?? "")) return { clean: content ?? "", refs: [] as { path: string; name: string }[] };
+    return extractMediaRefs(content ?? "");
   }, [content, streaming]);
 
-  const displayContent = (!streaming && resolvedMedia != null) ? resolvedMedia : (content ?? "");
+  const displayContent = mediaRefs.clean;
 
   // 🔴 对齐 Hermes：流式平滑揭示 + 渲染降级。
   // hooks 必须在所有 early return 之前（Rules of Hooks）；
@@ -157,6 +187,15 @@ export default function MessageBubble({ type, content, streaming, timestamp, mes
     <div ref={enterRef} className="group w-fit max-w-[85%] min-w-0 select-text">
       <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed border border-border shadow-sm overflow-hidden">
         <StreamBlocks ref={textRef} text={deferredContent} streaming={!!streaming} sessionId={sessionId} />
+        {/* 🔴 2026-08-09 本地媒体块级渲染（对齐 Hermes MediaAttachment）：
+            不走 markdown 管线，React 组件直读文件 → img（100% 可控） */}
+        {mediaRefs.refs.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {mediaRefs.refs.map((ref, i) => (
+              <MediaImage key={`${ref.path}-${i}`} path={ref.path} name={ref.name} onZoom={setZoomedSrc} />
+            ))}
+          </div>
+        )}
       </div>
       {/* 操作栏 + 时间 — 流式/非流式同结构，消除切换抖动 */}
       <div className="flex items-center gap-1.5 mt-1 justify-between">
