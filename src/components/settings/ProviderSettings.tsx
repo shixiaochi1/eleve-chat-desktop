@@ -165,7 +165,7 @@ export default function ProviderSettings({
               />
             </div>
             <div className="grid gap-1">
-              <label className="text-xs text-muted-foreground">上下文</label>
+              <label className="text-xs text-muted-foreground">上下文大小</label>
               <Input
                 className="h-7.5 text-xs"
                 type="text"

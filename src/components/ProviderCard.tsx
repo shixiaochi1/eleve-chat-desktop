@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Eye, EyeOff, Trash2, Plus, X, KeyRound, Globe, Cpu } from 'lucide-react';
+import { Eye, EyeOff, Trash2, Plus, X, KeyRound, Globe, Cpu, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -280,7 +280,7 @@ export default function ProviderCard({
                 type="text"
                 inputMode="numeric"
                 className={cn('h-7.5 w-[100px] text-xs')}
-                placeholder="上下文"
+                placeholder="上下文大小"
                 title="上下文窗口大小（tokens），留空默认 128000"
                 value={newCtx}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewCtx(e.target.value)}
@@ -309,12 +309,12 @@ export default function ProviderCard({
             )}
           </div>
 
-          {/* 删除按钮 + 保存按钮（🔴 2026-08-10 统一尺寸） */}
+          {/* 删除按钮 + 保存按钮（🔴 2026-08-10 统一：组件默认高 + min-w 等宽 + 双图标） */}
           <div className={cn('flex items-center justify-between pt-3 border-t border-border/60')}>
             <Button
               variant="destructive"
               size="sm"
-              className={cn('h-7.5 px-3 text-xs')}
+              className={cn('min-w-24 text-xs')}
               onClick={() => onDelete(provider.id)}
               type="button"
             >
@@ -324,10 +324,11 @@ export default function ProviderCard({
             <Button
               variant="default"
               size="sm"
-              className={cn('h-7.5 px-4 text-xs')}
+              className={cn('min-w-24 text-xs')}
               onClick={onSave}
               type="button"
             >
+              <Check size={13} strokeWidth={2} />
               保存
             </Button>
           </div>
