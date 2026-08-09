@@ -377,7 +377,8 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       .filter(Boolean)
       .map(name => ({
         name,
-        context_length: Number.isFinite(ctx) && ctx > 0 ? ctx : 128000,
+        // 🔴 2026-08-10 修：留空不再强制 128000（0 = 未知，前端显示 "—"）
+        context_length: Number.isFinite(ctx) && ctx > 0 ? ctx : 0,
         max_output: 16384, // UI 不暴露输出字段（老大 2026-08-10）
       }));
     const provider: Provider = {

@@ -116,7 +116,9 @@ export default function ProviderCard({
     const ctx = parseInt(newCtx, 10);
     onAddModel(provider.id, {
       name,
-      context_length: Number.isFinite(ctx) && ctx > 0 ? ctx : 128000,
+      // 🔴 2026-08-10 修：留空不再强制 128000（显示 "—" 表示未知/未配置，
+      // 运行时上下文由 eleve_model 独立解析链兜底，池值仅信息性展示）
+      context_length: Number.isFinite(ctx) && ctx > 0 ? ctx : 0,
       // UI 不暴露输出字段（老大 2026-08-10）：后端保留默认 16384
       max_output: 16384,
     });
@@ -250,7 +252,7 @@ export default function ProviderCard({
                 provider.models.map(m => (
                   <div key={m.name} className={cn('flex items-center gap-2 px-2.5 py-1.5 group/row')}>
                     <span className={cn('flex-1 min-w-0 truncate text-xs text-foreground')}>{m.name}</span>
-                    <span className={cn('shrink-0 rounded-md bg-primary/8 px-1.5 py-0.5 text-[10px] font-medium text-primary')} title={`上下文窗口 ${m.context_length} tokens`}>
+                    <span className={cn('shrink-0 rounded-md bg-primary/8 px-1.5 py-0.5 text-[10px] font-medium text-primary')} title={m.context_length > 0 ? `上下文窗口 ${m.context_length} tokens` : '上下文大小未配置（留空时运行时自动探测）'}>
                       ctx {fmtTokens(m.context_length)}
                     </span>
                     <button
