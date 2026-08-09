@@ -29,6 +29,7 @@ mod preview_console;
 mod preview_file_watch;
 mod preview_webview;
 mod pty;
+mod clipboard;
 
 pub use preview_console::PreviewConsoleState;
 pub use preview_file_watch::PreviewFileWatchManager;
@@ -962,6 +963,9 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_dispose,
+            // 剪贴板操作（对齐 Hermes Electron clipboard API）
+            clipboard::write_clipboard,
+            clipboard::read_clipboard,
         ])
         .manage(pty::PtyManager::default())
         .setup(|app| {

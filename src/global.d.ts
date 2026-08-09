@@ -13,6 +13,7 @@ declare global {
     }
     eleveDesktop?: {
       writeClipboard: (text: string) => Promise<void>
+      readClipboard: () => Promise<string>
     }
   }
 

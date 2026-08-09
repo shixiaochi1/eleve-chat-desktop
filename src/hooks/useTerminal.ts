@@ -31,6 +31,7 @@ import {
   applyTerminalFontFamily,
   useTerminalFontConfigured,
 } from '@/lib/terminal-font';
+import { writeClipboardText } from '@/components/ui/copy-button';
 
 interface UseTerminalOptions {
   lazy?: boolean;
@@ -166,7 +167,7 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
           event.preventDefault();
           if (intent === 'copy') {
             const text = term.getSelection();
-            void navigator.clipboard.writeText(text).catch(() => {
+            void writeClipboardText(text).catch(() => {
               // 剪贴板不可用 — 选区保留可重试（Hermes 同款）
             });
             term.clearSelection();
@@ -174,7 +175,9 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
           }
           void (async () => {
             try {
-              const text = await navigator.clipboard.readText();
+              const text = window.eleveDesktop?.readClipboard 
+                ? await window.eleveDesktop.readClipboard()
+                : await navigator.clipboard.readText();
               if (text) term.paste(text);
             } catch { /* 读剪贴板被拒（无焦点/权限）静默 */ }
           })();

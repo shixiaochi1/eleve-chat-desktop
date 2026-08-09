@@ -1455,11 +1455,14 @@ export default function App() {
                 {rightTab === 'artifacts' && (
                   <ArtifactPanel sessionId={sess.sessionId} onSwitchSession={handleSwitchSession} />
                 )}
-                <div className={rightTab === 'terminal' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}>
-                  <TerminalPanel cwd={sessionCwd} sessionId={sess.sessionId ?? undefined} />
-                </div>
               </>
             )}
+            {/* 🔴 终端常驻挂载：始终渲染（对齐 Hermes PersistentTerminal
+                "shell 存活于隐藏" 语义）——rightOpen=false 或 rightTab≠terminal 时
+                CSS hidden，xterm/PTY 不销毁，重开面板秒恢复 */}
+            <div className={rightOpen && rightTab === 'terminal' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}>
+              <TerminalPanel cwd={sessionCwd} sessionId={sess.sessionId ?? undefined} />
+            </div>
           </Pane>
         </PaneShell>
         </ErrorBoundary>

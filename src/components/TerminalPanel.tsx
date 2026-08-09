@@ -221,6 +221,71 @@ const SNAPSHOT_THROTTLE_MS = 750;
 /** 持久化的 scrollback 行数（对齐 Hermes PERSISTENT_SESSION_SCROLLBACK=200） */
 const SNAPSHOT_SCROLLBACK = 200;
 
+/**
+ * 清理 revive 快照：去除尾部 idle prompt，防止每次重启多一行 prompt
+ * 对齐 Hermes cleanReviveSnapshot
+ */
+function cleanReviveSnapshot(serialized: string): string {
+  const lines = serialized.split(/\r?\n/);
+  
+  // 去除尾部空行
+  while (lines.length && !lines[lines.length - 1].trim()) {
+    lines.pop();
+  }
+  
+  if (lines.length === 0) return '';
+  
+  // 找到最后一个非空行，判断是否是 prompt
+  // 简化版：如果最后几行看起来像 prompt（短、无命令输出），就删掉
+  // Hermes 版更复杂，这里先做基础清理
+  const lastIdx = lines.length - 1;
+  const lastLine = lines[lastIdx];
+  
+  // 如果最后一行很短且包含 $ 或 > 或 %，可能是 prompt
+  if (lastLine.length < 80 && /[$>%#]\s*$/.test(lastLine)) {
+    lines.pop();
+  }
+  
+  return lines.join('\r\n');
+}
+
+/**
+ * 检测 revive buffer 是否只有 idle prompt（无真实历史）
+ * 对齐 Hermes isIdlePromptOnly
+ */
+function isIdlePromptOnly(serialized: string): boolean {
+  if (!serialized.trim()) return true;
+  const lines = serialized.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return true;
+  // 如果所有行都相似（都是 prompt），认为是 idle
+  const first = lines[0];
+  return lines.every(l => l === first || l.length < 20);
+}
+
+/**
+ * 清理 shell 启动时的初始空行和 prompt gap
+ * 对齐 Hermes stripInitialPromptGap
+ */
+function stripInitialPromptGap(data: string): string {
+  // 移除开头的空白行和常见的 shell 初始化输出
+  return data.replace(/^(\s*\r?\n)+/, '');
+}
+
+/**
+ * 应用正在关闭标志（对齐 Hermes appTearingDown）
+ * 防止在应用退出时清理 PTY 状态，避免重启后丢失
+ */
+let appTearingDown = false;
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    appTearingDown = true;
+  });
+  window.addEventListener('pagehide', () => {
+    appTearingDown = true;
+  });
+}
+
 function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boolean }) {
   // ── 选区入聊天（对齐 Hermes selection.ts）──
   const [selection, setSelection] = useState('');
@@ -230,6 +295,8 @@ function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boo
   /** 用户是否曾输入（对齐 Hermes hasSessionActivityRef：门控 revive 快照，
    *  idle tab 永不重存 → 防每次重启多一行 prompt 的膨胀） */
   const hasSessionActivityRef = useRef(false);
+  /** 是否正在剥离初始 prompt gap（对齐 Hermes stripLeading） */
+  const stripLeadingRef = useRef(true);
 
   const term = useTerminal({
     lazy: true,
@@ -313,7 +380,9 @@ function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boo
         // revive：恢复上次快照屏幕（重启 → 新 shell 垫底，VS Code parity；
         // 重挂载 → 补齐 detach 期间不可见的屏幕状态），live 输出随后追加
         const reviveBuffer = getTerminalsSnapshot().find((t) => t.id === entry.id)?.reviveBuffer;
-        if (reviveBuffer) term.write?.(reviveBuffer);
+        if (reviveBuffer && !isIdlePromptOnly(reviveBuffer)) {
+          term.write?.(reviveBuffer);
+        }
 
         // 输入绑定（每次挂载都是新 xterm 实例，无需防重复）
         const xterm = term.terminalRef.current as
@@ -343,6 +412,11 @@ function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boo
         }
 
         detach = attachPtyWriter(entry.id, (data) => {
+          // 首次输出时 strip 初始 prompt gap（对齐 Hermes armedWrite）
+          if (stripLeadingRef.current) {
+            data = stripInitialPromptGap(data);
+            if (data.trim()) stripLeadingRef.current = false;
+          }
           term.write?.(data);
           // 输出到达 → 节流快照（revive buffer）
           // 🔴 activity 门控（对齐 Hermes hasSessionActivityRef）：无用户输入的
@@ -356,7 +430,8 @@ function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boo
               const addon = await getSerializeAddon(t);
               if (addon) {
                 try {
-                  updateTerminalReviveBuffer(entry.id, addon.serialize({ scrollback: SNAPSHOT_SCROLLBACK }));
+                  const snapshot = addon.serialize({ scrollback: SNAPSHOT_SCROLLBACK });
+                  updateTerminalReviveBuffer(entry.id, cleanReviveSnapshot(snapshot));
                 } catch { /* 序列化失败静默 */ }
               }
             }, SNAPSHOT_THROTTLE_MS);
@@ -364,7 +439,9 @@ function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boo
         });
 
         // shell 退出 → 关 tab（对齐 Hermes onExit: drop the tab like a real terminal）
+        // 🔴 appTearingDown 保护：应用退出时不清理 tab，避免重启后丢失
         unsubExit = onPtyExit(entry.id, () => {
+          if (appTearingDown) return;
           void disposePtyForTab(entry.id);
           closeTerminal(entry.id);
         });
