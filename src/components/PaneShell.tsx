@@ -75,6 +75,19 @@ interface PaneCollapseBtnProps {
   className?: string;
 }
 
+/**
+ * v7 动态拖拽范围（2026-08-09 老大“右侧拖拽失效”根因修复）：
+ * 容量 = 窗口 - 左列 - 聊天区保底 - 间距32；上限 = min(800, 容量)（物理容量，拖宽不超窗口），
+ * 下限 = 容量≥320 ? 320 : 0（容量不足时放宽，抽屉仍可收窄）。
+ * rAF 派生 / React 渲染 / 拖拽 clamp 三处共用，保证永不超容量 → 抽屉不裁切 → 热区不错位。
+ */
+function computeRightLimits(winW: number, leftW: number, minMainW: number, minRightW: number, maxRightW: number) {
+  const capacity = Math.max(0, winW - leftW - minMainW - 32);
+  const hi = Math.min(maxRightW, capacity);
+  const lo = capacity >= minRightW ? minRightW : 0;
+  return { lo, hi };
+}
+
 const PaneShellContext = createContext<PaneShellContextValue | null>(null);
 
 /**
@@ -167,6 +180,14 @@ export default function PaneShell({
     const tick = () => {
       raf = 0;
       const w = window.innerWidth;
+      // 🔴🔴 v7 动态拖拽范围（2026-08-09 老大“右侧拖拽失效”根因修复）：
+      //   v6 主列 minmax(480, calc) 保底 → 左列+480+抽屉宽+间距 > 窗口时右抽屉
+      //   溢出被容器裁切，而热区按理想宽度（rightW+4）定位 → 悬在聊天卡内部 →
+      //   间隙处没有热区 → 拖不到。修复：三处共用 computeRightLimits（容量感知）→
+      //   抽屉永不超过物理容量（窗口缩小时自动收窄），热区实测永远贴真实间隙。
+      const { lo, hi } = computeRightLimits(w, widthRef.current.left, minMainWidth, minRightWidth, maxRightWidth);
+      limitsRef.current.minR = lo;
+      limitsRef.current.maxR = hi;
       if (w !== lastW) {
         lastW = w;
         if (!draggingRef.current && rightOpenRef.current) {
@@ -178,19 +199,37 @@ export default function PaneShell({
             );
             widthRef.current.right = right;
             el.style.setProperty('--pane-right-width', `${right}px`);
-            // 🔴 v6.1：resizer 热区位置同步跟随（窗口缩放零 React 渲染 → 热区实时）
-            el.style.setProperty('--pane-right-resizer-x', `${right + 4}px`);
           }
+        }
+      }
+      // 🔴 v7 热区实测（同一事故根因）：抽屉被裁时理论定位错位，每帧实测右抽屉
+      //   实际渲染位置（getBoundingClientRect 反映裁切后真实左缘）→ 热区永远贴间隙：
+      //   间隙中心 = 抽屉左缘 - gap/2(4px)；热区 16px 中心对间隙中心 →
+      //   right（距容器右缘）= 容器右缘 - (抽屉左缘 - 4) = cr.right - dr.left - 4。
+      //   React 渲染不再写该变量（composedStyle 移除），rAF 独家权威，无 diff 打架。
+      const drawer = el.querySelector('[data-pane-side="right"]');
+      if (drawer && !draggingRef.current) {
+        const dr = drawer.getBoundingClientRect();
+        if (dr.width > 0) {
+          const cr = el.getBoundingClientRect();
+          el.style.setProperty('--pane-right-resizer-x', `${cr.right - dr.left - 4}px`);
         }
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [minRightWidth, maxRightWidth, minMainWidth]);
   const derivedRight = rightOpen
     ? rightAnchor
-      ? Math.max(minRightWidth, Math.min(maxRightWidth, rightAnchor.rightW + (window.innerWidth - rightAnchor.winW)))
+      ? (() => {
+          // 🔴 v7：派生必须用动态容量（容量感知），不能用固定 320/800——
+          //   拖拽收窄到容量内后 React 重渲染若按旧常量 clamp 会回弹到 320（实测回弹 bug）
+          const { lo, hi } = computeRightLimits(
+            window.innerWidth, parseFloat(leftWidth) || 260, minMainWidth, minRightWidth, maxRightWidth,
+          );
+          return Math.max(lo, Math.min(hi, rightAnchor.rightW + (window.innerWidth - rightAnchor.winW)));
+        })()
       : parseFloat(rightWidth) || 200
     : 0;
   // 渲染同步 widthRef（拖拽中保留 applyDrag 实时值，防基准被重置）
@@ -199,6 +238,12 @@ export default function PaneShell({
       left: parseFloat(leftWidth) || 260,
       right: rightOpen ? derivedRight : parseFloat(rightWidth) || 200,
     };
+    // 🔴 v7：渲染同步动态拖拽范围（与 rAF 同公式，React 渲染后立即生效不用等下一帧）
+    const { lo, hi } = computeRightLimits(
+      window.innerWidth, widthRef.current.left, minMainWidth, minRightWidth, maxRightWidth,
+    );
+    limitsRef.current.minR = lo;
+    limitsRef.current.maxR = hi;
   }
 
   const handleResizerDown = useCallback((side: 'left' | 'right', e: React.PointerEvent) => {
@@ -313,8 +358,7 @@ export default function PaneShell({
     gridTemplateColumns: gridTemplate,
     '--pane-left-width': `${widthRef.current.left}px`,
     '--pane-right-width': `${widthRef.current.right}px`,
-    // 🔴 v6.1：resizer 热区 x 基准（渲染时同步，rAF 每帧覆写实时值）
-    '--pane-right-resizer-x': `${widthRef.current.right + 4}px`,
+    // 🔴 v7：--pane-right-resizer-x 由 rAF 每帧实测独家管理（React 不写，防 diff 覆盖实测值）
   } as React.CSSProperties;
 
   const contextValue = useMemo(() => ({
@@ -373,6 +417,7 @@ export default function PaneShell({
           <div
             className="absolute top-0 bottom-0 z-10 w-[16px] cursor-col-resize"
             // 🔴 v6.1：位置用 CSS 变量（rAF 每帧同步）→ 窗口缩放零 React 渲染也实时跟随
+            // 🔴 v7：变量由 rAF 每帧实测右抽屉实际 rect 推导 → 抽屉被裁切时热区仍贴真实间隙
             style={{ right: 'var(--pane-right-resizer-x)' }}
             onPointerDown={(e: React.PointerEvent) => handleResizerDown('right', e)}
           />
