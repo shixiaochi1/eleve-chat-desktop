@@ -40,6 +40,7 @@ export function usePromptActions({
   currentProvider,
   currentProfile,
   onSlashConfirm,
+  getNewSessionCwd,
 }: {
   sess: SessionManagerHandle
   genId: () => string
@@ -53,6 +54,10 @@ export function usePromptActions({
   currentProvider?: string
   currentProfile: string
   onSlashConfirm?: (data: { confirmId: string; command: string; description: string }) => void
+  /** 🔴 2026-08-09 新会话 cwd（对齐 Hermes createBackendSessionForSend 的
+   *  workspaceTarget/currentCwd 链）：无会话发送首条消息时决定新建会话的工作目录——
+   *  项目 scope（进入项目后新聊天落项目）→ remote 记忆；null/空 → 不传 cwd */
+  getNewSessionCwd?: () => string | null
 }): {
   handleSend: (text: string, attachments?: QueuedAttachment[], attachmentDataURLs?: string[]) => void
   handleAbort: () => void
@@ -309,7 +314,7 @@ export function usePromptActions({
     const wsClient = getWsClient();
     await wsClient.ensureConnected(10000);
 
-    const sessionId = sess.sessionId;
+    let sessionId = sess.sessionId;
     const submitLockKey = sessionId || '__pending_new__';
     if (_submitInFlight.has(submitLockKey)) {
       console.warn('[handleSend] submitInFlight guard: already submitting for', submitLockKey);
@@ -317,6 +322,31 @@ export function usePromptActions({
       return;
     }
     _submitInFlight.add(submitLockKey);
+
+    // 🔴 2026-08-09 对齐 Hermes createBackendSessionForSend：无会话发送首条消息前
+    // 先 session.create（带 cwd），再 submit——后端 prompt.submit 自动创建的会话
+    // 不收 cwd 参数，纯文本首条消息会落后端 resolve 链（DB 无烙印 → 启动目录）=
+    // 进入项目后主区新聊天落点错误（跳 home 同族）。cwd 链（Hermes 同款）：
+    //   项目 scope（进入项目钻取时设置）→ remote 记忆 → 不传（后端链）
+    if (!sessionId) {
+      const cwd = getNewSessionCwd?.()?.trim() || '';
+      const ws = getWsClient();
+      try {
+        const created = await ws.sessionCreate({
+          profile: currentProfile,
+          ...(cwd ? { cwd } : {}),
+        });
+        sess.setSessionId(created.session_id);
+        ws.switchSession(created.session_id);
+        sessionId = created.session_id;
+      } catch (err) {
+        // 对齐 Hermes: 建会话失败 → 中止发送
+        console.error('[handleSend] sessionCreate failed, aborting send:', err);
+        _submitInFlight.delete(submitLockKey);
+        if (!wasBusy) isSendingRef.current = false;
+        return;
+      }
+    }
 
     if (sessionId && !sess.titles[sessionId]) {
       sess.setTitle(sessionId, text.slice(0, 30));
@@ -338,7 +368,7 @@ export function usePromptActions({
     addDebugEvent('text', `user: ${text.slice(0, 60)}`);
 
     try {
-      await send(text, sessionId as null | undefined, modelOpts);
+      await send(text, sessionId, modelOpts);
     } finally {
       _submitInFlight.delete(submitLockKey);
     }
@@ -349,7 +379,7 @@ export function usePromptActions({
     if (sess.freshDraftReady) {
       sess.setFreshDraftReady(false);
     }
-  }, [sess, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, currentModel, currentProvider, currentProfile]);
+  }, [sess, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, currentModel, currentProvider, currentProfile, getNewSessionCwd]);
 
   // ── abort ──
   const handleAbort = useCallback(() => {

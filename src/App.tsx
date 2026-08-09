@@ -15,6 +15,8 @@ import { useGatewayHealth } from './hooks/useGatewayHealth';
 import { useMessageStream } from './hooks/useMessageStream';
 import { usePromptActions } from './hooks/usePromptActions';
 import { useImageAttachments } from './hooks/useImageAttachments';
+import { useFileAttachments } from './hooks/useFileAttachments';
+import { dragHasPaths, collectDroppedPaths } from '@/lib/paths-dnd';
 import { useSessionActions } from './hooks/useSessionActions';
 import { onWakeDetected } from './lib/wake-events';
 import useModels from './hooks/useModels';
@@ -30,7 +32,7 @@ import { getWsClient, setWsActiveProfile, type SessionCreateResponse } from './s
 import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer, loadProfilePointers, saveProfilePointer, removeProfilePointer } from './utils/session';
 import { notifyError } from './utils/notifications';
 import type { ChatMessage } from './types';
-import { Minus, Square, X } from 'lucide-react';
+import { Minus, Square, X, FileText } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 import CredentialCard from './components/CredentialCard';
 import { ThemeProvider } from './themes/index';
@@ -55,6 +57,7 @@ import PaneShell, { Pane, PaneMain, PaneCollapseBtn } from './components/PaneShe
 import FileBrowserPanel from './components/FileBrowserPanel';
 import TerminalPanel from './components/TerminalPanel';
 import PreviewCenter from './components/preview/PreviewCenter';
+import ImageLightbox from './components/ImageLightbox';
 import { initPreviewEvents } from '@/lib/preview-events';
 import { usePaneOpenRequest, getPreviewStoreState, closeTab as closePreviewTab } from '@/store/preview';
 import ArtifactPanel from './components/ArtifactPanel';
@@ -385,6 +388,14 @@ export default function App() {
   const [sessionCwd, setSessionCwd] = useState('');
   useEffect(() => { setSessionCwd(''); }, [sess.sessionId]);
 
+  // 🔴 2026-08-09 项目 scope（对齐 Hermes $projectScope / workspaceTarget）：
+  // 进入项目钻取时设置（新会话落点 = 项目根目录），退出钻取清除。
+  // Hermes 同款：scope 只决定"新聊天落在哪"，不改文件面板 cwd（那是
+  // syncProjectCwd/session.info 的职责）。ref 镜像供 usePromptActions 稳定读取。
+  const [projectScopeCwd, setProjectScopeCwd] = useState<string | null>(null);
+  const projectScopeCwdRef = useRef<string | null>(null);
+  projectScopeCwdRef.current = projectScopeCwd;
+
   // 🔴 Remote 记忆（对齐 Hermes setCurrentCwd → persistString workspaceCwdKey）：
   // remote 模式下会话 cwd 变化 → 按 baseUrl+profile 记忆，未显式指定目录的
   // 新会话复用（handleSend/AgentCard 建会话时消费）
@@ -420,6 +431,20 @@ export default function App() {
       setSessionCwd(path);
     }
   }, [sess.sessionId]);
+
+  // 🔴 2026-08-09 进入项目（对齐 Hermes onEnterProject → syncProjectCwd + enterProject）：
+  //   ① 文件面板切到项目根目录（setSessionCwd = Hermes setCurrentCwd，临时显示，
+  //      下次 session.info 覆盖回会话绑定值——Hermes 同款）
+  //   ② 设置项目 scope：此后无会话新建聊天落项目根目录（Hermes $newChatWorkspaceTarget /
+  //      resolveNewSessionCwd 链）；退出钻取（handleBack）清除
+  const handleProjectEntered = useCallback((path: string) => {
+    if (!path) return;
+    setSessionCwd(path);
+    setProjectScopeCwd(path);
+  }, []);
+  const handleProjectExited = useCallback(() => {
+    setProjectScopeCwd(null);
+  }, []);
   useEffect(() => {
     return initPreviewEvents({
       getFocusedSessionId: () => focusedSessionIdRef.current,
@@ -822,6 +847,17 @@ export default function App() {
     })(),
     onSlashConfirm: (data) => setActiveSlashConfirm(data),
     currentProfile,
+    // 🔴 2026-08-09 新会话 cwd：项目 scope 优先（进入项目后新聊天落项目），
+    // 否则 remote 记忆（对齐 Hermes workspaceTarget → remembered 链）
+    getNewSessionCwd: () => {
+      const scope = projectScopeCwdRef.current;
+      if (scope) return scope;
+      const conn = loadConnection();
+      if (isRemoteMode(conn) && conn.baseUrl) {
+        return getRememberedWorkspaceCwd({ baseUrl: conn.baseUrl, profile: currentProfile }) || null;
+      }
+      return null;
+    },
   });
 
   // 🔴 P1: 宫格模式 CommandCenter（CMD+K）命令执行路由进宫格（写入 per-agent 状态槽，非不可见的 zustand store）
@@ -848,6 +884,22 @@ export default function App() {
     uploadUnuploaded,
   } = useImageAttachments({ getSessionId: () => sess.sessionId });
 
+  // 🔴 2026-08-09 文件附件状态管理（右侧文件树拖文件到聊天区 → 附件条 pill）：
+  // 对齐 Hermes uploadComposerAttachment 文件分支——file.attach staging + ref_text
+  // 发送时注入 prompt 文本（@file:相对路径）
+  const {
+    attachedFiles,
+    attaching: fileAttaching,
+    error: fileError,
+    attachPaths,
+    removeFile: handleRemoveFile,
+    clearFiles: clearFilesAttachment,
+    clearError: clearFileError,
+  } = useFileAttachments({ getSessionId: () => sess.sessionId });
+
+  // 图片大图预览（对齐 Hermes ImageLightbox：聊天区缩略图点击 → 遮罩大图 + 下载）
+  const [lightbox, setLightbox] = useState<{ src: string; name?: string } | null>(null);
+
   // 包装 handleSend — 附件排队归属 + 发送后清空预览
   // 🔴 对齐 Hermes entry 级附件归属：busy 时排队附件 base64 暂存内存 + 从 session 分离
   const handleSend = useCallback(async (text: string) => {
@@ -869,10 +921,16 @@ export default function App() {
         try {
           // 🔴 Remote 记忆（对齐 Hermes workspaceCwdForNewSession）：remote 模式下
           // 未显式指定目录的新会话落在上次工作目录（local 由后端 resolve 决定）
+          // 🔴 2026-08-09 项目 scope 优先（进入项目后带图首条消息也落项目根目录）
           let cwd: string | undefined;
-          const conn = loadConnection();
-          if (isRemoteMode(conn) && conn.baseUrl) {
-            cwd = getRememberedWorkspaceCwd({ baseUrl: conn.baseUrl, profile: currentProfile }) || undefined;
+          const scopeCwd = projectScopeCwdRef.current;
+          if (scopeCwd) {
+            cwd = scopeCwd;
+          } else {
+            const conn = loadConnection();
+            if (isRemoteMode(conn) && conn.baseUrl) {
+              cwd = getRememberedWorkspaceCwd({ baseUrl: conn.baseUrl, profile: currentProfile }) || undefined;
+            }
           }
           const created = await ws.sessionCreate({
             profile: currentProfile,
@@ -897,7 +955,12 @@ export default function App() {
     }));
     const dataURLs = images.map((img) => img.preview);
 
-    rawHandleSend(text, queuedAttachments.length > 0 ? queuedAttachments : undefined, dataURLs.length > 0 ? dataURLs : undefined);
+    // 🔴 2026-08-09 文件附件 ref_text 注入（对齐 Hermes attachment.refText 语义）：
+    // file.attach staging 的引用（@file:相对路径）合并进 prompt 文本，LLM 经 @file: 读取
+    const fileRefs = attachedFiles.map((f) => f.refText).join(' ');
+    const finalText = fileRefs ? `${fileRefs}\n${text}` : text;
+
+    rawHandleSend(finalText, queuedAttachments.length > 0 ? queuedAttachments : undefined, dataURLs.length > 0 ? dataURLs : undefined);
 
     if (wasBusy && images.length > 0) {
       // 排队场景：从 session 分离图片（防下次发送误消费）+ 清本地状态
@@ -913,7 +976,10 @@ export default function App() {
     if (images.length > 0) {
       clearImages();
     }
-  }, [rawHandleSend, attachedImages, clearImages, isSendingRef, sess.sessionId, sess, currentProfile, uploadUnuploaded]);
+    if (attachedFiles.length > 0) {
+      clearFilesAttachment();
+    }
+  }, [rawHandleSend, attachedImages, clearImages, isSendingRef, sess.sessionId, sess, currentProfile, uploadUnuploaded, attachedFiles, clearFilesAttachment]);
 
   // 适配 addImage 签名：useImageAttachments 返回 Promise<AttachedImage | null>，
   // InputArea 的 onAddImage 期望 Promise<void>，丢弃返回值即可
@@ -1317,6 +1383,8 @@ export default function App() {
                   messageCount={messageCount}
                   onNewSessionInProject={handleNewSessionInProject}
                   onOpenSessionInNewTab={handleOpenSessionInNewTab}
+                  onEnterProject={handleProjectEntered}
+                  onExitProject={handleProjectExited}
                 />
             </div>
             )}
@@ -1356,11 +1424,29 @@ export default function App() {
               className="chat-area"
               id="page-chat"
               onDragOver={(e) => {
-                // 🔴 2026-08-08 拖拽图片到消息区（对齐 Hermes useFileDropZone）：
-                // 仅图片文件触发（文件树路径/行引用由 InputArea 自行处理，已 stopPropagation）
-                if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
+                // 🔴 2026-08-09 放行文件树路径拖拽（附件条）+ 系统图片文件
+                if (Array.from(e.dataTransfer.types).includes('Files') || dragHasPaths(e.dataTransfer)) e.preventDefault();
               }}
               onDrop={(e) => {
+                // 🔴 2026-08-09 文件树路径拖入 → 附件条（对齐 Hermes use-composer-drop
+                // 附件语义）：图片路径走 addImageFromPath 缩略图，其它文件走 attachPaths pill
+                if (dragHasPaths(e.dataTransfer)) {
+                  const paths = collectDroppedPaths(e.dataTransfer);
+                  if (paths.length > 0) {
+                    e.preventDefault();
+                    const imagePaths: string[] = [];
+                    const filePaths: string[] = [];
+                    for (const p of paths) {
+                      if (/\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(p)) imagePaths.push(p);
+                      else filePaths.push(p);
+                    }
+                    if (imagePaths.length > 0) {
+                      for (const p of imagePaths) void handleAddImageFromPath(p);
+                    }
+                    if (filePaths.length > 0) void attachPaths(filePaths);
+                  }
+                  return;
+                }
                 const files = Array.from(e.dataTransfer.files);
                 const imageFiles = files.filter((f) => f.type.startsWith('image/'));
                 if (imageFiles.length === 0) return;
@@ -1385,6 +1471,100 @@ export default function App() {
                     hasModels={modelDiscovery.models.length > 0}
                     sessionKey={sess.sessionId ?? null}
                   />
+
+                  {/* 🔴 2026-08-09 附件预览条——聊天区底部（对齐 Hermes AttachmentList）：
+                      图片缩略图（老大要求 48px + 聊天区位置）+ 文件 pill（2026-08-09 新增，
+                      文件树拖入）。点击缩略图 → ImageLightbox 大图预览（对齐 Hermes AttachmentPill）。 */}
+                  {(attachedImages.length > 0 || (imageUploading ?? 0) > 0 || !!imageError || attachedFiles.length > 0 || (fileAttaching ?? 0) > 0 || !!fileError) && (
+                    <div className="px-3 pt-2 flex flex-col gap-1.5">
+                      {attachedImages.length > 0 && (
+                        <div className="flex gap-2 flex-wrap items-start">
+                          {attachedImages.map((img) => (
+                            <div key={img.id} className="relative group">
+                              <img
+                                src={img.preview}
+                                alt={img.name}
+                                className="w-12 h-12 object-cover rounded-md border border-border cursor-zoom-in"
+                                draggable={false}
+                                onClick={() => setLightbox({ src: img.preview, name: img.name })}
+                              />
+                              <button
+                                onClick={() => { void handleRemoveImage(img.id); }}
+                                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive text-primary-foreground rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/90"
+                                title="移除图片"
+                                aria-label={`Remove ${img.name}`}
+                              >
+                                ✕
+                              </button>
+                              <div className="text-xs text-muted-foreground truncate mt-1 max-w-[48px]" title={img.name}>
+                                {img.name}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {imageError && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-destructive/10 border border-destructive/30 text-destructive text-xs">
+                          <span className="flex-1 truncate">{imageError}</span>
+                          <button
+                            onClick={clearImageError}
+                            className="shrink-0 hover:opacity-70"
+                            aria-label="Dismiss error"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                      {(imageUploading ?? 0) > 0 && (
+                        <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <span className="inline-block w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                          上传图片中… ({imageUploading})
+                        </div>
+                      )}
+                      {/* 🔴 2026-08-09 文件附件 pill（对齐 Hermes AttachmentPill 文件分支） */}
+                      {attachedFiles.length > 0 && (
+                        <div className="flex gap-1.5 flex-wrap items-center">
+                          {attachedFiles.map((f) => (
+                            <div
+                              key={f.id}
+                              className="group flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border bg-card/70 text-xs max-w-[280px]"
+                              title={f.path}
+                            >
+                              <FileText size={13} className="shrink-0 text-muted-foreground" />
+                              <span className="truncate min-w-0 flex-1">{f.name}</span>
+                              <button
+                                onClick={() => { void handleRemoveFile(f.id); }}
+                                className="shrink-0 text-muted-foreground/60 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                                title="移除附件"
+                                aria-label={`Remove ${f.name}`}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {(fileAttaching ?? 0) > 0 && (
+                        <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <span className="inline-block w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                          附加文件中…
+                        </div>
+                      )}
+                      {fileError && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-destructive/10 border border-destructive/30 text-destructive text-xs">
+                          <span className="flex-1 truncate">{fileError}</span>
+                          <button
+                            onClick={clearFileError}
+                            className="shrink-0 hover:opacity-70"
+                            aria-label="Dismiss error"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.name} onClose={() => setLightbox(null)} />}
                   {activeClarify && (
                     <ClarifyCard
                       clarifyId={activeClarify.clarify_id}
@@ -1443,13 +1623,8 @@ export default function App() {
                 isStreaming={isStreaming}
                 portReady={portReady}
                 sessionCwd={sessionCwd}
-                attachedImages={attachedImages}
-                imageUploading={imageUploading}
-                imageError={imageError}
                 onAddImage={handleAddImage}
                 onAddImageFromPath={handleAddImageFromPath}
-                onRemoveImage={handleRemoveImage}
-                onClearImageError={clearImageError}
                 queueProfile={currentProfile}
                 sessionId={sess.sessionId}
                 onQueueSendNow={sendQueueNow}

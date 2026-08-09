@@ -107,6 +107,14 @@ interface ProjectTreePanelProps {
   /** 🔴 会话行「在新视图中打开」（对齐 Hermes openInNewTab）：ELEVE 等价 = 切到宫格
    *  并在该会话归属 Agent 卡片打开（并行视图，不抢占当前会话）——App 层接线 */
   onOpenSessionInNewTab?: (sessionId: string) => void;
+  /** 🔴 2026-08-09 进入项目（对齐 Hermes onEnterProject → syncProjectCwd + enterProject）：
+   *  点击项目行钻取时把右侧文件面板切到项目根目录（Hermes syncProjectCwd 同款：
+   *  setCurrentCwd(项目 root)，前端临时显示，后续 session.info 覆盖回会话绑定值）；
+   *  path 为空（Home 桶）不调用 */
+  onEnterProject?: (path: string) => void;
+  /** 🔴 2026-08-09 退出项目（对齐 Hermes exitProjectScope）：钻取返回总览时清 scope
+   *  （仅清"新会话落点"，不动文件面板 cwd——Hermes 同：exit 不改 $currentCwd） */
+  onExitProject?: () => void;
 }
 
 // ── 辅助 ──
@@ -1092,7 +1100,7 @@ function SessionRenameDialog({ session, onClose, onRenamed }: {
 
 // ── Panel ──
 
-export default function ProjectTreePanel({ sessionId, onSwitchSession, currentProfile, onNewSessionInProject, onOpenSessionInNewTab }: ProjectTreePanelProps) {
+export default function ProjectTreePanel({ sessionId, onSwitchSession, currentProfile, onNewSessionInProject, onOpenSessionInNewTab, onEnterProject, onExitProject }: ProjectTreePanelProps) {
   const [tree, setTree] = useState<TreeResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1205,7 +1213,17 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
   }), [onOpenSessionInNewTab, currentProfile, handleDeleteSession, pinnedIds, togglePin]);
 
   // 钻取：点击项目行 → 全量水合的 Repo/Lane/Session 树
+  // 🔴 2026-08-09 对齐 Hermes onEnterProject（syncProjectCwd + enterProject）：
+  //   ① 文件面板切到项目根目录（onEnterProject → App setSessionCwd，临时显示，
+  //      session.info 后续覆盖——Hermes setCurrentCwd 同款）
+  //   ② 显式项目自动设为激活（Hermes enterProject：id.startsWith('p_') → setActiveProject；
+  //      静默无 toast——用户没主动点"设为激活"）
+  //   ③ 设置项目 scope（新会话落点，退出钻取时清除）
   const handleDrill = useCallback(async (project: ProjectNode) => {
+    if (project.path) onEnterProject?.(project.path);
+    if (!project.isAuto && project.id) {
+      void call('projects_set_active', { id: project.id, profile: currentProfile }).catch(() => {});
+    }
     setDrill(project);
     setDrillProject(null);
     setDrillError(null);
@@ -1222,14 +1240,16 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
     } finally {
       setDrillLoading(false);
     }
-  }, [currentProfile]);
+  }, [currentProfile, onEnterProject]);
 
   const handleBack = useCallback(() => {
     setDrill(null);
     setDrillProject(null);
     setDrillError(null);
+    // 🔴 2026-08-09 对齐 Hermes exitProjectScope：退出项目清 scope（新会话落点）
+    onExitProject?.();
     void fetchTree(true); // 静默刷新总览（钻取期间会话数据可能已变化）
-  }, [fetchTree]);
+  }, [fetchTree, onExitProject]);
 
   const handleCreate = useCallback(() => { setEditing(null); setDialogOpen(true); }, []);
   const handleEdit = useCallback((p: ProjectNode) => { setEditing(p); setDialogOpen(true); }, []);

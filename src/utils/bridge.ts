@@ -179,6 +179,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   update_config_raw:      'config.set.raw',
   // config_delete_provider 已删除：池是唯一权威源，不再写 config.yaml providers段
   gateway_status:         'gateway.status',
+  system_home:            'system.home',
   restart_service:        'gateway.restart',
   open_logs:              'gateway.open_logs',
   test_connection:        'gateway.test_connection',

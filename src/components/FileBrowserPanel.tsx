@@ -498,10 +498,13 @@ export default function FileBrowserPanel({
   }, [workspaceTick, invalidate]);
 
   // 根目录跟随会话 cwd（对齐 Hermes RightSidebarPane：hasWorkspace ? cwd : ''）。
-  // 会话切换（cwd 变化）→ 重置手动 override 重新跟随；无 cwd 的 detached
-  // 会话不动当前树（保留用户上次浏览位置，不闪空）。
+  // 会话切换（cwd 变化）→ 重置手动 override 重新跟随；🔴 2026-08-09 对齐 Hermes：
+  // 无 cwd 的 detached 会话 → setRoot(null) 清空树显示"未打开项目"（Hermes
+  // hasWorkspace=false → useProjectTree('') → 树空；旧实现保留上次浏览位置 =
+  // 切到 detached 会话仍显示旧目录，与 Hermes 展示语义不一致）。
   useEffect(() => {
     if (cwd) void setRoot(cwd);
+    else void setRoot(null);
   }, [cwd, setRoot]);
 
   // 单击文件 → 选中高亮（对齐 Hermes row select；无发送副作用）。
@@ -583,13 +586,15 @@ export default function FileBrowserPanel({
     }
   }, [toggleOpen, loadChildren]);
 
-  // ── fallback root（对齐 Hermes sanitizeWorkspaceCwd → usingFallback 探针）──
-  // 会话 cwd 读取失败（目录被删/换机器）→ 回退候选链（对齐 Hermes
-  // sanitizeWorkspaceCwd → resolveHermesCwd 的候选顺序）：
+  // ── fallback root（对齐 Hermes sanitizeWorkspaceCwd → resolveHermesCwd）──
+  // 会话 cwd 读取失败（目录被删/换机器）→ 回退候选链（Hermes resolveHermesCwd
+  // 的候选顺序：readDefaultProjectDir → home）：
   //   ① 系统设置「默认工作目录」（settings.json default_project_dir，Hermes
   //      readDefaultProjectDir 第一优先）
-  //   ② 激活项目主文件夹（ELEVE projects.primary_path，Hermes 无激活项目
-  //      持久化概念，保留为第二候选）
+  //   ② 用户主目录（后端 system.home = dirs::home_dir，Hermes 主进程
+  //      app.getPath('home') 同源；🔴 2026-08-09 移除激活项目候选——Hermes 无
+  //      激活项目持久化概念，项目激活≠目录选择，误当 fallback 会显示用户
+  //      未为文件面板选过的目录）
   //   都无 → 维持报错+3s 重试（ROOT_ERROR_RETRY_MS self-heal，原逻辑）。
   // 回退期间 3s 探针原 cwd，一旦恢复自动切回（Hermes use-project-tree 同款两段逻辑）。
   const [usingFallback, setUsingFallback] = useState(false);
@@ -614,18 +619,14 @@ export default function FileBrowserPanel({
     if (configuredDefault) {
       if (tryFallback(configuredDefault)) return;
     }
-    // 候选②：激活项目主文件夹（对齐原实现；失败/无激活项目 → 维持报错+3s 重试）
-    call('projects_tree', { preview_limit: 1, include_discovered: false })
+    // 候选②：用户主目录（后端 system.home；查询失败 → 维持报错+3s 重试）
+    call('system_home')
       .then((d) => {
         if (cancelled) return;
-        const t = d as {
-          active_id?: string | null;
-          projects?: Array<{ id: string; path?: string | null }>;
-        };
-        const active = (t.projects ?? []).find((p) => p.id === t.active_id);
-        if (active?.path) tryFallback(active.path);
+        const home = (d as { home?: string | null })?.home?.trim() || '';
+        if (home) tryFallback(home);
       })
-      .catch(() => { /* 无激活项目/查询失败 → 维持报错+3s 重试 */ });
+      .catch(() => { /* 查询失败 → 维持报错+3s 重试 */ });
     return () => {
       cancelled = true;
     };
