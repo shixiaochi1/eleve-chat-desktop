@@ -404,6 +404,22 @@ export default function App() {
   focusedSessionIdRef.current = sess.sessionId;
   const sessionCwdRef = useRef(sessionCwd);
   sessionCwdRef.current = sessionCwd;
+
+  // 🔴 2026-08-09 对齐 Hermes use-cwd-actions：文件面板切换目录 → 后端烙印持久化。
+  //   有会话：session.cwd.set（后端烙印 + emit session.info → useMessageStream
+  //   setSessionCwd 闭环，Hermes session.cwd.set 同款）；busy 时后端拒绝（catch 忽略，
+  //   Hermes 同：session busy 4009）。无会话（新聊天未创建）：暂存为新会话目标
+  //   （Hermes $newChatWorkspaceTarget 语义）——remote 模式由上方 effect 自动
+  //   rememberWorkspaceCwd，后续 session.create 消费（App L859）
+  const handleFilePanelCwdChange = useCallback((path: string) => {
+    if (sess.sessionId) {
+      void getWsClient().sendRpc('session.cwd.set', { session_id: sess.sessionId, cwd: path }).catch((e) => {
+        console.warn('[App] session.cwd.set failed:', e);
+      });
+    } else {
+      setSessionCwd(path);
+    }
+  }, [sess.sessionId]);
   useEffect(() => {
     return initPreviewEvents({
       getFocusedSessionId: () => focusedSessionIdRef.current,
@@ -1454,6 +1470,8 @@ export default function App() {
                 {rightTab === 'files' && (
                   <FileBrowserPanel
                     cwd={sessionCwd}
+                    sessionId={sess.sessionId}
+                    onCwdChange={handleFilePanelCwdChange}
                     onFileAttach={(path: string) => requestComposerInsert(`@file:"${path}"`)}
                   />
                 )}

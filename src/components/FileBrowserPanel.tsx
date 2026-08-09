@@ -84,6 +84,11 @@ interface FileBrowserPanelProps {
    *  文件树 = 会话 cwd）。手动切换目录/上级只是临时 override，
    *  会话切换（cwd 变化）→ 重新跟随。 */
   cwd?: string;
+  /** 会话 id（目录切换需后端烙印 — 对齐 Hermes use-cwd-actions session.cwd.set） */
+  sessionId?: string | null;
+  /** 目录切换回调（2026-08-09 对齐 Hermes：前端 setRoot 只改显示，
+   *  必须由上层接线 session.cwd.set 烙印，否则重启/重连后回弹） */
+  onCwdChange?: (path: string) => void;
 }
 
 // 每层缩进（对齐 Hermes react-arborist INDENT=10）：16px/层在窄面板里
@@ -356,6 +361,8 @@ function FileRow({
 export default function FileBrowserPanel({
   onFileAttach,
   cwd,
+  sessionId: _sessionId,
+  onCwdChange,
 }: FileBrowserPanelProps) {
   const {
     data,
@@ -656,11 +663,16 @@ export default function FileBrowserPanel({
     // 走 FolderPickerDialog（远程浏览，对齐 Hermes selectDesktopPaths remote → remotePicker）
     if (isDesktop() && !isFsRemoteMode()) {
       const sel = await pickDirectory('选择工作目录');
-      if (sel) await setRoot(sel);
+      if (sel) {
+        await setRoot(sel);
+        // 🔴 2026-08-09 对齐 Hermes use-cwd-actions：切换目录必须持久化（后端烙印），
+        //   只 setRoot 改显示 → 重启/重连后 resolve 回弹（既有断线）
+        onCwdChange?.(sel);
+      }
     } else {
       setPickerOpen(true);
     }
-  }, [setRoot]);
+  }, [setRoot, onCwdChange]);
 
   // ── 上下文菜单操作（对齐 Hermes file-actions）──
 
@@ -937,6 +949,8 @@ export default function FileBrowserPanel({
         onSelect={(p) => {
           setPickerOpen(false);
           void setRoot(p);
+          // 🔴 2026-08-09：remote 模式切换同样持久化（Hermes RemoteFolderPicker 同款）
+          onCwdChange?.(p);
         }}
       />
     </div>
