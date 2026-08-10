@@ -257,7 +257,7 @@ fn mark_restarting(state: tauri::State<'_, TauriAppState>) -> Result<(), String>
 /// - `restarting` → 用户主动重启：自动拉起新 eleved（托管重启），更新 pid，端口缓存置 0
 /// - 其它 → 意外退出：仅告警（前端将无法连接）
 fn spawn_eleved_monitor(
-    mut child: std::process::Child,
+    mut child: ElevedChild,
     app_handle: tauri::AppHandle,
     eleve_home: std::path::PathBuf,
 ) {
@@ -683,7 +683,7 @@ fn resolve_eleve_cwd() -> PathBuf {
 /// - 传入 --no-banner 静默模式
 /// - 🔴 设置 current_dir 和 TERMINAL_CWD 环境变量（对齐 Hermes）
 /// - stderr 重定向到日志文件
-fn start_eleved_process(eleve_home: &PathBuf) -> Result<std::process::Child, String> {
+fn start_eleved_process(eleve_home: &PathBuf) -> Result<ElevedChild, String> {
     let binary = find_eleved_binary()
         .ok_or_else(|| {
             let name = if cfg!(target_os = "windows") { "eleved.exe" } else { "eleved" };
@@ -741,7 +741,32 @@ fn start_eleved_process(eleve_home: &PathBuf) -> Result<std::process::Child, Str
     let pid = child.id();
     eprintln!("[TAURI] eleved 子进程已启动 (PID={}, binary={:?})", pid, binary);
 
-    Ok(child)
+    Ok(ElevedChild(child))
+}
+
+/// 🔴 2026-08-11 孤儿进程根治（stable 方案）：
+/// std `Child` 默认 kill_on_drop=false；`ChildExt::kill_on_drop` 是 nightly
+/// feature（E0658）。dev 模式 Ctrl+C / 壳崩溃 / 任务管理器强杀时 monitor
+/// 线程随进程终止，eleved 子进程残留成孤儿（老大已多次遇到）。
+/// Drop guard：任何路径下 Child drop → 强杀 eleved；正常退出路径
+/// graceful_shutdown_eleved 已先 HTTP shutdown（wait() 返回后 drop 时
+/// 进程已死，kill 失败无害）。
+struct ElevedChild(std::process::Child);
+
+impl ElevedChild {
+    fn id(&self) -> u32 {
+        self.0.id()
+    }
+    fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        self.0.wait()
+    }
+}
+
+impl Drop for ElevedChild {
+    fn drop(&mut self) {
+        // 进程已退出时 kill 返回错误，忽略
+        let _ = self.0.kill();
+    }
 }
 
 /// 轮询 gateway_state.json 获取 eleved 的 HTTP 端口
