@@ -18,6 +18,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
     max_concurrent_children: 1,
     child_timeout_seconds: 600,
     reasoning_effort: 'medium',
+    service_tier: 'normal',
     terminal_backend: 'local',
     terminal_timeout: 120,
     tool_output_max_bytes: 50000,
@@ -52,6 +53,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
         max_concurrent_children: delegation.max_concurrent_children ?? 1,
         child_timeout_seconds: delegation.child_timeout_seconds ?? 600,
         reasoning_effort: delegation.reasoning_effort || 'medium',
+        service_tier: agent.service_tier || 'normal',
         terminal_backend: terminal.env_type || 'local',
         terminal_timeout: terminal.timeout ?? 120,
         tool_output_max_bytes: tool_output.max_bytes ?? 50000,
@@ -80,6 +82,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
             max_turns: config.max_turns,
             api_max_retries: config.api_max_retries,
             tool_use_enforcement: config.tool_use_enforcement,
+            service_tier: config.service_tier === 'fast' ? 'fast' : 'normal',
             enabled_toolsets: config.toolsets
               ? config.toolsets.split(',').map((s: string) => s.trim()).filter(Boolean)
               : undefined,
@@ -377,6 +380,22 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
           子 Agent 的推理分析深度级别。空值表示自动选择。
         </p>
+      </div>
+
+      {/* 🔴 D-1: 快速服务层（对齐 Hermes fast 开关 — agent.service_tier → Codex Responses 请求透传） */}
+      <div className="mb-3 flex items-center justify-between rounded-lg border border-border/60 p-3">
+        <div>
+          <label className="block text-xs font-medium text-foreground">快速服务层</label>
+          <p className="text-xs text-muted-foreground/70 leading-relaxed mt-0.5">
+            Codex Responses 协议的 fast/priority 加速层（透传 service_tier 参数）。开启后优先响应速度。
+          </p>
+        </div>
+        <input
+          type="checkbox"
+          className="size-4 shrink-0"
+          checked={config.service_tier === 'fast'}
+          onChange={e => update('service_tier', e.target.checked ? 'fast' : 'normal')}
+        />
       </div>
 
       {/* 保存按钮 */}
