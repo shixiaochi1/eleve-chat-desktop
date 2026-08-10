@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useCallback } from 'react';
 import { Plus, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ModeSwitchButton from './ModeSwitchButton';
+import MoaToggleButton from './MoaToggleButton';
 import { useSessionContext } from '../hooks/useSessionContext';
 
 /**
@@ -131,6 +132,8 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
               <span>DeepSeek</span>
             </button>
           )}
+          {/* MoA 开关 — 滑块样式，config.set 点路径读写 moa.presets.default.enabled */}
+          <MoaToggleButton />
         </div>
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground/70">
           <span>

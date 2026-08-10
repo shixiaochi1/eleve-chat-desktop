@@ -1,16 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
-import { cn } from '@/lib/utils';
-import { MoAIcon } from './Icons';
 import { getWsClient } from '@/services/ws-client';
+import { Switch } from './ui/switch';
 
 /**
- * MoA 开关 — 输入框快捷按钮（读/写 config.yaml moa.presets.default.enabled）
+ * MoA 开关 — 滑块开关样式（工具栏 DeepSeek 按钮右侧）
  *
  * 🔴 2026-08-11：MoA 开启时每轮回复前会先跑参考模型调用 + 聚合器（阻塞式），
- *    若槽位配置了慢的 reasoning 模型，回复前会干等数十秒。此按钮提供一键开/关。
+ *    若槽位配置了慢的 reasoning 模型，回复前会干等数十秒。此开关提供一键开/关。
  *    读写链路：config.get / config.set 点路径（JSON pointer，与 FastModeButton 同模式）。
  */
-const CONFIG_KEY = 'moa.presets.default.enabled';
+const CONFIG_KEY = 'moa.pr…bled';
 
 /** 裸值 / {value} 包裹双形态取值（config.get 对布尔返回裸 JSON 布尔） */
 const unwrap = (res: unknown): unknown =>
@@ -31,28 +30,20 @@ export default function MoaToggleButton() {
       .catch(() => {});
   }, []);
 
-  const toggle = useCallback(() => {
-    const next = !on;
+  const toggle = useCallback((next: boolean) => {
     setOn(next);
     getWsClient().configSet(CONFIG_KEY, next).catch((err) => {
       console.warn('[MoaToggleButton] config.set failed:', err);
     });
-  }, [on]);
+  }, []);
 
   return (
-    <button
-      onClick={toggle}
-      className={cn(
-        'inline-flex size-(--composer-control-size) shrink-0 cursor-pointer items-center justify-center rounded-md outline-none transition-all duration-150',
-        on
-          ? 'bg-primary/15 text-primary'
-          : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-      )}
+    <div
+      className="flex items-center gap-1.5 px-2 py-1 text-xs rounded transition-colors bg-secondary/60 hover:bg-accent/50"
       title={on ? 'MoA 多模型协作：开（点击关闭）' : 'MoA 多模型协作：关（点击开启）'}
-      aria-label="MoA 开关"
-      aria-pressed={on}
     >
-      <MoAIcon className={cn(on && 'animate-pulse')} />
-    </button>
+      <span className={on ? 'text-primary font-medium' : 'text-muted-foreground'}>MoA</span>
+      <Switch checked={on} onCheckedChange={toggle} aria-label="MoA 开关" />
+    </div>
   );
 }
