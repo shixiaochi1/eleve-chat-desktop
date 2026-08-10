@@ -36,8 +36,6 @@ export function usePromptActions({
   send,
   abort,
   handleNewSession,
-  currentModel,
-  currentProvider,
   currentProfile,
   onSlashConfirm,
   getNewSessionCwd,
@@ -50,8 +48,9 @@ export function usePromptActions({
   send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string; queued?: boolean }) => Promise<void>
   abort?: () => Promise<void>
   handleNewSession: (title?: string) => Promise<void>
-  currentModel?: string
-  currentProvider?: string
+  // 🔴 M-1/M-2 修复：发送链不再携带全局 model/provider ——
+  // 模型由后端 per-profile 权威管理（config.model_ref 热更新 + provider.switch override），
+  // 前端传全局 model 会串台（宫格共用/跨 profile 残留）。
   currentProfile: string
   onSlashConfirm?: (data: { confirmId: string; command: string; description: string }) => void
   /** 🔴 2026-08-09 新会话 cwd（对齐 Hermes createBackendSessionForSend 的
@@ -129,7 +128,7 @@ export function usePromptActions({
       });
     }
 
-    const modelOpts = entry.modelOpts ?? (currentModel ? { model: currentModel, provider: currentProvider } : undefined);
+    const modelOpts = entry.modelOpts; // M-1/M-2: 不再注入全局 model
 
     if (sess.sessionId && !sess.titles[sess.sessionId]) {
       sess.setTitle(sess.sessionId, entry.text.slice(0, 30));
@@ -147,7 +146,7 @@ export function usePromptActions({
       incrementDrainFailures(entry.id);
       isSendingRef.current = false;
     }
-  }, [sess, send, addDebugEvent, setConnectionStatus, currentModel, currentProvider, currentProfile]);
+  }, [sess, send, addDebugEvent, setConnectionStatus, currentProfile]);
 
   drainQueueRef.current = drainQueue;
 
@@ -171,7 +170,7 @@ export function usePromptActions({
     removeEntry(currentProfile, id);
     // 走 drain 路径发送（复用附件附着 + 锁管理）
     isSendingRef.current = true;
-    const modelOpts = entry.modelOpts ?? (currentModel ? { model: currentModel, provider: currentProvider } : undefined);
+    const modelOpts = entry.modelOpts; // M-1/M-2: 不再注入全局 model
 
     // 附件附着
     const dataURLs = takeAttachmentData(entry.id);
@@ -195,7 +194,7 @@ export function usePromptActions({
       }
     };
     void attachAndSend();
-  }, [currentProfile, currentModel, currentProvider, abort, send, sess, setConnectionStatus, addDebugEvent]);
+  }, [currentProfile, abort, send, sess, setConnectionStatus, addDebugEvent]);
 
   // ── deleteQueueEntry ──
   const deleteQueueEntry = useCallback((id: string) => {
@@ -281,7 +280,8 @@ export function usePromptActions({
     // 仅看 isSendingRef 会让附件消息漏走队列（对齐宫格 wasBusy 的 status 判定）
     const wasBusy = isSendingRef.current || getIsStreaming();
     if (wasBusy && attachments?.length) {
-      const modelOpts = currentModel ? { model: currentModel, provider: currentProvider } : undefined;
+      // 🔴 M-1/M-2 修复：排队消息不带 model（drain 时后端用该 profile session 当前 client）
+      const modelOpts = undefined;
       const entry = enqueue(currentProfile, { text, modelOpts, attachments });
       // 附件 base64 暂存内存（drain 时取出附着后端）
       if (attachmentDataURLs?.length) {
@@ -296,7 +296,8 @@ export function usePromptActions({
     // → queue，不 steer/interrupt 打断压缩）；非压缩中 busy 纯文本直发后端由
     // route_busy_submit 三模式决策
     if (wasBusy && compacting) {
-      const modelOpts = currentModel ? { model: currentModel, provider: currentProvider } : undefined;
+      // 🔴 M-1/M-2 修复：排队消息不带 model（后端用该 profile session 当前 client）
+      const modelOpts = undefined;
       const entry = enqueue(currentProfile, { text, modelOpts });
       if (attachmentDataURLs?.length) {
         stashAttachmentData(entry.id, attachmentDataURLs);
@@ -353,10 +354,8 @@ export function usePromptActions({
     }
 
     const modelOpts: { model?: string; provider?: string; title?: string; queued?: boolean } = {};
-    if (currentModel) {
-      modelOpts.model = currentModel;
-      modelOpts.provider = currentProvider;
-    }
+    // 🔴 M-1/M-2 修复：不再注入 currentModel —— 发送不带 model，
+    // 后端用该 profile session 当前 client（config 热更新 + provider.switch override 已就位）
     if (sess.pendingTitle) {
       modelOpts.title = sess.pendingTitle;
     }
@@ -379,7 +378,7 @@ export function usePromptActions({
     if (sess.freshDraftReady) {
       sess.setFreshDraftReady(false);
     }
-  }, [sess, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, currentModel, currentProvider, currentProfile, getNewSessionCwd]);
+  }, [sess, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, currentProfile, getNewSessionCwd]);
 
   // ── abort ──
   const handleAbort = useCallback(() => {

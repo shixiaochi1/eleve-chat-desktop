@@ -3,8 +3,11 @@
  *
  * 数据源：全局 Provider 池（listPoolProviders，唯一权威源）。
  * 选中模型 → update_config 写 config.yaml model.ref（持久化默认模型）。
- * 会话级即时生效由 prompt.submit 携带 model 参数完成（usePromptActions）。
- * 当前模型 → get_config 读 model.ref。
+ * 会话级即时生效 = selectModel 的 provider.switch（override_client）+ config 热更新
+ * （watcher → update_llm_client_v2）；发送链不再携带 model（per-profile 权威，
+ * 🔴 M-2 修复：宫格各 Agent 用自己 session 的 client，不再共用全局 model）。
+ * 🔴 M-1 修复：selectedModel 为「当前焦点 profile」的模型，切换 profile 重载；
+ * selectModel 支持显式 targetProfile/targetSessionId（宫格卡片 per-Agent 选择）。
  *
  * Returns: { models, grouped, loading, error, refresh, selectedModel, selectModel }
  */
@@ -66,7 +69,7 @@ function buildFromPool(providers: PoolProvider[]): { models: ModelItem[]; groupe
 
 
 
-export default function useModels({ enabled = true, sessionId = '' }: { enabled?: boolean; sessionId?: string } = {}) {
+export default function useModels({ enabled = true, sessionId = '', currentProfile = 'default' }: { enabled?: boolean; sessionId?: string; currentProfile?: string } = {}) {
   const [models, setModels] = useState<ModelItem[]>([]);
   const [grouped, setGrouped] = useState<GroupedModels>({});
   const [loading, setLoading] = useState(false);
@@ -144,19 +147,24 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
   /**
    * 选中模型 = 设默认（老大 2026-07-26 决策）— 双写闭环：
    *
-   * 1. update_config 写 config.yaml model.ref — 持久默认（重启生效）。
-   *    config 热更新触发 engine LlmClient 刷新（bootstrap 双源 select）。
-   * 2. provider.switch — 当前会话即时生效（per-session 显式覆盖，
+   * 1. update_config 写目标 profile 的 config.yaml model.ref — 持久默认（重启生效）。
+   *    config 热更新触发该 profile engine LlmClient 刷新（bootstrap 双源 select）。
+   *    targetProfile 显式传入时覆盖 sendRpc 的 activeProfile 章（bridge 透传）。
+   * 2. provider.switch — 目标 session 即时生效（per-session 显式覆盖，
    *    后端解析链守卫保证显式参数不被 model_ref 默认劫持）。
+   *
+   * 🔴 M-1/M-2 修复：targetProfile/targetSessionId 支持宫格卡片 per-Agent 选择
+   * （写该卡片 profile 的 config + 切该卡片的 session）；单视图省略 → 盖 activeProfile
+   * 章 + 用 App 级 session。
    */
-  const selectModel = useCallback(async (modelId: string) => {
+  const selectModel = useCallback(async (modelId: string, targetProfile?: string, targetSessionId?: string) => {
     if (!modelId) return;
     setSelectedModel(modelId);
     try {
       const slashIdx = modelId.indexOf('/');
       const provider = slashIdx > 0 ? modelId.slice(0, slashIdx) : modelId;
       const model = slashIdx > 0 ? modelId.slice(slashIdx + 1) : '';
-      // ① 持久默认：写 config.yaml model.ref（新旧字段同写，兼容解析链两个读取点）
+      // ① 持久默认：写目标 profile 的 config.yaml model.ref（新旧字段同写，兼容解析链两个读取点）
       await call('update_config', {
         config: {
           model: {
@@ -165,11 +173,13 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
             default: model,
           },
         },
+        ...(targetProfile ? { profile: targetProfile } : {}),
       });
-      // ② 当前会话即时生效：per-session override（无会话时仅靠 ①，下次 session.create 带过去）
-      if (sessionId) {
+      // ② 目标会话即时生效：per-session override（无会话时仅靠 ①，下次 session.create 带过去）
+      const effectiveSessionId = targetSessionId ?? sessionId;
+      if (effectiveSessionId) {
         await call('provider_switch', {
-          session_id: sessionId,
+          session_id: effectiveSessionId,
           provider_id: provider,
           model,
         });
@@ -185,6 +195,8 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
     return () => { mountedRef.current = false; };
   }, []);
 
+  // 🔴 M-1 修复：依赖 currentProfile — 切换 profile 时重载该 profile 的 config.model
+  // （get_config 经 sendRpc 盖 activeProfile 章，读的是当前焦点 profile）
   useEffect(() => {
     if (!enabled) return;
     refresh();
@@ -210,7 +222,7 @@ export default function useModels({ enabled = true, sessionId = '' }: { enabled?
       clearTimeout(coldTimer);
       unsubscribe();
     };
-  }, [enabled, refresh, loadCurrentModel]);
+  }, [enabled, refresh, loadCurrentModel, currentProfile]);
 
   // 兜底轮询：池空（error='empty'）时每 5s 重试，直到拿到模型。
   // 主路径是 provider.pool_changed 事件（后端 ws_conns 广播）；此轮询为二道保险。

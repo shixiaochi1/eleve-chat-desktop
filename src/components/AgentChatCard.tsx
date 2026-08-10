@@ -83,6 +83,8 @@ interface AgentChatCardProps {
   onQueueSendNow: (profile: string, id: string) => void;
   /** 删除排队条目 */
   onQueueDelete: (profile: string, id: string) => void;
+  /** 🔴 M-2 修复：选模型 → 写该卡片 profile 的 config + 切该卡片的 session（per-Agent 模型隔离） */
+  onSelectModel?: (profile: string, modelId: string, sessionId?: string | null) => void;
 }
 
 // ── pending 交互 payload 形状（与单视图 activeApproval/activeClarify/activeSudo 一致）──
@@ -150,7 +152,7 @@ function RobotAvatar({ agentColor, profile }: { agentColor: string; profile?: Ag
 export const AgentChatCard = memo(function AgentChatCard({
   profile, state, color, focused, portReady,
   onSend, onLoadMore, onAbort, onClearPending, onExpand, onNewSession, onCommand, onSlashConfirmDone,
-  onQueueSendNow, onQueueDelete,
+  onQueueSendNow, onQueueDelete, onSelectModel,
 }: AgentChatCardProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
@@ -360,7 +362,10 @@ export const AgentChatCard = memo(function AgentChatCard({
         {/* 右侧工具簇 — 模型选择 + 上下文环 + 展开 */}
         <div className="ml-auto flex items-center gap-0.5 shrink-0">
           <div className="-my-1">
-            <ModelPill model={state.modelName ?? undefined} />
+            <ModelPill
+              model={state.modelName ?? undefined}
+              onSelect={(modelId) => onSelectModel?.(profile.name, modelId, state.sessionId)}
+            />
           </div>
           <CardContextGauge sessionId={state.sessionId ?? null} active={focused} />
           <button

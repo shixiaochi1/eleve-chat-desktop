@@ -229,9 +229,13 @@ function adaptParams(command: string, args: Record<string, any>): Record<string,
       return { request_id: args.clarify_id, answer: args.response, ...(args.profile ? { profile: args.profile } : {}) };
     case 'update_config': {
       // {config:{...}} → {yaml_text: string}（WS config.set.raw 期望 yaml_text）
+      // 🔴 M-1/M-2 修复：显式透传 targetProfile（宫格选模型写目标 Agent 的 config）——
+      // sendRpc 盖章不覆盖已有 params.profile（ws-client.ts S1），此处不传则盖 activeProfile。
       if (args.yaml_text) return args;
       const obj = args.config ?? args;
-      return { yaml_text: yaml.dump(obj, { indent: 2, lineWidth: 120, noRefs: true }) };
+      const out: Record<string, unknown> = { yaml_text: yaml.dump(obj, { indent: 2, lineWidth: 120, noRefs: true }) };
+      if (args.profile) out.profile = args.profile;
+      return out;
     }
 
     default:

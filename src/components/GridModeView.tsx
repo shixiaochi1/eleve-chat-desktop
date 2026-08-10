@@ -55,7 +55,6 @@ import { useGridChat, type AgentChatState } from '../hooks/useGridChat';
 import AgentChatCard, { type AgentProfileInfo, type AgentCardColor } from './AgentChatCard';
 import { ArtifactPreviewOverlay } from './ArtifactCard';
 import { sessionIdMatchesProfile, persistSessionPointer, loadProfilePointers, batchSaveProfilePointers } from '../utils/session';
-import { useModelContext } from '@/contexts/ModelContext';
 
 /**
  * 🔴 GridModeView 命令式句柄 — App 经 gridRef 调度宫格（修复 BUG2 + 退出持久化权威收敛）
@@ -132,6 +131,8 @@ interface GridModeViewProps {
   /** 新建会话的全局副作用（清 localStorage 指针 + 刷新会话列表），由 App 注入，
    *  复用 handleNewSession 同一套工具链，不重复造轮子 */
   onNewSessionEffects?: (profile: string) => void;
+  /** 🔴 M-2 修复：宫格卡片选模型 → 写该卡片 profile 的 config + 切该卡片的 session（per-Agent 模型隔离） */
+  onSelectModel?: (profile: string, modelId: string, sessionId?: string | null) => void;
 }
 
 /** 拖拽运行时状态（存 ref，拖拽期间零 setState） */
@@ -168,9 +169,9 @@ function slotPos(index: number, cols: number, cellW: number, cellH: number) {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, onFocusedSessionChange, portReady, onNewSessionEffects }, ref) {
-  // 🔴 模型系统经 Context 消费（消除 App→GridModeView→AgentChatCard 三层 prop drilling）
-  const { currentModel } = useModelContext();
+const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, onFocusedSessionChange, portReady, onNewSessionEffects, onSelectModel }, ref) {
+  // 🔴 M-1/M-2 修复：不再从 Context 取全局 currentModel（发送链已去 model，
+  // 各卡片展示用后端 per-session 推送的 modelName，选择走 onSelectModel 绑定卡片）
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [order, setOrder] = useState<string[]>([]);
   const [colorMap, setColorMap] = useState<Record<string, string>>({});
@@ -195,10 +196,12 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
     onNewSessionEffects?.(profile);
   }, [resetAgent, onNewSessionEffects]);
 
-  // 🔴 发送包装：注入当前模型（对齐单视图 handleSend 传 modelOpts，ModelPill 选择生效）
+  // 🔴 M-1/M-2 修复：宫格发送不再注入全局 currentModel —— 每张卡片用自己
+  // session 的 client（该 profile config.model_ref 热更新 + 卡片级 provider.switch override），
+  // 各 Agent 模型互不干扰。useModelContext 仅保留给 ModelPill 展示。
   const handleSendTo = useCallback((profile: string, text: string, attachments?: Array<{ id: string; name: string; size: number; preview: string }>, attachmentDataURLs?: string[], sessionId?: string) => {
-    sendTo(profile, text, currentModel ? { model: currentModel } : undefined, { attachments, attachmentDataURLs, explicitSessionId: sessionId });
-  }, [sendTo, currentModel]);
+    sendTo(profile, text, undefined, { attachments, attachmentDataURLs, explicitSessionId: sessionId });
+  }, [sendTo]);
 
   // 状态镜像（退出/展开时读当前各 Agent session 指针）
   const statesRef = useRef(states);
@@ -510,6 +513,7 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
                   onSlashConfirmDone={handleSlashConfirmDone}
                   onQueueSendNow={sendQueueNow}
                   onQueueDelete={deleteQueueEntry}
+                  onSelectModel={onSelectModel}
                 />
               </div>
             ))}

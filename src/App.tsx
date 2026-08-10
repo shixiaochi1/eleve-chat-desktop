@@ -523,7 +523,7 @@ export default function App() {
   const genId = useCallback(() => `m${++nextId.current}`, []);
 
   // ── model discovery（依赖 sess.sessionId，必须在 sess 之后） ──
-  const modelDiscovery = useModels({ enabled: portReady, sessionId: sess.sessionId ?? undefined });
+  const modelDiscovery = useModels({ enabled: portReady, sessionId: sess.sessionId ?? undefined, currentProfile });
 
   // 🔴 打开模型选择器时自动 refresh（修复：启动重试窗口过期后池才有数据 → 永远空列表）
   useEffect(() => {
@@ -884,17 +884,8 @@ export default function App() {
     send,
     abort,
     handleNewSession,
-    // 对齐 Hermes: UI 选择的模型传入 session.create（per-session override）
-    currentModel: modelDiscovery.selectedModel || modelName || undefined,
-    currentProvider: (() => {
-      // 从 grouped 反查 selectedModel 的 provider
-      const sel = modelDiscovery.selectedModel || modelName;
-      if (!sel || !modelDiscovery.grouped) return undefined;
-      for (const [pid, group] of Object.entries(modelDiscovery.grouped)) {
-        if (group.models?.some((m: any) => m.id === sel)) return pid;
-      }
-      return undefined;
-    })(),
+    // 🔴 M-1/M-2 修复：不再传全局 currentModel/currentProvider —— 发送链不带 model，
+    // 模型由后端 per-profile 权威管理（config.model_ref 热更新 + provider.switch override）
     onSlashConfirm: (data) => setActiveSlashConfirm(data),
     currentProfile,
     // 🔴 2026-08-09 新会话 cwd（对齐 Hermes createBackendSessionForSend 的
@@ -1461,6 +1452,7 @@ export default function App() {
                   onFocusedSessionChange={setFocusedGridSessionId}
                   portReady={portReady}
                   onNewSessionEffects={handleGridNewSessionEffects}
+                  onSelectModel={(profile, modelId, sid) => modelDiscovery.selectModel(modelId, profile, sid ?? undefined)}
                 />
               </div>
             ) : (
