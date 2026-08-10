@@ -1012,7 +1012,7 @@ pub fn run() {
         .manage(pty::PtyManager::default())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
-            window.set_title("Eleve Chat").ok();
+            window.set_title("Eleve").ok();
 
             // Window icon
             let icon_bytes = include_bytes!("../icons/128x128.png");
@@ -1040,7 +1040,7 @@ pub fn run() {
 
             let _tray = TrayIconBuilder::new()
                 .icon(tray_icon)
-                .tooltip("Eleve Chat")
+                .tooltip("Eleve")
                 .menu(&menu)
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {

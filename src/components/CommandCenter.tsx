@@ -163,7 +163,7 @@ export default function CommandCenter({
 
     const navItems: NavItemDef[] = [
       { id: 'settings', label: 'Settings', icon: 'settings', description: 'Configure application settings' },
-      { id: 'about', label: 'About', icon: 'info', description: 'About Eleve Chat' },
+      { id: 'about', label: 'About', icon: 'info', description: 'About Eleve' },
       { id: 'gateway', label: 'Gateway', icon: 'globe', description: 'Gateway connection settings' },
       // 🔴 2026-08-10 日志已搬入 LOGO 面板（GatewayPanel 内嵌），移除独立导航项
       { id: 'debug', label: 'Debug', icon: 'terminal', description: 'Debug information and logs' },

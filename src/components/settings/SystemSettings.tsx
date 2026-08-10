@@ -69,7 +69,7 @@ export default function SystemSettings({
       <div className="flex items-center justify-between mb-3">
         <div>
           <label className="block text-xs text-muted-foreground mb-0.5">开机自动启动</label>
-          <p className="text-xs text-muted-foreground/70 leading-relaxed m-0">登录 Windows 后自动运行 Eleve Chat</p>
+          <p className="text-xs text-muted-foreground/70 leading-relaxed m-0">登录 Windows 后自动运行 Eleve</p>
         </div>
         <Switch
           checked={autoStart}

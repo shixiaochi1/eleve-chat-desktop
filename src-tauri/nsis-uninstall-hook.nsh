@@ -17,11 +17,17 @@ Var ELEVE_HOME_PATH
 Var KEEP_DATA
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; 🔴 Phase 3：数据目录默认 %LOCALAPPDATA%\Eleve（不在 $INSTDIR 内，卸载不误删）
-  StrCpy $ELEVE_HOME_PATH "$LOCALAPPDATA\Eleve"
-  ; 兼容：若旧版已在 $INSTDIR\data 存有数据（升级场景），沿用旧目录避免数据分裂
-  IfFileExists "$INSTDIR\data\*.*" 0 +2
-    StrCpy $ELEVE_HOME_PATH "$INSTDIR\data"
+  ; 🔴 2026-08-11 对齐老大 08-10 决策「装哪 data 在哪」（d17d911）：
+  ;   安装版数据目录 = $INSTDIR\data（与运行时 resolve_eleve_home 步骤 2 的
+  ;   resources 特征判定一致）——写注册表 ELEVE_HOME=$INSTDIR\data，即使
+  ;   env/注册表优先级命中也是安装目录，双保险。
+  ; 🔴 旧版（08-04 Phase 3）曾写死 %LOCALAPPDATA%\Eleve → 注册表污染导致
+  ;   resources 判定被跳过、数据永远落 AppData（06:37 重装实证）。
+  ; 反向兼容：%LOCALAPPDATA%\Eleve 已有旧数据（旧版升级场景）→ 沿用旧目录，
+  ;   避免数据分裂（旧数据不迁移，卸载重装才归位）。
+  StrCpy $ELEVE_HOME_PATH "$INSTDIR\data"
+  IfFileExists "$LOCALAPPDATA\Eleve\*.*" 0 +2
+    StrCpy $ELEVE_HOME_PATH "$LOCALAPPDATA\Eleve"
 
   ; 只创建根目录，子目录由应用运行时按需创建（对齐 Hermes）
   CreateDirectory "$ELEVE_HOME_PATH"

@@ -1,5 +1,6 @@
 {
-  "productName": "Eleve Chat",
+  "productName": "Eleve",
+  "mainBinaryName": "eleve-chat-desktop",
   "version": "0.1.0",
   "identifier": "com.eleve.chat.desktop",
   "build": {
@@ -11,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Eleve Chat",
+        "title": "Eleve",
         "width": 1440,
         "height": 900,
         "minWidth": 800,
