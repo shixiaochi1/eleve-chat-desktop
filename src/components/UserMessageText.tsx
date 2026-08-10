@@ -111,7 +111,7 @@ const UserMessageText = memo(function UserMessageText({ text }: { text: string }
   const segments = useMemo(() => splitFences(text), [text]);
 
   return (
-    <span className="wrap-anywhere block whitespace-pre-wrap break-words select-text">
+    <span className="block whitespace-pre-wrap break-words select-text">
       {segments.map((segment, index) =>
         segment.kind === 'fence' ? (
           <pre
