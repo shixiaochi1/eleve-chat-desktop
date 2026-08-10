@@ -338,6 +338,10 @@ export function usePromptActions({
           ...(cwd ? { cwd } : {}),
         });
         sess.setSessionId(created.session_id);
+        // 🔴 2026-08-11 修复：sessionCreate 分支缺 persistSessionPointer →
+        // 指针永远不落盘（onSessionCreated 因 id 相等不触发）→ 重启/HMR 后
+        // sessionId 恢复 null → 每轮新建会话 + 调试面板会话 ID 显示 —
+        persistSessionPointer(created.session_id);
         ws.switchSession(created.session_id);
         sessionId = created.session_id;
       } catch (err) {

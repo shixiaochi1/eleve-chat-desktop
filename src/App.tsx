@@ -986,6 +986,8 @@ export default function App() {
           });
           sid = created.session_id;
           sess.setSessionId(sid);
+          // 🔴 2026-08-11 修复：同 usePromptActions sessionCreate 分支（指针落盘）
+          persistSessionPointer(sid);
           ws.switchSession(sid);
         } catch (err) {
           console.error('[handleSend] sessionCreate failed, aborting send:', err);
