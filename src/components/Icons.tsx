@@ -61,6 +61,7 @@ import {
   Bot,
   Radio,
   Edit3,
+  Layers,
   type LucideProps,
 } from 'lucide-react';
 
@@ -98,6 +99,7 @@ export const CommandMenuIcon: IconComponent = (props) => <Menu size={ICON_SIZE_M
 export const ImageIcon: IconComponent = (props) => <Image size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const MicIcon: IconComponent = (props) => <Mic size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const FastIcon: IconComponent = (props) => <Zap size={ICON_SIZE_SM} {...strokeProps} {...props} />;
+export const MoAIcon: IconComponent = (props) => <Layers size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const ContextFileIcon: IconComponent = (props) => <FileText size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const WebWindowIcon: IconComponent = (props) => <Globe size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const GalleryIcon: IconComponent = (props) => <Images size={ICON_SIZE_MD} {...strokeProps} {...props} />;

@@ -6,6 +6,7 @@ import AttachMenu from './AttachMenu';
 import VoiceActivityBar from './VoiceActivityBar';
 import ThinkingButton from './ThinkingButton';
 import FastModeButton from './FastModeButton';
+import MoaToggleButton from './MoaToggleButton';
 import WebWindowButton from './WebWindowButton';
 import SlashCommandPopup from './SlashCommandPopup';
 import QueuePanel from './QueuePanel';
@@ -686,6 +687,8 @@ function InputArea({
             <ThinkingButton />
             {/* 快速模式 — 开关（对齐 Hermes fastMode = agent.service_tier fast，已接线后端透传） */}
             <FastModeButton />
+            {/* MoA 开关 — 一键开关多模型协作（参考调用+聚合器，慢模型时回复前干等数十秒） */}
+            <MoaToggleButton />
             {/* 网页窗口 — 已接通后端 browser.manage（连接/断开浏览器） */}
             <WebWindowButton sessionId={sessionId} />
             <div className="ml-auto flex items-center gap-(--composer-control-gap)">
