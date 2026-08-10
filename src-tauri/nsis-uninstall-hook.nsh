@@ -21,13 +21,11 @@ Var KEEP_DATA
   ;   安装版数据目录 = $INSTDIR\data（与运行时 resolve_eleve_home 步骤 2 的
   ;   resources 特征判定一致）——写注册表 ELEVE_HOME=$INSTDIR\data，即使
   ;   env/注册表优先级命中也是安装目录，双保险。
-  ; 🔴 旧版（08-04 Phase 3）曾写死 %LOCALAPPDATA%\Eleve → 注册表污染导致
-  ;   resources 判定被跳过、数据永远落 AppData（06:37 重装实证）。
-  ; 反向兼容：%LOCALAPPDATA%\Eleve 已有旧数据（旧版升级场景）→ 沿用旧目录，
-  ;   避免数据分裂（旧数据不迁移，卸载重装才归位）。
+  ; 🔴 08-11 07:17 教训：曾加 %LOCALAPPDATA%\Eleve 反向兼容分支（旧数据沿用），
+  ;   但老大是「卸载重装、不迁移」场景——AppData 残留命中兼容分支 → 数据仍落
+  ;   AppData（07:11 实证）。老大拍板：无条件 $INSTDIR\data，AppData 旧数据
+  ;   不沿用（残留由用户自行清理）。
   StrCpy $ELEVE_HOME_PATH "$INSTDIR\data"
-  IfFileExists "$LOCALAPPDATA\Eleve\*.*" 0 +2
-    StrCpy $ELEVE_HOME_PATH "$LOCALAPPDATA\Eleve"
 
   ; 只创建根目录，子目录由应用运行时按需创建（对齐 Hermes）
   CreateDirectory "$ELEVE_HOME_PATH"
