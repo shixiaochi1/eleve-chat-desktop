@@ -24,28 +24,30 @@ export default function ClarifyCard({ clarifyId, question, choices, profile, onD
   const [openInput, setOpenInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  /** 🔴 2026-08-11 超时/中断后后端已清 pending → 提交必失败（no pending clarify request）
+   *  旧实现只显示红字错误，卡片永不关闭 = 看起来"卡死"。失败即折叠为「已过期」态。 */
+  const [expired, setExpired] = useState(false);
 
   const hasChoices = Array.isArray(choices) && choices.length > 0;
 
   const handleSubmit = useCallback(async (response: string) => {
-    if (submitting || submitted) return;
+    if (submitting || submitted || expired) return;
     setSubmitting(true);
-    setError(null);
     try {
       const result = await submitClarifyResponse(clarifyId ?? "", response ?? "", profile);
       if (result.status === 'resolved' || result.status === 'ok') {
         setSubmitted(true);
         onDone?.(response);
       } else {
-        setError(result.error || '提交失败');
+        setExpired(true);
       }
     } catch (err: unknown) {
-      setError((err as Error).message || '网络错误');
+      // 🔴 后端已无 pending（超时/中断清理）→ 折叠过期态，不再让用户反复点击
+      setExpired(true);
     } finally {
       setSubmitting(false);
     }
-  }, [clarifyId, submitting, submitted, profile, onDone]);
+  }, [clarifyId, submitting, submitted, expired, profile, onDone]);
 
   const handleChoice = useCallback((choice: string) => {
     setSelected(choice);
@@ -80,6 +82,22 @@ export default function ClarifyCard({ clarifyId, question, choices, profile, onD
     );
   }
 
+  // ── 🔴 已过期折叠态（超时/中断后后端已无 pending）──
+  if (expired) {
+    return (
+      <div className="icard icard--done">
+        <div className="icard-head">
+          <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
+            <span className="icard-check">
+              <Check size={11} strokeWidth={3} />
+            </span>
+            <span>已过期（未及时回答）</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="icard icard--info">
       {/* 头部 */}
@@ -92,10 +110,6 @@ export default function ClarifyCard({ clarifyId, question, choices, profile, onD
 
       <div className="icard-body">
         <p className="text-[13px] leading-relaxed text-foreground mb-3">{question}</p>
-
-        {error && (
-          <p className="mb-2 text-xs text-destructive">{error}</p>
-        )}
 
         {hasChoices ? (
           <>

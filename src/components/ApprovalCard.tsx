@@ -35,10 +35,14 @@ export default function ApprovalCard({ command, description, pattern, choices, r
   const [selected, setSelected] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  /** 🔴 2026-08-11 超时/中断后后端已清 pending → 提交返回 resolved:0 或报错
+   *  旧实现不检查 resolved，超时后点按钮显示"已批准"但实际已被 deny（或永远挂着）= 卡死。
+   *  失败即折叠为「已过期」态。 */
+  const [expired, setExpired] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleChoice = useCallback(async (choice: string) => {
-    if (submitting || submitted) return;
+    if (submitting || submitted || expired) return;
     setSubmitting(true);
     setSelected(choice);
     setError(null);
@@ -47,20 +51,26 @@ export default function ApprovalCard({ command, description, pattern, choices, r
       // Hermes 桌面端: gateway.request('approval.respond', { choice, session_id })
       // run_id 在 WS 路径中即为 session_id（approval_session_key）
       const ws = getWsClient();
-      await ws.sendRpc('approval.respond', {
+      const res = await ws.sendRpc('approval.respond', {
         session_id: run_id,
         choice,
         all: false,
         profile, // 显式归属 profile（undefined → sendRpc 自动盖章）
-      });
+      }) as { resolved?: number };
+      // 🔴 resolved=0 = 后端已无 pending（超时/中断已 deny）→ 折叠过期态
+      if (typeof res?.resolved === 'number' && res.resolved === 0) {
+        setExpired(true);
+        return;
+      }
       setSubmitted(true);
       onDone?.(choice);
     } catch (err: unknown) {
-      setError((err as Error).message || '网络错误');
+      // 🔴 后端已无 pending（超时/中断清理）→ 折叠过期态，不再让用户反复点击
+      setExpired(true);
     } finally {
       setSubmitting(false);
     }
-  }, [submitting, submitted, onDone, run_id, profile]);
+  }, [submitting, submitted, expired, onDone, run_id, profile]);
 
   // ── 已完成折叠态 ──
   if (submitted) {
@@ -72,6 +82,25 @@ export default function ApprovalCard({ command, description, pattern, choices, r
               <Check size={11} strokeWidth={3} />
             </span>
             <span>{selected === 'deny' ? '已拒绝' : '已批准'}</span>
+            {command && (
+              <span className="font-mono text-[10px] text-muted-foreground/60 truncate max-w-[320px]">{command}</span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── 🔴 已过期折叠态（超时/中断后后端已无 pending）──
+  if (expired) {
+    return (
+      <div className="icard icard--done">
+        <div className="icard-head">
+          <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
+            <span className="icard-check">
+              <Check size={11} strokeWidth={3} />
+            </span>
+            <span>已过期（未及时审批）</span>
             {command && (
               <span className="font-mono text-[10px] text-muted-foreground/60 truncate max-w-[320px]">{command}</span>
             )}
