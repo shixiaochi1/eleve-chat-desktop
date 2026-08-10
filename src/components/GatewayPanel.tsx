@@ -144,8 +144,8 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
     try {
       await navigator.clipboard.writeText(text);
       notifySuccess(`${label}已复制`);
-    } catch {
-      notifyError(`复制失败`);
+    } catch (err) {
+      notifyError(err, '复制失败');
     }
   }, []);
 
