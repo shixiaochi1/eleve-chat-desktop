@@ -2,7 +2,11 @@
  * Messages atomic store — 1:1 alignment with Eleve store/session.ts
  *
  * Key design:
- * - RAF batch flush: same-frame updates coalesce into one React render
+ * - Timer batch flush (🔴 2026-08-10 修复：rAF → setTimeout。Chromium 对隐藏/遮挡
+ *   renderer 暂停 rAF（最小化/完全遮挡/离屏都算）→ listeners 永不通知 → React 永不
+ *   重渲染 → 流式 UI 冻结（症状：调用工具后 UI 卡住几十秒，切回窗口时"一股脑"
+ *   全部渲染）。与 useMessageStream flushQueuedDeltas 同款教训（那里已用 setTimeout，
+ *   此处漏改）。setTimeout 在隐藏 renderer 只被钳制不挂起，合并语义不变。）
  * - getSnapshot returns the same reference until flushed (useSyncExternalStore optimization)
  * - updateMessage(id, patch) for incremental updates — only creates a new
  *   object for the changed message, preserving references for all others
