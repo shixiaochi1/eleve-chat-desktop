@@ -20,7 +20,7 @@ interface RightSidebarTabsProps {
 
 export default function RightSidebarTabs({ activeTab, onTabChange, onClose }: RightSidebarTabsProps) {
   return (
-    <div className={cn('group/rail-tabs flex shrink-0 items-center border-b border-border')}>
+    <div className={cn('group/rail-tabs flex h-10 shrink-0 items-stretch border-b border-border')}>
       {TABS.map(({ key, label, Icon }) => (
         <button
           key={key}
@@ -41,7 +41,7 @@ export default function RightSidebarTabs({ activeTab, onTabChange, onClose }: Ri
         type="button"
         onClick={onClose}
         title="关闭面板"
-        className="ml-auto mr-1.5 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground/60 opacity-0 transition-opacity hover:bg-muted/60 hover:text-foreground focus-visible:opacity-100 group-hover/rail-tabs:opacity-100"
+        className="ml-auto mr-1.5 grid size-6 self-center shrink-0 place-items-center rounded-md text-muted-foreground/60 opacity-0 transition-opacity hover:bg-muted/60 hover:text-foreground focus-visible:opacity-100 group-hover/rail-tabs:opacity-100"
       >
         <X size={13} />
       </button>
