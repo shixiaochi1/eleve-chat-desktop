@@ -138,6 +138,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   provider_save_key:      'provider.save_key',
   provider_disconnect:    'provider.disconnect',
   provider_switch:        'provider.switch',
+  provider_test:          'provider.test',
   list_memories:          'memory.list',
   delete_memory:          'memory.delete',
   reset_memory:           'memory.reset',

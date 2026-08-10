@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { call } from '../utils/bridge';
 import { loadSettings, saveSettings, slugifyProviderName, AUX_TASKS, PROVIDER_REGISTRY, findProvider, listPoolProviders, upsertPoolProvider, removePoolProvider, savePoolProviderKey, disconnectPoolProvider } from '../utils/settings-store';
 import type { ProviderEntry, ProviderModel, AuxTaskEntry, PoolProvider } from '../utils/settings-store';
@@ -118,6 +118,11 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
   // ── 系统设置 ──
   const [autoStart, setAutoStart] = useState(false);
 
+  // 🔴 G-3：主模型 provider（stale_aux 警告用，从 config.model 解析）
+  const [mainProvider, setMainProvider] = useState('');
+  // 🔴 G-4：MoA 配置（从 config.yaml moa 段加载，保存时随 replace_config 落盘）
+  const [moaConfig, setMoaConfig] = useState<Record<string, unknown> | null>(null);
+
   // ── 删除确认 ──
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm | null>(null);
 
@@ -184,7 +189,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
           name: pp.name || pp.id,
           baseUrl: pp.base_url,
           transport: pp.transport,
-          models: pp.models.map(m => ({ name: m.name, context_length: m.context_length, max_output: m.max_output })),
+          models: pp.models.map(m => ({ name: m.name, context_length: m.context_length, max_output: m.max_output, supports_vision: m.supports_vision, use_prompt_caching: m.use_prompt_caching })),
           hasKey: pp.has_key,
           credentialType: pp.credential_type,
           source: 'global_pool' as const,
@@ -246,6 +251,25 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
         setDelModel(bc.delegation.model || '');
         setDelMaxIterations(bc.delegation.max_iterations ?? 30);
       }
+
+      // 🔴 G-3：主模型 provider 解析（model.ref 优先，旧形态 provider+default 兜底）
+      if (bc.model) {
+        if (typeof bc.model === 'string') {
+          setMainProvider(bc.model.split('/')[0] || '');
+        } else if (typeof bc.model === 'object' && bc.model !== null) {
+          const ref = (bc.model as Record<string, unknown>).ref;
+          if (typeof ref === 'string' && ref) {
+            setMainProvider(ref.split('/')[0] || '');
+          } else {
+            const p = (bc.model as Record<string, unknown>).provider;
+            if (typeof p === 'string' && p) setMainProvider(p);
+          }
+        }
+      }
+      // 🔴 G-4：MoA 配置加载（后端 MoaConfig，presets/reference_models/aggregator）
+      if (bc.moa && typeof bc.moa === 'object') {
+        setMoaConfig(bc.moa as Record<string, unknown>);
+      }
     } catch { /* ignore */ }
     checkGateway();
   };
@@ -291,6 +315,33 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     setPasswordDialog(null);
   };
 
+  // 🔴 G-3：stale aux 槽位 — aux 仍 pin 到非主 provider 的任务
+  // （对齐 Hermes persistentStaleAux：切换主模型不自动动 aux pin，但必须提示，
+  //  防后台调用静默继续打旧 provider）
+  const staleAuxSlots = useMemo(() => {
+    const mp = mainProvider.trim().toLowerCase();
+    if (!mp) return [];
+    return Object.entries(auxConfig)
+      .filter(([, cfg]) => {
+        const p = (cfg?.providerId || '').trim().toLowerCase();
+        return p && p !== 'auto' && p !== mp;
+      })
+      .map(([task, cfg]) => ({ task, provider: cfg?.providerId || '', model: cfg?.model || '' }));
+  }, [auxConfig, mainProvider]);
+
+  // 🔴 G-3：一键重置 stale 槽位 → 跟随主模型（改 state，点保存统一落盘）
+  const resetStaleAux = () => {
+    if (staleAuxSlots.length === 0) return;
+    setAuxConfig(prev => {
+      const next = { ...prev };
+      for (const s of staleAuxSlots) {
+        next[s.task] = { ...(next[s.task] || { providerId: 'auto', model: '', timeout: 120 }), providerId: 'auto', model: '' };
+      }
+      return next;
+    });
+    setStatus({ text: '已重置为跟随主模型，点保存后生效', className: 'text-success text-xs' });
+  };
+
   // ====== Provider 操作 ======
   const updateProvider = (id: string, field: string, value: string) => {
     setProviders(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
@@ -309,6 +360,20 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     setProviders(prev => prev.map(p =>
       p.id === id ? { ...p, models: p.models.filter(m => m.name !== modelName) } : p
     ));
+  };
+
+  // 🔴 G-5：断开 API Key（provider.disconnect → Credential::None，对齐 Hermes
+  // 编辑留空 key = 清除语义）。断开后立即从权威源刷新 hasKey 徽章。
+  const handleDisconnectKey = async (providerId: string) => {
+    try {
+      await disconnectPoolProvider(providerId);
+      setProviders(prev => prev.map(p =>
+        p.id === providerId ? { ...p, hasKey: false, credentialType: 'none' } : p
+      ));
+      setStatus({ text: '✓ 已断开 API Key', className: 'text-success text-xs' });
+    } catch (e: unknown) {
+      setStatus({ text: `断开失败: ${(e as Error).message}`, className: 'text-destructive text-xs' });
+    }
   };
 
   // ====== 删除级联检查 ======
@@ -524,6 +589,11 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       ? { provider: delProvider, ...(delModel ? { model: delModel } : {}), max_iterations: delMaxIterations }
       : {};
 
+    // 🔴 G-4：MoA 配置随保存落盘（未加载/未编辑时跳过，不覆盖后端已有 moa 段）
+    if (moaConfig) {
+      backendCfg.moa = moaConfig;
+    }
+
     try {
       await call('replace_config', { sections: backendCfg });
     } catch (e: unknown) {
@@ -536,7 +606,15 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     const poolPromises = providers.map(async (p) => {
       const transport = (p.transport && p.transport !== 'auto') ? p.transport : undefined;
       const modelsMap: Record<string, Record<string, unknown>> = {};
-      for (const m of p.models) { modelsMap[m.name] = { context_length: m.context_length, max_output: m.max_output }; }
+      for (const m of p.models) {
+        modelsMap[m.name] = {
+          context_length: m.context_length,
+          max_output: m.max_output,
+          // 🔴 P-4：能力字段回传（加载时从池保留，保存不丢）
+          ...(m.supports_vision !== undefined && m.supports_vision !== null ? { supports_vision: m.supports_vision } : {}),
+          ...(m.use_prompt_caching !== undefined && m.use_prompt_caching !== null ? { use_prompt_caching: m.use_prompt_caching } : {}),
+        };
+      }
       await upsertPoolProvider({
         id: p.id,
         name: p.name,
@@ -574,7 +652,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
           const pp = fresh.find(f => f.id === p.id);
           if (!pp) return p;
           // FIX-B：从权威源同步回 models + hasKey，预设卡片入池后标记 global_pool
-          const poolModels = pp.models.map(m => ({ name: m.name, context_length: m.context_length, max_output: m.max_output }));
+          const poolModels = pp.models.map(m => ({ name: m.name, context_length: m.context_length, max_output: m.max_output, supports_vision: m.supports_vision, use_prompt_caching: m.use_prompt_caching }));
           return {
             ...p,
             models: poolModels.length > 0 ? poolModels : p.models,
@@ -600,7 +678,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       setGatewayOnline(false);
     }
     setSaving(false);
-  }, [providers, fallbackList, auxConfig, delProvider, delModel, delMaxIterations, passwordHash, onBack]);
+  }, [providers, fallbackList, auxConfig, delProvider, delModel, delMaxIterations, passwordHash, onBack, moaConfig]);
 
   // ====== 下拉筛选 ======
   const providerOptions = providers.map(p => ({ value: p.id, label: `${p.name} (${p.id})` }));
@@ -627,6 +705,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
             setNewProvider={setNewProvider}
             handleAddProvider={handleAddProvider}
             onProviderNameChange={handleProviderNameChange}
+            onDisconnect={handleDisconnectKey}
           />
         );
       case 'models':
@@ -648,6 +727,10 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
             providerOptions={providerOptions}
             expanded={modelSectionExpanded}
             setExpanded={setModelSectionExpanded}
+            staleAuxSlots={staleAuxSlots}
+            onResetStaleAux={resetStaleAux}
+            moaConfig={moaConfig}
+            setMoaConfig={setMoaConfig}
           />
         );
       case 'workspace':

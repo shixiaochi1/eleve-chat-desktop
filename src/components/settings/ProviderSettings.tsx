@@ -44,6 +44,7 @@ export default function ProviderSettings({
   setNewProvider,
   handleAddProvider,
   onProviderNameChange,
+  onDisconnect,
 }: {
   providers: ProviderCardData[];
   expandedProvider: string | null;
@@ -61,6 +62,7 @@ export default function ProviderSettings({
   setNewProvider: (v: { name: string; slug: string; keyEnv: string; apiKey: string; baseUrl: string; transport: string; modelsRaw: string; contextLength: string }) => void;
   handleAddProvider: () => void;
   onProviderNameChange: (name: string) => void;
+  onDisconnect: (id: string) => void;
 }) {
   return (
     <div className="space-y-2.5">
@@ -81,6 +83,8 @@ export default function ProviderSettings({
           onRequestUnlock={requestUnlock}
           keyVisible={keyUnlocked}
           onSave={handleSave}
+          deleteDisabled={p.source === 'preset'}
+          onDisconnect={onDisconnect}
         />
       ))}
 

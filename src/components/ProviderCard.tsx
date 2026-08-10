@@ -3,7 +3,7 @@ import { Eye, EyeOff, Trash2, Plus, X, KeyRound, Globe, Cpu, Check } from 'lucid
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { lookupModelCapabilities } from '@/utils/settings-store';
+import { lookupModelCapabilities, testProviderConnection } from '@/utils/settings-store';
 import type { ProviderModel } from '@/utils/settings-store';
 
 interface Provider {
@@ -28,6 +28,10 @@ interface ProviderCardProps {
   onRemoveModel: (id: string, modelName: string) => void;
   onDelete: (id: string) => void;
   onRequestUnlock: (id: string) => void;
+  /** 🔴 P-3：preset 卡禁删（对齐 Hermes direct-config 来源端点不可删） */
+  deleteDisabled?: boolean;
+  /** 🔴 G-5：断开 API Key（provider.disconnect → Credential::None） */
+  onDisconnect?: (id: string) => void;
   onSave?: () => void;
   keyVisible: boolean;
 }
@@ -60,6 +64,8 @@ export default function ProviderCard({
   onRequestUnlock,
   onSave,
   keyVisible,
+  deleteDisabled = false,
+  onDisconnect,
 }: ProviderCardProps) {
   const [newModel, setNewModel] = useState('');
   const [newCtx, setNewCtx] = useState('');
@@ -67,6 +73,9 @@ export default function ProviderCard({
   const [modelLooking, setModelLooking] = useState(false);
   // 🔴 2026-08-10：添加成功后的明显提示（独立于查询 hint，防 debounce 覆盖）
   const [addSuccess, setAddSuccess] = useState<string | null>(null);
+  // 🔴 G-1/G-2：测试连接（对齐 Hermes validateCustomEndpoint Test 按钮）
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   // 输入模型名时异步查询 models.dev 参数 → 命中自动填充 ctx（可手改）
   const lookupModel = useCallback(
@@ -132,6 +141,42 @@ export default function ProviderCard({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleAddModel();
+  };
+
+  // 🔴 G-1/G-2：测试端点连通性 + 发现模型（对齐 Hermes validateCustomEndpoint）
+  // 用当前卡片 baseUrl + 已输入 apiKey 探测 {base_url}/models；成功 → 发现模型
+  // 合并进模型列表（ctx=0 未知，可再经 models.dev 或手填）。
+  const handleTest = async () => {
+    const baseUrl = (provider.baseUrl || '').trim();
+    if (!baseUrl) {
+      setTestResult({ ok: false, text: '请先填写 Base URL' });
+      return;
+    }
+    setTesting(true);
+    try {
+      const res = await testProviderConnection(baseUrl, (provider.apiKey || '').trim() || undefined);
+      if (res.ok) {
+        let added = 0;
+        for (const m of res.models) {
+          if (!provider.models.some(x => x.name === m)) {
+            onAddModel(provider.id, { name: m, context_length: 0, max_output: 16384 });
+            added++;
+          }
+        }
+        setTestResult({
+          ok: true,
+          text: res.models.length > 0
+            ? `✓ 端点可达，发现 ${res.models.length} 个模型（新增 ${added} 个）`
+            : '✓ 端点可达（未发现模型目录）',
+        });
+      } else {
+        setTestResult({ ok: false, text: res.message });
+      }
+    } catch {
+      setTestResult({ ok: false, text: '测试失败（网络异常）' });
+    } finally {
+      setTesting(false);
+    }
   };
 
   const selectClasses = cn(
@@ -201,18 +246,36 @@ export default function ProviderCard({
             </div>
           </div>
 
-          {/* Base URL */}
+          {/* Base URL + 测试连接（🔴 G-1：对齐 Hermes Test 按钮 — 探测可达性/凭证/发现模型） */}
           <div className={cn('grid gap-1.5')}>
             <label className={cn('flex items-center gap-1.5 text-xs text-muted-foreground')}>
               <Globe size={12} strokeWidth={1.5} /> Base URL
             </label>
-            <Input
-              type="text"
-              className={cn('h-7.5 text-xs')}
-              value={provider.baseUrl || ''}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => onUpdate(provider.id, 'baseUrl', e.target.value)}
-              placeholder="https://api.example.com/v1"
-            />
+            <div className={cn('flex items-center gap-1')}>
+              <Input
+                type="text"
+                className={cn('h-7.5 text-xs flex-1')}
+                value={provider.baseUrl || ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => onUpdate(provider.id, 'baseUrl', e.target.value)}
+                placeholder="https://api.example.com/v1"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn('h-7.5 shrink-0 px-3 text-xs')}
+                onClick={() => void handleTest()}
+                disabled={testing}
+                type="button"
+                title="测试端点连通性 + 发现模型目录"
+              >
+                {testing ? '测试中…' : '测试连接'}
+              </Button>
+            </div>
+            {testResult && (
+              <p className={cn('text-[11px]', testResult.ok ? 'text-emerald-600' : 'text-destructive')}>
+                {testResult.text}
+              </p>
+            )}
           </div>
 
           {/* 协议/传输方式 */}
@@ -313,16 +376,38 @@ export default function ProviderCard({
 
           {/* 删除按钮 + 保存按钮（🔴 2026-08-10 统一：组件默认高 + min-w 等宽 + 双图标） */}
           <div className={cn('flex items-center justify-between pt-3 border-t border-border/60')}>
-            <Button
-              variant="destructive"
-              size="sm"
-              className={cn('min-w-24 text-xs')}
-              onClick={() => onDelete(provider.id)}
-              type="button"
-            >
-              <Trash2 size={13} strokeWidth={1.5} />
-              删除厂商
-            </Button>
+            <div className={cn('flex items-center gap-2')}>
+              {/* 🔴 P-3：preset 卡禁删（对齐 Hermes direct-config 来源端点隐藏删除按钮）——
+                  预设未入池时删除是假删（重开面板复活），需先保存入池才可删 */}
+              {!deleteDisabled && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className={cn('min-w-24 text-xs')}
+                  onClick={() => onDelete(provider.id)}
+                  type="button"
+                >
+                  <Trash2 size={13} strokeWidth={1.5} />
+                  删除厂商
+                </Button>
+              )}
+              {deleteDisabled && provider.source === 'preset' && (
+                <span className={cn('text-[11px] text-muted-foreground/60')}>预设厂商：保存后入池即可删除</span>
+              )}
+              {/* 🔴 G-5：断开 API Key（对齐 Hermes 编辑留空 key = 清除语义，ELEVE 用显式断开按钮） */}
+              {onDisconnect && provider.hasKey && provider.credentialType !== 'none' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn('min-w-24 text-xs')}
+                  onClick={() => onDisconnect(provider.id)}
+                  type="button"
+                >
+                  <KeyRound size={13} strokeWidth={1.5} />
+                  断开 Key
+                </Button>
+              )}
+            </div>
             <Button
               variant="default"
               size="sm"

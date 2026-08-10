@@ -23,6 +23,9 @@ export interface ProviderModel {
   name: string;
   context_length: number;
   max_output: number;
+  /** 🔴 P-4：能力字段回传（前端不编辑，加载/保存时保留，防保存后丢失） */
+  supports_vision?: boolean | null;
+  use_prompt_caching?: boolean | null;
 }
 
 export interface ProviderEntry {
@@ -237,7 +240,7 @@ export interface PoolProvider {
   default_max_output: number;
   has_key: boolean;
   credential_type: string;
-  models: { name: string; context_length: number; max_output: number }[];
+  models: { name: string; context_length: number; max_output: number; supports_vision?: boolean | null; use_prompt_caching?: boolean | null }[];
   source?: string;
 }
 
@@ -273,4 +276,28 @@ export async function savePoolProviderKey(providerId: string, apiKey: string): P
 export async function disconnectPoolProvider(providerId: string): Promise<boolean> {
   await call('provider_disconnect', { provider_id: providerId });
   return true;
+}
+
+// =============================================================================
+// provider.test — 测试端点连通性 + 发现模型（对齐 Hermes validate_custom_endpoint）
+// =============================================================================
+
+export interface ProviderTestResult {
+  ok: boolean;
+  reachable: boolean;
+  message: string;
+  models: string[];
+}
+
+/** 探测端点 {base_url}/models：可达性 + key 有效性 + 发现模型目录 */
+export async function testProviderConnection(baseUrl: string, apiKey?: string): Promise<ProviderTestResult> {
+  try {
+    const res = await call('provider_test', {
+      base_url: baseUrl,
+      ...(apiKey ? { api_key: apiKey } : {}),
+    }) as ProviderTestResult;
+    return res;
+  } catch (e) {
+    return { ok: false, reachable: false, message: (e as Error).message || '测试失败', models: [] };
+  }
 }
