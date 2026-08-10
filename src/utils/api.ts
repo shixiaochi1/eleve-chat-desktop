@@ -48,7 +48,22 @@ export async function getSessionHistory(id: string): Promise<any> {
 export async function fetchSessionContext(sessionId: string | null | undefined): Promise<any> {
   if (!sessionId) return null;
   try {
-    return await call('get_session_context', { session_id: sessionId });
+    // 🔴 2026-08-10 对齐 Hermes：后端 session.context_breakdown 返回
+    // { context_used, context_max, context_percent, categories, estimated_total, model }
+    // context_used = 实测 last_prompt_tokens 优先，无实测回退估算（永不为 0）；
+    // context_max = 模型解析链结果（内置表→provider-aware→OR live→models.dev→256K）。
+    // 归一为 ContextBar/CardContextGauge 的 { total_tokens, context_limit, percentage } 形状。
+    const data = await call('get_session_context', { session_id: sessionId });
+    if (!data) return null;
+    return {
+      total_tokens: data.context_used ?? data.total_tokens ?? 0,
+      context_limit: data.context_max ?? data.context_limit ?? 0,
+      percentage: data.context_percent ?? data.percentage ?? 0,
+      model: data.model,
+      estimated_total: data.estimated_total,
+      categories: data.categories,
+      compression_count: data.compression_count,
+    };
   } catch {
     return null;
   }

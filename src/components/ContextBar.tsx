@@ -34,7 +34,11 @@ interface ContextBarProps {
 }
 
 /**
- * 会话上下文指示条 — 每 3s 轮询 /api/sessions/:id/context
+ * 会话上下文指示条 — 每 3s 轮询 context 数据
+ *
+ * 🔴 2026-08-10 对齐 Hermes：数据源 = WS session.context_breakdown（context_used =
+ * 实测 last_prompt_tokens 优先，无实测回退估算，永不为 0；context_max = 模型解析链）。
+ * 旧 session.context.get 是累计 input+output 语义，导致显示 0 / 虚高。
  *
  * 布局：[+ 新建会话]  ···  [模型名 | 已用 token / 上限 | 百分比 | 进度条]
  *

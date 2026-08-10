@@ -149,7 +149,10 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   analytics_usage:        'analytics.usage',
 
   // C类：Session 补充 + Config 补充 + Gateway + Auth + Utils
-  get_session_context:    'session.context.get',
+  // 🔴 2026-08-10 对齐 Hermes：ContextBar 上下文监控改走 session.context_breakdown
+  //（context_used = 实测 last_prompt_tokens 优先 + 估算兜底，永不为 0；旧 session.context.get
+  // 是累计 input+output 语义，显示 0/虚高）
+  get_session_context:    'session.context_breakdown',
   get_session_messages:   'session.history',
   export_session:         'session.export',
   rename_session:         'session.rename',
