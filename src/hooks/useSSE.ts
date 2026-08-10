@@ -560,7 +560,13 @@ function processEvent(
           usage: chunk.usage,
         });
       }
-      cbs.onDone?.(chunk.session_id as string | null, failure);
+      // 🔴 2026-08-11 修复：chunk.session_id 是【本轮】session_id（build_ws_event 恒注入），
+      // 不是"新会话 id"——旧实现把它当 newSessionId 传给 onDone → 每轮触发
+      // setSessionId 切换 + 调试面板每轮显示 "new session"（后端实际从未新建）。
+      // ELEVE message.complete 无 new_session_id 字段（/new 走 onSessionReset 专门事件），
+      // 此处仅当字段存在才传（对齐 Hermes 语义，未来后端补字段可直接生效）。
+      const newSid = (chunk as { new_session_id?: string }).new_session_id;
+      cbs.onDone?.(newSid ?? null, failure);
       return 'done';
 
     default:
