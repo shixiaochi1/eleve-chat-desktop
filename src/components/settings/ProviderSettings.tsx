@@ -65,39 +65,55 @@ export default function ProviderSettings({
   onDisconnect: (id: string) => void;
 }) {
   return (
-    <div className="space-y-2.5">
-      <p className="text-xs text-muted-foreground/70 leading-relaxed mb-3">
-        API 服务商集中注册，后续区块只需选择厂商和模型即可。添加的模型可手动配置上下文大小与最大输出。
-      </p>
+    <div className="space-y-3">
+      {/* 顶部说明 + 统计（卡片墙头部） */}
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs text-muted-foreground/70 leading-relaxed">
+          API 服务商集中注册，后续区块只需选择厂商和模型即可。添加的模型可手动配置上下文大小。
+        </p>
+        <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
+          <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+            {providers.length} 家服务商
+          </span>
+          <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+            {providers.reduce((n, p) => n + p.models.length, 0)} 个模型
+          </span>
+        </div>
+      </div>
 
-      {providers.map((p) => (
-        <ProviderCard
-          key={p.id}
-          provider={p}
-          expanded={expandedProvider === p.id}
-          onToggle={() => onToggleProvider(p.id)}
-          onUpdate={updateProvider}
-          onAddModel={addProviderModel}
-          onRemoveModel={removeProviderModel}
-          onDelete={requestDelete}
-          onRequestUnlock={requestUnlock}
-          keyVisible={keyUnlocked}
-          onSave={handleSave}
-          deleteDisabled={p.source === 'preset'}
-          onDisconnect={onDisconnect}
-        />
-      ))}
+      {/* 卡片墙：2 列网格，展开时跨全宽 */}
+      <div className="grid gap-2.5 sm:grid-cols-2 items-start">
+        {providers.map((p) => (
+          <ProviderCard
+            key={p.id}
+            provider={p}
+            expanded={expandedProvider === p.id}
+            onToggle={() => onToggleProvider(p.id)}
+            onUpdate={updateProvider}
+            onAddModel={addProviderModel}
+            onRemoveModel={removeProviderModel}
+            onDelete={requestDelete}
+            onRequestUnlock={requestUnlock}
+            keyVisible={keyUnlocked}
+            onSave={handleSave}
+            deleteDisabled={p.source === 'preset'}
+            onDisconnect={onDisconnect}
+          />
+        ))}
 
-      {/* 添加服务商 */}
-      {!addProviderOpen ? (
-        <Button
-          className="w-full mt-3"
-          onClick={() => setAddProviderOpen(true)}
-        >
-          <Plus size={15} strokeWidth={2} /> 添加服务商
-        </Button>
-      ) : (
-        <div className="flex flex-col gap-2.5 p-3.5 mt-2 border border-border rounded-xl bg-card shadow-sm">
+        {/* 添加服务商：虚线卡片（替代底部大按钮） */}
+        {!addProviderOpen ? (
+          <button
+            type="button"
+            className="min-h-[3.75rem] rounded-xl border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-accent/30 transition-colors grid place-items-center gap-1 cursor-pointer bg-transparent"
+            onClick={() => setAddProviderOpen(true)}
+          >
+            <span className="flex items-center gap-1.5 text-xs font-medium">
+              <Plus size={14} strokeWidth={2} /> 添加服务商
+            </span>
+          </button>
+        ) : (
+          <div className="sm:col-span-2 flex flex-col gap-2.5 p-3.5 border border-border rounded-xl bg-card shadow-sm">
           {/* 名称 + 配置ID（两列，对齐 Hermes Name/Provider ID） */}
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="grid gap-1">
@@ -200,7 +216,8 @@ export default function ProviderSettings({
             <Button variant="default" size="sm" onClick={handleAddProvider} disabled={!newProvider.name.trim() || !newProvider.slug.trim()}>添加</Button>
           </div>
         </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

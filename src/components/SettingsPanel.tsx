@@ -35,14 +35,17 @@ interface Provider extends ProviderEntry {
 interface FallbackEntry {
   providerId: string;
   model: string;
+  /** 思考深度（对齐 Hermes fallback reasoning_effort；空 = 模型默认） */
+  reasoningEffort?: string | null;
 }
 
 interface AuxEntry {
   providerId: string;
   model: string;
   timeout: number;
-  temperature?: number | null;
   downloadTimeout?: number;
+  /** 思考深度（对齐 Hermes auxiliary.<task>.reasoning_effort；空 = 模型默认） */
+  reasoningEffort?: string | null;
 }
 
 interface NewProviderForm {
@@ -100,12 +103,9 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
   const [delMaxIterations, setDelMaxIterations] = useState(30);
 
   // ── UI 状态 ──
-  const [status, setStatus] = useState<{ text: string; className: string }>({ text: '', className: 'text-muted-foreground text-xs' });
   const [gatewayOnline, setGatewayOnline] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [activeSection, setActiveSection] = useState('providers');
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
-  const [modelSectionExpanded, setModelSectionExpanded] = useState<string | null>(null);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
 
   // ── 安全 ──
@@ -234,8 +234,8 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
               providerId: val.provider || 'auto',
               model: val.model || '',
               timeout: val.timeout ?? 120,
-              temperature: val.temperature ?? null,
               downloadTimeout: val.download_timeout ?? undefined,
+              reasoningEffort: val.reasoning_effort ?? null,
             };
             // 🔴 extra_body 不再入 state：面板不暴露（对齐 Hermes config.yaml 手写），
             // 保存时 rawSectionsRef patch 保留手写值
@@ -245,10 +245,15 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       }
 
       if (bc.fallback?.providers && Array.isArray(bc.fallback.providers)) {
-        setFallbackList(bc.fallback.providers.map((f: any) => ({
+        const fbs = bc.fallback.providers.map((f: any) => ({
           providerId: f.provider || '',
           model: f.model || '',
-        })));
+          reasoningEffort: f.reasoning_effort ?? null,
+        }));
+        // 🔴 2026-08-10 默认至少一行：无配置时显示一行可配置的空行（保存时自动过滤）
+        setFallbackList(fbs.length > 0 ? fbs : [{ providerId: '', model: '', reasoningEffort: null }]);
+      } else {
+        setFallbackList([{ providerId: '', model: '', reasoningEffort: null }]);
       }
 
       if (bc.delegation && typeof bc.delegation === 'object') {
@@ -341,17 +346,16 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       .map(([task, cfg]) => ({ task, provider: cfg?.providerId || '', model: cfg?.model || '' }));
   }, [auxConfig, mainProvider]);
 
-  // 🔴 G-3：一键重置 stale 槽位 → 跟随主模型（改 state，点保存统一落盘）
+  // 🔴 G-3：一键重置 stale 槽位 → 跟随主模型（即时保存）
   const resetStaleAux = () => {
     if (staleAuxSlots.length === 0) return;
-    setAuxConfig(prev => {
-      const next = { ...prev };
-      for (const s of staleAuxSlots) {
-        next[s.task] = { ...(next[s.task] || { providerId: 'auto', model: '', timeout: 120 }), providerId: 'auto', model: '' };
-      }
-      return next;
-    });
-    setStatus({ text: '已重置为跟随主模型，点保存后生效', className: 'text-success text-xs' });
+    const next = { ...auxConfig };
+    for (const s of staleAuxSlots) {
+      next[s.task] = { ...(next[s.task] || { providerId: 'auto', model: '', timeout: 120 }), providerId: 'auto', model: '' };
+    }
+    setAuxConfig(next);
+    saveSectionImmediately('auxiliary', buildAuxSection(next));
+    notifySuccess('已重置为跟随主模型');
   };
 
   // ====== Provider 操作 ======
@@ -382,9 +386,9 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       setProviders(prev => prev.map(p =>
         p.id === providerId ? { ...p, hasKey: false, credentialType: 'none' } : p
       ));
-      setStatus({ text: '✓ 已断开 API Key', className: 'text-success text-xs' });
+      notifySuccess('已断开 API Key');
     } catch (e: unknown) {
-      setStatus({ text: `断开失败: ${(e as Error).message}`, className: 'text-destructive text-xs' });
+      notifyError(e, '断开失败');
     }
   };
 
@@ -414,7 +418,9 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
 
     // ── 计算删除后的新状态 ──
     const newProviders = providers.filter(p => p.id !== providerId);
+    // 🔴 2026-08-10：删除后至少保留一行（老大：默认至少有一个提供商和模型）
     const newFallback = fallbackList.filter(fb => fb.providerId !== providerId);
+    const finalFallback = newFallback.length > 0 ? newFallback : [{ providerId: '', model: '', reasoningEffort: null }];
     const newAux = { ...auxConfig };
     for (const key of Object.keys(newAux)) {
       if (newAux[key]?.providerId === providerId) {
@@ -424,23 +430,29 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     const newDelProvider = delProvider === providerId ? '' : delProvider;
     const newDelModel = delProvider === providerId ? '' : delModel;
 
-    // ── 更新内存 state ──
+    // ── 更新内存 state（🔴 2026-08-10：级联变更即时保存）──
     setProviders(newProviders);
-    setFallbackList(newFallback);
+    setFallbackList(finalFallback);
+    saveSectionImmediately('fallback', buildFallbackSection(finalFallback));
     setAuxConfig(newAux);
-    if (delProvider === providerId) { setDelProvider(''); setDelModel(''); }
+    saveSectionImmediately('auxiliary', buildAuxSection(newAux));
+    if (delProvider === providerId) {
+      setDelProvider('');
+      setDelModel('');
+      saveSectionImmediately('delegation', buildDelegationSection('', '', delMaxIterations));
+    }
     setDeleteConfirm(null);
 
     // F5: 不再写 settings.json。provider 列表从池加载，删除池条目即永久生效。
-    // 级联变更（fallback/aux 重置）在内存 state 中，用户点保存时经 update_config 持久化。
+    // 级联变更（fallback/aux 重置）已即时保存。
 
     // 同步从全局池删除（后端 pool.remove 持锁落盘 providers.yaml，持久）
     removePoolProvider(providerId).then(res => {
       if (res.warnings.length > 0) {
-        setStatus({ text: `已删除，但有引用: ${res.warnings.join('; ')}`, className: 'text-yellow-500 text-xs' });
+        notifySuccess(`已删除，但有引用: ${res.warnings.join('; ')}`);
       }
     }).catch((e: unknown) => {
-      setStatus({ text: `全局池删除失败: ${(e as Error).message}`, className: 'text-destructive text-xs' });
+      notifyError(e, '全局池删除失败');
     });
   };
 
@@ -490,11 +502,11 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       // 如果有 API key，同步保存到池（Provider 已入池，key 失败不回滚 Provider，可重试）
       if (provider.apiKey && provider.apiKey.length >= 8) {
         savePoolProviderKey(provider.id, provider.apiKey).catch((e: unknown) => {
-          setStatus({ text: `API Key 保存失败: ${(e as Error).message}`, className: 'text-destructive text-xs' });
+          notifyError(e, 'API Key 保存失败');
         });
       }
     }).catch((e: unknown) => {
-      setStatus({ text: `添加失败（池写入）: ${(e as Error).message}`, className: 'text-destructive text-xs' });
+      notifyError(e, '添加失败（池写入）');
     });
   };
 
@@ -511,7 +523,8 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       setNewProvider(prev => ({
         ...prev,
         slug: preset.id,
-        keyEnv: preset.id.toUpperCase().replace(/-/g, '_') + '_API_KEY',
+        // 注册表 keyEnv 优先（Hermes 同源 env 名，如 HF_TOKEN）；无则自动生成
+        keyEnv: preset.keyEnv || preset.id.toUpperCase().replace(/-/g, '_') + '_API_KEY',
         baseUrl: preset.baseUrl,
         modelsRaw: preset.models.map(m => m.name).join(', '),
       }));
@@ -527,31 +540,114 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     }
   };
 
-  // ====== Fallback / Aux / Del 操作 ======
-  const addFallback = () => {
-    setFallbackList([...fallbackList, { providerId: '', model: '' }]);
-  };
+  // ====== Fallback / Aux / Del 操作（🔴 2026-08-10 全部即时保存） ======
   const removeFallback = (idx: number) => {
-    setFallbackList(fallbackList.filter((_, i) => i !== idx));
+    // 🔴 2026-08-10：删除后至少保留一行（老大：默认至少有一个提供商和模型）
+    const next = fallbackList.filter((_, i) => i !== idx);
+    const final = next.length > 0 ? next : [{ providerId: '', model: '', reasoningEffort: null }];
+    setFallbackList(final);
+    saveSectionImmediately('fallback', buildFallbackSection(final));
   };
-  const updateFallback = (idx: number, field: string, value: string) => {
+  const addFallback = () => {
+    const next = [...fallbackList, { providerId: '', model: '', reasoningEffort: null }];
+    setFallbackList(next);
+    saveSectionImmediately('fallback', buildFallbackSection(next));
+  };
+  const updateFallback = (idx: number, field: string, value: string | null) => {
     const updated = [...fallbackList];
-    updated[idx] = { ...updated[idx], [field]: value };
+    updated[idx] = { ...updated[idx], [field]: value ?? undefined };
     if (field === 'providerId') updated[idx].model = '';
     setFallbackList(updated);
+    saveSectionImmediately('fallback', buildFallbackSection(updated));
   };
 
   const updateAux = (key: string, field: string, value: string | number | null) => {
-    setAuxConfig(prev => ({
-      ...prev,
-      [key]: { ...(prev[key] || { providerId: 'auto', model: '' }), [field]: value },
-    }));
+    const next = {
+      ...auxConfig,
+      [key]: { ...(auxConfig[key] || { providerId: 'auto', model: '' }), [field]: value },
+    };
+    setAuxConfig(next);
+    saveSectionImmediately('auxiliary', buildAuxSection(next));
+  };
+
+  // 🔴 2026-08-10：委派字段变更即时保存（用新值构建段，避免 state 异步旧值）
+  const setDelProviderSafe = (v: string) => {
+    setDelProvider(v);
+    setDelModel('');
+    saveSectionImmediately('delegation', buildDelegationSection(v, '', delMaxIterations));
+  };
+  const setDelModelSafe = (v: string) => {
+    setDelModel(v);
+    saveSectionImmediately('delegation', buildDelegationSection(delProvider, v, delMaxIterations));
+  };
+  const setDelMaxIterationsSafe = (v: number) => {
+    setDelMaxIterations(v);
+    saveSectionImmediately('delegation', buildDelegationSection(delProvider, delModel, v));
   };
 
   // ====== 保存 ======
+  // 🔴 2026-08-10 模型面板全部即时保存（对齐 Hermes）：fallback/aux/delegation/moa
+  // 每次变更即落盘，底部保存按钮删除。update_config 加性写单段，不整段替换。
+  const saveSectionImmediately = useCallback((section: string, value: unknown) => {
+    void call('update_config', { config: { [section]: value } }).catch((e: unknown) => {
+      console.warn(`[SettingsPanel] ${section} 即时保存失败:`, (e as Error).message);
+    });
+  }, []);
+
+  // ── Fallback 段构建（raw patch 保留手写字段：base_url/api_key/context_length/model_ref）──
+  const buildFallbackSection = useCallback((list: FallbackEntry[]): Record<string, unknown> => {
+    const fbFiltered = list.filter(f => f.providerId && f.model);
+    const rawFb = ((rawSectionsRef.current.fallback || {}) as { providers?: Array<Record<string, unknown>> }).providers || [];
+    return {
+      providers: fbFiltered.map(f => {
+        const raw = rawFb.find(r => r.provider === f.providerId && r.model === f.model) || {};
+        const entry: Record<string, unknown> = { ...raw, provider: f.providerId, model: f.model };
+        // 思考深度：非空写 reasoning_effort（对齐 Hermes fallback reasoning_effort）
+        if (f.reasoningEffort) entry.reasoning_effort = f.reasoningEffort;
+        return entry;
+      }),
+    };
+  }, []);
+
+  // ── Auxiliary 段构建（raw patch 保留手写字段）──
+  const buildAuxSection = useCallback((cfg: Record<string, AuxEntry>): Record<string, Record<string, unknown>> => {
+    const rawAux = (rawSectionsRef.current.auxiliary || {}) as Record<string, Record<string, unknown>>;
+    const auxObj: Record<string, Record<string, unknown>> = {};
+    for (const [key, c] of Object.entries(cfg)) {
+      const taskCfg: Record<string, unknown> = {
+        provider: c.providerId || 'auto',
+        timeout: c.timeout,
+      };
+      if (c.model) taskCfg.model = c.model;
+      if (c.reasoningEffort) taskCfg.reasoning_effort = c.reasoningEffort;
+      if (c.downloadTimeout != null) taskCfg.download_timeout = c.downloadTimeout;
+      // 手写字段优先保留，前端字段覆盖同名
+      auxObj[key] = { ...(rawAux[key] || {}), ...taskCfg };
+    }
+    return auxObj;
+  }, []);
+
+  // ── Delegation 段构建（raw patch 保留手写字段）──
+  const buildDelegationSection = useCallback((provider: string, model: string, maxIter: number): Record<string, unknown> => {
+    const rawDel = (rawSectionsRef.current.delegation || {}) as Record<string, unknown>;
+    return provider
+      ? { ...rawDel, provider, model: model || null, max_iterations: maxIter }
+      : { ...rawDel, provider: null, model: null };
+  }, []);
+
+  // 🔴 2026-08-10：MoA 即时落盘（对齐 Hermes saveMoa）——update_config 加性写 moa 段，
+  // 不整段替换（不碰 fallback/aux/delegation），失败不阻断 UI（下次操作重试/底部保存兜底）
+  const saveMoaImmediately = useCallback((moa: Record<string, unknown>) => {
+    void call('update_config', { config: { moa } }).catch((e: unknown) => {
+      console.warn('[SettingsPanel] MoA 即时保存失败:', (e as Error).message);
+    });
+  }, []);
+
   const handleSave = useCallback(async () => {
-    setSaving(true);
-    setStatus({ text: '保存中…', className: 'text-muted-foreground text-xs' });
+
+    // 🔴 2026-08-10：fallback/aux/delegation/moa 已全部即时保存（update_config 单段加性写），
+    // handleSave 仅剩：settings.json passwordHash + 服务商池同步（ProviderCard 保存按钮用）
+    const isPlaceholder = (k: string) => k.includes('...') || k.includes('••') || k.includes('***') || k.length < 8;
 
     // F5: settings.json 仅存 passwordHash（UI 级设置）
     // Provider/aux/fallback/del 不再写 settings.json，分别走池和 config.yaml
@@ -563,60 +659,6 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       delegation: { providerId: '', model: '', maxIterations: 30 },
       settingsPasswordHash: passwordHash,
     }).catch(() => { /* passwordHash 保存失败不阻塞主流程 */ });
-
-    const isPlaceholder = (k: string) => k.includes('...') || k.includes('••') || k.includes('***') || k.length < 8;
-
-    const backendCfg: Record<string, unknown> = {};
-    // 🔴 config.yaml providers段已删除：池是唯一权威源，Provider 元数据 + 凭证统一走
-    // upsertPoolProvider + savePoolProviderKey 写入 providers.yaml。
-    // config.yaml 只保留 fallback/auxiliary/delegation 等非 Provider 配置。
-
-    // ── Fallback → config.yaml fallback 段（🔴 patch 保留手写字段：base_url/api_key/context_length/model_ref）──
-    const fbFiltered = fallbackList.filter(f => f.providerId && f.model);
-    const rawFb = ((rawSectionsRef.current.fallback || {}) as { providers?: Array<Record<string, unknown>> }).providers || [];
-    backendCfg.fallback = {
-      providers: fbFiltered.map(f => {
-        const raw = rawFb.find(r => r.provider === f.providerId && r.model === f.model) || {};
-        return { ...raw, provider: f.providerId, model: f.model };
-      }),
-    };
-
-    // ── Auxiliary → config.yaml auxiliary 段（🔴 patch 保留手写字段：
-    //    extra_body/base_url/api_key/language/model_ref 等面板不暴露字段）──
-    const rawAux = (rawSectionsRef.current.auxiliary || {}) as Record<string, Record<string, unknown>>;
-    const auxObj: Record<string, Record<string, unknown>> = {};
-    for (const [key, cfg] of Object.entries(auxConfig)) {
-      const taskCfg: Record<string, unknown> = {
-        provider: cfg.providerId || 'auto',
-        timeout: cfg.timeout,
-      };
-      if (cfg.model) taskCfg.model = cfg.model;
-      if (cfg.temperature != null) taskCfg.temperature = cfg.temperature;
-      if (cfg.downloadTimeout != null) taskCfg.download_timeout = cfg.downloadTimeout;
-      // 手写字段优先保留，前端字段覆盖同名
-      auxObj[key] = { ...(rawAux[key] || {}), ...taskCfg };
-    }
-    backendCfg.auxiliary = auxObj;
-
-    // ── Delegation → config.yaml delegation 段（🔴 patch 保留手写字段：
-    //    api_mode/reasoning_effort/child_timeout_seconds/inherit_mcp_toolsets/base_url/api_key）──
-    const rawDel = (rawSectionsRef.current.delegation || {}) as Record<string, unknown>;
-    backendCfg.delegation = delProvider
-      ? { ...rawDel, provider: delProvider, model: delModel || null, max_iterations: delMaxIterations }
-      : { ...rawDel, provider: null, model: null };
-
-    // 🔴 G-4：MoA 配置随保存落盘（未加载/未编辑时跳过，不覆盖后端已有 moa 段）
-    if (moaConfig) {
-      backendCfg.moa = moaConfig;
-    }
-
-    try {
-      await call('replace_config', { sections: backendCfg });
-    } catch (e: unknown) {
-      setStatus({ text: `配置保存失败: ${(e as Error).message}`, className: 'text-destructive text-xs' });
-      setSaving(false);
-      return;
-    }
 
     // Phase P5: 同步到全局 Provider 池（池=唯一权威源）
     const poolPromises = providers.map(async (p) => {
@@ -653,9 +695,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       const msgs = poolFailures
         .map(({ r, id }) => `${id}: ${(r as PromiseRejectedResult).reason?.message ?? '未知错误'}`)
         .join('；');
-      setStatus({ text: `保存失败（池写入）: ${msgs}`, className: 'text-destructive text-xs' });
-      setSaving(false);
-      return;
+      notifyError(new Error(msgs), '保存失败（池写入）');
     }
 
     // 保存成功后立即从权威源（全局池）刷新 hasKey 徽章。
@@ -683,18 +723,17 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     try {
       const d = await call('list_models', {});
       if (d) {
-        setStatus({ text: '✓ 配置已生效', className: 'text-success text-xs' });
+        notifySuccess('服务商配置已保存');
         setGatewayOnline(true);
         setTimeout(() => onBack?.(), 1500);
       } else {
         throw new Error('异常');
       }
     } catch {
-      setStatus({ text: '配置已保存，重启后生效', className: 'text-destructive text-xs' });
+      notifySuccess('配置已保存');
       setGatewayOnline(false);
     }
-    setSaving(false);
-  }, [providers, fallbackList, auxConfig, delProvider, delModel, delMaxIterations, passwordHash, onBack, moaConfig]);
+  }, [providers, passwordHash, onBack]);
 
   // ====== 下拉筛选 ======
   const providerOptions = providers.map(p => ({ value: p.id, label: `${p.name} (${p.id})` }));
@@ -734,19 +773,18 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
             auxConfig={auxConfig}
             updateAux={updateAux}
             delProvider={delProvider}
-            setDelProvider={setDelProvider}
+            setDelProvider={setDelProviderSafe}
             delModel={delModel}
-            setDelModel={setDelModel}
+            setDelModel={setDelModelSafe}
             delMaxIterations={delMaxIterations}
-            setDelMaxIterations={setDelMaxIterations}
+            setDelMaxIterations={setDelMaxIterationsSafe}
             providers={providers}
             providerOptions={providerOptions}
-            expanded={modelSectionExpanded}
-            setExpanded={setModelSectionExpanded}
             staleAuxSlots={staleAuxSlots}
             onResetStaleAux={resetStaleAux}
             moaConfig={moaConfig}
             setMoaConfig={setMoaConfig}
+            onSaveMoa={saveMoaImmediately}
           />
         );
       case 'workspace':
@@ -818,15 +856,6 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       >
         {renderContent()}
 
-        {/* ══════════ 保存按钮 — 仅 models（providers卡片自带保存，其余面板各自保存）═══════════ */}
-        {activeSection === 'models' && (
-          <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-border">
-            <span className={status.className}>{status.text}</span>
-            <Button disabled={saving} onClick={handleSave}>
-              {saving ? '保存中…' : '保存'}
-            </Button>
-          </div>
-        )}
       </SettingsLayout>
 
       {/* ══════════ 密码对话框 ══════════ */}

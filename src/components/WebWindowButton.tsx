@@ -113,7 +113,7 @@ export default function WebWindowButton({ sessionId }: WebWindowButtonProps) {
         {/* 🔴 remote 门控提示（对齐 Hermes /browser 拒绝远程） */}
         {remote && (
           <div className="px-2.5 pb-2 text-[10px] leading-snug text-muted-foreground/70">
-            远程连接不可用 — 浏览器管理仅在本地网关可用（对齐 Hermes /browser）
+            远程连接不可用 — 浏览器管理仅在本地连接时可用
           </div>
         )}
 

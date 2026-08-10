@@ -32,6 +32,8 @@ export interface ProviderEntry {
   id: string;
   name: string;
   baseUrl: string;
+  /** 凭证环境变量名（对齐 Hermes api_key_env_vars 首个；添加服务商时自动填入） */
+  keyEnv?: string;
   transport?: string; // 协议：auto | openai_chat | anthropic_messages | codex_responses
   models: ProviderModel[];
 }
@@ -70,8 +72,20 @@ export interface SettingsV2 {
 
 // ====== 提供商注册表预设（含 Base URL 和模型，无 Key） ======
 export const PROVIDER_REGISTRY: ProviderEntry[] = [
-  { id: 'aliyun-bailian',  name: '阿里云百炼', baseUrl: 'https://coding.dashscope.aliyuncs.com/v1',  models: [{ name: 'qwen3.7-plus', context_length: 128000, max_output: 16384 }] },
+  { id: 'aliyun-bailian', name: '阿里云百炼', baseUrl: 'https://coding.dashscope.aliyuncs.com/v1', keyEnv: 'DASHSCOPE_API_KEY',
+    models: [
+    { name: 'qwen3.7-plus', context_length: 128000, max_output: 16384 },
+    ],
+  },
+  // 🔴 Hermes 对齐：DeepSeek 官方（api.deepseek.com，OpenAI 兼容）
+  { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', keyEnv: 'DEEPSEEK_API_KEY',
+    models: [
+    { name: 'deepseek-v4-pro', context_length: 0, max_output: 16384 },
+    { name: 'deepseek-v4-flash', context_length: 0, max_output: 16384 },
+    ],
+  },
 ];
+
 
 export const AUX_TASKS: AuxTaskEntry[] = [
   { key: 'vision',            label: '图片分析',     defaultTimeout: 120, hasDownloadTimeout: true },
@@ -225,6 +239,42 @@ export async function lookupModelCapabilities(provider: string, model: string): 
   } catch {
     return null;
   }
+}
+
+// ====== Toolset 模型目录（对齐 Hermes getToolsetModels / selectToolsetModel）======
+
+export interface ToolsetModelEntry {
+  id: string;
+  display: string;
+  supports_edit?: boolean;
+  max_reference_images?: number;
+  upscale?: boolean;
+}
+
+export interface ToolsetModelsResponse {
+  name: string;
+  has_models: boolean;
+  provider?: string | null;
+  plugin?: string | null;
+  models: ToolsetModelEntry[];
+  current?: string | null;
+  default?: string | null;
+}
+
+/** 获取 toolset 后端模型目录（WS toolset.models；profile 由 sendRpc 自动盖章） */
+export async function getToolsetModels(toolset: string): Promise<ToolsetModelsResponse | null> {
+  try {
+    const res = await call('toolset.models', { toolset });
+    return res as ToolsetModelsResponse;
+  } catch {
+    return null;
+  }
+}
+
+/** 选择并持久化 toolset 模型（WS toolset.model.select；profile 由 sendRpc 自动盖章） */
+export async function selectToolsetModel(toolset: string, model: string): Promise<{ ok: boolean; name: string; model: string }> {
+  const res = await call('toolset.model.select', { toolset, model });
+  return res as { ok: boolean; name: string; model: string };
 }
 
 // =============================================================================

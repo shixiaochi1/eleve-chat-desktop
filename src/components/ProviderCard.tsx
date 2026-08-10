@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Eye, EyeOff, Trash2, Plus, X, KeyRound, Globe, Cpu, Check } from 'lucide-react';
+import { Eye, EyeOff, Trash2, Plus, X, KeyRound, Globe, Cpu, Check, ChevronDown, Bot, Sparkles, Code2, Cloud } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { lookupModelCapabilities, testProviderConnection } from '@/utils/settings-store';
+import { selectCls } from '@/lib/ui-styles';
 import type { ProviderModel } from '@/utils/settings-store';
 
 interface Provider {
@@ -179,30 +180,49 @@ export default function ProviderCard({
     }
   };
 
-  const selectClasses = cn(
-    'flex h-7 w-full items-center rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground shadow-xs outline-none',
-    'transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50',
-    'disabled:cursor-not-allowed disabled:opacity-50'
-  );
+  // ── 协议类型 → 图标色块（卡片头部视觉锚点）──
+  const { Icon: TransportIcon, bg: iconBg, color: iconColor } = (() => {
+    switch (provider.transport) {
+      case 'openai_chat': return { Icon: Bot, bg: 'bg-emerald-500/10', color: 'text-emerald-500' };
+      case 'anthropic_messages': return { Icon: Sparkles, bg: 'bg-orange-500/10', color: 'text-orange-500' };
+      case 'codex_responses': return { Icon: Code2, bg: 'bg-blue-500/10', color: 'text-blue-500' };
+      default: return { Icon: Cloud, bg: 'bg-slate-500/10', color: 'text-slate-500' };
+    }
+  })();
 
   return (
-    <div className={cn('border border-border rounded-xl bg-card overflow-hidden transition-colors hover:border-border/80')}>
-      {/* ── 卡片头部 ── */}
+    <div className={cn('border border-border rounded-xl bg-card overflow-hidden transition-all hover:border-border/80', expanded && 'sm:col-span-2')}>
+      {/* ── 卡片头部（紧凑卡片，非长条）── */}
       <button
-        className={cn('flex items-center justify-between w-full px-3.5 py-2.5 cursor-pointer bg-transparent border-none text-left hover:bg-muted/30 transition-colors')}
+        className={cn('flex items-center justify-between w-full px-3.5 py-3 gap-3 cursor-pointer bg-transparent border-none text-left hover:bg-muted/30 transition-colors')}
         onClick={onToggle}
         type="button"
       >
-        <div className={cn('flex items-center gap-2 min-w-0')}>
-          <span className={cn('text-sm font-medium text-foreground truncate')}>{provider.name}</span>
-          <span className={cn('text-[11px] font-mono text-muted-foreground/70 shrink-0')}>{provider.id}</span>
-          {/* 状态徽章 */}
-          {provider.source === 'global_pool' && (
-            <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-500 shrink-0 font-medium')}>池</span>
-          )}
-          {provider.source === 'preset' && (
-            <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0 font-medium')}>预设</span>
-          )}
+        <div className={cn('flex items-center gap-3 min-w-0')}>
+          {/* 协议图标块 */}
+          <span className={cn('size-9 shrink-0 rounded-lg grid place-items-center', iconBg)}>
+            <TransportIcon size={16} strokeWidth={1.8} className={iconColor} />
+          </span>
+          <div className={cn('min-w-0')}>
+            <div className={cn('flex items-center gap-1.5 min-w-0')}>
+              <span className={cn('text-sm font-semibold text-foreground truncate')}>{provider.name}</span>
+              {/* 来源徽章 */}
+              {provider.source === 'global_pool' && (
+                <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-500 shrink-0 font-medium')}>池</span>
+              )}
+              {provider.source === 'preset' && (
+                <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0 font-medium')}>预设</span>
+              )}
+            </div>
+            <div className={cn('text-[10px] font-mono text-muted-foreground/60 truncate')}>{provider.id}</div>
+          </div>
+        </div>
+        <div className={cn('flex items-center gap-1.5 shrink-0')}>
+          {/* 模型数徽章 */}
+          <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full bg-muted/70 text-muted-foreground font-medium')}>
+            {provider.models.length} 模型
+          </span>
+          {/* Key 状态徽章 */}
           {provider.hasKey !== undefined && (
             <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full shrink-0 font-medium',
               provider.hasKey ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-500'
@@ -210,10 +230,8 @@ export default function ProviderCard({
               {provider.hasKey ? '已配 Key' : '未配 Key'}
             </span>
           )}
+          <ChevronDown size={15} className={cn('text-muted-foreground transition-transform', expanded && 'rotate-180')} />
         </div>
-        <span className={cn('text-xs text-muted-foreground shrink-0 transition-transform', expanded && 'rotate-180')}>
-          ▾
-        </span>
       </button>
 
       {/* ── 展开详情 ── */}
@@ -284,7 +302,7 @@ export default function ProviderCard({
               <Cpu size={12} strokeWidth={1.5} /> 协议
             </label>
             <select
-              className={selectClasses}
+              className={selectCls}
               value={provider.transport || 'auto'}
               onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onUpdate(provider.id, 'transport', e.target.value)}
             >

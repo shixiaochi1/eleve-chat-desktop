@@ -157,7 +157,7 @@ export default function ConnectionSettings() {
               </div>
             )}
             <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-              远程后端的文件/终端/会话操作全部在远端执行（对齐 Hermes remote gateway）。
+              远程后端的文件/终端/会话操作全部在远端执行。
               当前为无鉴权模式（LAN 信任），请勿暴露到公网。
             </p>
           </div>

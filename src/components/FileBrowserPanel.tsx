@@ -16,6 +16,7 @@ import { notifyError, notifySuccess } from '../utils/notifications';
 import { isDesktop, call } from '@/utils/bridge';
 import { setPathsDragPayload } from '@/lib/paths-dnd';
 import FolderPickerDialog from './FolderPickerDialog';
+import { pickDirectory } from '../utils/directory-picker';
 import ErrorBoundary from './ErrorBoundary';
 import { loadSettings } from '../utils/settings-store';
 import { loadConnection, isRemoteMode } from '../lib/connection';
@@ -96,21 +97,6 @@ interface FileBrowserPanelProps {
 const INDENT = 10;
 // 深度封顶：超过该层数不再增加缩进，防极端深嵌套把行推出面板
 const MAX_INDENT_DEPTH = 20;
-
-/**
- * 原生目录选择（tauri-plugin-dialog；浏览器模式返回 null）
- * 与 ProjectTreePanel/SystemSettings 同款模式
- */
-async function pickDirectory(title: string): Promise<string | null> {
-  try {
-    const { open } = await import('@tauri-apps/plugin-dialog');
-    const sel = await open({ directory: true, multiple: false, title });
-    return Array.isArray(sel) ? (sel[0] ?? null) : sel;
-  } catch (err) {
-    console.error('[FileBrowserPanel] directory dialog failed:', err);
-    return null;
-  }
-}
 
 /**
  * 计算父目录路径；已是根（盘符根 / POSIX 根）返回 null

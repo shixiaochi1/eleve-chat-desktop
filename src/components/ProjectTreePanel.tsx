@@ -31,6 +31,7 @@ import { openSessionWindow } from '../lib/session-window';
 import * as storage from '../utils/storage';
 import { gitWorktreeList, gitWorktreeRemove, type HermesGitWorktree } from '../lib/git';
 import { WorktreeDialog } from './worktree/WorktreeDialog';
+import { pickDirectory } from '../utils/directory-picker';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { SessionStatusDot } from './SessionStatusDot';
 import {
@@ -130,18 +131,6 @@ function fmtTime(ts: number): string {
   const h = Math.floor(min / 60);
   if (h < 24) return `${h}h`;
   return `${d.getMonth() + 1}/${d.getDate()}`;
-}
-
-// 原生目录选择（tauri-plugin-dialog；浏览器模式返回 null）
-async function pickDirectory(title: string): Promise<string | null> {
-  try {
-    const { open } = await import('@tauri-apps/plugin-dialog');
-    const sel = await open({ directory: true, multiple: false, title });
-    return Array.isArray(sel) ? (sel[0] ?? null) : sel;
-  } catch (err) {
-    console.error('[ProjectTreePanel] directory dialog failed:', err);
-    return null;
-  }
 }
 
 /** 写 IDEA.md 到项目主文件夹（对齐 Hermes writeProjectIdea；best-effort，失败静默） */

@@ -223,7 +223,7 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
           className="w-32"
         />
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          尾部预算占阈值的比例，越大保留越多近期消息（默认 0.20，对齐 Hermes）。
+          尾部预算占阈值的比例，越大保留越多近期消息（默认 0.20）。
         </p>
       </div>
 
@@ -240,7 +240,7 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
           className="w-32"
         />
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          压缩时始终保留最近 N 条完整消息不被压缩（默认 20，对齐 Hermes）。
+          压缩时始终保留最近 N 条完整消息不被压缩（默认 20）。
         </p>
       </div>
 

@@ -91,8 +91,8 @@ export default function SystemSettings({
           <div className="min-w-0">
             <label className="block text-xs text-muted-foreground mb-0.5">默认工作目录</label>
             <p className="text-xs text-muted-foreground/70 leading-relaxed m-0">
-              新会话的默认工作目录（对齐 Hermes：未指定其它目录时在此启动；留空回退到用户主目录）。
-              仅当 Agent 工作区设置未配置 CWD 且会话无烙印时生效——重启后端服务后生效。
+              新会话的默认工作目录（未指定其它目录时在此启动；留空回退到用户主目录）。
+              仅当 Agent 工作区设置未配置工作目录且会话未指定目录时生效——重启后端服务后生效。
             </p>
           </div>
           <div className="flex items-center gap-1.5 shrink-0 max-w-[45%]">

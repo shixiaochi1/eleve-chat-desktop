@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
-import { call } from '../../utils/bridge';
+import { FolderOpen, X } from 'lucide-react';
+import { isDesktop, call } from '../../utils/bridge';
+import { pickDirectory } from '../../utils/directory-picker';
 import { notifySuccess, notifyError } from '../../utils/notifications';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
 import { TERMINAL_FONT_SUGGESTIONS, normalizeTerminalFontFamily, setTerminalFontFamily } from '../../lib/terminal-font';
+
 
 /**
  * WorkspaceSettings — 工作区设置
@@ -98,15 +101,37 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
     <div>
       {/* 工作目录 */}
       <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">工作目录 (CWD)</label>
-        <Input
-          type="text"
-          placeholder="C:\Users\你的用户名\Projects"
-          value={config.cwd}
-          onChange={e => update('cwd', e.target.value)}
-        />
+        <label className="block text-xs text-muted-foreground mb-1">工作目录</label>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-xs text-foreground/80 hover:bg-accent transition-colors"
+            onClick={async () => {
+              if (isDesktop()) {
+                const sel = await pickDirectory('选择工作目录');
+                if (sel) update('cwd', sel);
+              } else {
+                notifyError(new Error('目录选择仅桌面端可用'), '无法选择目录');
+              }
+            }}
+            title={config.cwd || '选择工作目录'}
+          >
+            <FolderOpen size={13} className="text-warning shrink-0" />
+            <span className="truncate">{config.cwd || '未设置（点击选择目录）'}</span>
+          </button>
+          {config.cwd && (
+            <button
+              type="button"
+              className="grid size-8 shrink-0 place-items-center rounded-md border border-input text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              onClick={() => update('cwd', '')}
+              title="清除（留空 = 交给系统默认工作目录）"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          子进程运行的默认工作目录，留空使用应用根目录。优先于系统「默认工作目录」（仅影响未指定目录的新会话；会话已有目录时不受影响）。
+          Agent 运行命令和工具时使用的默认工作目录，留空使用系统「默认工作目录」。仅影响未指定目录的新会话；会话已有目录时不受影响。
         </p>
       </div>
 
@@ -131,7 +156,7 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
         <div>
           <label className="block text-xs text-muted-foreground mb-0.5">持久化 Shell</label>
           <p className="text-xs text-muted-foreground/70 leading-relaxed m-0">
-            保持 Shell 会话跨轮次不中断（对齐 Hermes，主要作用于 SSH 后端；local 默认每轮新建以保证隔离）。
+            保持 Shell 会话跨轮次不中断（主要作用于远程后端；本地连接默认每轮新建以保证隔离）。
           </p>
         </div>
         <Switch
@@ -171,7 +196,7 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
           onChange={e => update('file_read_max_chars', parseInt(e.target.value) || 100000)}
         />
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          单次 read_file 返回的最大字符数（默认 100000，对齐 Hermes file_read_max_chars）。
+          单次读取文件返回的最大字符数（默认 100000）。
         </p>
       </div>
 
