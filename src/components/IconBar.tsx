@@ -9,7 +9,7 @@ import {
   PaletteIcon, ToolIcon, FileIcon,
   UsageIcon, ChannelsIcon, KanbanIcon, AgentIcon,
 } from './Icons';
-import { FolderGit, Activity, GitCommit, BookOpen } from 'lucide-react';
+import { FolderGit, BookOpen } from 'lucide-react';
 import { openKanbanWindow } from '../utils/kanban-window';
 
 interface NavItem {
@@ -18,6 +18,8 @@ interface NavItem {
   label: string;
   isWindow?: boolean;
   isOverlay?: boolean;
+  /** 自定义点击（如文件浏览器走 onToggleFiles，不参与 panel 切换） */
+  onClick?: () => void;
 }
 
 interface IconBarProps {
@@ -32,13 +34,12 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
   const navItems: NavItem[] = [
     { id: 'agents',   icon: AgentIcon,   label: 'Agent' },
     { id: 'projects', icon: FolderGit,  label: '项目' },
+    { id: 'files',    icon: FileIcon,   label: '文件浏览器', onClick: onToggleFiles },
     { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true },
     { id: 'channels', icon: ChannelsIcon, label: '频道' },
     { id: 'cron',     icon: CronIcon,     label: '定时任务' },
     { id: 'tools',    icon: ToolIcon,     label: '工具' },
-    { id: 'processes', icon: Activity,    label: '进程' },
     { id: 'learning', icon: BookOpen,    label: '学习' },
-    { id: 'rollback', icon: GitCommit,   label: '回滚' },
     { id: 'usage',    icon: UsageIcon,    label: '用量分析' },
     { id: 'debug',    icon: DebugIcon,    label: '调试' },
   ];
@@ -69,7 +70,9 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
         title={item.label}
         aria-label={item.label}
         onClick={() => {
-          if (item.isOverlay) {
+          if (item.onClick) {
+            item.onClick();
+          } else if (item.isOverlay) {
             onOpenOverlay?.(item.id);
           } else if (item.isWindow) {
             openKanbanWindow();
@@ -108,14 +111,6 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
       {/* 底部 */}
       <div className="flex flex-col items-center gap-0.5 py-2 border-t border-border">
         {bottomItems.map(renderButton)}
-        <button
-          className={cn(navBtnBase)}
-          title="文件浏览器"
-          aria-label="文件浏览器"
-          onClick={onToggleFiles}
-        >
-          <FileIcon className="w-5 h-5 transition-transform duration-150 group-hover:scale-105" />
-        </button>
         <button
           className={cn(navBtnBase)}
           title="主题"
