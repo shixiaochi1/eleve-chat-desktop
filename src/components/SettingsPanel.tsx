@@ -19,7 +19,7 @@ import SafetySettings from './settings/SafetySettings';
 import VoiceSettings from './settings/VoiceSettings';
 import AdvancedSettings from './settings/AdvancedSettings';
 import MCPSettings from './settings/MCPSettings';
-import GatewaySettings from './settings/GatewaySettings';
+// 🔴 2026-08-10 网关功能已搬入 LOGO 面板（GatewayPanel），GatewaySettings 已移除
 import ConnectionSettings from './settings/ConnectionSettings';
 import SystemSettings from './settings/SystemSettings';
 
@@ -761,8 +761,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
         return <VoiceSettings onSaved={() => {}} />;
       case 'mcp':
         return <MCPSettings />;
-      case 'gateway':
-        return <GatewaySettings />;
+      // 🔴 2026-08-10 网关功能已搬入 LOGO 面板（GatewayPanel），设置里移除重复入口
       case 'connection':
         return <ConnectionSettings />;
       case 'security':

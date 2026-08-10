@@ -1,7 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { call, restartService } from '../utils/bridge';
 import { fetchGatewayStatus } from '../utils/api';
 import { notifySuccess, notifyError } from '../utils/notifications';
-import { RefreshCw, RotateCcw, PlugZap, Server, Cpu, Radio, Cloud, Users } from 'lucide-react';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import {
+  RefreshCw, RotateCcw, PlugZap, Server, Cpu, Radio, Cloud, Users,
+  Wifi, WifiOff, TestTube, Save, Logs, AlertTriangle,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -39,16 +45,29 @@ interface GatewayPanelProps {
 /**
  * 网关状态面板 — 点击左侧 LOGO 打开
  *
- * 🔴 2026-08-10 整体重设计 + 全元素接线（老大要求"每一个都要接线，不能是摆设"）：
- *   Logo → 关闭面板；状态徽章/运行时长 → 点击刷新；指标卡 → 点击复制或跳转；
- *   平台徽章 → 点击复制；模型行 → 点击复制；操作按钮 → 刷新/重启/重连
+ * 🔴 2026-08-10 重设计 + 全元素接线 + 设置合并：
+ * - 仪表盘式布局（Logo/状态徽章/运行时长/指标网格/平台/模型），每元素可交互
+ * - 🔴 整合原设置「网关」section（GatewaySettings 已移除）：
+ *   连接模式（本地/远程）、远程地址/令牌、测试连接、保存并重连/保存稍后、
+ *   envOverride 警告、打开日志 —— LOGO 面板 = 网关功能唯一入口
  */
 export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGatewayRetry, onRestart, onPanelChange }: GatewayPanelProps) {
+  // ── 状态概览（仪表盘） ──
   const [status, setStatus] = useState<GatewayStatusData | null>(null);
   const [elapsed, setElapsed] = useState(0);    // 客户端计时
   const [serverUptime, setServerUptime] = useState(0); // 服务端运行时长
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+
+  // ── 配置（原设置「网关」section 搬入） ──
+  const [gatewayMode, setGatewayMode] = useState('local');
+  const [remoteUrl, setRemoteUrl] = useState('');
+  const [remoteToken, setRemoteToken] = useState('');
+  const [config, setConfig] = useState<any>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [envOverride, setEnvOverride] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
 
   // 获取服务端状态
   const fetchStatus = useCallback(async () => {
@@ -63,7 +82,25 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
     }
   }, []);
 
-  // 在线时每 3s 轮询
+  // 加载网关配置（模式/远程地址/令牌/envOverride）
+  const loadConfig = useCallback(async () => {
+    try {
+      const cfg = await call('get_config', {});
+      setConfig(cfg);
+      if (cfg?.gateway) {
+        setGatewayMode(cfg.gateway.mode || 'local');
+        setRemoteUrl(cfg.gateway.remote_url || '');
+        setRemoteToken(cfg.gateway.remote_token || '');
+      }
+      if (cfg?.envOverride && Object.keys(cfg.envOverride).length > 0) {
+        setEnvOverride(cfg.envOverride);
+      } else {
+        setEnvOverride(null);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // 在线时每 3s 轮询状态 + 加载配置
   useEffect(() => {
     mountedRef.current = true;
     if (gatewayOnline) {
@@ -76,6 +113,9 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
       mountedRef.current = false;
     }
   }, [gatewayOnline, fetchStatus]);
+
+  // 配置一次性加载
+  useEffect(() => { loadConfig(); }, [loadConfig]);
 
   // 运行时长计时器（1s 递增）
   useEffect(() => {
@@ -94,6 +134,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
   const platformEntries = (online && status && status.platforms && Object.keys(status.platforms).length > 0)
     ? Object.entries(status.platforms)
     : null;
+  const isDisabled = !!envOverride;
 
   // ── 复制工具（全元素接线共用） ──
   const copy = useCallback(async (text: string, label: string) => {
@@ -104,6 +145,66 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
       notifyError(`复制失败`);
     }
   }, []);
+
+  // ── 配置操作（原 GatewaySettings 搬入） ──
+  const handleTestConnection = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await call('test_connection', { url: remoteUrl, token: remoteToken }) as any;
+      setTestResult({ ok: true, message: result?.message || '连接成功' });
+      notifySuccess('连接测试成功');
+    } catch (err) {
+      setTestResult({ ok: false, message: (err as any)?.message || String(err) });
+      notifyError(err as Error, '连接测试失败');
+    }
+    setTesting(false);
+  };
+
+  const handleSaveAndReconnect = async () => {
+    setSaving(true);
+    try {
+      await call('update_config', {
+        config: {
+          gateway: {
+            mode: gatewayMode,
+            ...(gatewayMode === 'remote' ? { remote_url: remoteUrl, remote_token: remoteToken } : {}),
+          },
+        },
+      });
+      await restartService();
+      notifySuccess('Gateway 设置已保存并重连');
+    } catch (err) {
+      notifyError(err as Error, '保存失败');
+    }
+    setSaving(false);
+  };
+
+  const handleSaveLater = async () => {
+    setSaving(true);
+    try {
+      await call('update_config', {
+        config: {
+          gateway: {
+            mode: gatewayMode,
+            ...(gatewayMode === 'remote' ? { remote_url: remoteUrl, remote_token: remoteToken } : {}),
+          },
+        },
+      });
+      notifySuccess('Gateway 设置已保存，下次重启生效');
+    } catch (err) {
+      notifyError(err as Error, '保存失败');
+    }
+    setSaving(false);
+  };
+
+  const handleOpenLogs = async () => {
+    try {
+      await call('open_logs', {});
+    } catch (err) {
+      notifyError(err as Error, '打开日志失败');
+    }
+  };
 
   const platformLabel = (name: string, state: unknown): string => {
     const stateObj = typeof state === 'object' && state ? state as Record<string, unknown> : null;
@@ -116,16 +217,16 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
   };
 
   return (
-    <div className="flex flex-col h-full p-3 gap-3 overflow-hidden">
+    <div className="flex flex-col h-full p-3 gap-2.5 overflow-hidden">
       {/* ── Logo（点击关闭面板） ── */}
       <button
-        className="group flex flex-col items-center gap-1 pt-1 outline-none"
+        className="group flex flex-col items-center gap-1 pt-0.5 outline-none shrink-0"
         onClick={() => onPanelChange?.(null)}
         title="收起面板"
         aria-label="收起面板"
       >
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-b from-accent/20 to-accent/5 border border-border/60 flex items-center justify-center shadow-sm transition-transform group-hover:scale-105 group-active:scale-95">
-          <img src="/Elogo.svg" alt="Eleve" className="w-8 h-8" />
+        <div className="w-12 h-12 rounded-2xl bg-gradient-to-b from-accent/20 to-accent/5 border border-border/60 flex items-center justify-center shadow-sm transition-transform group-hover:scale-105 group-active:scale-95">
+          <img src="/Elogo.svg" alt="Eleve" className="w-7 h-7" />
         </div>
         <span className="text-sm font-semibold text-foreground">Eleve Agent</span>
       </button>
@@ -133,7 +234,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
       {/* ── 状态徽章（点击刷新） ── */}
       <button
         className={cn(
-          'flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
+          'flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors shrink-0',
           gatewayChecking
             ? 'bg-muted/40 border-border text-muted-foreground cursor-default'
             : online
@@ -153,12 +254,12 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
       {/* ── 运行时长（点击刷新） ── */}
       {online && status && (
         <button
-          className="rounded-xl border border-border bg-gradient-to-b from-background to-muted/20 px-3 py-2.5 text-center transition-colors hover:bg-accent/30"
+          className="rounded-xl border border-border bg-gradient-to-b from-background to-muted/20 px-3 py-2 text-center transition-colors hover:bg-accent/30 shrink-0"
           onClick={fetchStatus}
           title="点击刷新状态"
         >
           <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">运行时长</div>
-          <div className="font-mono text-2xl font-semibold text-foreground leading-tight mt-0.5">
+          <div className="font-mono text-xl font-semibold text-foreground leading-tight mt-0.5">
             {fmtUptime(elapsed + serverUptime)}
           </div>
         </button>
@@ -166,8 +267,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
 
       {/* ── 指标网格 2×2（每项可点击） ── */}
       {online && status && (
-        <div className="grid grid-cols-2 gap-1.5">
-          {/* 活跃 Agent → 跳转 Agent 面板 */}
+        <div className="grid grid-cols-2 gap-1.5 shrink-0">
           <button
             className="rounded-lg border border-border px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
             onClick={() => onPanelChange?.('agents')}
@@ -181,7 +281,6 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
               {status.active_agents ?? '—'}
             </div>
           </button>
-          {/* 端口 → 复制 */}
           <button
             className="rounded-lg border border-border px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
             onClick={() => status.port && copy(String(status.port), '端口')}
@@ -195,7 +294,6 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
               {status.port ? String(status.port) : '—'}
             </div>
           </button>
-          {/* PID → 复制 */}
           <button
             className="rounded-lg border border-border px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
             onClick={() => status.pid && copy(String(status.pid), 'PID')}
@@ -209,7 +307,6 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
               {status.pid ? String(status.pid) : '—'}
             </div>
           </button>
-          {/* 提供商 → 复制 */}
           <button
             className="rounded-lg border border-border px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
             onClick={() => status.provider && copy(status.provider, '提供商')}
@@ -226,9 +323,9 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
         </div>
       )}
 
-      {/* ── 平台连接（徽章行，点击复制平台名+状态） ── */}
+      {/* ── 平台连接（徽章行，点击复制） ── */}
       {platformEntries && (
-        <div className="min-h-0 overflow-auto">
+        <div className="min-h-0 shrink-0">
           <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1">平台连接</div>
           <div className="flex flex-wrap gap-1.5">
             {platformEntries.map(([name, state]) => {
@@ -258,7 +355,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
       {/* ── 模型（点击复制） ── */}
       {online && status && (
         <button
-          className="rounded-lg border border-border px-2.5 py-1.5 text-xs flex items-center gap-2 transition-colors hover:bg-accent/30"
+          className="rounded-lg border border-border px-2.5 py-1.5 text-xs flex items-center gap-2 transition-colors hover:bg-accent/30 shrink-0"
           onClick={() => status.model && copy(status.model, '模型')}
           title={status.model ? `复制模型 ${status.model}` : '模型未知'}
         >
@@ -268,8 +365,109 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
         </button>
       )}
 
+      {/* ── 配置区（原设置「网关」搬入，可滚动） ── */}
+      <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border border-border bg-muted/10 px-2.5 py-2 space-y-2.5">
+        <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">连接配置</div>
+
+        {envOverride && (
+          <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5">
+            <AlertTriangle size={13} className="shrink-0 text-warning" />
+            <span className="text-[11px] text-warning">环境变量覆盖了网关配置，手动编辑被禁用。</span>
+          </div>
+        )}
+
+        {/* 连接模式 */}
+        <div>
+          <label className="block text-[11px] text-muted-foreground mb-1">连接模式</label>
+          <div className="flex gap-1.5">
+            <Button
+              variant={gatewayMode === 'local' ? 'default' : 'outline'}
+              size="sm"
+              className="flex-1 text-xs"
+              onClick={() => !isDisabled && setGatewayMode('local')}
+              disabled={isDisabled}
+            >本地模式</Button>
+            <Button
+              variant={gatewayMode === 'remote' ? 'default' : 'outline'}
+              size="sm"
+              className="flex-1 text-xs"
+              onClick={() => !isDisabled && setGatewayMode('remote')}
+              disabled={isDisabled}
+            >远程模式</Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground/70 leading-relaxed mt-1">
+            {gatewayMode === 'local' ? 'Agent 在本机运行，通过子进程启动。' : '连接到远程 Gateway 服务器。'}
+          </p>
+        </div>
+
+        {/* 远程配置 */}
+        {gatewayMode === 'remote' && (
+          <>
+            <div>
+              <label className="block text-[11px] text-muted-foreground mb-1">远程地址</label>
+              <Input
+                className="h-7 text-xs"
+                value={remoteUrl}
+                onChange={(e) => setRemoteUrl(e.target.value)}
+                placeholder="https://your-gateway.example.com"
+                disabled={isDisabled}
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-muted-foreground mb-1">访问令牌</label>
+              <Input
+                className="h-7 text-xs"
+                type="password"
+                value={remoteToken}
+                onChange={(e) => setRemoteToken(e.target.value)}
+                placeholder="输入令牌…"
+                disabled={isDisabled}
+              />
+            </div>
+            {!isDisabled && (
+              <div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="inline-flex items-center gap-1.5 text-xs"
+                  onClick={handleTestConnection}
+                  disabled={testing || !remoteUrl.trim()}
+                >
+                  <TestTube size={12} />
+                  {testing ? '测试中…' : '测试连接'}
+                </Button>
+                {testResult && (
+                  <span className={`ml-2 text-[11px] ${testResult.ok ? 'text-success' : 'text-destructive'}`}>
+                    {testResult.ok ? '✓ ' : '✗ '}{testResult.message}
+                  </span>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* 保存 */}
+        {!isDisabled && (
+          <div className="flex gap-1.5 pt-1">
+            <Button variant="default" size="sm" className="flex-1 text-xs" onClick={handleSaveAndReconnect} disabled={saving}>
+              <Save size={12} /> 保存并重连
+            </Button>
+            <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={handleSaveLater} disabled={saving}>
+              <Save size={12} /> 保存稍后
+            </Button>
+          </div>
+        )}
+
+        {/* 日志 */}
+        <div className="text-center">
+          <Button variant="ghost" size="sm" className="text-xs" onClick={handleOpenLogs}>
+            <Logs size={12} /> 打开日志
+          </Button>
+        </div>
+      </div>
+
       {/* ── 操作区（贴底） ── */}
-      <div className="mt-auto flex flex-col gap-1.5 pt-1">
+      <div className="flex flex-col gap-1.5 pt-0.5 shrink-0">
         {online && (
           <div className="flex gap-1.5">
             <button
