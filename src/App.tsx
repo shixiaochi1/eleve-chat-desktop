@@ -1169,7 +1169,7 @@ export default function App() {
 
     const wsClient = getWsClient();
     if (wsClient.state === 'disconnected') {
-      console.log('[App] Initiating WS connection (align Hermes: no session_id in URL)');
+      console.log('[App] Initiating WS connection (ELEVE: no session_id in URL)');
       wsClient.connect(undefined, {
         onOpen: () => {
           console.log('[App] WS connected');

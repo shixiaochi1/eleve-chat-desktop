@@ -17,7 +17,7 @@ import { getWsClient } from '@/services/ws-client';
  *   空/未知值读回 → medium（Hermes normalizeEffort: empty → medium）
  */
 const EFFORTS = [
-  { value: 'none', label: '关闭', desc: '不发送推理参数（对齐 Hermes Off）' },
+  { value: 'none', label: '关闭', desc: '关闭推理，模型不产生思考过程' },
   { value: 'minimal', label: '极速', desc: '最少推理，响应最快' },
   { value: 'low', label: '低', desc: '轻量推理，快速回答' },
   { value: 'medium', label: '标准', desc: '均衡推理，适合多数提示' },

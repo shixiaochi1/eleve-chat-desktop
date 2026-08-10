@@ -1,5 +1,6 @@
 /**
- * WakeWordButton — "Hey Hermes" 唤醒词开关（对齐 Hermes composer controls.tsx WakeWordButton）。
+ * WakeWordButton — 唤醒词开关（对齐 Hermes composer controls.tsx WakeWordButton）。
+ * 当前唤醒词："小莉"（后端 wake_word.phrase 默认，UI 显示 ${wake.phrase}）。
  *
  * 耳朵永不隐藏（用户必须随时能点击开启被动监听）；状态：listening（accent 高亮）/
  * off（灰 EarOff）/ 后端拒绝（tooltip 展示 reason/hint）。persist:true 显式手势

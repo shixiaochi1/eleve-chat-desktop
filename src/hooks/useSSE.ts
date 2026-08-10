@@ -409,7 +409,8 @@ function processEvent(
     // 单视图路径：委托共享处理器（与宫格 useGridChat !profile 分支同一权威源）
     case 'wake.detected':
       cbs.onWakeDetected?.({
-        phrase: (chunk.phrase as string) || 'hey hermes',
+        // 🔴 2026-08-10：兜底默认值去 Hermes 化（后端默认唤醒词为 "小莉"）
+        phrase: (chunk.phrase as string) || '小莉',
         start_new_session: (chunk.start_new_session as boolean) ?? true,
       });
       break;
