@@ -1,5 +1,5 @@
 /**
- * 7 套主题定义
+ * 13 套主题定义
  *
  * 每套主题自带固定明暗属性（由背景色亮度自动判定）。
  * 用户只需选主题，不需要单独切 light/dark。
@@ -267,6 +267,222 @@ export const slateTheme: DesktopTheme = {
 }
 
 // ════════════════════════════════════════════════════════════
+//  8. Violet — 紫罗兰
+// ════════════════════════════════════════════════════════════
+export const violetTheme: DesktopTheme = {
+  name: 'violet',
+  label: 'Violet',
+  description: '紫罗兰深色',
+  colors: {
+    background: '#130a24',
+    foreground: '#f0e6ff',
+    card: '#1a0f30',
+    cardForeground: '#f0e6ff',
+    muted: '#221440',
+    mutedForeground: '#b794f6',
+    popover: '#1e1236',
+    popoverForeground: '#f0e6ff',
+    primary: '#8b5cf6',
+    primaryForeground: '#130a24',
+    secondary: '#261648',
+    secondaryForeground: '#c4a8f8',
+    accent: 'rgba(139, 92, 246, 0.12)',
+    accentForeground: '#c4a8f8',
+    border: '#3b2270',
+    input: '#261648',
+    ring: '#8b5cf6',
+    midground: '#8b5cf6',
+    composerRing: '#8b5cf6',
+    destructive: '#e75e78',
+    destructiveForeground: '#fef2f2',
+    sidebarBackground: '#0f0818',
+    sidebarBorder: '#3b2270',
+    userBubble: '#1e1236',
+    userBubbleBorder: '#4a2890',
+  },
+}
+
+// ════════════════════════════════════════════════════════════
+//  9. Cyan — 青蓝
+// ════════════════════════════════════════════════════════════
+export const cyanTheme: DesktopTheme = {
+  name: 'cyan',
+  label: 'Cyan',
+  description: '青蓝深色',
+  colors: {
+    background: '#081a24',
+    foreground: '#e0f7fa',
+    card: '#0c2432',
+    cardForeground: '#e0f7fa',
+    muted: '#102e3e',
+    mutedForeground: '#67e8f9',
+    popover: '#102e3e',
+    popoverForeground: '#e0f7fa',
+    primary: '#22d3ee',
+    primaryForeground: '#081a24',
+    secondary: '#0e3040',
+    secondaryForeground: '#a5f3fc',
+    accent: 'rgba(34, 211, 238, 0.12)',
+    accentForeground: '#a5f3fc',
+    border: '#1a4a60',
+    input: '#0e3040',
+    ring: '#22d3ee',
+    midground: '#22d3ee',
+    composerRing: '#22d3ee',
+    destructive: '#e75e78',
+    destructiveForeground: '#fef2f2',
+    sidebarBackground: '#061420',
+    sidebarBorder: '#1a4a60',
+    userBubble: '#102e3e',
+    userBubbleBorder: '#205a70',
+  },
+}
+
+// ════════════════════════════════════════════════════════════
+//  10. Amber — 琥珀金
+// ════════════════════════════════════════════════════════════
+export const amberTheme: DesktopTheme = {
+  name: 'amber',
+  label: 'Amber',
+  description: '琥珀金深色',
+  colors: {
+    background: '#1c1408',
+    foreground: '#fef6e0',
+    card: '#261c0c',
+    cardForeground: '#fef6e0',
+    muted: '#322614',
+    mutedForeground: '#fbbf24',
+    popover: '#2e2010',
+    popoverForeground: '#fef6e0',
+    primary: '#f59e0b',
+    primaryForeground: '#1c1408',
+    secondary: '#3a2a12',
+    secondaryForeground: '#fcd34d',
+    accent: 'rgba(245, 158, 11, 0.12)',
+    accentForeground: '#fcd34d',
+    border: '#5a3e18',
+    input: '#3a2a12',
+    ring: '#f59e0b',
+    midground: '#f59e0b',
+    composerRing: '#f59e0b',
+    destructive: '#e75e78',
+    destructiveForeground: '#fef2f2',
+    sidebarBackground: '#161006',
+    sidebarBorder: '#5a3e18',
+    userBubble: '#2e2010',
+    userBubbleBorder: '#6a4e24',
+  },
+}
+
+// ════════════════════════════════════════════════════════════
+//  11. Lavender — 薰衣草（浅色）
+// ════════════════════════════════════════════════════════════
+export const lavenderTheme: DesktopTheme = {
+  name: 'lavender',
+  label: 'Lavender',
+  description: '薰衣草浅色',
+  colors: {
+    background: '#f5f0ff',
+    foreground: '#1a1028',
+    card: '#ffffff',
+    cardForeground: '#1a1028',
+    muted: 'color-mix(in srgb, #8b5cf6 5%, #ffffff)',
+    mutedForeground: '#7c6a9e',
+    popover: '#ffffff',
+    popoverForeground: '#1a1028',
+    primary: '#7c3aed',
+    primaryForeground: '#fcfcfc',
+    secondary: 'color-mix(in srgb, #8b5cf6 7%, #ffffff)',
+    secondaryForeground: '#2e2040',
+    accent: 'color-mix(in srgb, #8b5cf6 10%, #ffffff)',
+    accentForeground: '#281838',
+    border: 'color-mix(in srgb, #8b5cf6 20%, transparent)',
+    input: 'color-mix(in srgb, #8b5cf6 28%, transparent)',
+    ring: '#7c3aed',
+    midground: '#7c3aed',
+    composerRing: '#7c3aed',
+    destructive: '#cf2d56',
+    destructiveForeground: '#ffffff',
+    sidebarBackground: '#ede6f8',
+    sidebarBorder: 'color-mix(in srgb, #8b5cf6 16%, transparent)',
+    userBubble: 'color-mix(in srgb, #8b5cf6 5%, #ffffff)',
+    userBubbleBorder: 'color-mix(in srgb, #8b5cf6 22%, transparent)',
+  },
+}
+
+// ════════════════════════════════════════════════════════════
+//  12. Graphite — 石墨灰（专业深色）
+// ════════════════════════════════════════════════════════════
+export const graphiteTheme: DesktopTheme = {
+  name: 'graphite',
+  label: 'Graphite',
+  description: '石墨灰深色',
+  colors: {
+    background: '#18181b',
+    foreground: '#e4e4e7',
+    card: '#1e1e22',
+    cardForeground: '#e4e4e7',
+    muted: '#27272a',
+    mutedForeground: '#a1a1aa',
+    popover: '#202024',
+    popoverForeground: '#e4e4e7',
+    primary: '#a78bfa',
+    primaryForeground: '#18181b',
+    secondary: '#242428',
+    secondaryForeground: '#d4d4d8',
+    accent: 'rgba(167, 139, 250, 0.10)',
+    accentForeground: '#c4b5fd',
+    border: '#3f3f46',
+    input: '#27272a',
+    ring: '#a78bfa',
+    midground: '#a78bfa',
+    composerRing: '#a78bfa',
+    destructive: '#e75e78',
+    destructiveForeground: '#fef2f2',
+    sidebarBackground: '#121216',
+    sidebarBorder: '#3f3f46',
+    userBubble: '#222226',
+    userBubbleBorder: '#3f3f46',
+  },
+}
+
+// ════════════════════════════════════════════════════════════
+//  13. Nord — 北欧冷灰蓝
+// ════════════════════════════════════════════════════════════
+export const nordTheme: DesktopTheme = {
+  name: 'nord',
+  label: 'Nord',
+  description: '北欧冷灰蓝',
+  colors: {
+    background: '#2e3440',
+    foreground: '#eceff4',
+    card: '#353b4a',
+    cardForeground: '#eceff4',
+    muted: '#3b4252',
+    mutedForeground: '#d8dee9',
+    popover: '#3b4252',
+    popoverForeground: '#eceff4',
+    primary: '#88c0d0',
+    primaryForeground: '#2e3440',
+    secondary: '#3b4252',
+    secondaryForeground: '#d8dee9',
+    accent: 'rgba(136, 192, 208, 0.12)',
+    accentForeground: '#8fbcbb',
+    border: '#434c5e',
+    input: '#3b4252',
+    ring: '#88c0d0',
+    midground: '#88c0d0',
+    composerRing: '#88c0d0',
+    destructive: '#bf616a',
+    destructiveForeground: '#eceff4',
+    sidebarBackground: '#272d37',
+    sidebarBorder: '#434c5e',
+    userBubble: '#3b4252',
+    userBubbleBorder: '#4c566a',
+  },
+}
+
+// ════════════════════════════════════════════════════════════
 //  导出
 // ════════════════════════════════════════════════════════════
 
@@ -278,6 +494,12 @@ export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
   midnight: midnightTheme,
   rose: roseTheme,
   slate: slateTheme,
+  violet: violetTheme,
+  cyan: cyanTheme,
+  amber: amberTheme,
+  lavender: lavenderTheme,
+  graphite: graphiteTheme,
+  nord: nordTheme,
 }
 
 export const BUILTIN_THEME_LIST: DesktopTheme[] = [
@@ -288,6 +510,12 @@ export const BUILTIN_THEME_LIST: DesktopTheme[] = [
   midnightTheme,
   roseTheme,
   slateTheme,
+  violetTheme,
+  cyanTheme,
+  amberTheme,
+  lavenderTheme,
+  graphiteTheme,
+  nordTheme,
 ]
 
 /** 默认主题 */
