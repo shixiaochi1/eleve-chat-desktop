@@ -30,7 +30,7 @@ import {
   Archive, ArchiveRestore, Edit3, Copy, MoreHorizontal,
   List, Undo2, Minimize2, GitBranch, BarChart3, Search, X
 } from 'lucide-react';
-import { DeleteIcon, DotIcon } from './Icons';
+import { DeleteIcon } from './Icons';
 import OutlinePanel from './OutlinePanel';
 // 🔴 P2-8: 使用共享 Session 类型（= SessionInfo，单一来源 eleve.ts）
 
@@ -513,7 +513,6 @@ export default function SessionsPanel({
             {isPinned && <Pin size={10} className="shrink-0 text-primary" />}
             <span className="text-sm truncate text-foreground flex-1" title={title}>{title}</span>
             {timeStr && <span className="text-[10px] text-muted-foreground/60 shrink-0">{timeStr}</span>}
-            {isCurrent && <span className="shrink-0 text-primary"><DotIcon /></span>}
           </div>
           {preview && <div className="text-[11px] text-muted-foreground/50 truncate mt-0.5">{preview}</div>}
         </div>
