@@ -599,7 +599,8 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onA
   const row = (
     <div
       className={cn(
-        'flex items-center gap-1.5 pl-3 pr-3 py-2 cursor-pointer hover:bg-accent/20 text-sm group/workspace transition-colors',
+        'flex items-center gap-1.5 pl-3 pr-2 py-2 cursor-pointer hover:bg-accent/20 text-sm group/workspace transition-colors border-l-2 border-transparent',
+        isActiveProject && 'bg-primary/[0.06] border-l-primary',
         isDragging && 'opacity-40',
         isDragOver && 'bg-accent/30',
       )}
@@ -619,7 +620,7 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onA
         <span className="text-[9px] px-1 py-0.5 rounded bg-primary/15 text-primary shrink-0" title="当前激活项目">激活</span>
       )}
       {project.sessionCount > 0 && (
-        <span className="text-[10px] text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">{project.sessionCount}</span>
+        <span className="text-[10px] tabular-nums text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">{project.sessionCount}</span>
       )}
       <span className="text-[10px] text-muted-foreground/50">{fmtTime(project.lastActive)}</span>
       {/* 在该项目新建会话（对齐 Hermes WorkspaceAddButton：hover 显示 +；Home 无文件夹不显示） */}
@@ -829,12 +830,28 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 py-1">
-          {/* 名称 */}
+        <div className="flex flex-col gap-3 py-1">
+          {/* ① 实时预览（紧凑单行） */}
+          <div className="flex items-center gap-2.5 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2">
+            <div
+              className="grid size-8 shrink-0 place-items-center rounded-lg text-white shadow-sm transition-colors"
+              style={{ background: color || '#8b8b8b' }}
+            >
+              {icon ? (() => { const Ic = projectIconFor(icon); return <Ic size={15} />; })() : <FolderGit size={15} />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[13px] font-semibold">{name.trim() || '未命名项目'}</div>
+              <div className="text-[10px] text-muted-foreground">
+                {initial ? (initial.isAuto ? '设为显式项目后可自定义外观' : '编辑项目外观与文件夹') : '新项目将以此外观创建'}
+              </div>
+            </div>
+          </div>
+
+          {/* ② 项目名称 */}
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">项目名称</label>
+            <label className="mb-1 block text-[11px] font-medium text-muted-foreground">项目名称</label>
             <input
-              className="desktop-input-chrome h-8 w-full rounded-md border px-2.5 text-sm outline-none"
+              className="desktop-input-chrome h-8 w-full rounded-lg border border-border bg-background px-2.5 text-sm outline-none transition-shadow focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="如：Eleve Agent"
@@ -842,54 +859,57 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
             />
           </div>
 
-          {/* 主题色（对齐 Hermes 22 色板） */}
-          <div>
-            <label className="block text-xs text-muted-foreground mb-1">主题色</label>
-            <div className="flex flex-wrap gap-1.5">
-              {AGENT_PALETTE.map((c) => (
-                <button
-                  key={c}
-                  className={cn('h-5 w-5 rounded-full transition-transform hover:scale-110', color === c && 'ring-2 ring-foreground ring-offset-1 ring-offset-background')}
-                  style={{ background: c }}
-                  onClick={() => setColor(c)}
-                  title={c}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* 图标（对齐 Hermes ProjectAppearancePicker 28 图标网格；再次点击取消选择） */}
-          <div>
-            <label className="block text-xs text-muted-foreground mb-1">图标</label>
-            <div className="grid grid-cols-7 gap-1">
-              {PROJECT_ICON_KEYS.map((key) => {
-                const Icon = projectIconFor(key);
-                const active = icon === key;
-                return (
+          {/* ③ 外观：主题色 + 图标（flex 固定尺寸，间距恒定不随容器放大） */}
+          <div className="flex flex-col gap-2">
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">主题色</label>
+              <div className="flex flex-wrap gap-1">
+                {AGENT_PALETTE.map((c) => (
                   <button
-                    key={key}
-                    type="button"
+                    key={c}
                     className={cn(
-                      'grid aspect-square place-items-center rounded-md border transition-colors',
-                      active
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-transparent text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                      'size-4 rounded-full transition-transform hover:scale-110',
+                      color === c ? 'ring-1.5 ring-foreground ring-offset-1 ring-offset-background scale-110' : ''
                     )}
-                    style={active && color ? { color } : undefined}
-                    onClick={() => setIcon(active ? null : key)}
-                    title={key}
-                  >
-                    <Icon size={14} />
-                  </button>
-                );
-              })}
+                    style={{ background: c }}
+                    onClick={() => setColor(c)}
+                    title={c}
+                  />
+                ))}
+              </div>
             </div>
-            {icon && <button className="mt-1 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setIcon(null)}>清除图标</button>}
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">图标</label>
+              <div className="flex flex-wrap gap-1">
+                {PROJECT_ICON_KEYS.map((key) => {
+                  const Icon = projectIconFor(key);
+                  const active = icon === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className={cn(
+                        'grid size-7 shrink-0 place-items-center rounded-md border transition-all',
+                        active
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-transparent text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                      )}
+                      style={active && color ? { color } : undefined}
+                      onClick={() => setIcon(active ? null : key)}
+                      title={key}
+                    >
+                      <Icon size={13} />
+                    </button>
+                  );
+                })}
+              </div>
+              {icon && <button className="mt-1 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setIcon(null)}>清除图标</button>}
+            </div>
           </div>
 
           {/* 文件夹（对齐 Hermes project-dialog：新建多文件夹列表 + primary badge + 移除） */}
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">
+            <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
               {initial ? '主文件夹' : '项目文件夹'}
             </label>
             {initial ? (
@@ -960,10 +980,10 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
           {/* 项目 Idea（对齐 Hermes project-dialog：textarea + AI 生成 + 模板 chips + shuffle；仅新建） */}
           {!initial && (
             <div className="flex flex-col gap-1.5">
-              <label className="block text-xs text-muted-foreground mb-1">项目 Idea（可选）</label>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">项目 Idea（可选）</label>
               <div className="relative">
                 <textarea
-                  className="min-h-20 w-full rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs outline-none resize-y"
+                  className="min-h-24 w-full rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs outline-none resize-y"
                   value={idea}
                   onChange={(e) => setIdea(e.target.value)}
                   placeholder="一句话总结 + 3-5 个目标；创建后写入主文件夹 IDEA.md"
@@ -1022,12 +1042,15 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
           )}
         </div>
 
-        <DialogFooter>
-          <button className="h-8 rounded-md px-3 text-xs text-muted-foreground hover:bg-accent transition-colors" onClick={onClose}>
+        <DialogFooter className="mt-1 gap-2">
+          <button
+            className="h-8 rounded-lg border border-border px-4 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            onClick={onClose}
+          >
             取消
           </button>
           <button
-            className="h-8 rounded-md bg-foreground px-3 text-xs text-background hover:opacity-90 transition-opacity disabled:opacity-50"
+            className="flex h-8 items-center gap-1 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none"
             onClick={save}
             disabled={saving || !name.trim()}
           >
@@ -1404,20 +1427,20 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
       {drill ? (
         // ── 阶段二：钻取视图（全量水合 Repo → Lane → Session）──
         <>
-          <div className="flex items-center gap-1.5 px-2 py-2 border-b border-border/50 shrink-0">
+          <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-border/30 shrink-0">
             <button
-              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
               onClick={handleBack}
               title="返回项目列表"
             >
               <ChevronRight size={14} className="rotate-180" />
             </button>
-            <span className="text-xs font-medium truncate flex-1">{drill.label}</span>
+            <span className="text-xs font-semibold truncate flex-1">{drill.label}</span>
             {drill.sessionCount > 0 && (
-              <span className="text-[10px] text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">{drill.sessionCount}</span>
+              <span className="text-[10px] tabular-nums text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">{drill.sessionCount}</span>
             )}
             <button
-              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
               onClick={() => handleDrill(drill)}
               disabled={drillLoading}
               title="刷新"
@@ -1472,19 +1495,15 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
           )}
           {tree && (
             <>
-              {/* 总览工具栏：项目数 + 新建 + 刷新 */}
-              <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/30 shrink-0">
-                <span className="text-[10px] text-muted-foreground/70">{tree.projects.length} 个项目 · 点击项目名钻取完整会话树</span>
-                <div className="flex items-center gap-0.5">
+              {/* 总览工具栏：区块头（对齐 SessionsPanel 风格）+ 实心新建按钮 + 刷新 */}
+              <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5 border-b border-border/30 shrink-0">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/60 select-none">
+                    项目
+                    <span className="tabular-nums text-muted-foreground/40 ml-1">{tree.projects.length}</span>
+                  </span>
                   <button
-                    className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-                    onClick={handleCreate}
-                    title="新建项目"
-                  >
-                    <Plus size={12} />
-                  </button>
-                  <button
-                    className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+                    className="p-1 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
                     onClick={() => fetchTree()}
                     disabled={loading}
                     title="刷新"
@@ -1492,10 +1511,29 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
                     <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
                   </button>
                 </div>
+                <button
+                  className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground shadow-sm hover:bg-primary/90 active:scale-[0.97] transition-all shrink-0"
+                  onClick={handleCreate}
+                  title="新建项目"
+                >
+                  <Plus size={12} strokeWidth={2.5} />
+                  新建项目
+                </button>
               </div>
               <div className="flex-1 overflow-y-auto">
                 {tree.projects.length === 0 ? (
-                  <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground p-4">暂无项目</div>
+                  <div className="flex-1 flex flex-col items-center justify-center gap-3 p-4">
+                    <div className="w-10 h-10 rounded-xl bg-muted/40 flex items-center justify-center">
+                      <FolderGit size={18} className="text-muted-foreground/40" />
+                    </div>
+                    <p className="text-xs text-muted-foreground">暂无项目</p>
+                    <button
+                      className="flex items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90 active:scale-[0.97] transition-all"
+                      onClick={handleCreate}
+                    >
+                      <Plus size={13} strokeWidth={2.5} /> 新建项目
+                    </button>
+                  </div>
                 ) : (
                   // 🔴 总览排序（对齐 Hermes orderProjectsByIds：手排 order + 确定性排序兜底）
                   orderedProjects.map(p => (
