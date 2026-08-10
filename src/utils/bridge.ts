@@ -139,6 +139,9 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   provider_disconnect:    'provider.disconnect',
   provider_switch:        'provider.switch',
   provider_test:          'provider.test',
+  // 🔴 2026-08-10 图像生成目录（并行开发者漏注册 → call 抛 No WS/HTTP mapping → 空态）
+  toolset_models:         'toolset.models',
+  toolset_model_select:   'toolset.model.select',
   list_memories:          'memory.list',
   delete_memory:          'memory.delete',
   reset_memory:           'memory.reset',

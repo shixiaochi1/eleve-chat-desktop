@@ -264,7 +264,7 @@ export interface ToolsetModelsResponse {
 /** 获取 toolset 后端模型目录（WS toolset.models；profile 由 sendRpc 自动盖章） */
 export async function getToolsetModels(toolset: string): Promise<ToolsetModelsResponse | null> {
   try {
-    const res = await call('toolset.models', { toolset });
+    const res = await call('toolset_models', { toolset });
     return res as ToolsetModelsResponse;
   } catch {
     return null;
@@ -273,7 +273,7 @@ export async function getToolsetModels(toolset: string): Promise<ToolsetModelsRe
 
 /** 选择并持久化 toolset 模型（WS toolset.model.select；profile 由 sendRpc 自动盖章） */
 export async function selectToolsetModel(toolset: string, model: string): Promise<{ ok: boolean; name: string; model: string }> {
-  const res = await call('toolset.model.select', { toolset, model });
+  const res = await call('toolset_model_select', { toolset, model });
   return res as { ok: boolean; name: string; model: string };
 }
 
