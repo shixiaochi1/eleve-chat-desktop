@@ -42,7 +42,6 @@ interface AuxEntry {
   model: string;
   timeout: number;
   temperature?: number | null;
-  extraBody?: string | null;
   downloadTimeout?: number;
 }
 
@@ -122,6 +121,11 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
   const [mainProvider, setMainProvider] = useState('');
   // 🔴 G-4：MoA 配置（从 config.yaml moa 段加载，保存时随 replace_config 落盘）
   const [moaConfig, setMoaConfig] = useState<Record<string, unknown> | null>(null);
+  // 🔴 2026-08-10 修复：原始 sections 快照（aux/fallback/delegation 手写字段保留——
+  // replace_config 是整段替换 + 反序列化丢未知字段，直接重建会抹掉 config.yaml 里
+  // 面板不暴露的手写字段（base_url/api_key/language/model_ref/api_mode/child_timeout 等），
+  // 对齐 Hermes "config block is not owned by this panel" 原则：patch 而非重建）
+  const rawSectionsRef = useRef<{ auxiliary?: unknown; fallback?: unknown; delegation?: unknown }>({});
 
   // ── 删除确认 ──
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm | null>(null);
@@ -231,9 +235,10 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
               model: val.model || '',
               timeout: val.timeout ?? 120,
               temperature: val.temperature ?? null,
-              extraBody: val.extra_body ?? null,
               downloadTimeout: val.download_timeout ?? undefined,
             };
+            // 🔴 extra_body 不再入 state：面板不暴露（对齐 Hermes config.yaml 手写），
+            // 保存时 rawSectionsRef patch 保留手写值
           }
         }
         if (Object.keys(aux).length > 0) setAuxConfig(aux);
@@ -266,6 +271,13 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
           }
         }
       }
+      // 🔴 2026-08-10：保留原始 sections（保存时 patch，防整段替换抹掉手写字段）
+      rawSectionsRef.current = {
+        auxiliary: bc.auxiliary,
+        fallback: bc.fallback,
+        delegation: bc.delegation,
+      };
+
       // 🔴 G-4：MoA 配置加载（后端 MoaConfig，presets/reference_models/aggregator）
       if (bc.moa && typeof bc.moa === 'object') {
         setMoaConfig(bc.moa as Record<string, unknown>);
@@ -559,17 +571,19 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     // upsertPoolProvider + savePoolProviderKey 写入 providers.yaml。
     // config.yaml 只保留 fallback/auxiliary/delegation 等非 Provider 配置。
 
-    // 🔴 Phase 3: fallback/auxiliary/delegation 走 config.replace（整体替换）
-    // 始终包含三个 section（空=清空），消灭"删除/清空复活"整类问题
-    // 🔴 对齐 Hermes _iter_fallback_entries：provider 或 model 为空的条目跳过（不报错）
-    // 若只写 provider 不写 model → model 字段缺失 → 后端 FallbackProvider.model 无 serde(default)
-    // → apply_value_to_config 全量反序列化失败 → 整个 replace_config 保存失败（含 aux/delegation）
+    // ── Fallback → config.yaml fallback 段（🔴 patch 保留手写字段：base_url/api_key/context_length/model_ref）──
     const fbFiltered = fallbackList.filter(f => f.providerId && f.model);
+    const rawFb = ((rawSectionsRef.current.fallback || {}) as { providers?: Array<Record<string, unknown>> }).providers || [];
     backendCfg.fallback = {
-      providers: fbFiltered.map(f => ({ provider: f.providerId, model: f.model })),
+      providers: fbFiltered.map(f => {
+        const raw = rawFb.find(r => r.provider === f.providerId && r.model === f.model) || {};
+        return { ...raw, provider: f.providerId, model: f.model };
+      }),
     };
 
-    // ── Auxiliary → config.yaml auxiliary 段（字段名转 snake_case 对齐 Rust serde）──
+    // ── Auxiliary → config.yaml auxiliary 段（🔴 patch 保留手写字段：
+    //    extra_body/base_url/api_key/language/model_ref 等面板不暴露字段）──
+    const rawAux = (rawSectionsRef.current.auxiliary || {}) as Record<string, Record<string, unknown>>;
     const auxObj: Record<string, Record<string, unknown>> = {};
     for (const [key, cfg] of Object.entries(auxConfig)) {
       const taskCfg: Record<string, unknown> = {
@@ -578,16 +592,18 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       };
       if (cfg.model) taskCfg.model = cfg.model;
       if (cfg.temperature != null) taskCfg.temperature = cfg.temperature;
-      if (cfg.extraBody != null) taskCfg.extra_body = cfg.extraBody;
       if (cfg.downloadTimeout != null) taskCfg.download_timeout = cfg.downloadTimeout;
-      auxObj[key] = taskCfg;
+      // 手写字段优先保留，前端字段覆盖同名
+      auxObj[key] = { ...(rawAux[key] || {}), ...taskCfg };
     }
     backendCfg.auxiliary = auxObj;
 
-    // ── Delegation → config.yaml delegation 段 ──
+    // ── Delegation → config.yaml delegation 段（🔴 patch 保留手写字段：
+    //    api_mode/reasoning_effort/child_timeout_seconds/inherit_mcp_toolsets/base_url/api_key）──
+    const rawDel = (rawSectionsRef.current.delegation || {}) as Record<string, unknown>;
     backendCfg.delegation = delProvider
-      ? { provider: delProvider, ...(delModel ? { model: delModel } : {}), max_iterations: delMaxIterations }
-      : {};
+      ? { ...rawDel, provider: delProvider, model: delModel || null, max_iterations: delMaxIterations }
+      : { ...rawDel, provider: null, model: null };
 
     // 🔴 G-4：MoA 配置随保存落盘（未加载/未编辑时跳过，不覆盖后端已有 moa 段）
     if (moaConfig) {

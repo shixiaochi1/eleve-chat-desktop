@@ -67,7 +67,7 @@ export default function ModelSettings({
   addFallback: () => void;
   removeFallback: (i: number) => void;
   updateFallback: (i: number, f: string, v: string) => void;
-  auxConfig: Record<string, { providerId: string; model: string; timeout: number; downloadTimeout?: number; temperature?: number | null; extraBody?: string | null }>;
+  auxConfig: Record<string, { providerId: string; model: string; timeout: number; downloadTimeout?: number; temperature?: number | null }>;
   updateAux: (key: string, field: string, value: string | number | null) => void;
   delProvider: string;
   setDelProvider: (v: string) => void;
@@ -235,33 +235,30 @@ export default function ModelSettings({
                 <label className="block text-xs text-muted-foreground mb-1">超时时间（秒）</label>
                 <Input type="number" className="w-[120px]" value={auxConfig[t.key]?.timeout ?? t.defaultTimeout}
                   min={5} max={3600}
-                  onChange={e => updateAux(t.key, 'timeout', parseInt(e.target.value) || t.defaultTimeout)} />
+                  onChange={e => updateAux(t.key, 'timeout', Math.min(3600, Math.max(5, parseInt(e.target.value) || t.defaultTimeout)))} />
               </div>
               <div className="mb-3">
                 <label className="block text-xs text-muted-foreground mb-1">温度</label>
                 <Input type="number" className="w-[120px]" value={auxConfig[t.key]?.temperature ?? ''}
                   min={0} max={2} step={0.1} placeholder="默认"
-                  onChange={e => updateAux(t.key, 'temperature', e.target.value === '' ? null : parseFloat(e.target.value))} />
+                  onChange={e => {
+                    const v = e.target.value.trim();
+                    if (!v) { updateAux(t.key, 'temperature', null); return; }
+                    const n = parseFloat(v);
+                    updateAux(t.key, 'temperature', Number.isFinite(n) ? Math.min(2, Math.max(0, n)) : null);
+                  }} />
               </div>
               {t.hasDownloadTimeout && (
                 <div className="mb-3">
                   <label className="block text-xs text-muted-foreground mb-1">下载超时（秒）</label>
                   <Input type="number" className="w-[120px]" value={auxConfig[t.key]?.downloadTimeout ?? 30}
                     min={5} max={300}
-                    onChange={e => updateAux(t.key, 'downloadTimeout', parseInt(e.target.value) || 30)} />
+                    onChange={e => updateAux(t.key, 'downloadTimeout', Math.min(300, Math.max(5, parseInt(e.target.value) || 30)))} />
                 </div>
               )}
-              <div className="mb-3">
-                <label className="block text-xs text-muted-foreground mb-1">Extra Body（JSON）</label>
-                <Input type="text" placeholder='例如 {"reasoning_effort":"low"}' className="w-full"
-                  value={typeof auxConfig[t.key]?.extraBody === 'object' ? JSON.stringify(auxConfig[t.key].extraBody) : (auxConfig[t.key]?.extraBody || '')}
-                  onChange={e => {
-                    const val = e.target.value.trim();
-                    if (!val) { updateAux(t.key, 'extraBody', null); return; }
-                    try { updateAux(t.key, 'extraBody', JSON.parse(val)); }
-                    catch { /* 用户还在输入，不更新 */ }
-                  }} />
-              </div>
+              {/* 🔴 2026-08-10 移除 Extra Body 裸 JSON 输入框（反用户设计）：
+                  对齐 Hermes——aux 高级字段（extra_body/base_url/api_key/language 等）
+                  config.yaml 手写，面板不暴露；保存时 raw patch 保留手写值不抹掉 */}
             </div>
           ))}
         </div>
