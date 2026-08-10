@@ -122,9 +122,22 @@ export default function ProviderSettings({
             <Input
               className="h-7.5 text-xs"
               type="password"
-              placeholder="可选"
+              placeholder="可选（与下方环境变量二选一）"
               value={newProvider.apiKey}
               onChange={e => setNewProvider({ ...newProvider, apiKey: e.target.value })}
+              autoComplete="off"
+            />
+          </div>
+          {/* 🔴 F2 修复：key_env 凭证接线 — 此前 keyEnv 是死字段（自动生成但从不进入 RPC 请求体）。
+              填环境变量名 → 后端 Credential::KeyEnv（运行时从进程 env / per-profile .env 读取，
+              不落盘明文）；与 API Key 二选一，两者都空 = 无凭证（本地服务场景）。 */}
+          <div className="grid gap-1">
+            <label className="text-xs text-muted-foreground">API Key 环境变量名（可选）</label>
+            <Input
+              className="h-7.5 text-xs font-mono"
+              placeholder="如 OPENAI_API_KEY（与上方 API Key 二选一）"
+              value={newProvider.keyEnv}
+              onChange={e => setNewProvider({ ...newProvider, keyEnv: e.target.value })}
               autoComplete="off"
             />
           </div>
@@ -170,8 +183,8 @@ export default function ProviderSettings({
                 className="h-7.5 text-xs"
                 type="text"
                 inputMode="numeric"
-                placeholder="128000"
-                title="上面所有模型的默认上下文窗口（tokens），留空=128000"
+                placeholder="自动"
+                title="上面所有模型的默认上下文窗口（tokens），留空=未知（运行时自动探测）"
                 value={newProvider.contextLength}
                 onChange={e => setNewProvider({ ...newProvider, contextLength: e.target.value })}
               />

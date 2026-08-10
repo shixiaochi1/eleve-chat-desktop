@@ -1,7 +1,8 @@
 /**
- * ModelPickerPanel — Model auto-discovery panel
+ * ModelPickerPanel — Model selection panel
  *
- * Fetches available models from GET /v1/models and allows model selection.
+ * 数据源：全局 Provider 池（provider.list RPC，ref = `${providerId}/${modelName}`），
+ * 非 HTTP /v1/models（🔴 F2 修复：文件头注释过时，实际无任何 HTTP 请求）。
  * Features: search filter, grouped by provider, loading skeleton, empty state, refresh.
  */
 import { useState, useMemo, useCallback } from 'react';

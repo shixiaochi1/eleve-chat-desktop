@@ -396,11 +396,17 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     // 旧实现先 setProviders 后异步 upsert，失败不回滚 → 面板残留假卡片，
     // 再点保存会把幽灵带进批量写。池是权威源：入池成功 = 存在，UI 如实反映。
     const transport = (provider.transport && provider.transport !== 'auto') ? provider.transport : undefined;
+    // 🔴 F2 修复：key_env 凭证接线 — API Key 为空且填了环境变量名 → 走 Credential::KeyEnv
+    // （凭证不落盘明文，运行时从进程 env / per-profile .env 读取）。与 save_key（ApiKey）互斥。
+    const keyEnvName = newProvider.keyEnv.trim();
+    const apiKeyVal = (provider.apiKey ?? '').trim();
+    const useKeyEnv = !apiKeyVal && keyEnvName.length > 0;
     upsertPoolProvider({
       id: provider.id,
       name: provider.name,
       base_url: provider.baseUrl || 'https://api.openai.com/v1',
       transport,
+      ...(useKeyEnv ? { credential: { key_env: keyEnvName } } : {}),
       models: Object.fromEntries(provider.models.map(m => [m.name, { context_length: m.context_length, max_output: m.max_output }])),
     }).then(() => {
       setProviders(prev => [...prev, { ...provider, source: 'global_pool' as const }]);

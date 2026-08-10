@@ -283,7 +283,7 @@ export default function ProviderCard({
                 inputMode="numeric"
                 className={cn('h-7.5 w-[100px] text-xs')}
                 placeholder="上下文大小"
-                title="上下文窗口大小（tokens），留空默认 128000"
+                title="上下文窗口大小（tokens），留空=未知（运行时自动探测）"
                 value={newCtx}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewCtx(e.target.value)}
                 onKeyDown={handleKeyDown}
