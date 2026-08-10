@@ -87,25 +87,17 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
 
   return (
     <nav role="tablist" className="flex flex-col items-center w-14 h-full py-2 gap-1 select-none" style={{ background: 'transparent' }}>
-      {/* 顶部品牌 Logo 按钮 — 和工具栏一样切换面板；🔴 2026-08-10 加在线状态角标
-          （gatewayOnline prop 原本闲置：用户看 LOGO 无法感知网关在线/离线） */}
+      {/* 顶部品牌 Logo 按钮 — 和工具栏一样切换面板 */}
       <button
         className={cn(
           'group flex items-center justify-center w-10 h-10 rounded-[10px] relative transition-all duration-150 hover:scale-[1.04] active:scale-[0.97]',
           logoActive && navBtnActive
         )}
-        title={`Eleve Agent · ${gatewayOnline ? '在线' : '离线'}（点击查看网关状态）`}
+        title={`Eleve Agent · ${gatewayOnline ? '在线' : '离线'}`}
         aria-label="网关状态"
         onClick={() => onPanelChange?.(logoActive ? null : 'gateway')}
       >
         <img src="/Elogo.svg" alt="Eleve" className="w-6 h-6 rounded transition-transform duration-150 group-hover:scale-105" />
-        {/* 在线状态角标 */}
-        <span
-          className={cn(
-            'absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-background',
-            gatewayOnline ? 'bg-success' : 'bg-destructive'
-          )}
-        />
         {logoActive && <span className={indicator} />}
       </button>
 
