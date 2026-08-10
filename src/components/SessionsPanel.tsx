@@ -20,7 +20,7 @@ import { undoSessionTurn, compressSession, branchSession, getSessionUsage } from
 import { deleteSessionAction, renameSessionAction, toggleArchiveSession, exportSessionAction, copySessionId } from '../lib/session-actions';
 import { sessionMatchesSearch, searchSessions, searchResultToSession } from '../lib/session-search';
 import { SessionStatusDot } from './SessionStatusDot';
-import { markSessionRead } from '../store/session-status';
+import { markSessionRead, useSessionStatus } from '../store/session-status';
 import { Input } from './ui/input';
 import * as storage from '../utils/storage';
 import { notifyError, notifySuccess, notifyInfo } from '../utils/notifications';
@@ -77,6 +77,19 @@ interface RenameTarget {
 
 // ── 持久化键 ──
 const PINNED_KEY = 'eleve.pinned-sessions';
+
+/**
+ * SessionArcBorder — 当前会话运行中的跑马灯边框
+ *
+ * 🔴 2026-08-10 修复：数据源从全局 isStreaming atom 改为 per-session 权威
+ * running（store/session-status，后端 session.info/run.started/turn.end 事件驱动）——
+ * 与 SessionStatusDot working 绿点同源，切会话/流式边界不再时有时无。
+ */
+function SessionArcBorder({ sessionId, isCurrent }: { sessionId: string; isCurrent: boolean }) {
+  const st = useSessionStatus(sessionId);
+  if (!isCurrent || !st.running) return null;
+  return <div className="arc-border" />;
+}
 
 // ── 系统会话来源（对齐后端 exclude_sources + Eleve _HIDDEN_SESSION_SOURCES）──
 // 🔴 2026-08-03 修复：加 'cli' —— CLI 后台 review 会话（"Reviewing Conversation..."）无内存
@@ -498,7 +511,7 @@ export default function SessionsPanel({
         onClick={() => batchMode ? toggleSelection(id) : handleSwitch(s)}
         onContextMenu={(e: React.MouseEvent) => handleContextMenu(e, id, title)}
       >
-        {isCurrent && isStreaming && <div className="arc-border" />}
+        {isCurrent && <SessionArcBorder sessionId={id} isCurrent={isCurrent} />}
         {batchMode && (
           <span
             className="mt-0.5 shrink-0 text-muted-foreground cursor-pointer"
