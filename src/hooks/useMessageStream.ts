@@ -207,11 +207,6 @@ export function useMessageStream({
       const streamId = streamIdRef.current
 
       storeSetMessages((prev) => {
-        // 🐛 DIAG-20260810: 流式不渲染排查
-        if (turnEndedRef.current) {
-          console.log(`[DIAG] ⛔ mutateStream GUARDED turnEndedRef=true streamId=${streamId} lastMsgParts=${prev.length ? prev[prev.length-1]?.parts?.length : '?'}`)
-          return prev
-        }
         // 🔴 #4：中断守卫（对齐 Hermes index.ts:94-100，位于 mutateStream 状态回调入口）——
         // 停止/完成后迟到的 delta/tool 事件直接丢弃，不得 seed 新气泡（Hermes 注释原话：
         // "a brand-new bubble that appears to belong to the next user message"）
@@ -254,8 +249,6 @@ export function useMessageStream({
     queuedDeltasRef.current = { assistant: '', reasoning: '' }
 
     if (!queued.assistant && !queued.reasoning) return
-    // 🐛 DIAG-20260810
-    console.log(`[DIAG] flushQueuedDeltas assistant=${queued.assistant.length} reasoning=${queued.reasoning.length} turnEndedRef=${turnEndedRef.current} streamId=${streamIdRef.current}`)
 
     // 合并：一次 mutateStream 同时处理 text 和 reasoning
     mutateStream(
@@ -319,8 +312,6 @@ export function useMessageStream({
   const queueDelta = useCallback(
     (key: keyof QueuedStreamDeltas, delta: string) => {
       if (!delta) return
-      // 🐛 DIAG-20260810: 流式不渲染排查
-      console.log(`[DIAG] queueDelta key=${key} deltaLen=${delta.length} queuedLen=${(queuedDeltasRef.current[key] || '').length}`)
       queuedDeltasRef.current[key] += delta
       // 🔴 2026-08-10：消息驱动 flush（不依赖 timer）
       const now = performance.now()
@@ -573,8 +564,6 @@ export function useMessageStream({
     },
 
     onRunStart: (sessionId: string) => {
-      // 🐛 DIAG-20260810
-      console.log(`[DIAG] onRunStart session=${sessionId} (turnEndedRef=${turnEndedRef.current})`)
       // 🔴 #4：新 turn 开始 → 解除中断封锁（迟到 delta 重新放行）
       turnEndedRef.current = false
       // 🔴 #6b: 新 turn 清 interim 边界标志（对齐 Hermes gateway-event.ts:573

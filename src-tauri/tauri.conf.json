@@ -22,7 +22,7 @@
         "resizable": true,
         "dragDropEnabled": false,
         "devtools": true,
-        "additionalBrowserArgs": "--disable-background-timer-throttling --disable-backgrounding-occluded-windows --remote-debugging-port=9222"
+        "additionalBrowserArgs": "--disable-background-timer-throttling --disable-backgrounding-occluded-windows"
       }
     ],
     "security": {
