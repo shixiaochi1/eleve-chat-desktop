@@ -19,7 +19,7 @@
 use tauri::Manager;
 use tauri::menu::{MenuBuilder, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::time::Duration;
@@ -204,80 +204,6 @@ fn resolve_eleve_home() -> PathBuf {
     std::fs::create_dir_all(&fallback).ok();
     eprintln!("[TAURI] ELEVE_HOME fallback: {:?}", fallback);
     fallback
-}
-
-/// 🔴 2026-08-10 安装版数据迁移（对齐"装哪 data 在哪"语义，老大确立）
-///
-/// 场景：历史 ELEVE_HOME 注册表值（如 AppData\Local\Eleve）有数据，而新安装目录
-/// 的 data/ 为空（首次安装/升级到便携语义）→ 启动时把旧 home 顶层内容复制到新 home。
-/// copy 不删旧（安全无破坏），完成后旧位置保留（用户可自行清理）。
-/// 新 home 已有 profiles/ 等数据 → 跳过（不覆盖权威数据）。
-fn migrate_legacy_home_if_needed(new_home: &Path) {
-    // 新 home 已有数据（profiles/ 或 providers.yaml）→ 不迁移
-    if new_home.join("profiles").is_dir() || new_home.join("providers.yaml").exists() {
-        return;
-    }
-    // 读注册表旧值（非安装场景下 resolve 也可能命中这里，此时 new == old 自然跳过）
-    let Some(old_home) = read_windows_user_env_var("ELEVE_HOME") else {
-        return;
-    };
-    let old_home = PathBuf::from(old_home);
-    if old_home == new_home || !old_home.is_dir() {
-        return;
-    }
-    // 旧 home 无数据 → 不迁移
-    if !old_home.join("profiles").is_dir() && !old_home.join("providers.yaml").exists() {
-        return;
-    }
-    eprintln!(
-        "[TAURI] Migrating ELEVE data: {:?} → {:?}",
-        old_home, new_home
-    );
-    if let Ok(entries) = std::fs::read_dir(&old_home) {
-        let mut copied = 0usize;
-        for entry in entries.flatten() {
-            let from = entry.path();
-            let Some(name) = from.file_name() else { continue };
-            let to = new_home.join(name);
-            if to.exists() {
-                continue;
-            }
-            if from.is_dir() {
-                if copy_dir_recursive(&from, &to) {
-                    copied += 1;
-                }
-            } else if std::fs::copy(&from, &to).is_ok() {
-                copied += 1;
-            }
-        }
-        eprintln!("[TAURI] Migration done: {} top-level entries copied", copied);
-    }
-}
-
-/// 递归复制目录（迁移用；copy 语义，失败返回 false 不 panic）
-fn copy_dir_recursive(from: &Path, to: &Path) -> bool {
-    let Ok(meta) = std::fs::metadata(from) else {
-        return false;
-    };
-    if !meta.is_dir() {
-        return std::fs::copy(from, to).is_ok();
-    }
-    if std::fs::create_dir_all(to).is_err() {
-        return false;
-    }
-    let Ok(entries) = std::fs::read_dir(from) else {
-        return false;
-    };
-    let mut ok = true;
-    for entry in entries.flatten() {
-        let from_child = entry.path();
-        let Some(name) = from_child.file_name() else { continue };
-        let to_child = to.join(name);
-        if !copy_dir_recursive(&from_child, &to_child) {
-            ok = false;
-        }
-    }
-    ok
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1120,12 +1046,6 @@ pub fn run() {
 
             let eleve_home = resolve_eleve_home();
             eprintln!("[TAURI] eleve_home = {:?}", eleve_home);
-
-            // 🔴 2026-08-10 安装版数据迁移（装哪 data 在哪）：新 home（exe 相对 data/）
-            // 为空但注册表旧 home 有数据 → 启动时复制（copy 不删旧，安全无破坏）。
-            // 场景：老大安装到 E:\Eleve Chat，历史 ELEVE_HOME 注册表值
-            // （AppData\Local\Eleve）里的配置/会话数据自动跟到安装目录。
-            migrate_legacy_home_if_needed(&eleve_home);
 
             // 🔴 Remote 模式（对齐 Hermes remote gateway）：壳不 spawn 本地 eleved，
             // 前端直连远程后端（settings.json connection.mode=remote）。
