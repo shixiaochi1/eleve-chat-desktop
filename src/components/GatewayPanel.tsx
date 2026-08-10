@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchGatewayStatus } from '../utils/api';
-import { RefreshCw, RotateCcw, PlugZap, Server, Cpu, Radio, Cloud } from 'lucide-react';
+import { notifySuccess, notifyError } from '../utils/notifications';
+import { RefreshCw, RotateCcw, PlugZap, Server, Cpu, Radio, Cloud, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -31,17 +32,18 @@ interface GatewayPanelProps {
   gatewayChecking?: boolean;
   onGatewayRetry?: () => void;
   onRestart?: () => void;
+  /** 🔴 2026-08-10 接线：面板内元素可跳转其它面板（SidePanel 透传） */
+  onPanelChange?: (panel: string | null) => void;
 }
 
 /**
  * 网关状态面板 — 点击左侧 LOGO 打开
  *
- * 🔴 2026-08-10 整体重设计（老大反馈：原 UI 列表堆砌、刷新/重启按钮雷同）：
- * 仪表盘式布局：
- *   Logo → 状态徽章（渐变 pill）→ 运行时长（大数字）→ 2×2 指标网格
- *   → 平台连接徽章 → 模型 → 操作区（贴底，图标+文字，刷新/重启/重连三态区分）
+ * 🔴 2026-08-10 整体重设计 + 全元素接线（老大要求"每一个都要接线，不能是摆设"）：
+ *   Logo → 关闭面板；状态徽章/运行时长 → 点击刷新；指标卡 → 点击复制或跳转；
+ *   平台徽章 → 点击复制；模型行 → 点击复制；操作按钮 → 刷新/重启/重连
  */
-export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGatewayRetry, onRestart }: GatewayPanelProps) {
+export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGatewayRetry, onRestart, onPanelChange }: GatewayPanelProps) {
   const [status, setStatus] = useState<GatewayStatusData | null>(null);
   const [elapsed, setElapsed] = useState(0);    // 客户端计时
   const [serverUptime, setServerUptime] = useState(0); // 服务端运行时长
@@ -93,101 +95,177 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
     ? Object.entries(status.platforms)
     : null;
 
+  // ── 复制工具（全元素接线共用） ──
+  const copy = useCallback(async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      notifySuccess(`${label}已复制`);
+    } catch {
+      notifyError(`复制失败`);
+    }
+  }, []);
+
+  const platformLabel = (name: string, state: unknown): string => {
+    const stateObj = typeof state === 'object' && state ? state as Record<string, unknown> : null;
+    if (stateObj?.state === 'connected') return '已连接';
+    return stateObj?.state ? String(stateObj.state) : String(state);
+  };
+  const platformConnected = (state: unknown): boolean => {
+    const stateObj = typeof state === 'object' && state ? state as Record<string, unknown> : null;
+    return stateObj?.state === 'connected';
+  };
+
   return (
     <div className="flex flex-col h-full p-3 gap-3 overflow-hidden">
-      {/* ── Logo ── */}
-      <div className="flex flex-col items-center gap-1 pt-1">
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-b from-accent/20 to-accent/5 border border-border/60 flex items-center justify-center shadow-sm">
+      {/* ── Logo（点击关闭面板） ── */}
+      <button
+        className="group flex flex-col items-center gap-1 pt-1 outline-none"
+        onClick={() => onPanelChange?.(null)}
+        title="收起面板"
+        aria-label="收起面板"
+      >
+        <div className="w-14 h-14 rounded-2xl bg-gradient-to-b from-accent/20 to-accent/5 border border-border/60 flex items-center justify-center shadow-sm transition-transform group-hover:scale-105 group-active:scale-95">
           <img src="/Elogo.svg" alt="Eleve" className="w-8 h-8" />
         </div>
         <span className="text-sm font-semibold text-foreground">Eleve Agent</span>
-      </div>
+      </button>
 
-      {/* ── 状态徽章 ── */}
-      <div
+      {/* ── 状态徽章（点击刷新） ── */}
+      <button
         className={cn(
-          'flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border',
+          'flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
           gatewayChecking
-            ? 'bg-muted/40 border-border text-muted-foreground'
+            ? 'bg-muted/40 border-border text-muted-foreground cursor-default'
             : online
-              ? 'bg-success/10 border-success/25 text-success'
-              : 'bg-destructive/10 border-destructive/25 text-destructive'
+              ? 'bg-success/10 border-success/25 text-success hover:bg-success/20 cursor-pointer'
+              : 'bg-destructive/10 border-destructive/25 text-destructive hover:bg-destructive/20 cursor-pointer'
         )}
+        onClick={online ? fetchStatus : undefined}
+        title={online ? '点击刷新状态' : '服务未连接'}
       >
         <span className={cn(
           'w-1.5 h-1.5 rounded-full',
           gatewayChecking ? 'bg-muted-foreground' : online ? 'bg-success animate-pulse' : 'bg-destructive'
         )} />
         {gatewayChecking ? '正在检测…' : online ? '网关运行中' : '网关未连接'}
-      </div>
+      </button>
 
-      {/* ── 运行时长（大数字） ── */}
+      {/* ── 运行时长（点击刷新） ── */}
       {online && status && (
-        <div className="rounded-xl border border-border bg-gradient-to-b from-background to-muted/20 px-3 py-2.5 text-center">
+        <button
+          className="rounded-xl border border-border bg-gradient-to-b from-background to-muted/20 px-3 py-2.5 text-center transition-colors hover:bg-accent/30"
+          onClick={fetchStatus}
+          title="点击刷新状态"
+        >
           <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">运行时长</div>
           <div className="font-mono text-2xl font-semibold text-foreground leading-tight mt-0.5">
             {fmtUptime(elapsed + serverUptime)}
           </div>
-        </div>
+        </button>
       )}
 
-      {/* ── 指标网格 2×2 ── */}
+      {/* ── 指标网格 2×2（每项可点击） ── */}
       {online && status && (
         <div className="grid grid-cols-2 gap-1.5">
-          {[
-            { label: '活跃 Agent', value: status.active_agents ?? '—', icon: null },
-            { label: '端口', value: status.port ? String(status.port) : '—', icon: Radio },
-            { label: 'PID', value: status.pid ? String(status.pid) : '—', icon: Cpu },
-            { label: '提供商', value: status.provider || '—', icon: Cloud },
-          ].map(({ label, value, icon: Icon }) => (
-            <div key={label} className="rounded-lg border border-border px-2 py-1.5 min-w-0">
-              <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60 truncate">
-                {Icon && <Icon size={10} strokeWidth={1.5} className="shrink-0" />}
-                <span className="truncate">{label}</span>
-              </div>
-              <div className="font-mono text-sm font-medium text-foreground truncate mt-0.5" title={value}>
-                {value}
-              </div>
+          {/* 活跃 Agent → 跳转 Agent 面板 */}
+          <button
+            className="rounded-lg border border-border px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
+            onClick={() => onPanelChange?.('agents')}
+            title="查看 Agent 列表"
+          >
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60 truncate">
+              <Users size={10} strokeWidth={1.5} className="shrink-0" />
+              <span className="truncate">活跃 Agent</span>
             </div>
-          ))}
+            <div className="font-mono text-sm font-medium text-foreground truncate mt-0.5">
+              {status.active_agents ?? '—'}
+            </div>
+          </button>
+          {/* 端口 → 复制 */}
+          <button
+            className="rounded-lg border border-border px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
+            onClick={() => status.port && copy(String(status.port), '端口')}
+            title={status.port ? `复制端口 ${status.port}` : '端口未知'}
+          >
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60 truncate">
+              <Radio size={10} strokeWidth={1.5} className="shrink-0" />
+              <span className="truncate">端口</span>
+            </div>
+            <div className="font-mono text-sm font-medium text-foreground truncate mt-0.5">
+              {status.port ? String(status.port) : '—'}
+            </div>
+          </button>
+          {/* PID → 复制 */}
+          <button
+            className="rounded-lg border border-border px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
+            onClick={() => status.pid && copy(String(status.pid), 'PID')}
+            title={status.pid ? `复制 PID ${status.pid}` : 'PID 未知'}
+          >
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60 truncate">
+              <Cpu size={10} strokeWidth={1.5} className="shrink-0" />
+              <span className="truncate">PID</span>
+            </div>
+            <div className="font-mono text-sm font-medium text-foreground truncate mt-0.5">
+              {status.pid ? String(status.pid) : '—'}
+            </div>
+          </button>
+          {/* 提供商 → 复制 */}
+          <button
+            className="rounded-lg border border-border px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
+            onClick={() => status.provider && copy(status.provider, '提供商')}
+            title={status.provider ? `复制提供商 ${status.provider}` : '提供商未知'}
+          >
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60 truncate">
+              <Cloud size={10} strokeWidth={1.5} className="shrink-0" />
+              <span className="truncate">提供商</span>
+            </div>
+            <div className="font-mono text-sm font-medium text-foreground truncate mt-0.5" title={status.provider}>
+              {status.provider || '—'}
+            </div>
+          </button>
         </div>
       )}
 
-      {/* ── 平台连接（徽章行） ── */}
+      {/* ── 平台连接（徽章行，点击复制平台名+状态） ── */}
       {platformEntries && (
         <div className="min-h-0 overflow-auto">
           <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1">平台连接</div>
           <div className="flex flex-wrap gap-1.5">
             {platformEntries.map(([name, state]) => {
-              const stateObj = typeof state === 'object' && state ? state as Record<string, unknown> : null;
-              const connected = stateObj?.state === 'connected';
+              const connected = platformConnected(state);
               return (
-                <span
+                <button
                   key={name}
                   className={cn(
-                    'inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px]',
+                    'inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] transition-colors',
                     connected
-                      ? 'bg-success/10 border-success/25 text-success'
-                      : 'bg-destructive/10 border-destructive/25 text-destructive'
+                      ? 'bg-success/10 border-success/25 text-success hover:bg-success/20'
+                      : 'bg-destructive/10 border-destructive/25 text-destructive hover:bg-destructive/20'
                   )}
-                  title={connected ? '已连接' : (stateObj?.state ? String(stateObj.state) : String(state))}
+                  onClick={() => copy(`${name}: ${platformLabel(name, state)}`, '平台状态')}
+                  title={`复制 ${name} 连接状态`}
                 >
                   <Server size={9} strokeWidth={1.5} />
                   <span className="max-w-28 truncate">{name}</span>
-                </span>
+                  <span className="opacity-70">{platformLabel(name, state)}</span>
+                </button>
               );
             })}
           </div>
         </div>
       )}
 
-      {/* ── 模型 ── */}
+      {/* ── 模型（点击复制） ── */}
       {online && status && (
-        <div className="rounded-lg border border-border px-2.5 py-1.5 text-xs flex items-center gap-2">
+        <button
+          className="rounded-lg border border-border px-2.5 py-1.5 text-xs flex items-center gap-2 transition-colors hover:bg-accent/30"
+          onClick={() => status.model && copy(status.model, '模型')}
+          title={status.model ? `复制模型 ${status.model}` : '模型未知'}
+        >
           <Cpu size={12} strokeWidth={1.5} className="shrink-0 text-muted-foreground/50" />
           <span className="text-muted-foreground/60 shrink-0">模型</span>
           <span className="ml-auto font-mono text-foreground truncate" title={status.model}>{status.model || '—'}</span>
-        </div>
+        </button>
       )}
 
       {/* ── 操作区（贴底） ── */}
