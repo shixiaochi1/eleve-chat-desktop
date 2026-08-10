@@ -671,10 +671,12 @@ export class GatewayWsClient {
 
   // ── 浏览器自动化 RPC（对齐后端 ws/rpc_browser.rs browser.manage）──
 
-  /** 浏览器管理 — browser.manage { action: status/connect/disconnect, url? }（CDP 连接） */
-  async browserManage(action: 'status' | 'connect' | 'disconnect', url?: string): Promise<BrowserManageResponse> {
+  /** 浏览器管理 — browser.manage { action: status/connect/disconnect, url?, session_id? }（CDP 连接）
+   *  sessionId 非空时后端流式 browser.progress 事件（对齐 Hermes /browser 传 session_id） */
+  async browserManage(action: 'status' | 'connect' | 'disconnect', url?: string, sessionId?: string | null): Promise<BrowserManageResponse> {
     const params: Record<string, unknown> = { action }
     if (url) params.url = url
+    if (sessionId) params.session_id = sessionId
     const result = await this.sendRpc('browser.manage', params)
     return result as BrowserManageResponse
   }
@@ -754,6 +756,8 @@ export interface ConfigSetResponse {
 export interface BrowserManageResponse {
   connected?: boolean
   url?: string | null
+  messages?: string[]
+  error?: string
   [key: string]: unknown
 }
 

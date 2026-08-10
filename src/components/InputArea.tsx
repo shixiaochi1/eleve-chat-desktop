@@ -20,6 +20,7 @@ import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
 import { useQueue, updateEntry, type QueuedMessage } from '@/lib/message-queue';
 import { onComposerInsertRequest, LINE_REF_MIME, fileLineRef } from '@/lib/composer-events';
 import { dragHasPaths, collectDroppedPaths } from '@/lib/paths-dnd';
+import { linkifyUrls, rewriteTypedUrl, formatRefValue } from '@/lib/url-refs';
 
 interface InputAreaProps {
   onSend?: (text: string) => void;
@@ -205,9 +206,10 @@ function InputArea({
           const cursorPos = el.selectionStart ?? el.value.length;
           const textBeforeCursor = el.value.slice(0, cursorPos);
           const textAfterCursor = el.value.slice(cursorPos);
-          // 替换当前 @word 为补全结果
-          const lastSpace = textBeforeCursor.lastIndexOf(' ');
-          const prefix = lastSpace >= 0 ? textBeforeCursor.slice(0, lastSpace + 1) : '';
+          // 🔴 2026-08-09 对齐 Hermes 引用形态：后端补全产物已是完整 @file:/@folder: 引用
+          // （含前缀），替换起点必须回到 @ 而非最后一个空格——否则 "@file @file:xxx" 双重前缀
+          const atPos = textBeforeCursor.lastIndexOf('@');
+          const prefix = atPos >= 0 ? textBeforeCursor.slice(0, atPos) : '';
           el.value = prefix + item.text + ' ' + textAfterCursor;
           el.selectionStart = el.selectionEnd = prefix.length + item.text.length + 1;
           setShowPathPopup(false);
@@ -262,6 +264,25 @@ function InputArea({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    }
+
+    // 🔴 手输 URL 按空格 → 光标前完整 URL 改写成 @url: directive（对齐 Hermes chipTypedUrlOnSpace）
+    if (e.key === ' ' && !e.nativeEvent.isComposing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const el = inputRef.current;
+      if (el) {
+        const caret = el.selectionStart ?? el.value.length;
+        const rewrite = rewriteTypedUrl(el.value.slice(0, caret));
+        if (rewrite) {
+          el.value = rewrite.before + el.value.slice(caret);
+          el.selectionStart = el.selectionEnd = rewrite.caret;
+          // 最小同步（handleInput 声明在后不可引用）：高度 + hasText
+          el.style.height = 'auto';
+          el.style.height = Math.min(el.scrollHeight, 150) + 'px';
+          const nextHasText = el.value.trim().length > 0;
+          setHasText((prev) => (prev === nextHasText ? prev : nextHasText));
+          // 不 preventDefault：空格继续自然输入
+        }
+      }
     }
   }, [showPathPopup, pathItems, pathSelectedIndex, slash, handleSend, handleCommandExec, queueEdit, stepQueueEdit, exitQueueEdit]);
 
@@ -321,7 +342,8 @@ function InputArea({
   const voice = useVoice({ onTranscript: insertTextAtCursor });
 
   const handleAddUrl = useCallback((url: string) => {
-    insertTextAtCursor(url + ' ');
+    // 对齐 Hermes use-composer-url-dialog fallback：@url: directive 注入（后端展开网页内容）
+    insertTextAtCursor('@url:' + formatRefValue(url) + ' ');
   }, [insertTextAtCursor]);
 
   // 原生对话框选中的文件/文件夹路径 — 插入输入框（对齐 Hermes 附件路径入输入区语义）
@@ -383,24 +405,33 @@ function InputArea({
 
   // ── 图片附件：粘贴 / 拖拽 / 文件选择 ──
 
-  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
-    if (!onAddImage) return;
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = e.clipboardData.items;
-    for (const item of items) {
-      if (item.type.startsWith('image/')) {
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (file) {
-          try {
-            await onAddImage(file);
-          } catch (err) {
-            console.error('[InputArea] Paste image failed:', err);
+    // 图片粘贴优先（现状逻辑）
+    if (onAddImage) {
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) {
+            void onAddImage(file).catch((err) => {
+              console.error('[InputArea] Paste image failed:', err);
+            });
           }
+          return;
         }
-        break;
       }
     }
-  }, [onAddImage]);
+    // 🔴 URL 文本粘贴 → 裸链接改写成 @url: directive（对齐 Hermes linkifyUrls）
+    const text = e.clipboardData.getData('text/plain');
+    if (text && /https?:\/\//i.test(text)) {
+      const linked = linkifyUrls(text);
+      if (linked !== text) {
+        e.preventDefault();
+        insertTextAtCursor(linked);
+      }
+    }
+  }, [onAddImage, insertTextAtCursor]);
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     // 行级引用拖拽（源码视图 gutter 拖出；对齐 Hermes HERMES_PATHS_MIME → composer ref）
@@ -656,7 +687,7 @@ function InputArea({
             {/* 快速模式 — 开关（对齐 Hermes fastMode，后端配置键待确认） */}
             <FastModeButton />
             {/* 网页窗口 — 已接通后端 browser.manage（连接/断开浏览器） */}
-            <WebWindowButton />
+            <WebWindowButton sessionId={sessionId} />
             <div className="ml-auto flex items-center gap-(--composer-control-gap)">
               {/* 发送/停止 — Hermes 式高对比圆形主按钮：黑底白箭头(亮色态)/白底黑箭头(暗色态) */}
               <button

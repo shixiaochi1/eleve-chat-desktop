@@ -96,9 +96,14 @@ export default function AttachMenu({ onPickImage, onPickImagePaths, onAttachFile
     }
   }, [desktop, onAddPaths]);
 
+  // URL 对话框校验 — 对齐 Hermes url-dialog.tsx URL_HINT：仅接受 https?:// 开头的网址
+  const URL_HINT = /^https?:\/\//i;
+  const trimmedUrl = urlValue.trim();
+  const looksLikeUrl = trimmedUrl.length > 0 && URL_HINT.test(trimmedUrl);
+
   const submitUrl = () => {
     const url = urlValue.trim();
-    if (!url) return;
+    if (!url || !URL_HINT.test(url)) return;
     onAddUrl?.(url);
     setUrlValue('');
     setUrlOpen(false);
@@ -174,25 +179,32 @@ export default function AttachMenu({ onPickImage, onPickImagePaths, onAttachFile
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>添加链接</DialogTitle>
-            <DialogDescription>粘贴网址，将插入输入框，随消息一起发送</DialogDescription>
+            <DialogDescription>粘贴网址，将作为 @url: 引用随消息发送（后端展开网页内容）</DialogDescription>
           </DialogHeader>
-          <input
-            ref={urlInputRef}
-            type="text"
-            inputMode="url"
-            value={urlValue}
-            onChange={(e) => setUrlValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                submitUrl();
-              }
-            }}
-            placeholder="https://example.com"
-            className="desktop-input-chrome h-9 w-full rounded-md border px-3 text-sm outline-none"
-            autoComplete="off"
-            spellCheck="false"
-          />
+          <div className="grid gap-1.5">
+            <input
+              ref={urlInputRef}
+              type="text"
+              inputMode="url"
+              value={urlValue}
+              onChange={(e) => setUrlValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  submitUrl();
+                }
+              }}
+              placeholder="https://example.com"
+              className="desktop-input-chrome h-9 w-full rounded-md border px-3 text-sm outline-none"
+              autoComplete="off"
+              spellCheck="false"
+            />
+            {trimmedUrl.length > 0 && !looksLikeUrl && (
+              <p className="text-xs text-muted-foreground/85">
+                请输入以 <span className="font-mono">https://</span> 开头的网址
+              </p>
+            )}
+          </div>
           <DialogFooter>
             <button
               onClick={() => setUrlOpen(false)}
@@ -202,7 +214,7 @@ export default function AttachMenu({ onPickImage, onPickImagePaths, onAttachFile
             </button>
             <button
               onClick={submitUrl}
-              disabled={!urlValue.trim()}
+              disabled={!looksLikeUrl}
               className="h-8 cursor-pointer rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground outline-none transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               添加

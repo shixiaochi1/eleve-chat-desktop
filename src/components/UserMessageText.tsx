@@ -1,4 +1,5 @@
-import { Fragment, memo, useMemo } from 'react';
+import { memo, useMemo } from 'react';
+import { DirectiveText } from './DirectiveText';
 
 /**
  * UserMessageText — 用户消息最小 Markdown 渲染（对齐 Hermes UserMessageText）
@@ -83,7 +84,8 @@ function splitInlineCode(text: string): InlineNode[] {
   return nodes;
 }
 
-/** 行内文本 → 反引号 code 片段 + 纯文本（React 自动转义） */
+/** 行内文本 → 反引号 code 片段 + 纯文本（React 自动转义）；
+ *  纯文本段再经 DirectiveText 渲染 @kind:value 引用 chip（对齐 Hermes 发送气泡 directive 渲染） */
 function InlineText({ text }: { text: string }) {
   const nodes = useMemo(() => splitInlineCode(text), [text]);
 
@@ -98,7 +100,7 @@ function InlineText({ text }: { text: string }) {
             {node.value}
           </code>
         ) : (
-          <Fragment key={index}>{node.value}</Fragment>
+          <DirectiveText key={index} text={node.value} />
         )
       )}
     </>

@@ -7,6 +7,7 @@ import { useToolViewMode } from '@/store/tool-view';
 import { extractPreviewTargets, previewName, stripPreviewTargets } from '@/lib/preview-targets';
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
 import { openPreview } from '@/store/preview';
+import { isDesktop } from '@/utils/bridge';
 
 /**
  * product 模式人性化摘要（对齐 Hermes fallback.tsx product 语义：
@@ -15,6 +16,51 @@ import { openPreview } from '@/store/preview';
  */
 const PRIMARY_ARG_KEYS = ['command', 'path', 'file_path', 'query', 'pattern', 'goal', 'url', 'prompt'];
 const PRODUCT_PREVIEW_CHARS = 600;
+
+// 🔴 对齐 Hermes fallback-model/targets.ts：可预览目标判定
+const looksLikeUrl = (value: string): boolean => /^https?:\/\//i.test(value);
+const looksLikePath = (value: string): boolean =>
+  /^file:\/\//i.test(value) || /^(?:\/|\.{1,2}\/|~\/).+/.test(value);
+
+/** 取 record 中第一个非空字符串字段（对齐 Hermes firstStringField） */
+function firstStringField(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+/** 文件编辑工具（对齐 Hermes FILE_EDIT_TOOL_NAMES） */
+const FILE_EDIT_TOOLS = new Set(['edit_file', 'patch', 'write_file']);
+
+/** 从 inline_diff 提取 html 路径（对齐 Hermes stripInlineDiffChrome + htmlPathFromInlineDiff） */
+function htmlPathFromInlineDiff(value: string): string {
+  if (!value) return '';
+  const cleaned = value
+    .replace(/\x1b\[[0-9;]*m/g, '')
+    .replace(/^\s*┊\s*review diff\s*\n/i, '')
+    .trim();
+  for (const match of cleaned.matchAll(/(?:^|\s)(?:[ab]\/)?([^\s]+\.html?)(?=\s|$)/gi)) {
+    const candidate = match[1]?.trim();
+    if (candidate) return candidate;
+  }
+  return '';
+}
+
+/** 外部浏览器打开（对齐 Hermes PrettyLink openExternal：Tauri shell / window.open fallback） */
+async function openExternalLink(url: string) {
+  if (isDesktop()) {
+    try {
+      const { open: shellOpen } = await import('@tauri-apps/plugin-shell');
+      await shellOpen(url);
+      return;
+    } catch {
+      /* fall through to window.open */
+    }
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
 
 function truncateOneLine(value: string, max: number): string {
   const flat = value.replace(/\s+/g, ' ').trim();
@@ -108,6 +154,68 @@ const ToolEntry = memo(function ToolEntry({ tool }: { tool: ToolCallItem }) {
     if (!tool.resultStr) return [];
     return extractPreviewTargets(tool.resultStr);
   }, [tool.resultStr]);
+
+  // 🔴 2026-08-10 结构化预览目标提取（对齐 Hermes toolPreviewTarget）：
+  // #preview/ markdown 协议之外的第二来源——从 result/args 的 url/path/target/preview
+  // 字段直接提取（browser_navigate / web_extract / web_search 特判）。
+  // Hermes 基线如此：浏览器工具访问的页面 URL → 工具行 → 预览；不依赖后端输出协议链接。
+  const structuredPreviewTargets = useMemo(() => {
+    const targets: string[] = [];
+    const seen = new Set<string>();
+    const add = (v: unknown) => {
+      if (typeof v !== 'string' || !v.trim()) return;
+      const t = v.trim();
+      if (seen.has(t)) return;
+      if (looksLikeUrl(t) || looksLikePath(t)) {
+        seen.add(t);
+        targets.push(t);
+      }
+    };
+    const argsRec = parsedArgs && typeof parsedArgs === 'object'
+      ? (parsedArgs as Record<string, unknown>)
+      : null;
+    const resRec = parsedResult && typeof parsedResult === 'object'
+      ? (parsedResult as Record<string, unknown>)
+      : null;
+    // 直接字段（对齐 Hermes firstStringField 顺序：result.preview/url/target →
+    // args.preview/url/target/path/file/filepath → result.path/file/filepath）
+    for (const key of ['preview', 'url', 'target']) add(resRec?.[key]);
+    for (const key of ['preview', 'url', 'target', 'path', 'file', 'filepath']) add(argsRec?.[key]);
+    for (const key of ['path', 'file', 'filepath']) add(resRec?.[key]);
+    // 文件编辑工具：从 inline_diff 提取 html 路径（对齐 Hermes toolPreviewTarget isFileEditTool 分支）
+    if (tool.name && FILE_EDIT_TOOLS.has(tool.name)) {
+      const diff = firstStringField(resRec ?? {}, ['inline_diff', 'diff']);
+      const htmlPath = htmlPathFromInlineDiff(diff);
+      if (htmlPath && !seen.has(htmlPath)) {
+        seen.add(htmlPath);
+        targets.push(htmlPath);
+      }
+    }
+    // 特判工具（对齐 Hermes：browser_navigate/web_extract/web_search 取 args.url / result.url）
+    if (tool.name === 'browser_navigate' || tool.name === 'web_extract' || tool.name === 'web_search') {
+      const explicit =
+        (argsRec && firstStringField(argsRec, ['url', 'search_term', 'query'])) ||
+        (resRec && firstStringField(resRec, ['url']));
+      if (explicit && looksLikeUrl(explicit) && !seen.has(explicit)) {
+        seen.add(explicit);
+        targets.push(explicit);
+      }
+    }
+    return targets;
+  }, [parsedArgs, parsedResult, tool.name]);
+
+  // 合并去重：协议链接 + 结构化字段
+  const allPreviewTargets = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const t of [...previewTargets, ...structuredPreviewTargets]) {
+      if (!seen.has(t)) {
+        seen.add(t);
+        out.push(t);
+      }
+    }
+    return out;
+  }, [previewTargets, structuredPreviewTargets]);
 
   // 点击预览链接 → 打开预览 tab（openPreview 内部自动切右栏）
   const handlePreviewTarget = useCallback((target: string) => {
@@ -238,15 +346,25 @@ const ToolEntry = memo(function ToolEntry({ tool }: { tool: ToolCallItem }) {
           </div>
         </div>
       )}
-      {/* 🔴 #preview/ 链接行 — 工具结果里的预览链接（对齐 Hermes status-stack preview-row） */}
-      {previewTargets.length > 0 && (
+      {/* 🔴 预览链接行 — 工具结果/参数里的可预览目标（对齐 Hermes status-stack preview-row +
+          toolPreviewTarget 结构化提取；点击打开预览 tab） */}
+      {allPreviewTargets.length > 0 && (
         <div className="mt-2 pt-1.5 border-t border-border space-y-1">
-          {previewTargets.map((target) => (
+          {allPreviewTargets.map((target) => (
             <button
               key={target}
-              onClick={(e) => { e.stopPropagation(); handlePreviewTarget(target); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                // 🔴 对齐 Hermes PreviewStatusRow：普通点击 = 系统浏览器打开；
+                // Ctrl/⌘+点击 = 应用内预览抽屉
+                if (e.metaKey || e.ctrlKey) {
+                  handlePreviewTarget(target);
+                } else {
+                  void openExternalLink(target);
+                }
+              }}
               className="flex items-center gap-1.5 w-full text-xs text-primary hover:underline text-left"
-              title={target}
+              title={`${target}（点击浏览器打开，Ctrl/⌘+点击预览）`}
             >
               <ExternalLink size={11} className="shrink-0" />
               <span className="truncate">{previewName(target)}</span>

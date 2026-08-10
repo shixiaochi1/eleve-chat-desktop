@@ -42,7 +42,6 @@ import {
   Image,
   Mic,
   FileText,
-  AppWindow,
   Globe,
   History,
   Activity,
@@ -100,7 +99,7 @@ export const ImageIcon: IconComponent = (props) => <Image size={ICON_SIZE_SM} {.
 export const MicIcon: IconComponent = (props) => <Mic size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const FastIcon: IconComponent = (props) => <Zap size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const ContextFileIcon: IconComponent = (props) => <FileText size={ICON_SIZE_SM} {...strokeProps} {...props} />;
-export const WebWindowIcon: IconComponent = (props) => <AppWindow size={ICON_SIZE_SM} {...strokeProps} {...props} />;
+export const WebWindowIcon: IconComponent = (props) => <Globe size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const GalleryIcon: IconComponent = (props) => <Images size={ICON_SIZE_MD} {...strokeProps} {...props} />;
 export const CopyIcon: IconComponent = (props) => <Copy size={ICON_SIZE_SM} {...strokeProps} {...props} />;
 export const RegenerateIcon: IconComponent = (props) => <RefreshCw size={ICON_SIZE_SM} {...strokeProps} {...props} />;

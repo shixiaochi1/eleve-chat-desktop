@@ -1,9 +1,12 @@
-import { forwardRef, memo, useEffect, useMemo, useRef } from 'react';
+import { forwardRef, memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { renderMarkdown, repairMarkdownTail, splitMarkdownBlocksCached, autolinkOutsideFences, mergeSingleNewlines } from '@/utils/markdown';
 import { detectArtifact, type ArtifactDetection } from '@/lib/artifact-detect';
 import { enhanceRichFences } from '@/lib/rich-fence';
 import { resolveMediaSrc, mediaName } from '@/utils/media';
 import { ArtifactCard } from './ArtifactCard';
+import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
+import { openPreview } from '@/store/preview';
+import { isDesktop } from '@/utils/bridge';
 
 /**
  * StreamBlocks — 块级流式 Markdown 渲染（对齐 Hermes Streamdown 分块模型）
@@ -156,6 +159,42 @@ export default forwardRef<HTMLDivElement, StreamBlocksProps>(function StreamBloc
   { text, streaming = false, disableArtifacts = false, sessionId = null },
   ref
 ) {
+  // 🔴 2026-08-10 对齐 Hermes MarkdownLink：消息里链接点击 → 预览抽屉 / 系统浏览器。
+  // - file:/#preview: → 右侧预览抽屉（对齐 PreviewAttachment openPreview）
+  // - http(s) 外链 → 系统浏览器打开（对齐 PrettyLink openExternal；拦截 webview 自身导航）
+  // - 站内锚点 #xxx 不拦截
+  const handleLinkClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const anchor = (e.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
+    if (!anchor) return;
+    const href = anchor.getAttribute('href') || '';
+    if (href.startsWith('#')) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (href.startsWith('file:') || href.startsWith('#preview:') || href.startsWith('#preview/')) {
+      const raw = href.startsWith('file:')
+        ? href
+        : decodeURIComponent(href.slice('#preview'.length + 1));
+      const preview = normalizeOrLocalPreviewTarget(raw);
+      if (preview) openPreview(preview);
+      return;
+    }
+
+    // 外链（http/https/其它 scheme/相对路径）→ 系统浏览器（对齐 Hermes PrettyLink）
+    void (async () => {
+      if (isDesktop()) {
+        try {
+          const { open: shellOpen } = await import('@tauri-apps/plugin-shell');
+          await shellOpen(href);
+          return;
+        } catch {
+          /* fall through to window.open */
+        }
+      }
+      window.open(href, '_blank', 'noopener,noreferrer');
+    })();
+  }, []);
+
   const plan = useMemo(() => {
     if (!text) return null;
 
@@ -230,6 +269,7 @@ export default forwardRef<HTMLDivElement, StreamBlocksProps>(function StreamBloc
   return (
     <div
       ref={ref}
+      onClick={handleLinkClick}
       className={
         'prose max-w-none wrap-anywhere text-pretty ' +
         '[&>*+*]:mt-(--paragraph-gap) ' +

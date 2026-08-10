@@ -19,6 +19,7 @@
 import { useState, useRef, useCallback, useLayoutEffect, forwardRef, useImperativeHandle } from 'react';
 import { SquarePen } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { linkifyUrls, rewriteTypedUrl, formatRefValue } from '@/lib/url-refs';
 import AttachMenu from './AttachMenu';
 import SlashCommandPopup from './SlashCommandPopup';
 import { SendIcon, MicIcon } from './Icons';
@@ -27,6 +28,8 @@ import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
 import { useVoice } from '@/hooks/useVoice';
 import type { AttachedImage } from '@/hooks/useImageAttachments';
 import type { AttachedFile } from '@/hooks/useFileAttachments';
+import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
+import { openPreview } from '@/store/preview';
 import { FileText } from 'lucide-react';
 
 /** 输入框向上撑大的最大高度（px），超出内部滚动 */
@@ -228,6 +231,22 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
         e.preventDefault();
         handleSend();
       }
+      // 🔴 手输 URL 按空格 → 光标前完整 URL 改写成 @url: directive（对齐 Hermes chipTypedUrlOnSpace）
+      if (e.key === ' ' && !e.nativeEvent.isComposing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const el = inputRef.current;
+        if (el) {
+          const caret = el.selectionStart ?? value.length;
+          const rewrite = rewriteTypedUrl(el.value.slice(0, caret));
+          if (rewrite) {
+            const next = rewrite.before + el.value.slice(caret);
+            setValue(next);
+            requestAnimationFrame(() => {
+              el.selectionStart = el.selectionEnd = rewrite.caret;
+            });
+            // 不 preventDefault：空格继续自然输入
+          }
+        }
+      }
     },
     [slash, value, handleCommandExec, handleSend, queueEditingId, onQueueStep, onQueueExit, onQueueLoadText],
   );
@@ -251,20 +270,42 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
     input.click();
   }, [onAddImage]);
 
-  // ── 图片粘贴/拖拽（对齐 InputArea handlePaste/handleDrop）──
-  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+  // ── 图片粘贴/拖拽（对齐 InputArea handlePaste/handleDrop）+ 🔴 URL 文本粘贴 → @url: directive ──
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = e.clipboardData.items;
-    for (const item of items) {
-      if (item.type.startsWith('image/')) {
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (file) {
-          try { await onAddImage(file); } catch (err) { console.error('[AgentCardComposer] Paste image failed:', err); }
+    if (onAddImage) {
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) {
+            void onAddImage(file).catch((err) => {
+              console.error('[AgentCardComposer] Paste image failed:', err);
+            });
+          }
+          return;
         }
-        break;
       }
     }
-  }, [onAddImage]);
+    // 裸链接粘贴 → @url: directive（对齐 Hermes linkifyUrls；受控组件走 setValue）
+    const text = e.clipboardData.getData('text/plain');
+    if (text && /https?:\/\//i.test(text)) {
+      const linked = linkifyUrls(text);
+      if (linked !== text) {
+        e.preventDefault();
+        const el = inputRef.current;
+        if (!el) return;
+        const start = el.selectionStart ?? value.length;
+        const end = el.selectionEnd ?? value.length;
+        const next = value.slice(0, start) + linked + value.slice(end);
+        setValue(next);
+        requestAnimationFrame(() => {
+          el.selectionStart = el.selectionEnd = start + linked.length;
+          el.focus();
+        });
+      }
+    }
+  }, [onAddImage, value]);
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     const files = Array.from(e.dataTransfer.files);
@@ -280,19 +321,20 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
     if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
   }, []);
 
-  // ── 链接插入光标处 ──
+  // ── 链接插入光标处（@url: directive，对齐 Hermes use-composer-url-dialog fallback）──
   const handleAddUrl = useCallback((url: string) => {
     const el = inputRef.current;
     if (!el) {
-      setValue((v) => v + url + ' ');
+      setValue((v) => v + '@url:' + formatRefValue(url) + ' ');
       return;
     }
     const start = el.selectionStart ?? value.length;
     const end = el.selectionEnd ?? value.length;
-    const next = value.slice(0, start) + url + ' ' + value.slice(end);
+    const directive = '@url:' + formatRefValue(url) + ' ';
+    const next = value.slice(0, start) + directive + value.slice(end);
     setValue(next);
     requestAnimationFrame(() => {
-      el.selectionStart = el.selectionEnd = start + url.length + 1;
+      el.selectionStart = el.selectionEnd = start + directive.length;
       el.focus();
     });
   }, [value]);
@@ -346,13 +388,21 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
           {attachedFiles?.map((f) => (
             <div
               key={f.id}
-              className="group flex items-center gap-1 px-2 py-1 rounded-md border border-border bg-card/70 text-[11px] max-w-[200px]"
+              onClick={() => {
+                // 🔴 2026-08-10 对齐 Hermes Attachment 点击：文件 pill → 右侧预览抽屉
+                const preview = normalizeOrLocalPreviewTarget(f.path);
+                if (preview) openPreview(preview);
+              }}
+              className="group flex cursor-pointer items-center gap-1 px-2 py-1 rounded-md border border-border bg-card/70 text-[11px] max-w-[200px] hover:bg-accent transition-colors"
               title={f.path}
             >
               <FileText size={12} className="shrink-0 text-muted-foreground" />
               <span className="truncate min-w-0 flex-1">{f.name}</span>
               <button
-                onClick={() => onRemoveFile?.(f.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemoveFile?.(f.id);
+                }}
                 className="shrink-0 text-muted-foreground/60 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                 title="移除附件"
                 aria-label={`Remove ${f.name}`}
