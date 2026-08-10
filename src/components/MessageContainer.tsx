@@ -14,12 +14,42 @@ import { setScrolledUp } from '@/store/scroll'
 import { useIsStreaming } from '@/store/messages'
 import { useMessage, useMessageSignature, setMessages } from '@/store/messages'
 import MessageRow from './MessageRow'
+import { formatTimeSeparator } from '../utils/time'
 import ThreadTimeline from './ThreadTimeline'
 import { isSettingsReady } from '@/utils/settings-store'
 
 const ESTIMATED_ITEM_HEIGHT = 220
 const OVERSCAN = 4
 const AT_BOTTOM_THRESHOLD = 4
+
+/** 时间戳分隔阈值：前后消息间隔超过 5 分钟才显示中间时间戳（2026-08-10 老大确立） */
+const TIME_SEPARATOR_GAP_SEC = 5 * 60
+
+/**
+ * GroupTimeSeparator — 消息区中间时间戳分隔
+ *
+ * 🔴 2026-08-10 新增：气泡内时间改为消息区间隔时间戳（对齐老大要求：不逐条显示，
+ * 间隔长才显示）。数据源 = 消息 timestamp（后端 Unix 秒），与 formatTimeSeparator 适配。
+ * 规则：会话首条显示；相邻消息间隔 > 5 分钟显示。
+ */
+function GroupTimeSeparator({ index, prevIndex }: { index: number; prevIndex: number | null }) {
+  const m = useMessage(index)
+  const prev = prevIndex != null ? useMessage(prevIndex) : null
+  const ts = m?.timestamp
+  if (ts == null) return null
+  const prevTs = prev?.timestamp
+  // 🔴 单位归一：秒（<1e12）与毫秒混源时统一按秒比较（历史=后端秒，流式新消息可能=Date.now 毫秒）
+  const norm = (t: number) => (t < 1e12 ? t : t / 1000)
+  const show = prevIndex == null || prevTs == null || norm(ts) - norm(prevTs) > TIME_SEPARATOR_GAP_SEC
+  if (!show) return null
+  return (
+    <div className="flex items-center justify-center py-1 select-none">
+      <span className="text-[10px] text-muted-foreground/50 bg-muted/40 rounded-full px-2.5 py-0.5">
+        {formatTimeSeparator(ts)}
+      </span>
+    </div>
+  )
+}
 
 type MessageGroup = { id: string; index: number; kind: 'standalone' } | { id: string; indices: number[]; kind: 'turn' }
 
@@ -210,24 +240,34 @@ export function VirtualizedThread({
                   return null
                 }
 
+                // 🔴 2026-08-10 时间戳分隔：取前一组最后一条消息时间做间隔对比
+                const prevGroup = virtualItem.index > 0 ? groups[virtualItem.index - 1] : undefined
+                const prevLastIndex = prevGroup
+                  ? (prevGroup.kind === 'turn' ? prevGroup.indices[prevGroup.indices.length - 1] : prevGroup.index)
+                  : null
+
                 return (
                   <div
-                    className="flex min-w-0 flex-col gap-4 pb-3"
+                    className="flex min-w-0 flex-col gap-2 pb-1.5"
                     data-index={virtualItem.index}
                     key={virtualItem.key}
                     ref={virtualizer.measureElement}
                   >
                     {group.kind === 'turn' ? (
                       <div
-                        className="relative flex min-w-0 flex-col gap-4"
+                        className="relative flex min-w-0 flex-col gap-1.5"
                         data-slot="aui_turn-pair"
                       >
+                        <GroupTimeSeparator index={group.indices[0]} prevIndex={prevLastIndex} />
                         {group.indices.map(index => (
                           <SingleMessageItem key={index} index={index} sessionId={sessionKey} isLast={isLastMessageIndex === index} />
                         ))}
                       </div>
                     ) : (
-                      <SingleMessageItem index={group.index} sessionId={sessionKey} isLast={isLastMessageIndex === group.index} />
+                      <div className="flex min-w-0 flex-col gap-1.5">
+                        <GroupTimeSeparator index={group.index} prevIndex={prevLastIndex} />
+                        <SingleMessageItem index={group.index} sessionId={sessionKey} isLast={isLastMessageIndex === group.index} />
+                      </div>
                     )}
                   </div>
                 )

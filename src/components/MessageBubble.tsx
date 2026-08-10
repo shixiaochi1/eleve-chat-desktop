@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
 import { extractMediaRefs, resolveMediaSrc, mayHaveLocalImage } from '../utils/media';
-import { formatMessageTime } from '../utils/time';
 import { CopyIcon, CheckIcon, TrashIcon } from './Icons';
 import { cn } from '@/lib/utils';
 import StreamBlocks from './StreamBlocks';
@@ -13,7 +12,6 @@ interface MessageBubbleProps {
   type: string;
   content?: string;
   streaming?: boolean;
-  timestamp?: number;
   messageId?: string;
   onDelete?: (messageId: string) => void;
   /** 会话 ID（artifact 版本注册按会话隔离，对齐 Hermes） */
@@ -74,7 +72,7 @@ function MediaImage({ path, name, onZoom }: { path: string; name: string; onZoom
  * - useDeferredValue：渲染降优先级，React 并发调度可跳过中间 token 状态
  * - 气泡宽度占满容器（w-full），宽度恒定 → 消除流式宽度重排抖动
  */
-export default function MessageBubble({ type, content, streaming, timestamp, messageId, onDelete, sessionId }: MessageBubbleProps) {
+export default function MessageBubble({ type, content, streaming, messageId, onDelete, sessionId }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [zoomedSrc, setZoomedSrc] = useState<string | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
@@ -149,23 +147,21 @@ export default function MessageBubble({ type, content, streaming, timestamp, mes
   }
 
   if (type === 'user') {
+    // 2026-08-10 竖排修复：w-full 占满 wrapper，消除 w-fit 嵌套循环
     return (
-      <div className="group w-fit max-w-[80%] ml-auto">
+      <div className="group relative w-full min-w-0">
         <div className="bg-user-bubble text-foreground rounded-2xl rounded-br-sm px-4 py-2.5 text-sm leading-relaxed select-text border border-user-bubble-border shadow-sm">
           {/* 用户消息最小 Markdown（对齐 Hermes UserMessageText）：fence 代码块 + 行内 code */}
           <UserMessageText text={content || ''} />
         </div>
-        {/* 操作栏 + 时间 — 时间左，复制右 */}
-        <div className="flex items-center gap-1.5 mt-0.5 justify-between">
-          {timestamp != null && (
-            <span className="text-[10px] text-muted-foreground/70 select-none">{formatMessageTime(timestamp)}</span>
-          )}
+        {/* 🔴 2026-08-10 操作栏悬浮气泡内右下角（不占文档流——原 opacity 占位导致气泡间视觉空隙大） */}
+        <div className="absolute bottom-1 right-1.5 opacity-0 transition-opacity group-hover:opacity-100">
           <button
             className={cn(
               'inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md p-0.5 text-xs',
-              'transition-all outline-none opacity-0 group-hover:opacity-100',
+              'bg-background/80 backdrop-blur-sm shadow-sm',
               'text-muted-foreground hover:text-foreground hover:bg-accent',
-              copied && 'opacity-100 text-success'
+              copied && 'text-success'
             )}
             title={copied ? '已复制' : '复制'}
             onClick={handleCopy}
@@ -184,7 +180,7 @@ export default function MessageBubble({ type, content, streaming, timestamp, mes
   // 🔴 气泡宽度随文字自适应（w-fit + max-w 上限）：短消息小气泡、长消息封顶；
   //   宽度变化由 useSmoothReveal 逐帧驱动（每帧 ≤30 字符）→ 平滑缩放无跳变
   return (
-    <div ref={enterRef} className="group w-fit max-w-[85%] min-w-0 select-text">
+    <div ref={enterRef} className="group relative w-fit max-w-[85%] min-w-0 select-text">
       <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed border border-border shadow-sm overflow-hidden">
         <StreamBlocks ref={textRef} text={deferredContent} streaming={!!streaming} sessionId={sessionId} />
         {/* 🔴 2026-08-09 本地媒体块级渲染（对齐 Hermes MediaAttachment）：
@@ -197,34 +193,29 @@ export default function MessageBubble({ type, content, streaming, timestamp, mes
           </div>
         )}
       </div>
-      {/* 操作栏 + 时间 — 流式/非流式同结构，消除切换抖动 */}
-      <div className="flex items-center gap-1.5 mt-1 justify-between">
-        {timestamp != null && (
-          <span className="text-[10px] text-muted-foreground/70 select-none">{formatMessageTime(timestamp)}</span>
-        )}
-        <div className="flex gap-0.5 opacity-0 translate-y-[-2px] transition-all duration-150 group-hover:opacity-100 group-hover:translate-y-0 pointer-events-none group-hover:pointer-events-auto">
-          <button
-            className={cn(
-              'inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md p-1 text-xs',
-              'transition-all outline-none',
-              'text-muted-foreground hover:text-foreground hover:bg-accent',
-              copied && 'opacity-100 text-success'
-            )}
-            title={copied ? '已复制' : '复制'}
-            onClick={handleCopy}
-          >
-            {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-          </button>
-          {onDelete && messageId && (
-            <button
-              className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all outline-none"
-              title="删除消息"
-              onClick={() => onDelete(messageId)}
-            >
-              <TrashIcon size={13} />
-            </button>
+      {/* 🔴 2026-08-10 操作栏悬浮气泡内右下角（不占文档流——原 opacity 占位导致气泡间视觉空隙大） */}
+      <div className="absolute bottom-1 right-1.5 flex gap-0.5 opacity-0 translate-y-[-2px] transition-all duration-150 group-hover:opacity-100 group-hover:translate-y-0 pointer-events-none group-hover:pointer-events-auto">
+        <button
+          className={cn(
+            'inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md p-1 text-xs',
+            'bg-background/80 backdrop-blur-sm shadow-sm',
+            'text-muted-foreground hover:text-foreground hover:bg-accent',
+            copied && 'text-success'
           )}
-        </div>
+          title={copied ? '已复制' : '复制'}
+          onClick={handleCopy}
+        >
+          {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
+        </button>
+        {onDelete && messageId && (
+          <button
+            className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 bg-background/80 backdrop-blur-sm shadow-sm transition-all outline-none"
+            title="删除消息"
+            onClick={() => onDelete(messageId)}
+          >
+            <TrashIcon size={13} />
+          </button>
+        )}
       </div>
       {/* 图片放大灯箱 — portal 到 body，避免外层 contain-[layout_paint] 裁剪 fixed 定位 */}
       {zoomedSrc && createPortal(

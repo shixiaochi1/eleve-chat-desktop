@@ -41,9 +41,9 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
     if (m.role === 'user') {
       const text = m.parts.filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text').map(p => p.text).join('')
       return (
-        <div data-message-id={m.id} className="flex justify-end px-4 mb-1.5">
-          <div className="flex flex-col items-end gap-1 max-w-[80%]">
-            <MessageBubble type="user" content={text} timestamp={m.timestamp} messageId={m.id} onDelete={onDelete} />
+        <div data-message-id={m.id} className="flex justify-end px-4 mb-1">
+          <div className="flex flex-col items-end gap-1 max-w-[80%] min-w-0">
+            <MessageBubble type="user" content={text} messageId={m.id} onDelete={onDelete} />
             {/* 🔴 2026-08-08 图片附件缩略图（对齐 Hermes user-message.tsx：
                 attachmentRefs 渲染在气泡下方，-mt-3 mb-2 flex-wrap gap-1；
                 图片 refs = data URL 直接 <img>，其它引用文本降级 chip） */}
@@ -122,7 +122,7 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
       const hoistedTodos = todosFromMessageParts(m.parts)
 
       return (
-        <div data-message-id={m.id} className="flex flex-col gap-2.5 px-4 mb-1.5">
+        <div data-message-id={m.id} className="flex flex-col gap-2.5 px-4 mb-1">
           {hoistedTodos.length > 0 && <HoistedTodoPanel todos={hoistedTodos} />}
           {renderItems.map(item => {
             switch (item.kind) {
@@ -137,7 +137,6 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
                     type="agent"
                     content={item.text}
                     streaming={!!m.pending && item.isLast}
-                    timestamp={m.timestamp}
                     messageId={m.id}
                     onDelete={onDelete}
                     sessionId={sessionId}
@@ -174,8 +173,8 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
   const fallbackText = m.content || m.error || m.reasoning_content || m.tool_output || '';
   const fallbackRole = m.role === 'user' ? 'user' : m.type === 'error' ? 'error' : 'agent';
   return (
-    <div className={m.role === 'user' ? 'flex justify-end px-4 mb-1.5' : 'flex justify-start px-4 mb-1.5'}>
-      <MessageBubble type={fallbackRole as 'user' | 'agent' | 'error'} content={fallbackText} timestamp={m.timestamp} messageId={m.id} onDelete={onDelete} />
+    <div className={m.role === 'user' ? 'flex justify-end px-4 mb-1' : 'flex justify-start px-4 mb-1'}>
+      <MessageBubble type={fallbackRole as 'user' | 'agent' | 'error'} content={fallbackText} messageId={m.id} onDelete={onDelete} />
     </div>
   )
 })
