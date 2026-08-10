@@ -207,6 +207,11 @@ export function useMessageStream({
       const streamId = streamIdRef.current
 
       storeSetMessages((prev) => {
+        // 🐛 DIAG-20260810: 流式不渲染排查
+        if (turnEndedRef.current) {
+          console.log(`[DIAG] ⛔ mutateStream GUARDED turnEndedRef=true streamId=${streamId} lastMsgParts=${prev.length ? prev[prev.length-1]?.parts?.length : '?'}`)
+          return prev
+        }
         // 🔴 #4：中断守卫（对齐 Hermes index.ts:94-100，位于 mutateStream 状态回调入口）——
         // 停止/完成后迟到的 delta/tool 事件直接丢弃，不得 seed 新气泡（Hermes 注释原话：
         // "a brand-new bubble that appears to belong to the next user message"）
@@ -249,6 +254,8 @@ export function useMessageStream({
     queuedDeltasRef.current = { assistant: '', reasoning: '' }
 
     if (!queued.assistant && !queued.reasoning) return
+    // 🐛 DIAG-20260810
+    console.log(`[DIAG] flushQueuedDeltas assistant=${queued.assistant.length} reasoning=${queued.reasoning.length} turnEndedRef=${turnEndedRef.current} streamId=${streamIdRef.current}`)
 
     // 合并：一次 mutateStream 同时处理 text 和 reasoning
     mutateStream(
@@ -303,13 +310,27 @@ export function useMessageStream({
   }, [flushQueuedDeltas])
 
   // ── queueDelta — 1:1 from Eleve queueDelta ──
+  // 🔴 2026-08-10 修复（工具卡住根因）：timer 失效兜底——Chromium 对隐藏/遮挡
+  // renderer 深度节流 setTimeout（实测 33ms 定时器 31.5s 不触发）→ 流式 delta
+  // 无限累积 → UI 无渲染（"任务期间不回复"）→ 任务完成 onDone 一次性 flush
+  // （"一股脑全发出来"）。修复：WS 消息驱动 flush——距上次 flush 超过 33ms 阈值
+  // 立即 flush（WS onmessage 处理不受 timer 节流影响），timer 仅作最后残留 delta
+  // 兜底（隐藏时最坏延迟 1s，可接受；visible 时 33ms 准时）。
   const queueDelta = useCallback(
     (key: keyof QueuedStreamDeltas, delta: string) => {
       if (!delta) return
+      // 🐛 DIAG-20260810: 流式不渲染排查
+      console.log(`[DIAG] queueDelta key=${key} deltaLen=${delta.length} queuedLen=${(queuedDeltasRef.current[key] || '').length}`)
       queuedDeltasRef.current[key] += delta
-      scheduleDeltaFlush()
+      // 🔴 2026-08-10：消息驱动 flush（不依赖 timer）
+      const now = performance.now()
+      if (now - lastFlushAtRef.current >= STREAM_DELTA_FLUSH_MS) {
+        flushQueuedDeltas()
+      } else {
+        scheduleDeltaFlush()
+      }
     },
-    [scheduleDeltaFlush],
+    [scheduleDeltaFlush, flushQueuedDeltas],
   )
 
   // ── upsertToolCall — 1:1 from Eleve upsertToolCall ──
@@ -552,6 +573,8 @@ export function useMessageStream({
     },
 
     onRunStart: (sessionId: string) => {
+      // 🐛 DIAG-20260810
+      console.log(`[DIAG] onRunStart session=${sessionId} (turnEndedRef=${turnEndedRef.current})`)
       // 🔴 #4：新 turn 开始 → 解除中断封锁（迟到 delta 重新放行）
       turnEndedRef.current = false
       // 🔴 #6b: 新 turn 清 interim 边界标志（对齐 Hermes gateway-event.ts:573

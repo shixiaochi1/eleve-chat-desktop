@@ -63,12 +63,23 @@ export function useIsStreaming(): boolean {
 function scheduleFlush(): void {
   if (pendingFlush) return
   pendingFlush = true
-  requestAnimationFrame(() => {
-    pendingFlush = false
-    // Snapshot the current array — same reference until next flush
-    flushedSnapshot = messages
-    listeners.forEach(cb => cb())
-  })
+  // 🔴 2026-08-10 修复（工具卡住根因）：rAF → MessageChannel。
+  // Chromium 对隐藏/遮挡 renderer：rAF 全挂起 + setTimeout 深度节流（实测 33ms
+  // 定时器 31.5s 不触发）→ listeners 永不通知 → React 冻结 → 流式 UI 卡住，
+  // 任务完成瞬间一次性渲染（"一股脑全发出来"）。MessageChannel 的 port.postMessage
+  // 是宏任务消息，不受 timer 节流/rAF 挂起影响，hidden 也立即执行。
+  // 同帧合并语义不变（pendingFlush 单飞）。
+  flushChannel.port2.postMessage(null)
+}
+
+// 🔴 2026-08-10：MessageChannel flush 通道（见 scheduleFlush 注释）——port1 消息处理
+// 是独立宏任务，Chromium 对隐藏 renderer 不节流消息事件（仅节流 timer/rAF）。
+const flushChannel = new MessageChannel()
+flushChannel.port1.onmessage = () => {
+  pendingFlush = false
+  // Snapshot the current array — same reference until next flush
+  flushedSnapshot = messages
+  listeners.forEach(cb => cb())
 }
 
 // ── Public API ──

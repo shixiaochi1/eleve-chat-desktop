@@ -21,7 +21,8 @@
         "center": true,
         "resizable": true,
         "dragDropEnabled": false,
-        "devtools": true
+        "devtools": true,
+        "additionalBrowserArgs": "--disable-background-timer-throttling --disable-backgrounding-occluded-windows --remote-debugging-port=9222"
       }
     ],
     "security": {
