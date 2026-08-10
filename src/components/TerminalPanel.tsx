@@ -106,12 +106,15 @@ export default function TerminalPanel({ sessionId, cwd }: TerminalPanelProps) {
 
   // Agent 后台进程 surface 为只读 tab（对齐 Hermes workspace.tsx 的
   // $backgroundStatusBySession effect；surfacedProcs 去重，关闭后不复活）
+  // 🔴 2026-08-11 对齐 Hermes：process.list 空 session_id = 全量——所有会话的
+  // 后台进程都 surface（原实现只查当前 sessionId → 其它会话/宫格卡片会话的
+  // Agent tab 不出现 = 功能遗失）。Hermes $backgroundStatusBySession 按 runtime
+  // session 键控聚合全量，workspace.tsx 遍历全量 ensure + seed + sync。
   useEffect(() => {
-    if (!sessionId) return;
     let cancelled = false;
     const surface = async () => {
       try {
-        const res = await listProcesses(sessionId);
+        const res = await listProcesses('');
         for (const p of res.processes || []) {
           if (cancelled) return;
           const title = p.command.length > 30 ? `${p.command.slice(0, 30)}…` : p.command;
@@ -122,7 +125,7 @@ export default function TerminalPanel({ sessionId, cwd }: TerminalPanelProps) {
     surface();
     const i = setInterval(surface, 5000);
     return () => { cancelled = true; clearInterval(i); };
-  }, [sessionId]);
+  }, []);
 
   // 关闭 tab：先 dispose PTY（agent tab 无 PTY 则 no-op），再走 store 焦点滑动
   const handleCloseTab = useCallback((id: string) => {
@@ -203,7 +206,7 @@ export default function TerminalPanel({ sessionId, cwd }: TerminalPanelProps) {
             className={cn('absolute inset-0 flex flex-col', tab.id !== activeId && 'invisible pointer-events-none')}
           >
             {tab.kind === 'agent'
-              ? <AgentTerminalView active={tab.id === activeId} entry={tab} sessionId={sessionId} />
+              ? <AgentTerminalView active={tab.id === activeId} entry={tab} />
               : <UserTerminalView active={tab.id === activeId} entry={tab} />}
           </div>
         ))}
@@ -673,7 +676,7 @@ function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boo
 //   快照兜底：process.list 轮询只做 syncAgentTerminalSnapshot 对账
 // ────────────────────────────────────────────────────────────────
 
-function AgentTerminalView({ entry, sessionId, active }: { entry: TerminalEntry; sessionId?: string; active: boolean }) {
+function AgentTerminalView({ entry, active }: { entry: TerminalEntry; active: boolean }) {
   const term = useTerminal({ lazy: true, id: entry.id });
   const [ready, setReady] = useState(false);
   // 退出状态行已写（防每轮轮询重复）
@@ -697,13 +700,16 @@ function AgentTerminalView({ entry, sessionId, active }: { entry: TerminalEntry;
 
   // 快照兜底（对齐 Hermes syncAgentTerminalSnapshot 语义）：旧网关无事件 /
   // 事件竞态时由尾窗前缀对账补齐；滚动尾窗滑动 → 重置重写（不再手工偏移）
+  // 🔴 2026-08-11 全量：空 session_id 查全部进程（对齐 Hermes workspace.tsx
+  // $backgroundStatusBySession 聚合；原实现只查当前会话 → 其它会话进程
+  // Agent tab 内容空白 = 功能遗失）
   useEffect(() => {
-    if (!ready || !entry.procId || !sessionId) return;
+    if (!ready || !entry.procId) return;
     let cancelled = false;
     const sync = async () => {
       if (cancelled) return;
       try {
-        const res = await listProcesses(sessionId);
+        const res = await listProcesses('');
         const proc = (res.processes || []).find((p) => String(p.session_id) === entry.procId);
         if (!proc) return;
         if (!cancelled) syncAgentTerminalSnapshot(entry.procId!, String(proc.output_tail || ''));
@@ -716,7 +722,7 @@ function AgentTerminalView({ entry, sessionId, active }: { entry: TerminalEntry;
     sync();
     const i = setInterval(sync, 5000);
     return () => { cancelled = true; clearInterval(i); };
-  }, [ready, entry.procId, sessionId, term.write]);
+  }, [ready, entry.procId, term.write]);
 
   // 激活时 re-fit（hidden 容器中 fit 陈旧）
   useEffect(() => {

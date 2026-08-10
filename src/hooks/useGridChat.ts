@@ -50,6 +50,7 @@ import { toChatMessages, textPart, finalContinuesInterim, type SessionMessage, t
 import { createAccumulator, resetAccumulator, resetAccumulatorForStep, processAccumulatorEvent, finalizeAccumulator, extractPendingInteractions, type StreamAccumulator } from '@/lib/ws-event-processor';
 import { completionErrorText } from '@/lib/completion-error';
 import { handleGlobalEvent } from '@/lib/global-events';
+import { writeAgentTerminalChunk } from '@/lib/agent-terminal-stream';
 import { burstVibeHearts } from '@/lib/vibe-hearts';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
 import { enqueue as queueEnqueue, dequeue as queueDequeue, peek as queuePeek, clearQueue, getQueueLength, getQueue, removeEntry, promoteEntry, MAX_DRAIN_ATTEMPTS, getDrainFailures, incrementDrainFailures, clearDrainFailures, resetAllDrainFailures, stashAttachmentData, takeAttachmentData, type QueuedAttachment } from '@/lib/message-queue';
@@ -492,6 +493,18 @@ export function useGridChat(active: boolean): {
       const raw = data as Record<string, unknown>;
       if (!raw) return;
       const payload = (raw.payload && typeof raw.payload === 'object' ? raw.payload : raw) as Record<string, unknown>;
+      // 🔴 2026-08-11 对齐 Hermes agent.terminal.output：writer 按 process_id 键控，
+      // 不依赖会话路由——宫格模式 useSSE 卸载后必须在此消费（原实现走 profile 路由
+      // 无 case → 丢弃 → 实时输出降级为 5s 快照对账 = 功能降级）。terminal.close 同走
+      // 全局共享入口（与单视图 useSSE onTerminalClose → handleGlobalEvent 同款）。
+      if (eventName === 'agent.terminal.output') {
+        writeAgentTerminalChunk(String(payload.process_id || ''), String(payload.chunk || ''));
+        return;
+      }
+      if (eventName === 'terminal.close') {
+        handleGlobalEvent(eventName, payload);
+        return;
+      }
       const sessionId = (raw.session_id ?? payload.session_id) as string | undefined;
       const profile = profileFromSessionId(sessionId);
       if (!profile) {
