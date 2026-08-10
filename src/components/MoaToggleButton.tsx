@@ -39,7 +39,7 @@ export default function MoaToggleButton() {
 
   return (
     <div
-      className="flex items-center gap-1.5 px-2 py-1 text-xs rounded transition-colors bg-secondary/60 hover:bg-accent/50"
+      className="flex items-center gap-1.5 px-2 py-1 text-xs rounded transition-colors border bg-transparent hover:bg-accent/50"
       title={on ? 'MoA 多模型协作：开（点击关闭）' : 'MoA 多模型协作：关（点击开启）'}
     >
       <span className={on ? 'text-primary font-medium' : 'text-muted-foreground'}>MoA</span>
