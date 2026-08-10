@@ -436,6 +436,9 @@ function processEvent(
       cbs.onStatusUpdate?.({ kind, text: chunk.text as string });
       // 🔴 P2-9: lifecycle 无 new_session_id 时不分发 reset（对齐宫格 `if (newSid)` 守卫）—
       // 否则 onSessionReset 会 setSessionId(undefined) + 误清消息列表
+      // 🔴 2026-08-11 备注：本分支为死分支（后端 status.update 生产端仅 StreamChunk::StatusUpdate
+      // kind/text 与 /background kind=background，均不带 kind='lifecycle'+new_session_id）——
+      // /new /reset 已由 session.reset RPC 响应路径接管（handleNewSession），此处保留作防御守卫
       if (kind === 'lifecycle' && chunk.new_session_id) {
         cbs.onSessionReset?.({ old_session_id: '', new_session_id: chunk.new_session_id as string });
       }
