@@ -45,7 +45,9 @@ export default function ThinkingButton() {
     getWsClient()
       .configGet(CONFIG_KEY)
       .then((res) => {
-        const v = res?.value;
+        // 🔴 兼容两种返回形态：后端 config.get 返回裸 pointer 值（如 "high"），
+        // 部分端点返回 { value: ... } 包裹——都取字符串值
+        const v = typeof res === 'string' ? res : (res as { value?: unknown })?.value;
         if (typeof v === 'string' && EFFORTS.some((e) => e.value === v)) {
           setEffort(v as Effort);
         } else {

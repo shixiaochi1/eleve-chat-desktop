@@ -684,7 +684,7 @@ function InputArea({
             <ModelPill />
             {/* 思考深度 — 低/中/高，config.set 持久化（对齐 Hermes reasoning_effort） */}
             <ThinkingButton />
-            {/* 快速模式 — 开关（对齐 Hermes fastMode，后端配置键待确认） */}
+            {/* 快速模式 — 开关（对齐 Hermes fastMode = agent.service_tier fast，已接线后端透传） */}
             <FastModeButton />
             {/* 网页窗口 — 已接通后端 browser.manage（连接/断开浏览器） */}
             <WebWindowButton sessionId={sessionId} />
