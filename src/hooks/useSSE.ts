@@ -223,9 +223,11 @@ function processEvent(
       cbs.onToolStart?.({ id: (chunk.toolCallId as string) || null, name: chunk.tool as string, preview: chunk.preview as string | undefined });
       break;
 
-    // 对齐 Eleve: 流式响应中工具名确定、参数还在生成时触发（drafting spinner）
+    // 对齐 Eleve: 流式响应中工具名确定、参数还在生成时触发（drafting 状态）
+    // 🔴 2026-08-11 对齐 Hermes gateway-event.ts:830：generating 是状态不是工具行——
+    // 不进累加器（否则残留无参数幽灵卡，与 tool.start 双卡并存 = 重复调用显示层根因），
+    // 只走 onToolGenerating 回调（statusText 状态提示）。
     case 'tool.generating':
-      processAccumulatorEvent(acc, eventName, chunk);
       cbs.onToolGenerating?.((chunk.name as string) || '');
       break;
 

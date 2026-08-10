@@ -1084,9 +1084,12 @@ export function useMessageStream({
       setMonitorState((prev) => ({ ...prev, statusText: text }));
     },
 
-    // 工具参数生成中（drafting spinner）
+    // 工具参数生成中（drafting 状态，对齐 Hermes setSessionDraftingTool）
+    // 🔴 2026-08-11 对齐 Hermes gateway-event.ts:830：「It's a status, so say it as
+    // one」——generating 只做状态提示，绝不创建工具行（幽灵卡根因，已从累加器移除）。
     onToolGenerating: (name: string) => {
       addDebugEvent('tool_generating', name);
+      setMonitorState((prev) => ({ ...prev, statusText: `${name} 准备中...` }));
     },
 
     // 工具进度（对齐 Hermes tool_progress_command）

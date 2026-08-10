@@ -150,9 +150,16 @@ export function processAccumulatorEvent(
       return true;
     }
     case 'tool.start':
-    case 'tool.generating':
       acc.parts = upsertToolPart(acc.parts, toolPayloadFromEvent(eventName, payload), 'running');
       return true;
+    // 🔴 2026-08-11 对齐 Hermes gateway-event.ts:830（重复调用显示层根因）：
+    // tool.generating 是「状态」不是工具行——模型还在流式生成调用 JSON，只有
+    // name 没有 id/args。渲染成行会在 tool.start 到达前残留无参数幽灵卡
+    // （live-tool:xxx，永远 pending），且 tool.start 的 preview=工具名导致
+    // matchValues 永不与幽灵卡重叠 → 每个工具双卡。Hermes 只
+    // setSessionDraftingTool + pet activity；ELEVE 由 useSSE 回调
+    // onToolGenerating 显示状态文本（statusText），此处不建行。
+    // case 'tool.generating': 已移除（原 upsertToolPart 调用）
     case 'tool.complete':
     case 'tool.failed':
       acc.parts = upsertToolPart(acc.parts, toolPayloadFromEvent(eventName, payload), 'complete');
