@@ -51,7 +51,10 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 统一轮询：useSessionContext（响应序号守卫 + 链式 setTimeout，防旧响应覆盖新值）
-  const ctx = useSessionContext(sessionId) as ContextData | null;
+  // 🔴 2026-08-11 降频（工具卡住根因修复）：3s → 15s。高频轮询 context_breakdown
+  // （后端实算 0.3-3s/次）占满 WS 主循环 → 流式事件积压 → “卡住→一股脑”。
+  // 上下文条是信息性展示，15s 刷新足够（Hermes 同量级）。
+  const ctx = useSessionContext(sessionId, { activeIntervalMs: 15000, idleIntervalMs: 30000 }) as ContextData | null;
 
   // 每秒更新 elapsed — direct DOM write, NO React re-render
   useEffect(() => {
