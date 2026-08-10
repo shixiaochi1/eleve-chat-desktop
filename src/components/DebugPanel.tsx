@@ -126,7 +126,7 @@ export default function DebugPanel({
   );
 
   return (
-    <div className="flex flex-col h-full p-3">
+    <div className="flex flex-col h-full p-3" data-selectable-text="true">
       {/* 标签 */}
       <div className="flex items-center gap-0.5 border-b border-border mb-2">
         <button className={cn(
