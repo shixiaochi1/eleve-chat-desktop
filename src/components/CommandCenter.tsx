@@ -165,7 +165,7 @@ export default function CommandCenter({
       { id: 'settings', label: 'Settings', icon: 'settings', description: 'Configure application settings' },
       { id: 'about', label: 'About', icon: 'info', description: 'About Eleve Chat' },
       { id: 'gateway', label: 'Gateway', icon: 'globe', description: 'Gateway connection settings' },
-      { id: 'logs', label: 'Logs', icon: 'terminal', description: 'Agent activity logs (tail)' },
+      // 🔴 2026-08-10 日志已搬入 LOGO 面板（GatewayPanel 内嵌），移除独立导航项
       { id: 'debug', label: 'Debug', icon: 'terminal', description: 'Debug information and logs' },
       { id: 'skills', label: 'Skills', icon: 'puzzle', description: 'Manage skills and plugins' },
     ];

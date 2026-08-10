@@ -4,6 +4,7 @@ import { fetchGatewayStatus } from '../utils/api';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import LogsPanel from './LogsPanel';
 import {
   RefreshCw, RotateCcw, PlugZap, Server, Cpu, Radio, Cloud, Users,
   Wifi, WifiOff, TestTube, Save, Logs, AlertTriangle,
@@ -68,6 +69,8 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [envOverride, setEnvOverride] = useState<any>(null);
   const [saving, setSaving] = useState(false);
+  // 🔴 2026-08-10 日志视图开关（原左侧工具栏「日志」按钮搬入，open_logs 外部目录版废弃）
+  const [logsVisible, setLogsVisible] = useState(false);
 
   // 获取服务端状态
   const fetchStatus = useCallback(async () => {
@@ -198,12 +201,10 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
     setSaving(false);
   };
 
-  const handleOpenLogs = async () => {
-    try {
-      await call('open_logs', {});
-    } catch (err) {
-      notifyError(err as Error, '打开日志失败');
-    }
+  const handleOpenLogs = () => {
+    // 🔴 2026-08-10 搬入 LogsPanel（左侧工具栏「日志」按钮同款真实尾随面板），
+    // 废弃 call('open_logs') 外部目录版（老大反馈：假功能）
+    setLogsVisible(true);
   };
 
   const platformLabel = (name: string, state: unknown): string => {
@@ -365,7 +366,25 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
         </button>
       )}
 
-      {/* ── 配置区（原设置「网关」搬入，可滚动） ── */}
+      {/* ── 配置区 / 日志区（二选一，可滚动） ── */}
+      {logsVisible ? (
+        /* 🔴 2026-08-10 日志视图：左侧工具栏 LogsPanel 搬入（5s 轮询尾随、三文件切换、暂停） */
+        <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-border bg-muted/10 flex flex-col">
+          <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1">
+            <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">运行日志</span>
+            <button
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+              onClick={() => setLogsVisible(false)}
+              title="返回连接配置"
+            >
+              ← 返回配置
+            </button>
+          </div>
+          <div className="flex-1 min-h-0">
+            <LogsPanel />
+          </div>
+        </div>
+      ) : (
       <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border border-border bg-muted/10 px-2.5 py-2 space-y-2.5">
         <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">连接配置</div>
 
@@ -465,6 +484,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
           </Button>
         </div>
       </div>
+      )}
 
       {/* ── 操作区（贴底） ── */}
       <div className="flex flex-col gap-1.5 pt-0.5 shrink-0">
