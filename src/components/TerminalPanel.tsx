@@ -109,7 +109,8 @@ export default function TerminalPanel({ sessionId, cwd }: TerminalPanelProps) {
   // 🔴 2026-08-11 对齐 Hermes：process.list 空 session_id = 全量——所有会话的
   // 后台进程都 surface（原实现只查当前 sessionId → 其它会话/宫格卡片会话的
   // Agent tab 不出现 = 功能遗失）。Hermes $backgroundStatusBySession 按 runtime
-  // session 键控聚合全量，workspace.tsx 遍历全量 ensure + seed + sync。
+  // session 键控聚合全量，workspace.tsx 遍历全量 ensure + seed + sync 三连
+  // （seed 幂等：tab 创建即显示 `$ command` 命令头，不依赖 tab 被打开）。
   useEffect(() => {
     let cancelled = false;
     const surface = async () => {
@@ -119,6 +120,7 @@ export default function TerminalPanel({ sessionId, cwd }: TerminalPanelProps) {
           if (cancelled) return;
           const title = p.command.length > 30 ? `${p.command.slice(0, 30)}…` : p.command;
           ensureAgentTerminal(String(p.session_id), title || 'agent');
+          seedAgentTerminalCommand(String(p.session_id), title || 'agent');
         }
       } catch { /* 会话可能不存在，静默 */ }
     };
