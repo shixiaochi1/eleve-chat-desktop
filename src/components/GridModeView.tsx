@@ -54,6 +54,7 @@ import { Square } from 'lucide-react';
 import { useGridChat, type AgentChatState } from '../hooks/useGridChat';
 import AgentChatCard, { type AgentProfileInfo, type AgentCardColor } from './AgentChatCard';
 import { ArtifactPreviewOverlay } from './ArtifactCard';
+import { getWsClient } from '../services/ws-client';
 import { sessionIdMatchesProfile, persistSessionPointer, loadProfilePointers, batchSaveProfilePointers } from '../utils/session';
 
 /**
@@ -191,10 +192,24 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   }, [focusedSessionId, onFocusedSessionChange]);
 
   // 🔴 新建会话：per-agent 状态槽归零 + 全局副作用（复用单视图 handleNewSession 同一套工具链）
-  const handleGridNewSession = useCallback((profile: string) => {
+  // 🔴 2026-08-11 对齐 Hermes openNewSessionTile：卡片新建 = 立即创建后端会话
+  // （Hermes tile 新建立即 session.create + stored_session_id；原实现纯前端重置懒创建）
+  const handleGridNewSession = useCallback(async (profile: string) => {
     resetAgent(profile);
     onNewSessionEffects?.(profile);
-  }, [resetAgent, onNewSessionEffects]);
+    try {
+      const created = await getWsClient().sessionCreate({ profile });
+      const sid = created.session_id;
+      if (sid && sessionIdMatchesProfile(sid, profile)) {
+        // 与 switchToSession 同款三行（函数定义在前，避免 TDZ 引用）
+        loadLatest(profile, sid);
+        persistSessionPointer(sid);
+        onFocusChange?.(profile);
+      }
+    } catch {
+      // 离线降级：保持空态，懒创建兜底（首条消息发送时自动建）
+    }
+  }, [resetAgent, onNewSessionEffects, loadLatest, onFocusChange]);
 
   // 🔴 M-1/M-2 修复：宫格发送不再注入全局 currentModel —— 每张卡片用自己
   // session 的 client（该 profile config.model_ref 热更新 + 卡片级 provider.switch override），

@@ -5,6 +5,7 @@ import { call } from '../utils/bridge';
 import * as storage from '../utils/storage';
 import { persistSessionPointer, clearSessionPointer, profileFromSessionId } from '../utils/session';
 import { toChatMessages, type SessionMessage } from '@/lib/chat-messages';
+import { getWsClient } from '../services/ws-client';
 
 export function useSessions(): {
   sessionId: string | null
@@ -17,7 +18,7 @@ export function useSessions(): {
   pendingTitle: string | null
   setPendingTitle: React.Dispatch<React.SetStateAction<string | null>>
   refresh: () => Promise<void>
-  create: (options?: { model?: string; provider?: string }) => Promise<void>
+  create: (options?: { model?: string; provider?: string; profile?: string }) => Promise<string | null>
   reset: () => Promise<void>
   remove: (id: string) => Promise<void>
   switchTo: (id: string) => void
@@ -64,16 +65,26 @@ export function useSessions(): {
   }, [refresh]);
 
   // ── CRUD ──
-  const create = useCallback(async (options?: { model?: string; provider?: string }): Promise<void> => {
+  // 🔴 2026-08-11 激活：对齐 Hermes openNewSessionTile（宫格 tile 新建 = 立即 session.create）—
+  // 原为无 UI 调用方的死链；现在宫格"新建会话"（App gridAwareNewSession）调用。
+  // 补全防断线：创建后同步 WS client 内部 session id（Fix BUG#1 同款，防 promptSubmit
+  // fallback 旧 id）+ 非懒创建标记 + 返回 newId 供调用方切换。
+  const create = useCallback(async (options?: { model?: string; provider?: string; profile?: string }): Promise<string | null> => {
     try {
       const data = await api.createSession(options) as { session_id?: string; id?: string };
       if (data?.session_id || data?.id) {
         const newId = data.session_id || data.id!;
         setSessionId(newId);
         persistSessionPointer(newId);
+        getWsClient().switchSession(newId);
+        setFreshDraftReady(false);
         await refresh();
+        return newId;
       }
-    } catch { /* offline */ }
+      return null;
+    } catch {
+      return null; // offline
+    }
   }, [refresh]);
 
   /** 重置当前会话（对齐 Eleve reset_session：新 ID + 清消息 + 保留记忆） */

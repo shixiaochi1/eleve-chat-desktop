@@ -804,13 +804,20 @@ export default function App() {
   }, [viewMode, currentProfile, handleSwitchSession]);
 
   // 🔴 P2-6: 宫格模式侧栏“新建会话”路由进宫格（重置焦点 Agent 卡片，不切单视图）
-  const gridAwareNewSession = useCallback(() => {
+  // 🔴 2026-08-11 对齐 Hermes openNewSessionTile：宫格新建 = 立即创建后端会话
+  // （useSessions.create 激活——原无 UI 调用方的死链；卡片立即有真实会话而非懒创建）
+  const gridAwareNewSession = useCallback(async () => {
     if (viewMode === 'grid') {
       gridRef.current?.newSession(currentProfile);
+      const newId = await sess.create({ profile: currentProfile });
+      if (newId) {
+        gridRef.current?.switchToSession(currentProfile, newId);
+        setSessionListVersion(v => v + 1);
+      }
       return;
     }
     handleNewSession();
-  }, [viewMode, currentProfile, handleNewSession]);
+  }, [viewMode, currentProfile, handleNewSession, sess, setSessionListVersion]);
 
   // 🔴 P1-2: 在该项目新建会话（对齐 Hermes goToProject newSession → requestStartWorkSession(cwd)）：
   // 立即创建带 cwd 的会话（后端 session.create 写入 cwd 烙印 → resolve_session_cwd 生效），

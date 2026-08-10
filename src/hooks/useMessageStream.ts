@@ -42,7 +42,7 @@ export interface SessionManagerHandle {
   saveCache: (updater: ((cache: Record<string, ChatMessage[]>) => Record<string, ChatMessage[]>) | Record<string, ChatMessage[]>) => void
   saveTitles: (updater: ((prev: Record<string, string>) => Record<string, string>) | Record<string, string>) => void
   refresh: () => void
-  create: (options?: { model?: string; provider?: string }) => Promise<void>
+  create: (options?: { model?: string; provider?: string; profile?: string }) => Promise<string | null>
   reset: () => Promise<void>
   remove: (id: string) => Promise<void>
   switchTo: (id: string) => void
