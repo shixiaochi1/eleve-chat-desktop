@@ -7,6 +7,7 @@
  */
 import { useState } from 'react';
 import { useUsage } from '../hooks/useUsage';
+import { useMonitorTokens, useMonitorModelName } from '../store/debug';
 import {
   BarChart3, TrendingUp, Cpu, Zap, ArrowUpDown,
 } from 'lucide-react';
@@ -48,10 +49,12 @@ export default function UsagePanel({
   sessionId,
   sessions,
   sessionTitles,
-  tokensIn,
-  tokensOut,
-  monitorState,
 }: UsagePanelProps) {
+  // 🔴 2026-08-10 修复：App 层不传 tokensIn/tokensOut/monitorState（props 恒 0 →
+  // 本地会话明细缓存全写 0）。改用 debug store 的 useMonitorTokens/useMonitorModelName
+  // （useMessageStream 每轮 SSE usage 累计，同一数据源）。
+  const { tokensIn, tokensOut } = useMonitorTokens();
+  const modelName = useMonitorModelName();
   const {
     summary,
     sessionUsage,
@@ -65,7 +68,7 @@ export default function UsagePanel({
     sessionId,
     tokensIn: tokensIn || 0,
     tokensOut: tokensOut || 0,
-    modelName: monitorState?.modelName || null,
+    modelName: modelName || null,
     sessionTitles: sessionTitles || {},
   });
 

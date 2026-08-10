@@ -21,10 +21,25 @@ interface DailyEntry {
   tokens_in?: number;
   tokens_out?: number;
   sessions?: number;
+  // 🔴 2026-08-10 适配后端真实字段（usage_analytics：daily[].input_tokens/output_tokens）
+  input_tokens?: number;
+  output_tokens?: number;
+}
+
+interface AnalyticsTotals {
+  total_input?: number;
+  total_output?: number;
+  total_sessions?: number;
+  // 兼容旧字段（早期本地版契约）
+  total_tokens_in?: number;
+  total_tokens_out?: number;
 }
 
 interface AnalyticsUsageResponse {
   daily?: DailyEntry[];
+  totals?: AnalyticsTotals;
+  /** 模型维度聚合（{model, sessions, input_tokens, output_tokens}） */
+  by_model?: Array<{ model?: string | null; sessions?: number }>;
   total_tokens_in?: number;
   total_tokens_out?: number;
   total_sessions?: number;
@@ -82,16 +97,34 @@ interface UseUsageReturn {
 
 /**
  * 从后端每日聚合数据计算 summary
+ * 🔴 2026-08-10 对齐后端真实字段：usage_analytics 返回 input_tokens/output_tokens
+ * （旧 tokens_in/tokens_out 兼容保留）——此前字段名不匹配导致 summary 恒 0
  */
 function computeSummaryFromDaily(daily: DailyEntry[]): SessionSummary {
   let totalTokensIn = 0;
   let totalTokensOut = 0;
   let sessionCount = 0;
   for (const d of daily || []) {
-    totalTokensIn += d.tokens_in || 0;
-    totalTokensOut += d.tokens_out || 0;
+    totalTokensIn += d.tokens_in ?? d.input_tokens ?? 0;
+    totalTokensOut += d.tokens_out ?? d.output_tokens ?? 0;
     sessionCount += d.sessions || 0;
   }
+  return {
+    totalTokensIn,
+    totalTokensOut,
+    sessionCount,
+    avgTokensPerSession: sessionCount > 0
+      ? Math.round((totalTokensIn + totalTokensOut) / sessionCount)
+      : 0,
+  };
+}
+
+/** 从后端 totals 计算 summary（daily 为空/缺省时兜底） */
+function computeSummaryFromTotals(totals: AnalyticsTotals | undefined): SessionSummary | null {
+  if (!totals) return null;
+  const totalTokensIn = totals.total_input ?? totals.total_tokens_in ?? 0;
+  const totalTokensOut = totals.total_output ?? totals.total_tokens_out ?? 0;
+  const sessionCount = totals.total_sessions ?? 0;
   return {
     totalTokensIn,
     totalTokensOut,
@@ -126,7 +159,8 @@ export function useUsage({
       try {
         const data = await fetchAnalyticsUsage(30);
         if (cancelled) return;
-        if (data && (data.daily || data.total_tokens_in !== undefined)) {
+        // 🔴 2026-08-10：后端真实 shape = {daily, by_model, totals}；旧顶层字段兼容保留
+        if (data && (data.daily || data.totals || data.total_tokens_in !== undefined)) {
           setServerSummary(data);
           setServerAvailable(true);
           setError(null);
@@ -204,7 +238,7 @@ export function useUsage({
     (async () => {
       try {
         const data = await fetchAnalyticsUsage(30);
-        if (data && (data.daily || data.total_tokens_in !== undefined)) {
+        if (data && (data.daily || data.totals || data.total_tokens_in !== undefined)) {
           setServerSummary(data);
           setServerAvailable(true);
           setError(null);
@@ -244,24 +278,20 @@ export function useUsage({
     );
   }
 
-  const summary: SessionSummary = serverAvailable && serverSummary
-    ? (serverSummary.daily
+  // 🔴 2026-08-10：后端可用时 summary 优先后端（daily → totals 兜底），否则本地
+  const serverSummaryFromBackend = serverAvailable && serverSummary
+    ? (serverSummary.daily?.length
         ? computeSummaryFromDaily(serverSummary.daily)
-        : {
-            totalTokensIn: serverSummary.total_tokens_in || 0,
-            totalTokensOut: serverSummary.total_tokens_out || 0,
-            sessionCount: serverSummary.total_sessions || 0,
-            avgTokensPerSession: 0,
-          })
-    : computedLocalSummary;
+        : computeSummaryFromTotals(serverSummary.totals))
+    : null;
 
-  // 如果后端有 total_sessions，计算平均
-  if (serverAvailable && serverSummary) {
-    if (!serverSummary.daily && summary.sessionCount > 0) {
-      summary.avgTokensPerSession = Math.round(
-        (summary.totalTokensIn + summary.totalTokensOut) / summary.sessionCount
-      );
-    }
+  const summary: SessionSummary = serverSummaryFromBackend ?? computedLocalSummary;
+
+  // 后端 totals 兜底：无 daily 时用 totals 算平均
+  if (serverSummaryFromBackend && summary.sessionCount > 0 && summary.avgTokensPerSession === 0 && serverSummary?.totals) {
+    summary.avgTokensPerSession = Math.round(
+      (summary.totalTokensIn + summary.totalTokensOut) / summary.sessionCount
+    );
   }
 
   // Build per-session breakdown list (sorted by most recent first)
@@ -283,13 +313,22 @@ export function useUsage({
     .sort((a, b) => b.date.getTime() - a.date.getTime());
 
   // Build model distribution
+  // 🔴 2026-08-10：后端可用时用 by_model（服务端全量会话统计，含历史会话），
+  // 否则本地 bySession 计数（只有本机本次前端使用期间的会话）
   const modelDistribution: ModelDistribution = {};
-  for (const id of sessionIds) {
-    const model = bySession[id].model || 'unknown';
-    if (!modelDistribution[model]) {
-      modelDistribution[model] = 0;
+  if (serverSummaryFromBackend && serverSummary?.by_model?.length) {
+    for (const m of serverSummary.by_model) {
+      const name = m.model || 'unknown';
+      modelDistribution[name] = (modelDistribution[name] || 0) + (m.sessions ?? 0);
     }
-    modelDistribution[model]++;
+  } else {
+    for (const id of sessionIds) {
+      const model = bySession[id].model || 'unknown';
+      if (!modelDistribution[model]) {
+        modelDistribution[model] = 0;
+      }
+      modelDistribution[model]++;
+    }
   }
 
   const dataSource: 'server' | 'local' = serverAvailable ? 'server' : 'local';
