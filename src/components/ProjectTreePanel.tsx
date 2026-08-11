@@ -105,9 +105,6 @@ interface ProjectTreePanelProps {
   /** 🔴 2026-08-12 老大指示：项目行不再有"新建会话"按钮（新建统一走全局新建/ /new，
    *   自动绑定选中项目 scope）。onNewSessionInProject 保留仅 worktree 创建成功后的自动建会话 */
   onNewSessionInProject?: (cwd: string) => void;
-  /** 🔴 会话行「在新视图中打开」（对齐 Hermes openInNewTab）：ELEVE 等价 = 切到宫格
-   *  并在该会话归属 Agent 卡片打开（并行视图，不抢占当前会话）——App 层接线 */
-  onOpenSessionInNewTab?: (sessionId: string) => void;
   /** 🔴 2026-08-09 进入项目（对齐 Hermes onEnterProject → syncProjectCwd + enterProject）：
    *  点击项目行钻取时把右侧文件面板切到项目根目录（Hermes syncProjectCwd 同款：
    *  setCurrentCwd(项目 root)，前端临时显示，后续 session.info 覆盖回会话绑定值）；
@@ -115,9 +112,6 @@ interface ProjectTreePanelProps {
    *  🔴 2026-08-12 扩展：第二参 = 后端分组的最活跃会话 id（previewSessions[0]，
    *  权威分组——HOME=unowned 全集/项目=该项目域；消息区联动直接切，无则空态新建） */
   onEnterProject?: (path: string, sessionId?: string | null) => void;
-  /** 🔴 2026-08-09 退出项目（对齐 Hermes exitProjectScope）：钻取返回总览时清 scope
-   *  （仅清"新会话落点"，不动文件面板 cwd——Hermes 同：exit 不改 $currentCwd） */
-  onExitProject?: () => void;
 }
 
 // ── 辅助 ──
@@ -164,7 +158,6 @@ function TreeToggle({ expanded, onClick }: { expanded: boolean; onClick: () => v
 // ── 会话行操作规格（对齐 Hermes session-actions：kebab 与右键共享；Panel 层单一构造）
 // 🔴 2026-08-12 对齐 SessionsPanel：补 撤销上一轮/压缩上下文/分支会话/用量详情（undo/compress/branch/usage）
 interface SessionRowActions {
-  onOpenInNewTab?: (sessionId: string) => void;
   profile?: string;
   onRenameRequest: (s: SessionPreview) => void;
   onDeleted: (s: SessionPreview) => void;
@@ -1135,7 +1128,7 @@ function SessionRenameDialog({ session, onClose, onRenamed }: {
 
 // ── Panel ──
 
-export default function ProjectTreePanel({ sessionId, onSwitchSession, currentProfile, onNewSessionInProject, onOpenSessionInNewTab, onEnterProject, onExitProject }: ProjectTreePanelProps) {
+export default function ProjectTreePanel({ sessionId, onSwitchSession, currentProfile, onNewSessionInProject, onEnterProject }: ProjectTreePanelProps) {
   const [tree, setTree] = useState<TreeResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1272,7 +1265,6 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
   // 行菜单共享规格（对齐 Hermes useProjectActions：kebab 与右键同一套）
   // 🔴 2026-08-12 对齐 SessionsPanel 右键菜单全功能：undo/compress/branch/usage
   const sessionActions = useMemo<SessionRowActions>(() => ({
-    onOpenInNewTab: onOpenSessionInNewTab,
     profile: currentProfile,
     onRenameRequest: setRenameTarget,
     onDeleted: handleDeleteSession,
@@ -1306,7 +1298,7 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
         notifyInfo(`Tokens: ${res.input_tokens?.toLocaleString()} in / ${res.output_tokens?.toLocaleString()} out / ${res.total_tokens?.toLocaleString()} total`);
       } catch (e: any) { notifyError(e, '获取用量失败'); }
     },
-  }), [onOpenSessionInNewTab, currentProfile, handleDeleteSession, pinnedIds, togglePin, archivedIds, toggleArchive]);
+  }), [currentProfile, handleDeleteSession, pinnedIds, togglePin, archivedIds, toggleArchive]);
 
   // 🔴 2026-08-12 单击激活（老大指示：单击激活与 Agent 联动，双击才进入项目）：
   //   只做联动：① onEnterProject（文件面板切项目根/workspace + scope + 消息区选最新会话）

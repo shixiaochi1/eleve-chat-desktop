@@ -877,20 +877,6 @@ export default function App() {
     }
   }, [currentProfile, viewMode, handleSwitchSession]);
 
-  // 🔴 会话行「在新视图中打开」（对齐 Hermes openSession target='tab'）：
-  // ELEVE 等价 = 宫格并行视图——该会话在其归属 Agent 卡片打开（不抢占当前会话），
-  // 其他 Agent 卡片继续并行；复用 gridRef.switchToSession 既有链路。
-  const handleOpenSessionInNewTab = useCallback((sessionId: string) => {
-    const profile = profileFromSessionId(sessionId) || currentProfile;
-    if (viewMode === 'grid') {
-      gridRef.current?.switchToSession(profile, sessionId);
-    } else {
-      setViewMode('grid');
-      // 宫格挂载后切换（next frame 确保 gridRef 就绪）
-      requestAnimationFrame(() => gridRef.current?.switchToSession(profile, sessionId));
-    }
-  }, [viewMode, currentProfile]);
-
   // 🔴 P2-6: 宫格模式侧栏“删除会话”路由进宫格（删后自动加载同 Agent 最新剩余会话，无则显示空态）
   const gridAwareDeleteSession = useCallback((id: string) => {
     handleDeleteSession(id);
@@ -1011,9 +997,6 @@ export default function App() {
       clearSessionView(currentProfile);
     }
   }, [sess, isSendingRef, clearSessionView, currentProfile, viewMode, gridAwareSwitchSession]);
-  const handleProjectExited = useCallback(() => {
-    setProjectScopeCwd(null);
-  }, []);
 
   // 🔴 P1: 宫格模式 CommandCenter（CMD+K）命令执行路由进宫格（写入 per-agent 状态槽，非不可见的 zustand store）
   const gridAwareCommand = useCallback((cmdName: string, args: string) => {
@@ -1527,9 +1510,7 @@ export default function App() {
                   isStreaming={isStreaming}
                   messageCount={messageCount}
                   onNewSessionInProject={handleNewSessionInProject}
-                  onOpenSessionInNewTab={handleOpenSessionInNewTab}
                   onEnterProject={handleProjectEntered}
-                  onExitProject={handleProjectExited}
                 />
             </div>
             )}

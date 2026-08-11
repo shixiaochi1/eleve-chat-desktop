@@ -21,8 +21,7 @@ import {
   DebugIcon, ToolIcon,
   UsageIcon, ChannelsIcon, AgentIcon,
 } from './Icons';
-import { Radio, FolderGit, Activity, GitCommit, BookOpen } from 'lucide-react';
-import ProjectTreePanel from './ProjectTreePanel';
+import { Radio, Activity, GitCommit, BookOpen } from 'lucide-react';
 
 interface SidePanelProps {
   activePanel?: string | null;
@@ -60,15 +59,12 @@ interface SidePanelProps {
   onNewSession?: () => void;
   isStreaming?: boolean;
   messageCount?: number;
-  /** 🔴 在该项目新建会话（对齐 Hermes onNewSessionInWorkspace）：ProjectTreePanel 项目行 + 按钮 → App 创建带 cwd 会话 */
+  /** 🔴 在该项目新建会话（对齐 Hermes onNewSessionInWorkspace）：worktree 创建成功后的自动建会话 */
   onNewSessionInProject?: (cwd: string) => void;
-  /** 🔴 会话行「在新视图中打开」（对齐 Hermes openInNewTab）：App 层宫格路由 */
-  onOpenSessionInNewTab?: (sessionId: string) => void;
-  /** 🔴 2026-08-09 进入/退出项目（对齐 Hermes onEnterProject/exitProjectScope）：
+  /** 🔴 2026-08-09 进入项目（对齐 Hermes onEnterProject/syncProjectCwd）：
    *  透传给 ProjectTreePanel——进入时文件面板切项目根目录 + 设 scope（新会话落点）；
    *  2026-08-12 扩展：第二参 = 后端分组的最活跃会话 id（消息区联动，无则前端兜底） */
   onEnterProject?: (path: string, sessionId?: string | null) => void;
-  onExitProject?: () => void;
 }
 
 export default function SidePanel({ activePanel, onPanelChange, ...props }: SidePanelProps) {
@@ -77,7 +73,8 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
   const panels: Record<string, { title: string; Icon: React.ComponentType<any>; component: React.ComponentType<any> }> = {
     agents:   { title: 'Agent', Icon: AgentIcon,   component: AgentsPanel },
     gateway:  { title: '网关状态',   Icon: Radio,       component: GatewayPanel },
-    projects: { title: '项目',     Icon: FolderGit,  component: ProjectTreePanel },
+    // 🔴 2026-08-12：projects 面板已合并进 Agent 面板（AgentsPanel 内嵌项目区），
+    //   IconBar 无入口，此配置为死项已删除
     channels: { title: '频道',     Icon: ChannelsIcon, component: ChannelsPanel },
     cron:     { title: '定时任务', Icon: CronIcon,    component: CronPanel },
     tools:    { title: '工具',     Icon: ToolIcon,    component: ToolsPanel },
