@@ -102,6 +102,25 @@ export async function openKanbanWindow(): Promise<void> {
 
     webviewWindow.once('tauri://created', () => {
       console.log('[kanban-window] created OK');
+      // 🔴 2026-08-11 诊断（窗口"闪一下就不见了"）：创建 1s 后检查存活 + 位置
+      setTimeout(async () => {
+        try {
+          const all = await getAllWebviewWindows();
+          const alive = all.find((w) => w.label === KANBAN_WINDOW_LABEL);
+          console.log('[kanban-window] 1s-alive check:', alive ? 'ALIVE' : 'GONE');
+          if (alive) {
+            const p = await alive.outerPosition();
+            const s = await alive.innerSize();
+            console.log('[kanban-window] position:', JSON.stringify(p), 'size:', JSON.stringify(s));
+          }
+        } catch (err3) {
+          console.warn('[kanban-window] alive check failed:', err3);
+        }
+      }, 1000);
+    });
+    // 诊断：窗口是否被关闭请求（区分"被 close" vs "崩溃"）
+    webviewWindow.onCloseRequested(() => {
+      console.log('[kanban-window] close requested!');
     });
     webviewWindow.once('tauri://error', async (e: unknown) => {
       const payload = (e as { payload?: string })?.payload;
