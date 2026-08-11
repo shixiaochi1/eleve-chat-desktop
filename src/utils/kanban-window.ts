@@ -83,6 +83,10 @@ export async function openKanbanWindow(): Promise<void> {
 
     console.log('[kanban-window] creating:', KANBAN_WINDOW_LABEL, 'x:', kanbanX, 'y:', kanbanY, 'url:', kanbanUrl);
 
+    // 🔴 2026-08-11 窗口"闪一下就不见了"治理：先隐藏创建（visible:false），
+    // created 后做 IPC 连通性测试（setTitle 走主进程，无需页面 JS），
+    // 通了才 show()——避免 webview IPC 未建立时窗口闪现空白后消失。
+    // IPC 不通（"failed to receive message from webview"）→ 保持隐藏 + 主窗口 console 报错。
     const webviewWindow = new WebviewWindow(KANBAN_WINDOW_LABEL, {
       url: kanbanUrl,
       title: '看板 — Eleve',
@@ -98,25 +102,32 @@ export async function openKanbanWindow(): Promise<void> {
       alwaysOnTop: false,
       skipTaskbar: false,
       dragDropEnabled: false,
+      visible: false,
     });
 
     webviewWindow.once('tauri://created', () => {
-      console.log('[kanban-window] created OK');
-      // 🔴 2026-08-11 诊断（窗口"闪一下就不见了"）：创建 1s 后检查存活 + 位置
+      console.log('[kanban-window] created OK (hidden)');
+      // 延迟等待页面加载 + IPC 注入，然后做连通性测试
       setTimeout(async () => {
         try {
           const all = await getAllWebviewWindows();
           const alive = all.find((w) => w.label === KANBAN_WINDOW_LABEL);
           console.log('[kanban-window] 1s-alive check:', alive ? 'ALIVE' : 'GONE');
-          if (alive) {
-            const p = await alive.outerPosition();
-            const s = await alive.innerSize();
-            console.log('[kanban-window] position:', JSON.stringify(p), 'size:', JSON.stringify(s));
+          if (!alive) return;
+          // IPC 连通性测试：setTitle 是主进程操作，成功 = IPC 通道可用
+          try {
+            await alive.setTitle('看板 — Eleve');
+            console.log('[kanban-window] IPC test OK — showing window');
+            await alive.show();
+            await alive.setFocus();
+          } catch (ipcErr) {
+            // 🔴 IPC 不通（webview 初始化失败/崩溃）→ 保持隐藏，报错到主窗口 console
+            console.error('[kanban-window] IPC FAILED — window kept hidden:', ipcErr);
           }
         } catch (err3) {
           console.warn('[kanban-window] alive check failed:', err3);
         }
-      }, 1000);
+      }, 1500);
     });
     // 诊断：窗口是否被关闭请求（区分"被 close" vs "崩溃"）
     webviewWindow.onCloseRequested(() => {
