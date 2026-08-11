@@ -41,7 +41,9 @@ export function useSessionActions({
 }): {
   handleSwitchSession: (id: string) => Promise<void>
   handleDeleteSession: (id: string) => Promise<void>
-  handleNewSession: (title?: string) => Promise<void>
+  /** 🔴 2026-08-12 新增 cwd 参数：新建会话绑定选中项目（scope 烙印），
+   *  reset 返回新 id 后 session.cwd.set —— 新会话空闲可烙，失败静默（后端 resolve 兜底） */
+  handleNewSession: (title?: string, cwd?: string) => Promise<void>
 } {
   // ── session switch handler ──
   // 🔴 后端是消息唯一权威源，始终 loadHistory，缓存仅秒显占位
@@ -105,7 +107,7 @@ export function useSessionActions({
   // 有会话 → 走后端 session.reset RPC 完整终结链（对齐 Hermes _handle_reset_command：
   //   interrupt 在飞 turn + finalize + 子Agent中断(#55578) + 凭证清理 + DB轮换 + hooks）
   // 无会话 → 纯前端 draft（对齐 Hermes 桌面端 startFreshSessionDraft）
-  const handleNewSession = useCallback(async (title?: string) => {
+  const handleNewSession = useCallback(async (title?: string, cwd?: string) => {
     // 🔴 2026-08-05 防御：调用方可能误传非字符串（onClick 直绑传 MouseEvent 等）。
     // 若此处抛错，前面 setSessionId(null)/switchSession('') 已执行 → 会话被清空但
     // 后续流程中断 → 下次发送传 null → 后端自动新建会话。入口统一防御：非字符串忽略。
@@ -136,6 +138,12 @@ export function useSessionActions({
           sess.setSessionId(newId);
           persistSessionPointer(newId);
           ws.switchSession(newId);
+          // 🔴 2026-08-12（老大需求：新会话自动绑定选中 Agent+项目）：scope 存在时
+          //   对新会话烙印 cwd（session.cwd.set → 后端 update_session_cwd + emit
+          //   session.info → 文件面板/工具层跟随项目根）；失败静默（后端 resolve 兜底）
+          if (cwd?.trim()) {
+            ws.sendRpc('session.cwd.set', { session_id: newId, cwd: cwd.trim() }).catch(() => {});
+          }
           isLazyDraft = false;
         } else {
           // 后端异常未返回新 id → 降级纯前端（Hermes startFreshSessionDraft 语义）

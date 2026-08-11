@@ -20,12 +20,13 @@ export async function fetchSessions(): Promise<any[]> {
   return [];
 }
 
-export async function createSession(options?: { model?: string; provider?: string; profile?: string }): Promise<any> {
+export async function createSession(options?: { model?: string; provider?: string; profile?: string; cwd?: string }): Promise<any> {
   // 对齐 Hermes: createBackendSessionForSend 传 model/provider → per-session override
   return call('create_session', {
     ...(options?.model ? { model: options.model } : {}),
     ...(options?.provider ? { provider: options.provider } : {}),
     ...(options?.profile ? { profile: options.profile } : {}),
+    ...(options?.cwd ? { cwd: options.cwd } : {}),
   });
 }
 

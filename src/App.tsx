@@ -837,19 +837,26 @@ export default function App() {
 
   // 🔴 P2-6: 宫格模式侧栏“新建会话”路由进宫格（重置焦点 Agent 卡片，不切单视图）
   // 🔴 2026-08-11 对齐 Hermes openNewSessionTile：宫格新建 = 立即创建后端会话
+  // 🔴 2026-08-12（老大需求：新建会话自动绑定当前 Agent + 选中项目）：
+  //   scope（选中项目/workspace）注入新建会话链的单一入口——单视图新建按钮、
+  //   /new 命令、宫格新建都走它；懒创建路径（无会话发消息）已由 getNewSessionCwd 消费
+  const handleNewSessionWithScope = useCallback(async (title?: string) => {
+    await handleNewSession(title, projectScopeCwdRef.current ?? undefined);
+  }, [handleNewSession]);
+
   // （useSessions.create 激活——原无 UI 调用方的死链；卡片立即有真实会话而非懒创建）
   const gridAwareNewSession = useCallback(async () => {
     if (viewMode === 'grid') {
-      gridRef.current?.newSession(currentProfile);
-      const newId = await sess.create({ profile: currentProfile });
-      if (newId) {
-        gridRef.current?.switchToSession(currentProfile, newId);
-        setSessionListVersion(v => v + 1);
-      }
+      // 🔴 2026-08-12 双创建断点修复：gridRef.newSession（handleGridNewSession）自
+      //   2026-08-11 起已内部完整创建后端会话（resetAgent + onNewSessionEffects +
+      //   sessionCreate + loadLatest + persistSessionPointer + onFocusChange）——
+      //   旧代码再 sess.create + switchToSession = 第二次创建 → 第一个会话成孤儿。
+      //   只走一条创建路径，scope（选中项目）由 newSession cwd 参数烙印。
+      gridRef.current?.newSession(currentProfile, projectScopeCwdRef.current ?? undefined);
       return;
     }
-    handleNewSession();
-  }, [viewMode, currentProfile, handleNewSession, sess, setSessionListVersion]);
+    handleNewSessionWithScope();
+  }, [viewMode, currentProfile, handleNewSessionWithScope]);
 
   // 🔴 P1-2: 在该项目新建会话（对齐 Hermes goToProject newSession → requestStartWorkSession(cwd)）：
   // 立即创建带 cwd 的会话（后端 session.create 写入 cwd 烙印 → resolve_session_cwd 生效），
@@ -921,7 +928,8 @@ export default function App() {
     setSessionListVersion,
     send,
     abort,
-    handleNewSession,
+    // 🔴 2026-08-12：/new 命令走 scope 注入包装（新建会话自动绑定选中项目）
+    handleNewSession: handleNewSessionWithScope,
     // 🔴 M-1/M-2 修复：不再传全局 currentModel/currentProvider —— 发送链不带 model，
     // 模型由后端 per-profile 权威管理（config.model_ref 热更新 + provider.switch override）
     onSlashConfirm: (data) => setActiveSlashConfirm(data),
@@ -961,9 +969,14 @@ export default function App() {
     // ③ 消息区联动（推荐会话 = 后端分组权威：项目 = 该项目 previewSessions 最新；
     //    HOME = Home 桶 unowned 全集最新；无推荐 → 前端域匹配兑底 → 空态新建）
     if (viewMode === 'grid') {
-      // 宫格：焦点 Agent 卡片切推荐会话（无 → 新会话带项目 cwd，HOME 则 workspace），卡片自治不打扰其它卡片
-      if (recommendedSessionId && sessionIdMatchesProfile(recommendedSessionId, currentProfile)) {
-        gridRef.current?.switchToSession(currentProfile, recommendedSessionId);
+      // 宫格：焦点 Agent 卡片切推荐/兑底最新会话（与单视图同一 target 规则，走
+      // gridAwareSwitchSession 统一入口——宫格下自动路由 gridRef，不平行直调）；
+      // 无 → 新会话带项目 cwd（HOME 则 workspace），卡片自治不打扰其它卡片
+      const target = (recommendedSessionId && sessionIdMatchesProfile(recommendedSessionId, currentProfile))
+        ? recommendedSessionId
+        : (latestSessionForDomain(sess.sessions, currentProfile, path)?.id ?? null);
+      if (target) {
+        gridAwareSwitchSession(target);
       } else {
         gridRef.current?.newSession(currentProfile, path || undefined);
       }
@@ -1005,6 +1018,13 @@ export default function App() {
   // 🔴 P1: 宫格模式 CommandCenter（CMD+K）命令执行路由进宫格（写入 per-agent 状态槽，非不可见的 zustand store）
   const gridAwareCommand = useCallback((cmdName: string, args: string) => {
     if (viewMode === 'grid') {
+      // 🔴 2026-08-12（老大需求：新建会话自动绑定选中 Agent+项目）：宫格 /new 命令
+      //   前端拦截 → 卡片新建带 scope cwd（后端 slash 无前端 scope 概念，直传会落
+      //   workspace 而非选中项目）
+      if (cmdName === 'new' || cmdName === 'reset') {
+        gridRef.current?.newSession(currentProfile, projectScopeCwdRef.current ?? undefined);
+        return;
+      }
       gridRef.current?.execCommand(currentProfile, cmdName, args);
       return;
     }
@@ -1394,7 +1414,8 @@ export default function App() {
     return onWakeDetected((detail) => {
       const targetProfile = detail.profile?.trim();
       if (targetProfile && targetProfile !== currentProfile) {
-        // 对齐 Hermes：唤醒词归属 profile 先 re-home（切盖章）再开新会话
+        // 对齐 Hermes：唤醒词归属 profile 先 re-home（切盖章）再开新会话；
+        // 🔴 2026-08-12：跨 profile 不带当前 scope（新 profile 无选中项目，落其 workspace）
         setWsActiveProfile(targetProfile);
         getWsClient().switchSession('');
         if (viewMode === 'grid') {
@@ -1738,7 +1759,7 @@ export default function App() {
                       onDismiss={() => setActiveSecret(null)}
                     />
                   )}
-                  <ContextBar sessionId={sess.sessionId} sessionStartedAt={sessionStartedAt} onNewSession={handleNewSession} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount} deepseekVisible={deepseekVisible} onToggleDeepSeek={handleToggleDeepSeek} />
+                  <ContextBar sessionId={sess.sessionId} sessionStartedAt={sessionStartedAt} onNewSession={handleNewSessionWithScope} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount} deepseekVisible={deepseekVisible} onToggleDeepSeek={handleToggleDeepSeek} />
                 </>
               )}
               <InputArea

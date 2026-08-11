@@ -102,8 +102,8 @@ interface ProjectTreePanelProps {
   /** 当前活动 Agent（SidePanel 透传）——🔴 所有 projects.* RPC 显式携带，
    *  不依赖 sendRpc 全局盖章（宫格焦点冒泡时序坑，对齐 ClarifyCard 显式归属模式） */
   currentProfile?: string;
-  /** 🔴 在该项目新建会话（对齐 Hermes onNewSessionInWorkspace → goToProject newSession）：
-   *  项目行 hover + → 创建带 cwd 的新会话并切换（App 层接线） */
+  /** 🔴 2026-08-12 老大指示：项目行不再有"新建会话"按钮（新建统一走全局新建/ /new，
+   *   自动绑定选中项目 scope）。onNewSessionInProject 保留仅 worktree 创建成功后的自动建会话 */
   onNewSessionInProject?: (cwd: string) => void;
   /** 🔴 会话行「在新视图中打开」（对齐 Hermes openInNewTab）：ELEVE 等价 = 切到宫格
    *  并在该会话归属 Agent 卡片打开（并行视图，不抢占当前会话）——App 层接线 */
@@ -558,7 +558,7 @@ function projectMenuSpecs(project: ProjectNode, h: {
   ];
 }
 
-function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onActivate, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, onNewSession, isActiveProject, desktop, sessionActions, isDragging, isDragOver, onRowDragStart, onRowDragOver, onRowDrop, onRowDragEnd }: {
+function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onActivate, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop, sessionActions, isDragging, isDragOver, onRowDragStart, onRowDragOver, onRowDrop, onRowDragEnd }: {
   project: ProjectNode;
   sessionId?: string;
   onSwitchSession?: (id: string) => void;
@@ -573,7 +573,6 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onActivate,
   onCopyPath: (path: string) => void;
   onDelete: (p: ProjectNode) => void;
   onDismiss: (p: ProjectNode) => void;
-  onNewSession?: (path: string) => void;
   isActiveProject: boolean;
   desktop: boolean;
   sessionActions: SessionRowActions;
@@ -644,16 +643,8 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onActivate,
         <span className="text-[10px] tabular-nums text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">{project.sessionCount}</span>
       )}
       <span className="text-[10px] text-muted-foreground/50">{fmtTime(project.lastActive)}</span>
-      {/* 在该项目新建会话（对齐 Hermes WorkspaceAddButton：hover 显示 +；Home 无文件夹不显示） */}
-      {onNewSession && path && !project.isNoProject && (
-        <button
-          className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors opacity-0 group-hover/workspace:opacity-100"
-          onClick={(e) => { e.stopPropagation(); onNewSession(path); }}
-          title={`在「${project.label}」中新建会话`}
-        >
-          <Plus size={13} />
-        </button>
-      )}
+      {/* 🔴 2026-08-12 移除：项目行"在该项目新建会话"按钮（新建统一走全局新建按钮/ /new，
+          自动绑定选中项目 scope） */}
       {specs.length > 0 && kebab}
     </div>
   );
@@ -1354,10 +1345,12 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
     setDrill(null);
     setDrillProject(null);
     setDrillError(null);
-    // 🔴 2026-08-09 对齐 Hermes exitProjectScope：退出项目清 scope（新会话落点）
-    onExitProject?.();
+    // 🔴 2026-08-12 选中语义修正（老大：新会话自动绑定选中的 Agent+项目）：
+    //   钻取返回只退出视图，**不清 scope**——选中（active_id 高亮）是持久的，
+    //   scope 必须与选中一致（否则项目高亮选中但新会话落 workspace，链路断点）。
+    //   scope 生命周期 = 选中状态：切 Agent / 单击其它项目 时更新。
     void fetchTree(true); // 静默刷新总览（钻取期间会话数据可能已变化）
-  }, [fetchTree, onExitProject]);
+  }, [fetchTree]);
 
   const handleCreate = useCallback(() => { setEditing(null); setDialogOpen(true); }, []);
   const handleEdit = useCallback((p: ProjectNode) => { setEditing(p); setDialogOpen(true); }, []);
@@ -1636,7 +1629,6 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
                       onCopyPath={handleCopyPath}
                       onDelete={setDeleting}
                       onDismiss={handleDismiss}
-                      onNewSession={onNewSessionInProject}
                       isActiveProject={tree.active_id === p.id}
                       desktop={desktop}
                       isDragging={dragId === p.id}
