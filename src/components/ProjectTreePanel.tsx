@@ -1186,6 +1186,22 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
     }
   }, [currentProfile]);
 
+  // 🔴 2026-08-12 断线修复：切 Agent 项目树必须跟随切换（对齐 Hermes
+  // "Projects are per-profile, so they intentionally follow [profile switch]"）。
+  // 原实现 fetchTree 依赖 [currentProfile] 但无任何 effect 触发它——currentProfile
+  // 变化只重渲染组件，树保持旧 Agent 数据。补：profile 变化 → 清钻取残留 + 重拉。
+  useEffect(() => {
+    if (!currentProfile) return;
+    // 清钻取视图（旧 Agent 的项目详情不残留）
+    setDrill(null);
+    setDrillProject(null);
+    setDrillError(null);
+    setDrillLoading(false);
+    setWorktreesMap({});
+    void fetchTree();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentProfile]);
+
   // ── 会话行操作 handlers（对齐 Hermes session-actions-menu）──
   const togglePin = useCallback((s: SessionPreview) => {
     setPinnedIds(prev => {
