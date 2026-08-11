@@ -83,12 +83,10 @@ export async function openKanbanWindow(): Promise<void> {
 
     console.log('[kanban-window] creating:', KANBAN_WINDOW_LABEL, 'x:', kanbanX, 'y:', kanbanY, 'url:', kanbanUrl);
 
-    // 🔴 2026-08-11 多 webview 数据目录隔离（tauri#11144 + API 文档）：Windows 上
-    // additionalBrowserArgs 等设置不同的 webview 必须用不同 data directory，
-    // 否则第二个 webview 创建失败（0x8007139F 实证）。主窗口在 tauri.conf.json
-    // 配了 --disable-background-* args，看板窗口 JS 侧无法传同 args → 用
-    // dataDirectory 独立数据目录隔离（相对 appDataDir()/kanban）。
-    // 08:29 dev 终端实证：failed to create webview: 0x8007139F。
+    // 🔴 2026-08-11 看板窗口已预注册到 tauri.conf.json（与主窗口同 additionalBrowserArgs，
+    // 启动时创建，防运行时创建 0x8007139F——多 webview args 不一致致创建失败，tauri#11144）。
+    // 本函数只需查找 + show/focus；预注册窗口异常关闭时兜底重建。
+    // 数据目录：预注册窗口默认用主窗口同一 WebView2 环境（args 一致，无需隔离）。
     const webviewWindow = new WebviewWindow(KANBAN_WINDOW_LABEL, {
       url: kanbanUrl,
       title: '看板 — Eleve',
@@ -103,8 +101,6 @@ export async function openKanbanWindow(): Promise<void> {
       skipTaskbar: false,
       dragDropEnabled: false,
       visible: false,
-      // 独立 webview 数据目录（隔离 additional args 差异，防 0x8007139F）
-      dataDirectory: 'kanban',
     });
 
     webviewWindow.once('tauri://created', () => {
