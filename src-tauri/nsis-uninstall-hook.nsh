@@ -32,6 +32,12 @@ Var KEEP_DATA
 
   ; 设置 ELEVE_HOME 环境变量到注册表（不广播，重启后生效）
   WriteRegStr HKCU "Environment" "ELEVE_HOME" "$ELEVE_HOME_PATH"
+
+  ; 🔴 2026-08-12 广播环境变量变更（WM_SETTINGCHANGE）：
+  ;   写注册表不广播 → Explorer 环境快照不刷新 → 安装器直接启动的应用无 env、
+  ;   重启电脑后才有 env，且若存在历史残留值（旧 setx）会先命中 env 分支 →
+  ;   home 漂移分裂（重启后数据"消失"事故根因之一）。广播后当前会话立即一致。
+  System::Call 'user32::SendMessageTimeout(i 0xFFFF, i 0x001A, i 0, t "Environment", i 0x0002, i 5000, *i r0)'
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL

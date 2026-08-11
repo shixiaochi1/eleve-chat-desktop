@@ -120,37 +120,54 @@ fn read_windows_user_env_var(_name: &str) -> Option<String> {
 
 /// 解析 Eleve Home 目录（Tauri 前端侧使用）
 ///
-/// 对齐 Hermes `resolveHermesHome()` (main.cjs L250-272):
-///   1. ELEVE_HOME 环境变量
-///   2. 🔴 2026-08-10 安装版 exe 相对 data/（resources/ 特征，装哪 data 在哪）
+/// 🔴 2026-08-12 加固（重启后数据"消失"事故根治）：
+///   优先级 = 安装版特征 > env > 注册表 > exe/data > LOCALAPPDATA > ~/.eleve。
+///   安装版（exe 同级 resources/）→ $INSTDIR\data **无条件最高优先**：env/注册表
+///   残留（如 ELEVE_HOME=E:\Eleve 不带 \data）曾导致重启后 home 漂移到残留路径、
+///   在安装根目录重新生成一套数据文件、旧记录"消失"（数据实际还在 data/）。
+///   安装版特征明确时，安装目录就是唯一权威，不再看任何环境状态；env/注册表
+///   仅在 dev / 裸拷贝 / 非安装场景生效。
+///
+/// 各分支：
+///   1. release + exe 同级 resources/ → exe 同级 data/（装哪 data 在哪，唯一权威）
+///   2. ELEVE_HOME 环境变量（dev / 裸拷贝场景，用户显式配置）
 ///   3. Windows 注册表 HKCU\Environment\ELEVE_HOME（历史 setx / 非安装场景）
-///   4. exe 相对 data/（无 resources 特征的裸拷贝场景）
+///   4. release + exe 同级 data/ 已存在（无 resources 特征的裸拷贝场景兜底）
 ///   5. %LOCALAPPDATA%\Eleve\（Windows 默认，对齐 Hermes %LOCALAPPDATA%\hermes）
 ///   6. ~/.eleve/（Legacy 兼容 + 最终 fallback）
+/// 每次解析结果写入 {home}/runtime/home-resolution.log（跟着实际 home 走，方便排查）。
 fn resolve_eleve_home() -> PathBuf {
-    // 1. ELEVE_HOME 环境变量（用户显式配置）
-    if let Ok(home) = std::env::var("ELEVE_HOME") {
-        if !home.is_empty() {
-            eprintln!("[TAURI] ELEVE_HOME from env: {}", home);
-            return PathBuf::from(home);
-        }
-    }
-
-    // 2. 🔴 2026-08-10 安装版 data 跟随安装目录（老大确立：装哪 data 在哪）：
-    //    注册表值（历史 setx）优先级高于 exe 相对 data/ 导致安装版 data 永远
-    //    落在 AppData。改为：exe 同级存在 resources/（安装版特征）→ data 用
-    //    exe 相对目录（不存在则创建），对齐后端 get_eleve_home 步骤 2。
-    //    env 仍是最高优先级（用户显式 setx 覆盖）。
+    // 1. 🔴 安装版特征（exe 同级 resources/）→ $INSTDIR\data，无条件最高优先。
+    //    env/注册表残留（旧 setx / 历史安装器 / 手动设置）是"写 A 读 B"分裂源：
+    //    安装版一旦命中，绝不再看 env/注册表。仅 release 构建检查（debug 时
+    //    exe 在 target/debug/，无 resources/ 特征）。
     #[cfg(not(debug_assertions))]
     if let Ok(exe) = std::env::current_exe() {
         if let Some(exe_dir) = exe.parent() {
             // 安装版特征：exe 同级有 resources/（tauri bundle 布局）
             if exe_dir.join("resources").is_dir() {
                 let data_dir = exe_dir.join("data");
-                std::fs::create_dir_all(&data_dir).ok();
-                eprintln!("[TAURI] ELEVE_HOME from exe-relative data/ (installed): {:?}", data_dir);
-                return data_dir;
+                // 创建失败（如安装目录无写权限）→ 告警并继续向下走 fallback 链
+                if std::fs::create_dir_all(&data_dir).is_ok() {
+                    log_home_resolution("installed-exe-data", &data_dir);
+                    eprintln!("[TAURI] ELEVE_HOME from exe-relative data/ (installed): {:?}", data_dir);
+                    return data_dir;
+                }
+                eprintln!(
+                    "[TAURI] WARNING: failed to create {} (no write permission?), falling back",
+                    data_dir.display()
+                );
             }
+        }
+    }
+
+    // 2. ELEVE_HOME 环境变量（dev / 裸拷贝场景，用户显式配置）
+    if let Ok(home) = std::env::var("ELEVE_HOME") {
+        if !home.is_empty() {
+            let home_path = PathBuf::from(&home);
+            log_home_resolution("env", &home_path);
+            eprintln!("[TAURI] ELEVE_HOME from env: {}", home);
+            return home_path;
         }
     }
 
@@ -158,8 +175,10 @@ fn resolve_eleve_home() -> PathBuf {
     //    GUI 应用从 Explorer 启动时继承登录时的环境变量快照，
     //    安装时 setx 设置的 ELEVE_HOME 在当前进程不可见。读注册表绕过。
     if let Some(home) = read_windows_user_env_var("ELEVE_HOME") {
+        let home_path = PathBuf::from(&home);
+        log_home_resolution("registry", &home_path);
         eprintln!("[TAURI] ELEVE_HOME from registry: {}", home);
-        return PathBuf::from(home);
+        return home_path;
     }
 
     // 3.5. exe 同级 data/ 目录（dev/裸拷贝场景，无 resources/ 特征时兜底）
@@ -169,13 +188,14 @@ fn resolve_eleve_home() -> PathBuf {
         if let Some(exe_dir) = exe.parent() {
             let data_dir = exe_dir.join("data");
             if data_dir.is_dir() {
+                log_home_resolution("exe-relative-data", &data_dir);
                 eprintln!("[TAURI] ELEVE_HOME from exe-relative data/: {:?}", data_dir);
                 return data_dir;
             }
         }
     }
 
-    // 3. 平台标准目录 + legacy 透明迁移（对齐 Hermes resolveHermesHome main.ts L563-574）
+    // 4. 平台标准目录 + legacy 透明迁移（对齐 Hermes resolveHermesHome main.ts L563-574）
     //    🔴 与后端 eleve-core::bootstrap::resolve_platform_default_home 语义必须保持一致：
     //    新位置为空且 legacy ~/.eleve 已有数据 → 沿用 legacy（不丢状态）；否则用 LOCALAPPDATA。
     #[cfg(target_os = "windows")]
@@ -186,24 +206,48 @@ fn resolve_eleve_home() -> PathBuf {
             if !eleve_home.is_dir() {
                 if let Some(legacy) = dirs::home_dir().map(|h| h.join(".eleve")) {
                     if legacy.is_dir() {
+                        log_home_resolution("legacy", &legacy);
                         eprintln!("[TAURI] ELEVE_HOME from legacy ~/.eleve (migration honour): {:?}", legacy);
                         return legacy;
                     }
                 }
             }
             std::fs::create_dir_all(&eleve_home).ok();
+            log_home_resolution("localappdata", &eleve_home);
             eprintln!("[TAURI] ELEVE_HOME from LOCALAPPDATA: {:?}", eleve_home);
             return eleve_home;
         }
     }
 
-    // 4. POSIX / Windows LOCALAPPDATA 缺失：平台默认即 ~/.eleve（存在则用，否则创建）
+    // 5. POSIX / Windows LOCALAPPDATA 缺失：平台默认即 ~/.eleve（存在则用，否则创建）
     let fallback = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".eleve");
     std::fs::create_dir_all(&fallback).ok();
+    log_home_resolution("fallback", &fallback);
     eprintln!("[TAURI] ELEVE_HOME fallback: {:?}", fallback);
     fallback
+}
+
+/// 记录 home 解析来源（诊断用）：追加写入 {home}/runtime/home-resolution.log。
+/// 即使 home 被解析到错误位置（如残留 env），日志也跟随实际 home 落盘，方便排查。
+fn log_home_resolution(source: &str, home: &std::path::Path) {
+    let runtime = home.join("runtime");
+    if std::fs::create_dir_all(&runtime).is_err() {
+        return;
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(runtime.join("home-resolution.log"))
+    {
+        use std::io::Write;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let _ = writeln!(f, "[{}] source={} home={}", now, source, home.display());
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
