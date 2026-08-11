@@ -87,6 +87,9 @@ export async function openKanbanWindow(): Promise<void> {
     // created 后做 IPC 连通性测试（setTitle 走主进程，无需页面 JS），
     // 通了才 show()——避免 webview IPC 未建立时窗口闪现空白后消失。
     // IPC 不通（"failed to receive message from webview"）→ 保持隐藏 + 主窗口 console 报错。
+    // 🔴 2026-08-11 位置治理：x/y 计算可能落在未激活屏幕（08:25 实证窗口
+    // show 成功但老大看不到）→ 改 center:true 主屏居中，保证可见；
+    // 位置逻辑后续再优化（对齐 Hermes 主窗口右侧）。
     const webviewWindow = new WebviewWindow(KANBAN_WINDOW_LABEL, {
       url: kanbanUrl,
       title: '看板 — Eleve',
@@ -94,11 +97,9 @@ export async function openKanbanWindow(): Promise<void> {
       height: Math.min(mainHeight, KANBAN_DEFAULT_HEIGHT),
       minWidth: 600,
       minHeight: 400,
-      x: kanbanX,
-      y: kanbanY,
+      center: true,
       resizable: true,
       decorations: true,
-      center: false,
       alwaysOnTop: false,
       skipTaskbar: false,
       dragDropEnabled: false,
@@ -120,6 +121,12 @@ export async function openKanbanWindow(): Promise<void> {
             console.log('[kanban-window] IPC test OK — showing window');
             await alive.show();
             await alive.setFocus();
+            // 诊断：打印实际位置（确认落在可见屏幕）
+            try {
+              const p = await alive.outerPosition();
+              const s = await alive.innerSize();
+              console.log('[kanban-window] position:', JSON.stringify(p), 'size:', JSON.stringify(s));
+            } catch { /* 位置查询失败忽略 */ }
           } catch (ipcErr) {
             // 🔴 IPC 不通（webview 初始化失败/崩溃）→ 保持隐藏，报错到主窗口 console
             console.error('[kanban-window] IPC FAILED — window kept hidden:', ipcErr);
