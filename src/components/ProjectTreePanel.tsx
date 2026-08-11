@@ -12,7 +12,7 @@
  *   projects.create/update/add_folder/set_primary/archive CRUD（对齐 Hermes 桌面端项目管理）。
  */
 import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
-import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, RefreshCw, Plus, MoreVertical, Pencil, FolderPlus, CheckCircle2, Copy, Trash2, Home, Pin, Download, Archive, ExternalLink, LayoutGrid } from 'lucide-react';
+import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, RefreshCw, Plus, MoreVertical, Pencil, FolderPlus, CheckCircle2, Copy, Trash2, Home, Pin, Download, Archive, Undo2, Minimize2, BarChart3 } from 'lucide-react';
 import { isTauri } from '@tauri-apps/api/core';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
@@ -27,12 +27,12 @@ import { getProjectOrderIds, setProjectOrderIds, orderProjectsByIds } from '../l
 import { randomIdeaTemplates, type ProjectIdeaTemplate } from '../lib/project-idea-templates';
 import { generateProjectIdea } from '../lib/llm-oneshot';
 import { deleteSessionAction, renameSessionAction, toggleArchiveSession, exportSessionAction, copySessionId } from '../lib/session-actions';
-import { openSessionWindow } from '../lib/session-window';
+import { undoSessionTurn, compressSession, branchSession, getSessionUsage } from '../utils/api';
 import * as storage from '../utils/storage';
 import { gitWorktreeList, gitWorktreeRemove, type HermesGitWorktree } from '../lib/git';
 import { WorktreeDialog } from './worktree/WorktreeDialog';
 import { pickDirectory } from '../utils/directory-picker';
-import { notifySuccess, notifyError } from '../utils/notifications';
+import { notifySuccess, notifyError, notifyInfo } from '../utils/notifications';
 import { SessionStatusDot } from './SessionStatusDot';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -111,8 +111,10 @@ interface ProjectTreePanelProps {
   /** 🔴 2026-08-09 进入项目（对齐 Hermes onEnterProject → syncProjectCwd + enterProject）：
    *  点击项目行钻取时把右侧文件面板切到项目根目录（Hermes syncProjectCwd 同款：
    *  setCurrentCwd(项目 root)，前端临时显示，后续 session.info 覆盖回会话绑定值）；
-   *  path 为空（Home 桶）不调用 */
-  onEnterProject?: (path: string) => void;
+   *  path 为空（Home 桶）不调用。
+   *  🔴 2026-08-12 扩展：第二参 = 后端分组的最活跃会话 id（previewSessions[0]，
+   *  权威分组——HOME=unowned 全集/项目=该项目域；消息区联动直接切，无则空态新建） */
+  onEnterProject?: (path: string, sessionId?: string | null) => void;
   /** 🔴 2026-08-09 退出项目（对齐 Hermes exitProjectScope）：钻取返回总览时清 scope
    *  （仅清"新会话落点"，不动文件面板 cwd——Hermes 同：exit 不改 $currentCwd） */
   onExitProject?: () => void;
@@ -159,7 +161,8 @@ function TreeToggle({ expanded, onClick }: { expanded: boolean; onClick: () => v
   );
 }
 
-// ── 会话行操作规格（对齐 Hermes session-actions：kebab 与右键共享；Panel 层单一构造）──
+// ── 会话行操作规格（对齐 Hermes session-actions：kebab 与右键共享；Panel 层单一构造）
+// 🔴 2026-08-12 对齐 SessionsPanel：补 撤销上一轮/压缩上下文/分支会话/用量详情（undo/compress/branch/usage）
 interface SessionRowActions {
   onOpenInNewTab?: (sessionId: string) => void;
   profile?: string;
@@ -167,6 +170,12 @@ interface SessionRowActions {
   onDeleted: (s: SessionPreview) => void;
   isPinned: (s: SessionPreview) => boolean;
   onTogglePin: (s: SessionPreview) => void;
+  isArchived: (s: SessionPreview) => boolean;
+  onToggleArchive: (s: SessionPreview) => void;
+  onUndo: (id: string) => void;
+  onCompress: (id: string) => void;
+  onBranch: (id: string) => void;
+  onUsage: (id: string) => void;
 }
 
 // pin 状态与 SessionsPanel 共用同一 localStorage（eleve.pinned-sessions）
@@ -196,8 +205,11 @@ function SessionItem({ s, isActive, onClick, actions }: {
   const title = s.title || s.id.slice(0, 8);
   const isPinned = actions.isPinned(s);
 
-  // 对齐 Hermes session-actions-menu：打开（新视图·新窗口）/ 身份（重命名·固定）/
-  // 分享（复制ID·导出）/ 危险（归档·删除）
+  // 对齐 Hermes session-actions-menu：身份（重命名·置顶·归档）/ 会话操作
+  // （撤销·压缩·分支·用量）/ 分享（导出·复制ID）/ 危险（删除）
+  // 🔴 2026-08-12："在新视图中打开/在新窗口中打开"已从菜单移除——自动语义 =
+  //   点击项目/HOME 时自动选该域最新会话（App.handleProjectEntered 联动），
+  //   会话行点击一律普通切换（非"运行中自动新视图"，老大纠正）
   const menu = (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -210,37 +222,45 @@ function SessionItem({ s, isActive, onClick, actions }: {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuItem disabled={!s.id} onSelect={() => actions.onOpenInNewTab?.(s.id)}>
-          <LayoutGrid size={12} className="shrink-0" />
-          <span className="flex-1">在新视图中打开</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!s.id} onSelect={() => void openSessionWindow(s.id, actions.profile)}>
-          <ExternalLink size={12} className="shrink-0" />
-          <span className="flex-1">在新窗口中打开</span>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
         <DropdownMenuItem disabled={!s.id} onSelect={() => actions.onRenameRequest(s)}>
           <Pencil size={12} className="shrink-0" />
           <span className="flex-1">重命名</span>
         </DropdownMenuItem>
         <DropdownMenuItem disabled={!s.id} onSelect={() => actions.onTogglePin(s)}>
           <Pin size={12} className="shrink-0" />
-          <span className="flex-1">{isPinned ? '取消固定' : '固定'}</span>
+          <span className="flex-1">{isPinned ? '取消置顶' : '置顶'}</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!s.id} onSelect={() => void actions.onToggleArchive(s)}>
+          <Archive size={12} className="shrink-0" />
+          <span className="flex-1">{actions.isArchived(s) ? '取消归档' : '归档'}</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem disabled={!s.id} onSelect={() => void copySessionId(s.id)}>
-          <Copy size={12} className="shrink-0" />
-          <span className="flex-1">复制会话 ID</span>
+        <DropdownMenuItem disabled={!s.id} onSelect={() => void actions.onUndo(s.id)}>
+          <Undo2 size={12} className="shrink-0" />
+          <span className="flex-1">撤销上一轮</span>
         </DropdownMenuItem>
+        <DropdownMenuItem disabled={!s.id} onSelect={() => void actions.onCompress(s.id)}>
+          <Minimize2 size={12} className="shrink-0" />
+          <span className="flex-1">压缩上下文</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!s.id} onSelect={() => void actions.onBranch(s.id)}>
+          <GitBranch size={12} className="shrink-0" />
+          <span className="flex-1">分支会话</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!s.id} onSelect={() => void actions.onUsage(s.id)}>
+          <BarChart3 size={12} className="shrink-0" />
+          <span className="flex-1">用量详情</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem disabled={!s.id} onSelect={() => void exportSessionAction(s.id, title)}>
           <Download size={12} className="shrink-0" />
           <span className="flex-1">导出会话</span>
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem disabled={!s.id} onSelect={() => void toggleArchiveSession(s.id, false)}>
-          <Archive size={12} className="shrink-0" />
-          <span className="flex-1">归档</span>
+        <DropdownMenuItem disabled={!s.id} onSelect={() => void copySessionId(s.id)}>
+          <Copy size={12} className="shrink-0" />
+          <span className="flex-1">复制会话 ID</span>
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem className="text-destructive focus:text-destructive" disabled={!s.id} onSelect={() => actions.onDeleted(s)}>
           <Trash2 size={12} className="shrink-0" />
           <span className="flex-1">删除</span>
@@ -271,37 +291,45 @@ function SessionItem({ s, isActive, onClick, actions }: {
     <ContextMenu>
       <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
       <ContextMenuContent onCloseAutoFocus={(e) => e.preventDefault()} className="w-48">
-        <ContextMenuItem disabled={!s.id} onSelect={() => actions.onOpenInNewTab?.(s.id)}>
-          <LayoutGrid size={12} className="shrink-0" />
-          <span className="flex-1">在新视图中打开</span>
-        </ContextMenuItem>
-        <ContextMenuItem disabled={!s.id} onSelect={() => void openSessionWindow(s.id, actions.profile)}>
-          <ExternalLink size={12} className="shrink-0" />
-          <span className="flex-1">在新窗口中打开</span>
-        </ContextMenuItem>
-        <ContextMenuSeparator />
         <ContextMenuItem disabled={!s.id} onSelect={() => actions.onRenameRequest(s)}>
           <Pencil size={12} className="shrink-0" />
           <span className="flex-1">重命名</span>
         </ContextMenuItem>
         <ContextMenuItem disabled={!s.id} onSelect={() => actions.onTogglePin(s)}>
           <Pin size={12} className="shrink-0" />
-          <span className="flex-1">{isPinned ? '取消固定' : '固定'}</span>
+          <span className="flex-1">{isPinned ? '取消置顶' : '置顶'}</span>
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!s.id} onSelect={() => void actions.onToggleArchive(s)}>
+          <Archive size={12} className="shrink-0" />
+          <span className="flex-1">{actions.isArchived(s) ? '取消归档' : '归档'}</span>
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem disabled={!s.id} onSelect={() => void copySessionId(s.id)}>
-          <Copy size={12} className="shrink-0" />
-          <span className="flex-1">复制会话 ID</span>
+        <ContextMenuItem disabled={!s.id} onSelect={() => void actions.onUndo(s.id)}>
+          <Undo2 size={12} className="shrink-0" />
+          <span className="flex-1">撤销上一轮</span>
         </ContextMenuItem>
+        <ContextMenuItem disabled={!s.id} onSelect={() => void actions.onCompress(s.id)}>
+          <Minimize2 size={12} className="shrink-0" />
+          <span className="flex-1">压缩上下文</span>
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!s.id} onSelect={() => void actions.onBranch(s.id)}>
+          <GitBranch size={12} className="shrink-0" />
+          <span className="flex-1">分支会话</span>
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!s.id} onSelect={() => void actions.onUsage(s.id)}>
+          <BarChart3 size={12} className="shrink-0" />
+          <span className="flex-1">用量详情</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem disabled={!s.id} onSelect={() => void exportSessionAction(s.id, title)}>
           <Download size={12} className="shrink-0" />
           <span className="flex-1">导出会话</span>
         </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem disabled={!s.id} onSelect={() => void toggleArchiveSession(s.id, false)}>
-          <Archive size={12} className="shrink-0" />
-          <span className="flex-1">归档</span>
+        <ContextMenuItem disabled={!s.id} onSelect={() => void copySessionId(s.id)}>
+          <Copy size={12} className="shrink-0" />
+          <span className="flex-1">复制会话 ID</span>
         </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem className="text-destructive focus:text-destructive" disabled={!s.id} onSelect={() => actions.onDeleted(s)}>
           <Trash2 size={12} className="shrink-0" />
           <span className="flex-1">删除</span>
@@ -530,11 +558,14 @@ function projectMenuSpecs(project: ProjectNode, h: {
   ];
 }
 
-function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, onNewSession, isActiveProject, desktop, sessionActions, isDragging, isDragOver, onRowDragStart, onRowDragOver, onRowDrop, onRowDragEnd }: {
+function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onActivate, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, onNewSession, isActiveProject, desktop, sessionActions, isDragging, isDragOver, onRowDragStart, onRowDragOver, onRowDrop, onRowDragEnd }: {
   project: ProjectNode;
   sessionId?: string;
   onSwitchSession?: (id: string) => void;
+  /** 钻取：双击进入项目（完整 Repo/Lane 树） */
   onDrill: (p: ProjectNode) => void;
+  /** 🔴 2026-08-12：单击激活（与 Agent 联动：文件面板 + scope + 消息区选最新会话） */
+  onActivate: (p: ProjectNode) => void;
   onEdit: (p: ProjectNode) => void;
   onAddFolder: (p: ProjectNode) => void;
   onSetActive: (p: ProjectNode) => void;
@@ -593,13 +624,14 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onEdit, onA
         isDragging && 'opacity-40',
         isDragOver && 'bg-accent/30',
       )}
-      onClick={() => onDrill(project)}
+      onClick={() => onActivate(project)}
+      onDoubleClick={() => onDrill(project)}
       draggable={!!onRowDragStart && !project.isNoProject}
       onDragStart={(e) => { if (onRowDragStart) { e.dataTransfer.effectAllowed = 'move'; onRowDragStart(project.id); } }}
       onDragOver={(e) => { if (onRowDragOver) { e.preventDefault(); onRowDragOver(project.id); } }}
       onDrop={(e) => { if (onRowDrop) { e.preventDefault(); onRowDrop(project.id); } }}
       onDragEnd={onRowDragEnd}
-      title={path ? `${path} — 点击进入项目（完整 Repo/Lane 树）` : '点击进入项目（完整 Repo/Lane 树）'}
+      title={path && !project.isNoProject ? `${path} — 单击激活（联动消息区/文件面板）· 双击进入项目` : project.isNoProject ? (path ? `${path} — 单击激活 · 双击进入工作区` : '单击激活 · 双击进入工作区') : '单击激活 · 双击进入项目'}
     >
       <TreeToggle expanded={expanded} onClick={toggleExpanded} />
       <ProjectLeadIcon project={project} />
@@ -717,7 +749,7 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
 
   const pickFolder = useCallback(async () => {
     if (!desktop) { notifyError(null, '原生对话框仅桌面端可用'); return; }
-    const path = await pickDirectory(initial ? '选择主文件夹' : '选择项目文件夹（可选）');
+    const path = await pickDirectory(initial ? '选择主文件夹' : '选择项目文件夹（可选）', initial?.path || undefined);
     if (!path) return;
     if (initial) {
       // 编辑模式：立即设为主文件夹（projects.set_primary）
@@ -1212,6 +1244,22 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
     });
   }, []);
 
+  // 🔴 2026-08-12 对齐 SessionsPanel：归档/取消归档切换（toggleArchiveSession 返回 next 状态，
+  //   本地 archivedIds 仅会话内存（SessionsPanel 同款不持久化））
+  const [archivedIds, setArchivedIds] = useState<Set<string>>(() => new Set());
+  const toggleArchive = useCallback(async (s: SessionPreview) => {
+    const isArchived = archivedIds.has(s.id);
+    const next = await toggleArchiveSession(s.id, isArchived);
+    if (next !== isArchived) {
+      setArchivedIds((prev) => {
+        const n = new Set(prev);
+        if (n.has(s.id)) n.delete(s.id); else n.add(s.id);
+        return n;
+      });
+      void fetchTree(true); // 刷新树（归档后会话移出/入项目桶）
+    }
+  }, [archivedIds, fetchTree]);
+
   const handleDeleteSession = useCallback((s: SessionPreview) => {
     void deleteSessionAction(s.id, () => { void fetchTree(true); });
   }, [fetchTree]);
@@ -1231,6 +1279,7 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
   }, [fetchTree]);
 
   // 行菜单共享规格（对齐 Hermes useProjectActions：kebab 与右键同一套）
+  // 🔴 2026-08-12 对齐 SessionsPanel 右键菜单全功能：undo/compress/branch/usage
   const sessionActions = useMemo<SessionRowActions>(() => ({
     onOpenInNewTab: onOpenSessionInNewTab,
     profile: currentProfile,
@@ -1238,20 +1287,51 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
     onDeleted: handleDeleteSession,
     isPinned: (s) => pinnedIds.has(s.id),
     onTogglePin: togglePin,
-  }), [onOpenSessionInNewTab, currentProfile, handleDeleteSession, pinnedIds, togglePin]);
+    isArchived: (s) => archivedIds.has(s.id),
+    onToggleArchive: toggleArchive,
+    // ── F1 会话操作（对齐 SessionsPanel handleUndo/handleCompress/handleBranch/handleUsage）──
+    onUndo: async (id) => {
+      try {
+        const res = await undoSessionTurn(id);
+        if (res.undone) notifySuccess('已撤销最后一轮');
+        else notifyInfo(res.reason || '没有可撤销的内容');
+      } catch (e: any) { notifyError(e, '撤销失败'); }
+    },
+    onCompress: async (id) => {
+      try {
+        const res = await compressSession(id);
+        notifySuccess(res.summary || '上下文已压缩');
+      } catch (e: any) { notifyError(e, '压缩失败'); }
+    },
+    onBranch: async (id) => {
+      try {
+        const res = await branchSession(id);
+        notifySuccess(`已创建分支: ${res.branch_id?.slice(0, 8) || ''}`);
+      } catch (e: any) { notifyError(e, '分支失败'); }
+    },
+    onUsage: async (id) => {
+      try {
+        const res = await getSessionUsage(id);
+        notifyInfo(`Tokens: ${res.input_tokens?.toLocaleString()} in / ${res.output_tokens?.toLocaleString()} out / ${res.total_tokens?.toLocaleString()} total`);
+      } catch (e: any) { notifyError(e, '获取用量失败'); }
+    },
+  }), [onOpenSessionInNewTab, currentProfile, handleDeleteSession, pinnedIds, togglePin, archivedIds, toggleArchive]);
 
-  // 钻取：点击项目行 → 全量水合的 Repo/Lane/Session 树
-  // 🔴 2026-08-09 对齐 Hermes onEnterProject（syncProjectCwd + enterProject）：
-  //   ① 文件面板切到项目根目录（onEnterProject → App setSessionCwd，临时显示，
-  //      session.info 后续覆盖——Hermes setCurrentCwd 同款）
-  //   ② 显式项目自动设为激活（Hermes enterProject：id.startsWith('p_') → setActiveProject；
-  //      静默无 toast——用户没主动点"设为激活"）
-  //   ③ 设置项目 scope（新会话落点，退出钻取时清除）
-  const handleDrill = useCallback(async (project: ProjectNode) => {
-    if (project.path) onEnterProject?.(project.path);
-    if (!project.isAuto && project.id) {
+  // 🔴 2026-08-12 单击激活（老大指示：单击激活与 Agent 联动，双击才进入项目）：
+  //   只做联动：① onEnterProject（文件面板切项目根/workspace + scope + 消息区选最新会话）
+  //   ② 显式项目自动设为激活。不进入钻取视图（双击 handleDrill 才钻取）。
+  const handleActivate = useCallback((project: ProjectNode) => {
+    onEnterProject?.(project.path ?? '', project.previewSessions?.[0]?.id ?? null);
+    if (!project.isAuto && !project.isNoProject && project.id) {
       void call('projects_set_active', { id: project.id, profile: currentProfile }).catch(() => {});
     }
+  }, [currentProfile, onEnterProject]);
+
+  // 钻取：双击项目行 → 全量水合的 Repo/Lane/Session 树
+  // （双击时浏览器会先触发两次单击（handleActivate，幂等无害），再触发本钻取）
+  const handleDrill = useCallback(async (project: ProjectNode) => {
+    // 双击也先激活（联动语义一致）
+    handleActivate(project);
     setDrill(project);
     setDrillProject(null);
     setDrillError(null);
@@ -1268,7 +1348,7 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
     } finally {
       setDrillLoading(false);
     }
-  }, [currentProfile, onEnterProject]);
+  }, [handleActivate, currentProfile]);
 
   const handleBack = useCallback(() => {
     setDrill(null);
@@ -1283,7 +1363,7 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
   const handleEdit = useCallback((p: ProjectNode) => { setEditing(p); setDialogOpen(true); }, []);
   const handleAddFolder = useCallback(async (project: ProjectNode) => {
     if (!desktop) return;
-    const path = await pickDirectory(`为「${project.label}」添加文件夹`);
+    const path = await pickDirectory(`为「${project.label}」添加文件夹`, project.path || undefined);
     if (!path) return;
     try {
       // 无主文件夹的项目：首个添加的文件夹自动设为主文件夹
@@ -1465,7 +1545,7 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
           {drillProject && (
             <div className="flex-1 overflow-y-auto">
               {drillProject.repos.length === 0 ? (
-                <div className="p-4 text-xs text-muted-foreground">无 Repo 分组</div>
+                <div className="p-4 text-xs text-muted-foreground">{drillProject.isNoProject ? '暂无会话' : '无 Repo 分组'}</div>
               ) : (
                 drillProject.repos.map(r => (
                   <RepoNodeItem
@@ -1548,6 +1628,7 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
                       sessionId={sessionId}
                       onSwitchSession={onSwitchSession}
                       onDrill={handleDrill}
+                      onActivate={handleActivate}
                       onEdit={handleEdit}
                       onAddFolder={handleAddFolder}
                       onSetActive={handleSetActive}

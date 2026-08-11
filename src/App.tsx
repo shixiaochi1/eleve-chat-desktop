@@ -81,6 +81,26 @@ let tauriWindow: Window | null = null;
 
 // ── helpers ──
 
+// 🔴 2026-08-12 联动重构（老大需求：选 Agent → 点项目/HOME → 消息区 + 右侧文件联动）：
+//   找某 Agent 某域的最新活跃会话：
+//   - 项目域（path 非空）= 会话 cwd 在 path 下（前缀匹配 + 路径边界，防 C:\projAB 误判属于 C:\projA）
+//   - HOME 域 = 该 Agent workspace 路径（后端注入 Home 桶 path；匹配 workspace 下会话）
+//   按 last_active 降序取最新；无匹配返回 null
+function latestSessionForDomain(
+  sessions: Array<{ id: string; cwd?: string | null; last_active: number }>,
+  profile: string,
+  path: string,
+): { id: string; cwd?: string | null; last_active: number } | null {
+  const p = path.toLowerCase(); // Windows 路径大小写不敏感
+  const matches = sessions.filter((s) => {
+    if (!sessionIdMatchesProfile(s.id, profile)) return false;
+    const c = (s.cwd ?? '').toLowerCase();
+    if (path) return !!c && (c === p || c.startsWith(p + '\\') || c.startsWith(p + '/'));
+    return !c;
+  });
+  return matches.sort((a, b) => b.last_active - a.last_active)[0] ?? null;
+}
+
 export default function App() {
   // ── 三栏布局 state ──
   const [activePanel, setActivePanel] = useState<string | null>('agents'); // 默认显示统一侧栏（Agent + 会话）
@@ -385,7 +405,15 @@ export default function App() {
   // 🔴 W-7: 会话 cwd（session.info 推送）— 传预览中心供重启预览使用
   // 会话切换时清空，等新会话的 session.info 重新推送
   const [sessionCwd, setSessionCwd] = useState('');
-  useEffect(() => { setSessionCwd(''); }, [sess.sessionId]);
+  // 🔴 2026-08-12 断线修复：项目行点击注入的 cwd 不被"会话切换清空"effect 抹掉
+  //   （项目下无会话 → clearSessionView → setSessionId(null) → 旧逻辑把 cwd 清空 →
+  //   文件面板回默认目录而非项目根，观感=点了项目没联动）。豁免一次：保留注入值，
+  //   之后由 session.info 推送的会话真实 cwd 覆盖（Hermes 文件树=会话 cwd 语义）。
+  const projectCwdInjectedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (projectCwdInjectedRef.current) { projectCwdInjectedRef.current = null; return; }
+    setSessionCwd('');
+  }, [sess.sessionId]);
 
   // 🔴 2026-08-09 启动 seed（对齐 Hermes ensureDefaultWorkspaceCwd + $currentCwd
   // 初始值 = getRememberedWorkspaceCwd）：无会话时把工作目录 seed 到当前 cwd——
@@ -510,6 +538,13 @@ export default function App() {
 
   // ── model discovery（依赖 sess.sessionId，必须在 sess 之后） ──
   const modelDiscovery = useModels({ enabled: portReady, sessionId: sess.sessionId ?? undefined, currentProfile });
+
+  // 🔴 2026-08-12 修复：宫格选模型回调稳定引用 —— 原内联箭头每渲染新建 →
+  // 击穿 AgentChatCard 的 memo（拖窗体 width/height 变化时所有卡片全量重渲染 → 卡崩）。
+  // modelDiscovery.selectModel 本身是 useCallback（稳定），这里只做参数适配层。
+  const handleGridSelectModel = useCallback((profile: string, modelId: string, sid?: string | null) => {
+    modelDiscovery.selectModel(modelId, profile, sid ?? undefined);
+  }, [modelDiscovery.selectModel]);
 
   // 🔴 打开模型选择器时自动 refresh（修复：启动重试窗口过期后池才有数据 → 永远空列表）
   useEffect(() => {
@@ -670,6 +705,9 @@ export default function App() {
     if (viewMode === 'grid') {
       setWsActiveProfile(name);
       setCurrentProfile(name);
+      // 🔴 2026-08-12 断线修复：切 Agent 旧项目 scope 失效（对齐 Hermes 切 profile 后 scope stale）
+      setProjectScopeCwd(null);
+      projectCwdInjectedRef.current = null; // 🔴 清豁免标记：A 的项目 cwd 不残留到 B 的文件面板
       return;
     }
 
@@ -693,6 +731,10 @@ export default function App() {
     // ── Step 3: 切换盖章（同步，保证后续 sendRpc 盖章正确） ──
     setWsActiveProfile(name);
     setCurrentProfile(name);
+    // 🔴 2026-08-12 断线修复：切 Agent 旧项目 scope 失效（对齐 Hermes 切 profile 后 scope stale，
+    //   否则新 Agent 说话时 getNewSessionCwd 返回旧 Agent 的项目根 → 新会话落错项目）
+    setProjectScopeCwd(null);
+    projectCwdInjectedRef.current = null; // 🔴 清豁免标记：A 的项目 cwd 不残留到 B 的文件面板
 
     // ── Step 3b: 🔴 S2 修复 — 刷新会话列表（后端按 profile 过滤，S1 保证 sendRpc 盖章新 profile） ──
     sess.refresh();
@@ -723,6 +765,9 @@ export default function App() {
     resetSendingLockRef.current?.();
     setWsActiveProfile(profile);
     setCurrentProfile(profile);
+    // 🔴 2026-08-12 断线修复：宫格→单视图同样清旧项目 scope（防新会话落错项目）
+    setProjectScopeCwd(null);
+    projectCwdInjectedRef.current = null; // 🔴 清豁免标记
     // 🔴 S2: 宫格→单视图同样刷新会话列表（与 handleProfileChange 一致）
     sess.refresh();
     if (targetId) {
@@ -896,37 +941,63 @@ export default function App() {
     },
   });
 
-  // 🔴 2026-08-11 修复：选中项目 = 绑定项目（老大需求——点项目行钻取后直接说话应自动落到该项目）。
-  //   ① 文件面板切到项目根目录（setSessionCwd = Hermes setCurrentCwd，临时显示，
-  //      下次 session.info 覆盖回会话绑定值——Hermes 同款）
-  //   ② 设置项目 scope：此后无会话新建聊天落项目根目录（Hermes $newChatWorkspaceTarget /
-  //      resolveNewSessionCwd 链）；退出钻取（handleBack）清除
-  //   🔴 ③ 会话指针对齐（核心修复）：当前会话空闲且不属于该项目 → 重置会话视图
-  //      （clearSessionView：清指针 + 空白草稿）。否则说话时 usePromptActions.handleSend
-  //      复用旧会话（HOME）→ 消息进 HOME（cwd 烙印不绑项目）→ 树刷新归 Home 桶 =
-  //      「任务结束 fallback HOME」+ 右侧文件面板被 session.info 拉回旧会话 cwd。
-  //      重置后说话走懒创建分支（getNewSessionCwd scope 优先 = 项目根）→ 新会话
-  //      cwd 烙印 = 项目 → 绑定项目 + 右侧文件联动。
-  //      属于该项目（会话 cwd 在项目目录下）→ 保持当前会话；busy（任务运行中）→ 不打断；
-  //      宫格模式（会话 per-Agent 卡片自治）→ 跳过。
-  const handleProjectEntered = useCallback((path: string) => {
-    if (!path) return;
-    setSessionCwd(path);
-    setProjectScopeCwd(path);
-    if (viewMode === 'grid') return;
+  // 🔴 2026-08-12 联动重构（老大需求：选 Agent → 点项目/HOME → 消息区 + 右侧文件一起联动）：
+  //   统一联动模型：
+  //   ① 文件面板：项目 → 切项目根；HOME → 切该 Agent workspace（后端已把 workspace 注入
+  //      Home 桶 path，Hermes 基线 Home 无路径可切，ELEVE 老大定义 HOME = Agent workspace）
+  //   ② scope：项目 → 新会话落项目根；HOME → 新会话落 workspace（与后端 resolve_session_cwd
+  //      ④级 workspace 兑底同源）；空 path（旧后端兑底）→ 退出项目域
+  //   ③ 消息区：找该 Agent 该域的最新活跃会话（项目 = cwd 前缀匹配；HOME = workspace 域）
+  //      → 有则切换（宫格=焦点卡片；单视图=完整切换链），无则空白草稿（懒创建落 scope）
+  //      ；当前会话已属于该域且非 busy → 保持不打断
+  const handleProjectEntered = useCallback((path: string, recommendedSessionId?: string | null) => {
+    if (path) {
+      setSessionCwd(path);          // ① 文件面板 → 项目根 / workspace
+      projectCwdInjectedRef.current = path; // 🔴 豁免"会话切换清空"（无会话场景文件面板停留目标目录）
+      setProjectScopeCwd(path);     // ② 新会话落点 = 项目根 / workspace
+    } else {
+      setProjectScopeCwd(null);     // ② 空 path（旧后端兑底）：退出项目域
+    }
+    // ③ 消息区联动（推荐会话 = 后端分组权威：项目 = 该项目 previewSessions 最新；
+    //    HOME = Home 桶 unowned 全集最新；无推荐 → 前端域匹配兑底 → 空态新建）
+    if (viewMode === 'grid') {
+      // 宫格：焦点 Agent 卡片切推荐会话（无 → 新会话带项目 cwd，HOME 则 workspace），卡片自治不打扰其它卡片
+      if (recommendedSessionId && sessionIdMatchesProfile(recommendedSessionId, currentProfile)) {
+        gridRef.current?.switchToSession(currentProfile, recommendedSessionId);
+      } else {
+        gridRef.current?.newSession(currentProfile, path || undefined);
+      }
+      return;
+    }
     const sid = sess.sessionId;
-    if (sid && !isSendingRef.current) {
-      const cur = sess.sessions.find((s) => s.id === sid);
-      const curCwd = cur?.cwd ?? null;
-      // 路径边界判定（Windows 分隔符；防 C:\projAB 误判属于 C:\projA）
-      const belongs = !!curCwd && (curCwd === path
-        || curCwd.startsWith(path + '\\')
-        || curCwd.startsWith(path + '/'));
-      if (!belongs) {
-        clearSessionView(currentProfile);
+    const cur = sid ? sess.sessions.find((s) => s.id === sid) : undefined;
+    const curCwd = cur?.cwd ?? null;
+    // 路径边界判定（Windows 分隔符 + 大小写不敏感；防 C:\projAB 误判属于 C:\projA）
+    const p = path.toLowerCase();
+    const belongs = !!path && !!curCwd && (() => {
+      const c = curCwd.toLowerCase();
+      return c === p || c.startsWith(p + '\\') || c.startsWith(p + '/');
+    })();
+    // 当前会话已属于该项目 → 保持（任务运行中也不打断）
+    if (belongs) return;
+    if (isSendingRef.current) return; // busy：不打断
+    if (recommendedSessionId) {
+      if (recommendedSessionId === sid) return; // 已在该域最新会话 → 保持
+      // 归属校验（后端分组权威，profile 校验防串台）
+      if (sessionIdMatchesProfile(recommendedSessionId, currentProfile)) {
+        gridAwareSwitchSession(recommendedSessionId);
+        return;
       }
     }
-  }, [sess, isSendingRef, clearSessionView, currentProfile, viewMode]);
+    // 兑底：推荐缺失/归属不符 → 前端域匹配（项目= cwd 前缀；HOME= workspace 域）
+    const latest = latestSessionForDomain(sess.sessions, currentProfile, path);
+    if (latest) {
+      if (latest.id === sid) return; // 已在该域最新会话 → 保持
+      gridAwareSwitchSession(latest.id);
+    } else {
+      clearSessionView(currentProfile);
+    }
+  }, [sess, isSendingRef, clearSessionView, currentProfile, viewMode, gridAwareSwitchSession]);
   const handleProjectExited = useCallback(() => {
     setProjectScopeCwd(null);
   }, []);
@@ -1457,7 +1528,7 @@ export default function App() {
                   onFocusedSessionChange={setFocusedGridSessionId}
                   portReady={portReady}
                   onNewSessionEffects={handleGridNewSessionEffects}
-                  onSelectModel={(profile, modelId, sid) => modelDiscovery.selectModel(modelId, profile, sid ?? undefined)}
+                  onSelectModel={handleGridSelectModel}
                 />
               </div>
             ) : (

@@ -65,8 +65,9 @@ interface SidePanelProps {
   /** 🔴 会话行「在新视图中打开」（对齐 Hermes openInNewTab）：App 层宫格路由 */
   onOpenSessionInNewTab?: (sessionId: string) => void;
   /** 🔴 2026-08-09 进入/退出项目（对齐 Hermes onEnterProject/exitProjectScope）：
-   *  透传给 ProjectTreePanel——进入时文件面板切项目根目录 + 设 scope（新会话落点） */
-  onEnterProject?: (path: string) => void;
+   *  透传给 ProjectTreePanel——进入时文件面板切项目根目录 + 设 scope（新会话落点）；
+   *  2026-08-12 扩展：第二参 = 后端分组的最活跃会话 id（消息区联动，无则前端兜底） */
+  onEnterProject?: (path: string, sessionId?: string | null) => void;
   onExitProject?: () => void;
 }
 

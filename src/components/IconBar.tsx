@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import {
   ChatIcon, CronIcon,
   DebugIcon, SettingsIcon, AboutIcon,
-  PaletteIcon, ToolIcon, FileIcon,
+  PaletteIcon, ToolIcon,
   UsageIcon, ChannelsIcon, KanbanIcon, AgentIcon,
 } from './Icons';
 import { FolderGit, BookOpen } from 'lucide-react';
@@ -33,13 +33,15 @@ interface IconBarProps {
 export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gatewayOnline, onToggleFiles }: IconBarProps) {
   const navItems: NavItem[] = [
     { id: 'agents',   icon: AgentIcon,   label: 'Agent' },
-    { id: 'projects', icon: FolderGit,  label: '项目' },
-    { id: 'files',    icon: FileIcon,   label: '文件浏览器', onClick: onToggleFiles },
+    // 🔴 2026-08-12 老大指示：取消"项目"按钮（项目功能已合并进 Agent 面板）；
+    //   文件浏览器图标换成原项目图标（FolderGit），行为不变（开右侧文件抽屉）
+    { id: 'files',    icon: FolderGit,  label: '文件浏览器', onClick: onToggleFiles },
     { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true },
-    { id: 'channels', icon: ChannelsIcon, label: '频道' },
     { id: 'cron',     icon: CronIcon,     label: '定时任务' },
     { id: 'tools',    icon: ToolIcon,     label: '工具' },
     { id: 'learning', icon: BookOpen,    label: '学习' },
+    // 🔴 2026-08-12 老大指示：频道按钮移到用量分析前面
+    { id: 'channels', icon: ChannelsIcon, label: '频道' },
     { id: 'usage',    icon: UsageIcon,    label: '用量分析' },
     { id: 'debug',    icon: DebugIcon,    label: '调试' },
   ];
