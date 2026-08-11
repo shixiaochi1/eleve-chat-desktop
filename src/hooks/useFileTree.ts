@@ -57,6 +57,11 @@ export function useFileTree(initialPath: string | null = null) {
   const [dirErrors, setDirErrors] = useState<Record<string, string | null>>({});
   const cacheRef = useRef<CacheMap>({});
   const mountedRef = useRef(true);
+  // 🔴 2026-08-12 竞态守卫（老大反馈：点项目/切 Agent 后文件面板不显示需刷新）：
+  //   setRoot 是异步（listDir await），cwd 连续变化（项目点击 + session.info 覆盖 +
+  //   豁免标记）时两次 setRoot 并发 → 后发先至/先发后至乱序 → data 与 rootPath 错位
+  //   显示空白。请求序号：只有最新一次请求允许写 state，旧请求结果丢弃。
+  const rootSeqRef = useRef(0);
   // 🔴 定向刷新需要读最新 openState/loadedDirs（进依赖数组会让展开/加载本身误触发
   // invalidate 重建——对齐 Hermes revalidateTree 在 hook 外读 state 的模式，用 ref 镜像）
   const openStateRef = useRef<OpenStateMap>(openState);
@@ -90,7 +95,9 @@ export function useFileTree(initialPath: string | null = null) {
    * 设置根目录（刷新整个树）
    */
   const setRoot = useCallback(async (path: string | null) => {
+    const seq = ++rootSeqRef.current; // 🔴 竞态守卫：本请求序号
     if (!path) {
+      if (seq !== rootSeqRef.current) return; // 已有更新请求，丢弃旧结果
       setRootPath(null);
       setData(null);
       setError(null);
@@ -108,16 +115,18 @@ export function useFileTree(initialPath: string | null = null) {
 
     try {
       const entries = await listDir(path);
-      if (mountedRef.current) {
+      // 🔴 竞态守卫：仅最新请求可写 state（旧请求的 listDir 返回时已过时）
+      if (mountedRef.current && seq === rootSeqRef.current) {
         setData(entries);
       }
     } catch (err: unknown) {
-      if (mountedRef.current) {
+      if (mountedRef.current && seq === rootSeqRef.current) {
         setError((err as Error).message || '读取目录失败');
         setData([]);
       }
     } finally {
-      if (mountedRef.current) {
+      // loading 归位也只看最新请求（旧请求的 finally 不得覆盖新请求的 loading=true）
+      if (mountedRef.current && seq === rootSeqRef.current) {
         setLoading(false);
       }
     }

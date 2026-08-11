@@ -649,7 +649,7 @@ export default function FileBrowserPanel({
     // 🔴 remote 模式：原生 dialog 选的是本地路径，files.list 读远程必然失败——
     // 走 FolderPickerDialog（远程浏览，对齐 Hermes selectDesktopPaths remote → remotePicker）
     if (isDesktop() && !isFsRemoteMode()) {
-      const sel = await pickDirectory('选择工作目录');
+      const sel = await pickDirectory('选择工作目录', rootPath || undefined);
       if (sel) {
         await setRoot(sel);
         // 🔴 2026-08-09 对齐 Hermes use-cwd-actions：切换目录必须持久化（后端烙印），

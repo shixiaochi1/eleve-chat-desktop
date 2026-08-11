@@ -48,7 +48,7 @@
  *   宫格 → useGridChat 按 session_id 解复用到 N 个状态槽
  *   单视图 → useSSE 按当前 sessionId 过滤
  */
-import { useState, useEffect, useLayoutEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
 import { fetchProfiles } from '../utils/api';
 import { Square } from 'lucide-react';
 import { useGridChat, type AgentChatState } from '../hooks/useGridChat';
@@ -69,7 +69,7 @@ export interface GridModeViewHandle {
   switchToSession: (profile: string, sessionId: string) => void;
   persistPointers: () => void;
   /** 侧栏"新建会话"路由进宫格：重置焦点 Agent 卡片 + 全局副作用 */
-  newSession: (profile: string) => void;
+  newSession: (profile: string, cwd?: string) => void;
   /** 宫格内执行 slash 命令（CommandCenter CMD+K 路由用） */
   execCommand: (profile: string, cmdName: string, args: string) => void;
   /** 🔴 编辑面板保存后热刷新：重新拉 Agent 列表（昵称/颜色即时生效，不依赖重启） */
@@ -150,10 +150,20 @@ interface DragState {
 
 // ── 布局计算：列数按宽度 auto-fill（不超过 Agent 数，少时卡片放大铺满），
 //    高度随窗口自适应（铺满可用高度，不足 MIN_CELL_H 时滚动）──
-function computeLayout(count: number, W: number, H: number) {
+// 🔴 2026-08-12 修复（老大反馈：拖窗体 → 左右/上下排布来回跳 → 卡崩）：
+//   prevCols 列数滞回 —— 宽度在临界点（MIN_CELL_W 边界）附近抖动时列数不再来回切。
+//   滞回带 ±COL_HYSTERESIS：升列需越过 临界+带，降列需越过 临界-带。
+const COL_HYSTERESIS = 12;
+function computeLayout(count: number, W: number, H: number, prevCols = 0) {
   if (count === 0 || W <= 0 || H <= 0) return { cols: 1, rows: 1, cellW: MIN_CELL_W, cellH: MIN_CELL_H, contentH: 0 };
   const maxColsByWidth = Math.max(1, Math.floor((W - PAD * 2 + GAP) / (MIN_CELL_W + GAP)));
-  const cols = Math.max(1, Math.min(count, maxColsByWidth));   // 少于列数上限时卡片放大铺满
+  let cols = Math.max(1, Math.min(count, maxColsByWidth));   // 少于列数上限时卡片放大铺满
+  // 滞回：临界宽度附近保持上次列数（k 列所需最小宽度 wc(k) = k*(MIN_CELL_W+GAP) + (PAD*2-GAP)）
+  if (prevCols > 0 && cols !== prevCols) {
+    const wc = (k: number) => k * (MIN_CELL_W + GAP) + (PAD * 2 - GAP);
+    if (cols > prevCols && W < wc(cols) + COL_HYSTERESIS) cols = prevCols;      // 升列需足够宽
+    if (cols < prevCols && W > wc(prevCols) - COL_HYSTERESIS) cols = prevCols;  // 降列需足够窄
+  }
   const rows = Math.max(1, Math.ceil(count / cols));
   const cellW = (W - PAD * 2 - GAP * (cols - 1)) / cols;
   const availableH = H - PAD * 2 - GAP * (rows - 1);
@@ -194,11 +204,13 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   // 🔴 新建会话：per-agent 状态槽归零 + 全局副作用（复用单视图 handleNewSession 同一套工具链）
   // 🔴 2026-08-11 对齐 Hermes openNewSessionTile：卡片新建 = 立即创建后端会话
   // （Hermes tile 新建立即 session.create + stored_session_id；原实现纯前端重置懒创建）
-  const handleGridNewSession = useCallback(async (profile: string) => {
+  // 🔴 2026-08-12 联动修复：支持 cwd 参数（宫格点项目无会话 → 新会话落项目根，
+  // 对齐单视图 getNewSessionCwd scope 语义；不传 = detached）
+  const handleGridNewSession = useCallback(async (profile: string, cwd?: string) => {
     resetAgent(profile);
     onNewSessionEffects?.(profile);
     try {
-      const created = await getWsClient().sessionCreate({ profile });
+      const created = await getWsClient().sessionCreate({ profile, cwd });
       const sid = created.session_id;
       if (sid && sessionIdMatchesProfile(sid, profile)) {
         // 与 switchToSession 同款三行（函数定义在前，避免 TDZ 引用）
@@ -232,9 +244,21 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   const colorMapRef = useRef(colorMap);
   colorMapRef.current = colorMap;
 
-  const layout = computeLayout(order.length, width, height);
+  // 🔴 2026-08-12 修复：列数滞回需要上一次 cols（prevCols）——宽度在临界点抖动时不来回切
+  const lastColsRef = useRef(0);
+  const layout = computeLayout(order.length, width, height, lastColsRef.current);
+  lastColsRef.current = layout.cols;
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
+
+  // 🔴 2026-08-12 修复：卡片色缓存 —— cardColorFromHex 每渲染新建对象会击穿
+  // AgentChatCard 的 memo（拖窗体时 width/height 变化 → 所有卡片全量重渲染 → 卡崩）。
+  // 引用稳定后：仅 order/colorMap 变化才重建，拖窗体时卡片完全不重渲染。
+  const cardColors = useMemo(() => {
+    const m: Record<string, AgentCardColor> = {};
+    for (const name of order) m[name] = cardColorFromHex(colorMap[name] ?? AGENT_COLORS[0].dot);
+    return m;
+  }, [order, colorMap]);
 
   const registerRef = useCallback((name: string, el: HTMLDivElement | null) => {
     if (el) cellRefs.current.set(name, el);
@@ -242,15 +266,24 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   }, []);
 
   // 监听容器宽高（列数随宽度 auto-fill，高度随窗口自适应）
+  // 🔴 2026-08-12 修复（老大反馈：拖窗体 → 宫格跟着缩放/来回跳 → 卡崩）：
+  //   rAF 合并 + Math.round 归一化 —— 同一帧多次 RO 只 set 一次；整数化后
+  //   相同值 React 自动 bail out，拖窗体不再每帧全量重渲染。
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    let raf = 0;
     const ro = new ResizeObserver((entries) => {
-      setWidth(entries[0].contentRect.width);
-      setHeight(entries[0].contentRect.height);
+      const w = entries[0].contentRect.width;
+      const h = entries[0].contentRect.height;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        setWidth(Math.round(w));
+        setHeight(Math.round(h));
+      });
     });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, []);
 
   // ── 拉取 Agent 列表（挂载时一次 + 编辑面板热更新时刷新） ──
@@ -342,10 +375,15 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
 
   // order / 宽度变化时把所有卡归位（被拖的卡跳过）
   // useLayoutEffect：绘制前归位，避免初始加载时卡片先堆在左上角闪一帧
+  // 🔴 2026-08-12 修复：resize 触发的归位禁用 transition（0.35s 动画每帧重启 =
+  //   拖窗体时卡片永远在过渡中 + 连续 reflow → 卡崩元凶）；仅 order 变化（拖拽换位）才动画
+  const lastSizeRef = useRef({ w: 0, h: 0 });
   useLayoutEffect(() => {
+    const resized = lastSizeRef.current.w !== width || lastSizeRef.current.h !== height;
+    lastSizeRef.current = { w: width, h: height };
     order.forEach((name, idx) => {
       if (dragRef.current?.active && dragRef.current.name === name) return;
-      setCardSlot(name, idx, true);
+      setCardSlot(name, idx, !resized);
     });
   }, [order, width, height, setCardSlot]);
 
@@ -515,7 +553,7 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
                 <AgentChatCard
                   profile={profile}
                   state={states[profile.name] ?? EMPTY_AGENT_STATE}
-                  color={cardColorFromHex(colorMap[profile.name] ?? AGENT_COLORS[0].dot)}
+                  color={cardColors[profile.name]}
                   focused={currentProfile === profile.name}
                   portReady={portReady}
                   onSend={handleSendTo}
