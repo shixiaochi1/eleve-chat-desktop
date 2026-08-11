@@ -83,13 +83,12 @@ export async function openKanbanWindow(): Promise<void> {
 
     console.log('[kanban-window] creating:', KANBAN_WINDOW_LABEL, 'x:', kanbanX, 'y:', kanbanY, 'url:', kanbanUrl);
 
-    // 🔴 2026-08-11 窗口"闪一下就不见了"治理：先隐藏创建（visible:false），
-    // created 后做 IPC 连通性测试（setTitle 走主进程，无需页面 JS），
-    // 通了才 show()——避免 webview IPC 未建立时窗口闪现空白后消失。
-    // IPC 不通（"failed to receive message from webview"）→ 保持隐藏 + 主窗口 console 报错。
-    // 🔴 2026-08-11 位置治理：x/y 计算可能落在未激活屏幕（08:25 实证窗口
-    // show 成功但老大看不到）→ 改 center:true 主屏居中，保证可见；
-    // 位置逻辑后续再优化（对齐 Hermes 主窗口右侧）。
+    // 🔴 2026-08-11 多 webview 数据目录隔离（tauri#11144 + API 文档）：Windows 上
+    // additionalBrowserArgs 等设置不同的 webview 必须用不同 data directory，
+    // 否则第二个 webview 创建失败（0x8007139F 实证）。主窗口在 tauri.conf.json
+    // 配了 --disable-background-* args，看板窗口 JS 侧无法传同 args → 用
+    // dataDirectory 独立数据目录隔离（相对 appDataDir()/kanban）。
+    // 08:29 dev 终端实证：failed to create webview: 0x8007139F。
     const webviewWindow = new WebviewWindow(KANBAN_WINDOW_LABEL, {
       url: kanbanUrl,
       title: '看板 — Eleve',
@@ -104,6 +103,8 @@ export async function openKanbanWindow(): Promise<void> {
       skipTaskbar: false,
       dragDropEnabled: false,
       visible: false,
+      // 独立 webview 数据目录（隔离 additional args 差异，防 0x8007139F）
+      dataDirectory: 'kanban',
     });
 
     webviewWindow.once('tauri://created', () => {
