@@ -881,19 +881,18 @@ export default function App() {
     // 模型由后端 per-profile 权威管理（config.model_ref 热更新 + provider.switch override）
     onSlashConfirm: (data) => setActiveSlashConfirm(data),
     currentProfile,
-    // 🔴 2026-08-09 新会话 cwd（对齐 Hermes createBackendSessionForSend 的
-    // workspaceTarget/currentCwd 链）：项目 scope 优先（进入项目后新聊天落项目）；
-    // 否则继承当前显示 cwd（sessionCwdRef——无会话时 = 启动 seed 的默认工作目录 /
-    // 手动选择目录）；再否则启动 seed 快照（sessionCwd 被会话切换清空后兜底，
-    // Hermes resolveNewSessionCwd 继承 currentCwd 同款）；全无 → 不传 cwd
+    // 🔴 2026-08-11 对齐 Hermes workspaceCwdForNewSession（误对齐修正）：
+    //   ① 项目 scope → 项目根（不变）
+    //   ② 无 scope → DETACHED：仅显式 default_project_dir（本地 settings）或
+    //      remote 记忆（seededCwdRef 启动 seed 时按模式写入）才预附加。
+    //      ❌ 旧实现继承当前显示 cwd（sessionCwdRef）——sessionCwd 会被
+    //      session.info 推成启动目录/上个会话目录，裸新聊天静默落错目录
+    //      （Hermes #71873/#80213/#77496 教训；旧注释自称 Hermes 同款 = 误读）。
     getNewSessionCwd: () => {
       const scope = projectScopeCwdRef.current;
       if (scope) return scope;
-      const cur = sessionCwdRef.current.trim();
-      if (cur) return cur;
       const seeded = seededCwdRef.current?.trim();
-      if (seeded) return seeded;
-      return null;
+      return seeded || null;
     },
   });
 
@@ -991,21 +990,17 @@ export default function App() {
       let sid = sess.sessionId ?? undefined;
       if (!sid) {
         try {
-          // 🔴 2026-08-09 新会话 cwd 链（对齐 Hermes createBackendSessionForSend）：
-          // 项目 scope → 当前显示 cwd（启动 seed 默认目录/手动选择）→ remote 记忆
+          // 🔴 2026-08-11 对齐 Hermes createBackendSessionForSend（detached 语义）：
+          // 项目 scope → 项目根；无 scope → 仅显式 default_project_dir / remote 记忆
+          // （seededCwdRef）；❌ 不再继承当前显示 cwd（session.info 可能推成启动目录）
           let cwd: string | undefined;
           const scopeCwd = projectScopeCwdRef.current;
           if (scopeCwd) {
             cwd = scopeCwd;
           } else {
-            const cur = sessionCwdRef.current.trim();
-            if (cur) {
-              cwd = cur;
-            } else {
-              const seeded = seededCwdRef.current?.trim();
-              if (seeded) {
-                cwd = seeded;
-              }
+            const seeded = seededCwdRef.current?.trim();
+            if (seeded) {
+              cwd = seeded;
             }
           }
           const created = await ws.sessionCreate({
@@ -1100,25 +1095,9 @@ export default function App() {
   // ── load markdown deps + init port + init theme on mount ──
   // 🔴 P0-1: 会话恢复统一由 startupRestored effect 处理（含 sessionIdMatchesProfile 校验）。
   // mount 只预加载 cache/titles（无害），不设 sessionId、不加载消息。
+  // 🔴 2026-08-11 清理：旧主题初始化块已删（storage 'theme' / 'eleve-theme' / dataset.theme
+  // 是旧系统残留，零消费者；主题权威在 ThemeProvider（config.yaml display.skin + eleve-theme-v2）
   useEffect(() => {
-    // 初始化主题（纯同步，立即执行）
-    const savedTheme = (() => {
-      try {
-        const ft = storage.load('theme') as string | null;
-        if (ft) return ft;
-        const ls = localStorage.getItem('eleve-theme');
-        if (ls) {
-          storage.save('theme', ls);
-          localStorage.removeItem('eleve-theme');
-          return ls;
-        }
-      } catch { /* ignore */ }
-      return null;
-    })();
-    if (savedTheme) {
-      document.documentElement.dataset.theme = savedTheme;
-    }
-
     // 🔴 P1：loadSettingsFromRust 已移至 WS connect 后（下方 portReady effect）。
     // 旧实现在 mount 时调（WS 未连，sendRpc state='disconnected' 必 reject，无重试）→ 死代码。
     // 终端字体配置（config.yaml terminal.font_family）同样依赖 WS：放 portReady 后。

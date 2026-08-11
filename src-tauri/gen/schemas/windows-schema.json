@@ -2499,6 +2499,12 @@
           "markdownDescription": "Enables the set_auto_start command without any pre-configured scope."
         },
         {
+          "description": "Enables the toggle_kanban_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-toggle-kanban-window",
+          "markdownDescription": "Enables the toggle_kanban_window command without any pre-configured scope."
+        },
+        {
           "description": "Denies the create_deepseek_webview command without any pre-configured scope.",
           "type": "string",
           "const": "deny-create-deepseek-webview",
@@ -2617,6 +2623,12 @@
           "type": "string",
           "const": "deny-set-auto-start",
           "markdownDescription": "Denies the set_auto_start command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the toggle_kanban_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-toggle-kanban-window",
+          "markdownDescription": "Denies the toggle_kanban_window command without any pre-configured scope."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",

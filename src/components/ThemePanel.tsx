@@ -2,18 +2,16 @@
  * ThemePanel — 主题选择 + 自定义编辑器
  * 
  * 功能：
- * 1. 13 套预设主题快速切换
+ * 1. 7 套预设主题快速切换
  * 2. 点击"编辑"进入颜色编辑模式
  * 3. 颜色按组件分类展示，每个变量有颜色选择器
  * 4. 实时预览 + 保存自定义颜色
  */
 
 import { useState } from 'react';
-import { Eye, Code2 } from 'lucide-react';
 import { useTheme } from '../themes';
 import { BUILTIN_THEME_LIST } from '../themes/presets';
 import type { DesktopThemeColors } from '../themes/types';
-import { useToolViewMode, setToolViewMode, type ToolViewMode } from '@/store/tool-view';
 import { cn } from '@/lib/utils';
 
 interface ThemePanelProps {
@@ -169,15 +167,8 @@ function toHex(color: string): string {
   return '#888888';
 }
 
-/** 工具调用显示模式选项（对齐 Hermes appearance-settings toolView 文案） */
-const TOOL_VIEW_OPTIONS: { id: ToolViewMode; label: string; desc: string; Icon: typeof Eye }[] = [
-  { id: 'product', label: '产品', desc: '易读的工具活动与简洁摘要', Icon: Eye },
-  { id: 'technical', label: '技术', desc: '包含原始工具参数/结果及底层细节', Icon: Code2 },
-];
-
 export default function ThemePanel({ onClose }: ThemePanelProps) {
   const { themeName, setTheme, customColors, hasCustomColors, setCustomColor, resetCustomColors } = useTheme();
-  const toolViewMode = useToolViewMode();
   const [isEditing, setIsEditing] = useState(false);
 
   const currentTheme = BUILTIN_THEME_LIST.find(t => t.name === themeName) ?? BUILTIN_THEME_LIST[0];
@@ -370,34 +361,6 @@ export default function ThemePanel({ onClose }: ThemePanelProps) {
           </div>
         </div>
       )}
-
-      {/* 工具调用显示模式（外观合并至此 — 对齐 Hermes appearance-settings toolView 区块） */}
-      <div className="shrink-0 border-t border-border pt-3 mt-4">
-        <h3 className="text-sm font-semibold">工具调用显示</h3>
-        <p className="text-xs text-muted-foreground mb-2">产品模式隐藏原始工具数据；技术模式显示完整输入/输出。</p>
-        <div className="flex gap-2.5">
-          {TOOL_VIEW_OPTIONS.map(({ id, label, desc, Icon }) => {
-            const selected = toolViewMode === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setToolViewMode(id)}
-                className={cn(
-                  'flex flex-col items-center gap-1 p-2.5 rounded-lg cursor-pointer transition-all text-xs text-center flex-1',
-                  selected
-                    ? 'border border-primary bg-accent/10 text-primary'
-                    : 'border border-border bg-background text-muted-foreground hover:bg-accent/5'
-                )}
-              >
-                <Icon size={18} strokeWidth={1.5} className={selected ? 'text-primary' : 'text-muted-foreground'} />
-                <span className="font-semibold">{label}</span>
-                <span className="text-[10px] text-muted-foreground/70 leading-tight">{desc}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 }

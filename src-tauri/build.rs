@@ -11,6 +11,7 @@ fn main() {
             "get_auto_start",
             "set_auto_start",
             "create_deepseek_webview",
+            "toggle_kanban_window",
             "mark_restarting",
             // 预览控制台
             "preview_console_push",

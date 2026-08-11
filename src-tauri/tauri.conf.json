@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Eleve",
         "width": 1440,
         "height": 900,
@@ -23,21 +24,6 @@
         "resizable": true,
         "dragDropEnabled": false,
         "devtools": true,
-        "additionalBrowserArgs": "--disable-background-timer-throttling --disable-backgrounding-occluded-windows"
-      },
-      {
-        "label": "kanban",
-        "title": "看板 — Eleve",
-        "width": 960,
-        "height": 680,
-        "minWidth": 600,
-        "minHeight": 400,
-        "visible": false,
-        "decorations": true,
-        "center": true,
-        "resizable": true,
-        "dragDropEnabled": false,
-        "url": "index.html?panel=kanban",
         "additionalBrowserArgs": "--disable-background-timer-throttling --disable-backgrounding-occluded-windows"
       }
     ],

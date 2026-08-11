@@ -71,6 +71,7 @@
     "allow-get-auto-start",
     "allow-set-auto-start",
     "allow-create-deepseek-webview",
+    "allow-toggle-kanban-window",
     "allow-mark-restarting",
     "allow-preview-console-push",
     "allow-preview-console-snapshot",

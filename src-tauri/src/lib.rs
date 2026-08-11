@@ -432,6 +432,61 @@ async fn create_deepseek_webview(
     Ok(wv.label().to_string())
 }
 
+/// 看板窗口 toggle（老大 2026-08-11 需求：
+/// 点看板按钮 = 弹出/隐藏切换；点窗口关闭 = 真实关闭）
+///
+/// 🔴 根治 0x8007139F：预注册窗口（tauri.conf.json label=kanban）被真实关闭销毁后，
+/// JS 侧 new WebviewWindow 无法传 additionalBrowserArgs（Tauri v2 JS API 不支持）→
+/// WebView2 多 webview args 不一致 → 创建失败。此 command 在 Rust 侧重建，
+/// 用 WebviewWindowBuilder 显式设置与主窗口一致的 additional_browser_args
+/// （同一 WebView2 Environment）→ 重建必成功。
+///
+/// 语义：
+/// - 窗口存在且可见 → hide（点按钮收起）
+/// - 窗口存在且隐藏 → show + focus（点按钮弹出）
+/// - 窗口不存在（已被真实关闭销毁）→ 重建（带 args）+ show
+#[tauri::command]
+async fn toggle_kanban_window(app: tauri::AppHandle) -> Result<String, String> {
+    const LABEL: &str = "kanban";
+
+    // 已存在 → toggle
+    if let Some(w) = app.get_webview_window(LABEL) {
+        let visible = w.is_visible().unwrap_or(false);
+        if visible {
+            let _ = w.hide();
+            eprintln!("[TAURI] kanban toggle: hide");
+            return Ok("hidden".to_string());
+        } else {
+            let _ = w.show();
+            let _ = w.set_focus();
+            let _ = w.unminimize();
+            eprintln!("[TAURI] kanban toggle: show");
+            return Ok("shown".to_string());
+        }
+    }
+
+    // 不存在（已销毁）→ 重建：与主窗口同 additional_browser_args，防 0x8007139F
+    let url = tauri::WebviewUrl::App("index.html?panel=kanban".into());
+    let builder = tauri::WebviewWindowBuilder::new(&app, LABEL, url)
+        .title("看板 — Eleve")
+        .inner_size(960.0, 680.0)
+        .min_inner_size(600.0, 400.0)
+        .center()
+        .resizable(true)
+        .decorations(true)
+        .visible(false)
+        .additional_browser_args("--disable-background-timer-throttling --disable-backgrounding-occluded-windows");
+
+    let w = builder.build().map_err(|e| {
+        eprintln!("[TAURI] kanban rebuild FAILED: {}", e);
+        format!("kanban window create failed: {}", e)
+    })?;
+    let _ = w.show();
+    let _ = w.set_focus();
+    eprintln!("[TAURI] kanban rebuilt + shown");
+    Ok("rebuilt-shown".to_string())
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // ELEVED 子进程管理
 // ═══════════════════════════════════════════════════════════════════════════
@@ -704,6 +759,10 @@ fn start_eleved_process(eleve_home: &PathBuf) -> Result<ElevedChild, String> {
     cmd.arg("--home")
         .arg(eleve_home.to_string_lossy().as_ref())
         .arg("--no-banner")
+        // 🔴 2026-08-11 对齐 Hermes：显式替换标记。eleved 现在只在带 --replace /
+        // ELEVE_RESTARTING 时才接管旧实例；无标记的任意第二实例（模型/调试直接跑）
+        // 会拒绝启动而不是误杀正在服务的 gateway（2026-08-11 事故根因）。
+        .arg("--replace")
         // 🔴 设置 spawn cwd（对齐 Hermes main.cjs L4771）
         .current_dir(&eleve_cwd)
         // 🔴 显式设置环境变量（对齐 Hermes main.cjs L4772-4784）
@@ -987,6 +1046,7 @@ pub fn run() {
             // MEDIA 处理唯一消费链 src/utils/media.ts → WS media.resolve
             // （后端 misc_service 权威实现），此命令为早期 Tauri 本地处理遗留
             create_deepseek_webview,
+            toggle_kanban_window,
             mark_restarting,
             // 预览控制台：子 Webview 生命周期 + console 缓冲治理
             preview_console::preview_console_push,

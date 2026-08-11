@@ -15,10 +15,11 @@ export type ToolViewMode = 'product' | 'technical';
 const STORAGE_KEY = 'display.tool_view_mode';
 
 function loadInitial(): ToolViewMode {
-  return storage.load(STORAGE_KEY, 'product') === 'technical' ? 'technical' : 'product';
+  // 默认技术模式（老大 2026-08-11：默认展示完整工具输入/输出）
+  return storage.load(STORAGE_KEY, 'technical') === 'technical' ? 'technical' : 'product';
 }
 
-let mode: ToolViewMode = typeof window === 'undefined' ? 'product' : loadInitial();
+let mode: ToolViewMode = typeof window === 'undefined' ? 'technical' : loadInitial();
 const listeners = new Set<() => void>();
 
 export function getToolViewMode(): ToolViewMode {

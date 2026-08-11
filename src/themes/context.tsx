@@ -1,7 +1,7 @@
 /**
  * 主题上下文 — 支持自定义颜色覆盖
  *
- * 13 套预设主题 + 自定义颜色覆盖
+ * 6 套预设主题 + 自定义颜色覆盖
  * 用户选择预设主题后可逐变量调颜色，自定义颜色覆盖预设值
  *
  * 🔴 Config 架构 V2.0：皮肤持久化真相源是 config.yaml (display.skin)
@@ -237,6 +237,132 @@ function applyThemeCSS(theme: DesktopTheme, customOverrides: Partial<DesktopThem
     document.head.appendChild(link)
     INJECTED_FONT_URLS.add(typo.fontUrl)
   }
+
+  // 6. Glass-mode runtime CSS (gradient backplate + backdrop-filter blur)
+  applyGlassMode(root, theme.name)
+}
+
+// ─── Glass-mode: frosted glass + gradient backplate ─────────────────────────
+
+const GLASS_STYLE_ID = 'eleve-glass-css'
+
+/**
+ * Inject glass-mode CSS when the 'glass' theme is active.
+ * Performance: single-level blur (GPU-composited), no animated backdrop-filter,
+ * CSS gradient backplate, contain: layout style isolation.
+ */
+function applyGlassMode(root: HTMLElement, themeName: string) {
+  const existing = document.getElementById(GLASS_STYLE_ID)
+  if (themeName !== 'glass') {
+    existing?.remove()
+    root.classList.remove('glass-mode')
+    // Reset surface vars to default opaque
+    root.style.removeProperty('--glass-bg-chrome')
+    root.style.removeProperty('--glass-bg-sidebar')
+    root.style.removeProperty('--glass-bg-editor')
+    root.style.removeProperty('--glass-bg-elevated')
+    root.style.removeProperty('--glass-bg-bubble')
+    root.style.removeProperty('--glass-bg-input')
+    root.style.removeProperty('--glass-border')
+    return
+  }
+  root.classList.add('glass-mode')
+
+  // Override the surface variables directly so the entire UI chain uses transparent colors
+  root.style.setProperty('--glass-bg-chrome', 'rgba(255,255,255,0.45)')
+  root.style.setProperty('--glass-bg-sidebar', 'rgba(255,255,255,0.38)')
+  root.style.setProperty('--glass-bg-editor', 'rgba(255,255,255,0.48)')
+  root.style.setProperty('--glass-bg-elevated', 'rgba(255,255,255,0.55)')
+  root.style.setProperty('--glass-bg-bubble', 'rgba(255,255,255,0.40)')
+  root.style.setProperty('--glass-bg-input', 'rgba(255,255,255,0.35)')
+  root.style.setProperty('--glass-border', 'rgba(255,255,255,0.22)')
+
+  if (existing) return // already injected
+
+  const style = document.createElement('style')
+  style.id = GLASS_STYLE_ID
+  style.textContent = `
+/* Glass backplate — subtle multi-stop gradient for blur to reveal */
+.glass-mode body,
+.glass-mode #root {
+  background: linear-gradient(135deg, #f0f4ff 0%, #e8eeff 25%, #f5f0ff 50%, #f0f8f5 75%, #f8faff 100%) !important;
+}
+
+/* Override surface vars to transparent glass */
+.glass-mode {
+  --ui-bg-chrome: var(--glass-bg-chrome) !important;
+  --ui-bg-sidebar: var(--glass-bg-sidebar) !important;
+  --ui-bg-editor: var(--glass-bg-editor) !important;
+  --ui-bg-elevated: var(--glass-bg-elevated) !important;
+  --ui-bg-bubble: var(--glass-bg-bubble) !important;
+  --ui-bg-input: var(--glass-bg-input) !important;
+  --ui-stroke-secondary: var(--glass-border) !important;
+}
+
+/* Frosted glass blur on all surfaces */
+.glass-mode #root,
+.glass-mode body > * {
+  backdrop-filter: none;
+}
+.glass-mode [class*="bg-sidebar"],
+.glass-mode [data-slot="sidebar"],
+.glass-mode [class*="sidebar-surface"] {
+  backdrop-filter: blur(14px) saturate(1.15) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.15) !important;
+}
+.glass-mode [class*="bg-editor"],
+.glass-mode [class*="surface-background"],
+.glass-mode [class*="chat-surface"],
+.glass-mode [class*="bg-chrome"] {
+  backdrop-filter: blur(12px) saturate(1.12) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(1.12) !important;
+}
+.glass-mode [class*="bg-card"],
+.glass-mode [data-slot="card"] {
+  backdrop-filter: blur(10px) saturate(1.10) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(1.10) !important;
+  border-color: var(--glass-border) !important;
+}
+.glass-mode [data-slot="dropdown-menu-content"],
+.glass-mode [data-slot="select-content"],
+.glass-mode [data-slot="dialog-content"],
+.glass-mode [data-slot="popover-content"] {
+  backdrop-filter: blur(18px) saturate(1.25) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.25) !important;
+  border-color: var(--glass-border) !important;
+}
+
+/* Glass user bubble */
+.glass-mode [class*="human-message"],
+.glass-mode [class*="user-message"],
+.glass-mode [class*="user-bubble"] {
+  backdrop-filter: blur(10px) saturate(1.10) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(1.10) !important;
+  border: 1px solid var(--glass-border) !important;
+}
+
+/* Glass composer / input */
+.glass-mode textarea,
+.glass-mode [class*="composer"],
+.glass-mode [class*="bg-input"] {
+  backdrop-filter: blur(10px) saturate(1.08) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(1.08) !important;
+}
+
+/* Glass isolation */
+.glass-mode #root {
+  contain: layout style;
+}
+
+/* Glass border glow on key surfaces */
+.glass-mode [class*="bg-editor"] {
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.15), 0 2px 12px rgba(0,0,0,0.06) !important;
+}
+.glass-mode [class*="bg-sidebar"] {
+  border-right: 1px solid var(--glass-border) !important;
+}
+`
+  document.head.appendChild(style)
 }
 
 // ─── Boot-time paint (避免闪烁) ─────────────────────────────────────────────
@@ -370,17 +496,3 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 }
 
 export const useTheme = () => useContext(ThemeContext)
-
-/** @deprecated 保留兼容 */
-export function useSyncThemeFromBackend(backendThemeName: string | null | undefined, setTheme: (name: string) => void) {
-  // 🔴 Config 架构 V2.0：从后端 config.yaml display.skin 同步皮肤
-  // 当后端皮肤名和前端不同时，以后端为准（后端是持久化真相源）
-  useEffect(() => {
-    if (backendThemeName && BUILTIN_THEMES[backendThemeName]) {
-      const local = normalizeSkin(loadThemeName())
-      if (local !== backendThemeName) {
-        setTheme(backendThemeName)
-      }
-    }
-  }, [backendThemeName, setTheme])
-}

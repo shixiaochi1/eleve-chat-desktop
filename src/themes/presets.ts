@@ -1,5 +1,5 @@
 /**
- * 13 套主题定义
+ * 6 套主题定义 — 对齐 Hermes Agent 桌面端
  *
  * 每套主题自带固定明暗属性（由背景色亮度自动判定）。
  * 用户只需选主题，不需要单独切 light/dark。
@@ -7,10 +7,13 @@
 
 import type { DesktopTheme, DesktopThemeTypography } from './types'
 
-const SYSTEM_SANS =
-  '"Segoe WPC", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif'
+const EMOJI_FALLBACK = '"Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", emoji'
 
-const SYSTEM_MONO = '"Cascadia Code", "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Monaco, Consolas, monospace'
+const SYSTEM_SANS =
+  '"Segoe WPC", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif, ' +
+  EMOJI_FALLBACK
+
+const SYSTEM_MONO = 'Menlo, Monaco, "SF Mono", "Courier Prime", monospace, ' + EMOJI_FALLBACK
 
 export const DEFAULT_TYPOGRAPHY: DesktopThemeTypography = { fontSans: SYSTEM_SANS, fontMono: SYSTEM_MONO }
 
@@ -51,434 +54,250 @@ export const nousTheme: DesktopTheme = {
 }
 
 // ════════════════════════════════════════════════════════════
-//  2. Ocean — 深蓝
-// ════════════════════════════════════════════════════════════
-export const oceanTheme: DesktopTheme = {
-  name: 'ocean',
-  label: 'Ocean',
-  description: '深蓝色调',
-  colors: {
-    background: '#0a1628',
-    foreground: '#e0f2fe',
-    card: '#0f1f38',
-    cardForeground: '#e0f2fe',
-    muted: '#132848',
-    mutedForeground: '#7dd3fc',
-    popover: '#132848',
-    popoverForeground: '#e0f2fe',
-    primary: '#38bdf8',
-    primaryForeground: '#0a1628',
-    secondary: '#0c2a4a',
-    secondaryForeground: '#bae6fd',
-    accent: 'rgba(56, 189, 248, 0.12)',
-    accentForeground: '#bae6fd',
-    border: '#1e3a5f',
-    input: '#0c2a4a',
-    ring: '#38bdf8',
-    midground: '#38bdf8',
-    composerRing: '#38bdf8',
-    destructive: '#e75e78',
-    destructiveForeground: '#fef2f2',
-    sidebarBackground: '#0c1a30',
-    sidebarBorder: '#1e3a5f',
-    userBubble: '#0f2848',
-    userBubbleBorder: '#1e4a7f',
-  },
-}
-
-// ════════════════════════════════════════════════════════════
-//  3. Forest — 深绿
-// ════════════════════════════════════════════════════════════
-export const forestTheme: DesktopTheme = {
-  name: 'forest',
-  label: 'Forest',
-  description: '深绿色调',
-  colors: {
-    background: '#0a1a12',
-    foreground: '#d6f3e0',
-    card: '#0f2418',
-    cardForeground: '#d6f3e0',
-    muted: '#133020',
-    mutedForeground: '#6ebe96',
-    popover: '#133020',
-    popoverForeground: '#d6f3e0',
-    primary: '#52b788',
-    primaryForeground: '#0a1a12',
-    secondary: '#0f2e1e',
-    secondaryForeground: '#95d5b2',
-    accent: 'rgba(82, 183, 136, 0.12)',
-    accentForeground: '#95d5b2',
-    border: '#1e4a32',
-    input: '#0f2e1e',
-    ring: '#52b788',
-    midground: '#52b788',
-    composerRing: '#52b788',
-    destructive: '#e75e78',
-    destructiveForeground: '#fef2f2',
-    sidebarBackground: '#0c1f15',
-    sidebarBorder: '#1e4a32',
-    userBubble: '#0f2e20',
-    userBubbleBorder: '#1e5a3e',
-  },
-}
-
-// ════════════════════════════════════════════════════════════
-//  4. Sunset — 暖橙
-// ════════════════════════════════════════════════════════════
-export const sunsetTheme: DesktopTheme = {
-  name: 'sunset',
-  label: 'Sunset',
-  description: '暖橙色调',
-  colors: {
-    background: '#1a0f0a',
-    foreground: '#fef3eb',
-    card: '#24160f',
-    cardForeground: '#fef3eb',
-    muted: '#2e1c14',
-    mutedForeground: '#f4a261',
-    popover: '#2e1c14',
-    popoverForeground: '#fef3eb',
-    primary: '#f4845f',
-    primaryForeground: '#1a0f0a',
-    secondary: '#341c10',
-    secondaryForeground: '#f4a261',
-    accent: 'rgba(244, 132, 95, 0.12)',
-    accentForeground: '#f4a261',
-    border: '#4a2818',
-    input: '#341c10',
-    ring: '#f4845f',
-    midground: '#f4845f',
-    composerRing: '#f4845f',
-    destructive: '#e75e78',
-    destructiveForeground: '#fef2f2',
-    sidebarBackground: '#1f120c',
-    sidebarBorder: '#4a2818',
-    userBubble: '#2e1c14',
-    userBubbleBorder: '#5a3420',
-  },
-}
-
-// ════════════════════════════════════════════════════════════
-//  5. Midnight — 纯黑深色
+//  2. Midnight — 深蓝紫（深色）
 // ════════════════════════════════════════════════════════════
 export const midnightTheme: DesktopTheme = {
   name: 'midnight',
   label: 'Midnight',
-  description: '纯黑深色',
+  description: '深蓝紫深色',
   colors: {
-    background: '#000000',
-    foreground: '#e8e8e8',
-    card: '#0a0a0a',
-    cardForeground: '#e8e8e8',
-    muted: '#141414',
-    mutedForeground: '#888888',
-    popover: '#111111',
-    popoverForeground: '#e8e8e8',
-    primary: '#818cf8',
-    primaryForeground: '#000000',
-    secondary: '#1a1a1a',
+    background: '#08081c',
+    foreground: '#ddd6ff',
+    card: '#0d0d28',
+    cardForeground: '#ddd6ff',
+    muted: '#13133a',
+    mutedForeground: '#7c7ab0',
+    popover: '#0f0f2e',
+    popoverForeground: '#ddd6ff',
+    primary: '#ddd6ff',
+    primaryForeground: '#08081c',
+    secondary: '#1a1a4a',
+    secondaryForeground: '#c4bff0',
+    accent: '#1a1a44',
+    accentForeground: '#d0c8ff',
+    border: '#1e1e52',
+    input: '#1e1e52',
+    ring: '#8b80e8',
+    midground: '#8b80e8',
+    composerRing: '#8b80e8',
+    destructive: '#b03060',
+    destructiveForeground: '#fef2f2',
+    sidebarBackground: '#06061a',
+    sidebarBorder: '#12123a',
+    userBubble: '#14143a',
+    userBubbleBorder: '#242466',
+  },
+  typography: {
+    fontMono: '"JetBrains Mono", ' + SYSTEM_MONO,
+    fontUrl: 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap',
+  },
+}
+
+// ════════════════════════════════════════════════════════════
+//  3. Ember — 暖红铜（深色）
+// ════════════════════════════════════════════════════════════
+export const emberTheme: DesktopTheme = {
+  name: 'ember',
+  label: 'Ember',
+  description: '暖红铜深色',
+  colors: {
+    background: '#160800',
+    foreground: '#ffd8b0',
+    card: '#1e0e04',
+    cardForeground: '#ffd8b0',
+    muted: '#2a1408',
+    mutedForeground: '#aa7a56',
+    popover: '#221008',
+    popoverForeground: '#ffd8b0',
+    primary: '#ffd8b0',
+    primaryForeground: '#160800',
+    secondary: '#341800',
+    secondaryForeground: '#f0c090',
+    accent: '#301600',
+    accentForeground: '#e8c080',
+    border: '#3a1c08',
+    input: '#3a1c08',
+    ring: '#d97316',
+    midground: '#d97316',
+    composerRing: '#d97316',
+    destructive: '#c43010',
+    destructiveForeground: '#fef2f2',
+    sidebarBackground: '#100600',
+    sidebarBorder: '#2a1004',
+    userBubble: '#2a1000',
+    userBubbleBorder: '#4a2010',
+  },
+  typography: {
+    fontMono: '"IBM Plex Mono", ' + SYSTEM_MONO,
+    fontUrl: 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&display=swap',
+  },
+}
+
+// ════════════════════════════════════════════════════════════
+//  4. Mono — 纯灰度（深色）
+// ════════════════════════════════════════════════════════════
+export const monoTheme: DesktopTheme = {
+  name: 'mono',
+  label: 'Mono',
+  description: '纯灰度深色',
+  colors: {
+    background: '#0e0e0e',
+    foreground: '#eaeaea',
+    card: '#141414',
+    cardForeground: '#eaeaea',
+    muted: '#1e1e1e',
+    mutedForeground: '#808080',
+    popover: '#181818',
+    popoverForeground: '#eaeaea',
+    primary: '#eaeaea',
+    primaryForeground: '#0e0e0e',
+    secondary: '#262626',
     secondaryForeground: '#c8c8c8',
-    accent: 'rgba(129, 140, 248, 0.12)',
-    accentForeground: '#c8c8f8',
+    accent: '#222222',
+    accentForeground: '#d8d8d8',
     border: '#2a2a2a',
-    input: '#1a1a1a',
-    ring: '#818cf8',
-    midground: '#818cf8',
-    composerRing: '#818cf8',
-    destructive: '#e75e78',
+    input: '#2a2a2a',
+    ring: '#9a9a9a',
+    midground: '#9a9a9a',
+    composerRing: '#9a9a9a',
+    destructive: '#a84040',
     destructiveForeground: '#fef2f2',
-    sidebarBackground: '#050505',
-    sidebarBorder: '#222222',
-    userBubble: '#0f0f0f',
-    userBubbleBorder: '#2a2a2a',
+    sidebarBackground: '#0a0a0a',
+    sidebarBorder: '#202020',
+    userBubble: '#1a1a1a',
+    userBubbleBorder: '#363636',
   },
 }
 
 // ════════════════════════════════════════════════════════════
-//  6. Rose — 粉红
+//  5. Cyberpunk — 霓虹绿黑（深色）
 // ════════════════════════════════════════════════════════════
-export const roseTheme: DesktopTheme = {
-  name: 'rose',
-  label: 'Rose',
-  description: '粉红色调',
+export const cyberpunkTheme: DesktopTheme = {
+  name: 'cyberpunk',
+  label: 'Cyberpunk',
+  description: '霓虹绿黑深色',
   colors: {
-    background: '#1a0a10',
-    foreground: '#fde8f0',
-    card: '#240f18',
-    cardForeground: '#fde8f0',
-    muted: '#2e1420',
-    mutedForeground: '#f8a5c2',
-    popover: '#2e1420',
-    popoverForeground: '#fde8f0',
-    primary: '#fb71a6',
-    primaryForeground: '#1a0a10',
-    secondary: '#34101e',
-    secondaryForeground: '#f8a5c2',
-    accent: 'rgba(251, 113, 166, 0.12)',
-    accentForeground: '#f8a5c2',
-    border: '#4a1830',
-    input: '#34101e',
-    ring: '#fb71a6',
-    midground: '#fb71a6',
-    composerRing: '#fb71a6',
-    destructive: '#e75e78',
-    destructiveForeground: '#fef2f2',
-    sidebarBackground: '#1f0c14',
-    sidebarBorder: '#4a1830',
-    userBubble: '#2e1420',
-    userBubbleBorder: '#5a2040',
+    background: '#000a00',
+    foreground: '#00ff41',
+    card: '#001200',
+    cardForeground: '#00ff41',
+    muted: '#001a00',
+    mutedForeground: '#1a8a30',
+    popover: '#001000',
+    popoverForeground: '#00ff41',
+    primary: '#00ff41',
+    primaryForeground: '#000a00',
+    secondary: '#002800',
+    secondaryForeground: '#00cc34',
+    accent: '#002000',
+    accentForeground: '#00e038',
+    border: '#003000',
+    input: '#003000',
+    ring: '#00ff41',
+    midground: '#00ff41',
+    composerRing: '#00ff41',
+    destructive: '#ff003c',
+    destructiveForeground: '#000a00',
+    sidebarBackground: '#000600',
+    sidebarBorder: '#001800',
+    userBubble: '#001400',
+    userBubbleBorder: '#004800',
+  },
+  typography: {
+    fontMono: '"Courier New", Courier, monospace, ' + EMOJI_FALLBACK,
+    fontSans: '"Courier New", Courier, monospace, ' + EMOJI_FALLBACK,
   },
 }
 
 // ════════════════════════════════════════════════════════════
-//  7. Slate — 白灰
+//  6. Slate — 冷岩蓝（深色）
 // ════════════════════════════════════════════════════════════
 export const slateTheme: DesktopTheme = {
   name: 'slate',
   label: 'Slate',
-  description: '白灰色调',
+  description: '冷岩蓝深色',
   colors: {
-    background: '#f1f5f9',
-    foreground: '#1e293b',
-    card: '#f8fafc',
-    cardForeground: '#1e293b',
-    muted: '#e2e8f0',
-    mutedForeground: '#64748b',
-    popover: '#ffffff',
-    popoverForeground: '#1e293b',
-    primary: '#475569',
-    primaryForeground: '#f8fafc',
-    secondary: '#e2e8f0',
-    secondaryForeground: '#334155',
-    accent: 'rgba(71, 85, 105, 0.10)',
-    accentForeground: '#334155',
-    border: '#cbd5e1',
-    input: '#e2e8f0',
-    ring: '#475569',
-    midground: '#475569',
-    composerRing: '#475569',
-    destructive: '#cf2d56',
-    destructiveForeground: '#ffffff',
-    sidebarBackground: '#edf0f4',
-    sidebarBorder: '#cbd5e1',
-    userBubble: '#e8ecf1',
-    userBubbleBorder: '#cbd5e1',
-  },
-}
-
-// ════════════════════════════════════════════════════════════
-//  8. Violet — 紫罗兰
-// ════════════════════════════════════════════════════════════
-export const violetTheme: DesktopTheme = {
-  name: 'violet',
-  label: 'Violet',
-  description: '紫罗兰深色',
-  colors: {
-    background: '#130a24',
-    foreground: '#f0e6ff',
-    card: '#1a0f30',
-    cardForeground: '#f0e6ff',
-    muted: '#221440',
-    mutedForeground: '#b794f6',
-    popover: '#1e1236',
-    popoverForeground: '#f0e6ff',
-    primary: '#8b5cf6',
-    primaryForeground: '#130a24',
-    secondary: '#261648',
-    secondaryForeground: '#c4a8f8',
-    accent: 'rgba(139, 92, 246, 0.12)',
-    accentForeground: '#c4a8f8',
-    border: '#3b2270',
-    input: '#261648',
-    ring: '#8b5cf6',
-    midground: '#8b5cf6',
-    composerRing: '#8b5cf6',
-    destructive: '#e75e78',
+    background: '#0d1117',
+    foreground: '#c9d1d9',
+    card: '#161b22',
+    cardForeground: '#c9d1d9',
+    muted: '#21262d',
+    mutedForeground: '#8b949e',
+    popover: '#1c2128',
+    popoverForeground: '#c9d1d9',
+    primary: '#c9d1d9',
+    primaryForeground: '#0d1117',
+    secondary: '#2a3038',
+    secondaryForeground: '#adb5bf',
+    accent: '#1e2530',
+    accentForeground: '#c0c8d0',
+    border: '#30363d',
+    input: '#30363d',
+    ring: '#58a6ff',
+    midground: '#58a6ff',
+    composerRing: '#58a6ff',
+    destructive: '#cf4848',
     destructiveForeground: '#fef2f2',
-    sidebarBackground: '#0f0818',
-    sidebarBorder: '#3b2270',
-    userBubble: '#1e1236',
-    userBubbleBorder: '#4a2890',
+    sidebarBackground: '#090d13',
+    sidebarBorder: '#1c2228',
+    userBubble: '#1e2a38',
+    userBubbleBorder: '#2e4060',
+  },
+  typography: {
+    fontMono: '"JetBrains Mono", ' + SYSTEM_MONO,
   },
 }
 
 // ════════════════════════════════════════════════════════════
-//  9. Cyan — 青蓝
+//  7. Glass — 毛玻璃渐变
 // ════════════════════════════════════════════════════════════
-export const cyanTheme: DesktopTheme = {
-  name: 'cyan',
-  label: 'Cyan',
-  description: '青蓝深色',
+/**
+ * Frosted glass theme on the Default palette.
+ *
+ * Design:
+ * - Backplate: subtle gradient (not a flat color) so blur has depth to reveal.
+ * - Surfaces (card, sidebar, popover, bubbles): translucent with
+ *   backdrop-filter: blur — the browser GPU-composites the layer behind,
+ *   blurs it, then paints the semi-transparent glass on top.
+ * - Performance: single 12px blur per surface (GPU-accelerated on all modern
+ *   browsers), no animated backdrops, CSS `contain` on the root glass layer
+ *   isolates compositing.
+ *
+ * The backdrop-filter CSS is injected at runtime only when this theme is
+ * active (see applyThemeCSS in context.tsx — the .glass-mode class).
+ */
+export const glassTheme: DesktopTheme = {
+  name: 'glass',
+  label: 'Glass',
+  description: '毛玻璃渐变效果',
   colors: {
-    background: '#081a24',
-    foreground: '#e0f7fa',
-    card: '#0c2432',
-    cardForeground: '#e0f7fa',
-    muted: '#102e3e',
-    mutedForeground: '#67e8f9',
-    popover: '#102e3e',
-    popoverForeground: '#e0f7fa',
-    primary: '#22d3ee',
-    primaryForeground: '#081a24',
-    secondary: '#0e3040',
-    secondaryForeground: '#a5f3fc',
-    accent: 'rgba(34, 211, 238, 0.12)',
-    accentForeground: '#a5f3fc',
-    border: '#1a4a60',
-    input: '#0e3040',
-    ring: '#22d3ee',
-    midground: '#22d3ee',
-    composerRing: '#22d3ee',
-    destructive: '#e75e78',
-    destructiveForeground: '#fef2f2',
-    sidebarBackground: '#061420',
-    sidebarBorder: '#1a4a60',
-    userBubble: '#102e3e',
-    userBubbleBorder: '#205a70',
-  },
-}
-
-// ════════════════════════════════════════════════════════════
-//  10. Amber — 琥珀金
-// ════════════════════════════════════════════════════════════
-export const amberTheme: DesktopTheme = {
-  name: 'amber',
-  label: 'Amber',
-  description: '琥珀金深色',
-  colors: {
-    background: '#1c1408',
-    foreground: '#fef6e0',
-    card: '#261c0c',
-    cardForeground: '#fef6e0',
-    muted: '#322614',
-    mutedForeground: '#fbbf24',
-    popover: '#2e2010',
-    popoverForeground: '#fef6e0',
-    primary: '#f59e0b',
-    primaryForeground: '#1c1408',
-    secondary: '#3a2a12',
-    secondaryForeground: '#fcd34d',
-    accent: 'rgba(245, 158, 11, 0.12)',
-    accentForeground: '#fcd34d',
-    border: '#5a3e18',
-    input: '#3a2a12',
-    ring: '#f59e0b',
-    midground: '#f59e0b',
-    composerRing: '#f59e0b',
-    destructive: '#e75e78',
-    destructiveForeground: '#fef2f2',
-    sidebarBackground: '#161006',
-    sidebarBorder: '#5a3e18',
-    userBubble: '#2e2010',
-    userBubbleBorder: '#6a4e24',
-  },
-}
-
-// ════════════════════════════════════════════════════════════
-//  11. Lavender — 薰衣草（浅色）
-// ════════════════════════════════════════════════════════════
-export const lavenderTheme: DesktopTheme = {
-  name: 'lavender',
-  label: 'Lavender',
-  description: '薰衣草浅色',
-  colors: {
-    background: '#f5f0ff',
-    foreground: '#1a1028',
-    card: '#ffffff',
-    cardForeground: '#1a1028',
-    muted: 'color-mix(in srgb, #8b5cf6 5%, #ffffff)',
-    mutedForeground: '#7c6a9e',
-    popover: '#ffffff',
-    popoverForeground: '#1a1028',
-    primary: '#7c3aed',
+    // 背板和 Default 同色 — 渐变由 CSS .glass-mode 注入
+    background: '#f8faff',
+    foreground: '#17171a',
+    // 真正透明的玻璃表面 — 0.5~0.65 透明度让渐变背板清晰透出
+    card: 'rgba(255, 255, 255, 0.55)',
+    cardForeground: '#17171a',
+    muted: 'rgba(0, 83, 253, 0.06)',
+    mutedForeground: '#666678',
+    popover: 'rgba(255, 255, 255, 0.65)',
+    popoverForeground: '#17171a',
+    primary: '#0053fd',
     primaryForeground: '#fcfcfc',
-    secondary: 'color-mix(in srgb, #8b5cf6 7%, #ffffff)',
-    secondaryForeground: '#2e2040',
-    accent: 'color-mix(in srgb, #8b5cf6 10%, #ffffff)',
-    accentForeground: '#281838',
-    border: 'color-mix(in srgb, #8b5cf6 20%, transparent)',
-    input: 'color-mix(in srgb, #8b5cf6 28%, transparent)',
-    ring: '#7c3aed',
-    midground: '#7c3aed',
-    composerRing: '#7c3aed',
+    secondary: 'rgba(0, 83, 253, 0.08)',
+    secondaryForeground: '#242432',
+    accent: 'rgba(0, 83, 253, 0.12)',
+    accentForeground: '#202030',
+    border: 'rgba(255, 255, 255, 0.18)',
+    input: 'rgba(255, 255, 255, 0.12)',
+    ring: '#0053fd',
+    midground: '#0053fd',
+    composerRing: '#0053fd',
     destructive: '#cf2d56',
     destructiveForeground: '#ffffff',
-    sidebarBackground: '#ede6f8',
-    sidebarBorder: 'color-mix(in srgb, #8b5cf6 16%, transparent)',
-    userBubble: 'color-mix(in srgb, #8b5cf6 5%, #ffffff)',
-    userBubbleBorder: 'color-mix(in srgb, #8b5cf6 22%, transparent)',
-  },
-}
-
-// ════════════════════════════════════════════════════════════
-//  12. Graphite — 石墨灰（专业深色）
-// ════════════════════════════════════════════════════════════
-export const graphiteTheme: DesktopTheme = {
-  name: 'graphite',
-  label: 'Graphite',
-  description: '石墨灰深色',
-  colors: {
-    background: '#18181b',
-    foreground: '#e4e4e7',
-    card: '#1e1e22',
-    cardForeground: '#e4e4e7',
-    muted: '#27272a',
-    mutedForeground: '#a1a1aa',
-    popover: '#202024',
-    popoverForeground: '#e4e4e7',
-    primary: '#a78bfa',
-    primaryForeground: '#18181b',
-    secondary: '#242428',
-    secondaryForeground: '#d4d4d8',
-    accent: 'rgba(167, 139, 250, 0.10)',
-    accentForeground: '#c4b5fd',
-    border: '#3f3f46',
-    input: '#27272a',
-    ring: '#a78bfa',
-    midground: '#a78bfa',
-    composerRing: '#a78bfa',
-    destructive: '#e75e78',
-    destructiveForeground: '#fef2f2',
-    sidebarBackground: '#121216',
-    sidebarBorder: '#3f3f46',
-    userBubble: '#222226',
-    userBubbleBorder: '#3f3f46',
-  },
-}
-
-// ════════════════════════════════════════════════════════════
-//  13. Nord — 北欧冷灰蓝
-// ════════════════════════════════════════════════════════════
-export const nordTheme: DesktopTheme = {
-  name: 'nord',
-  label: 'Nord',
-  description: '北欧冷灰蓝',
-  colors: {
-    background: '#2e3440',
-    foreground: '#eceff4',
-    card: '#353b4a',
-    cardForeground: '#eceff4',
-    muted: '#3b4252',
-    mutedForeground: '#d8dee9',
-    popover: '#3b4252',
-    popoverForeground: '#eceff4',
-    primary: '#88c0d0',
-    primaryForeground: '#2e3440',
-    secondary: '#3b4252',
-    secondaryForeground: '#d8dee9',
-    accent: 'rgba(136, 192, 208, 0.12)',
-    accentForeground: '#8fbcbb',
-    border: '#434c5e',
-    input: '#3b4252',
-    ring: '#88c0d0',
-    midground: '#88c0d0',
-    composerRing: '#88c0d0',
-    destructive: '#bf616a',
-    destructiveForeground: '#eceff4',
-    sidebarBackground: '#272d37',
-    sidebarBorder: '#434c5e',
-    userBubble: '#3b4252',
-    userBubbleBorder: '#4c566a',
+    sidebarBackground: 'rgba(255, 255, 255, 0.50)',
+    sidebarBorder: 'rgba(255, 255, 255, 0.15)',
+    userBubble: 'rgba(255, 255, 255, 0.45)',
+    userBubbleBorder: 'rgba(255, 255, 255, 0.20)',
   },
 }
 
@@ -488,34 +307,22 @@ export const nordTheme: DesktopTheme = {
 
 export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
   default: nousTheme,
-  ocean: oceanTheme,
-  forest: forestTheme,
-  sunset: sunsetTheme,
   midnight: midnightTheme,
-  rose: roseTheme,
+  ember: emberTheme,
+  mono: monoTheme,
+  cyberpunk: cyberpunkTheme,
   slate: slateTheme,
-  violet: violetTheme,
-  cyan: cyanTheme,
-  amber: amberTheme,
-  lavender: lavenderTheme,
-  graphite: graphiteTheme,
-  nord: nordTheme,
+  glass: glassTheme,
 }
 
 export const BUILTIN_THEME_LIST: DesktopTheme[] = [
   nousTheme,
-  oceanTheme,
-  forestTheme,
-  sunsetTheme,
   midnightTheme,
-  roseTheme,
+  emberTheme,
+  monoTheme,
+  cyberpunkTheme,
   slateTheme,
-  violetTheme,
-  cyanTheme,
-  amberTheme,
-  lavenderTheme,
-  graphiteTheme,
-  nordTheme,
+  glassTheme,
 ]
 
 /** 默认主题 */
