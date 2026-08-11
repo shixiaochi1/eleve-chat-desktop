@@ -733,6 +733,40 @@ fn read_default_project_dir() -> Option<String> {
 ///   2. 环境变量 ELEVE_DESKTOP_CWD
 ///   3. 开发模式：process::current_dir()
 ///   4. 最终 fallback: 用户 home 目录
+/// 用户显式配置的工作目录（对齐 Hermes readDefaultProjectDir）——仅显式设置才算数。
+///
+/// 🔴 2026-08-12 拆分（workspace 兑底矛盾修复）：TERMINAL_CWD 只承载"用户显式
+/// 意图"（优先级高于 Agent workspace 兑底）。home/dev cwd 兑底只作 spawn current_dir
+/// （resolve 链最后兑底），不注入 TERMINAL_CWD——否则 Tauri 恒注入 home →
+/// workspace 兑底永不生效（矛盾）。
+fn resolve_eleve_cwd_explicit() -> Option<PathBuf> {
+    let candidates: Vec<Option<String>> = vec![
+        // 1. 用户配置的项目目录（对齐 Hermes readDefaultProjectDir）
+        read_default_project_dir(),
+        // 2. 环境变量覆盖
+        std::env::var("ELEVE_DESKTOP_CWD").ok(),
+    ];
+
+    for candidate in candidates.into_iter().flatten() {
+        let resolved = PathBuf::from(&candidate);
+
+        // 🔴 关键：跳过打包安装路径
+        if is_packaged_install_path(&resolved) {
+            eprintln!(
+                "[TAURI] Skipping packaged install path as cwd: {:?}",
+                resolved
+            );
+            continue;
+        }
+
+        if resolved.is_dir() {
+            eprintln!("[TAURI] Resolved explicit cwd: {:?}", resolved);
+            return Some(resolved);
+        }
+    }
+    None
+}
+
 fn resolve_eleve_cwd() -> PathBuf {
     let candidates: Vec<Option<String>> = vec![
         // 1. 用户配置的项目目录（对齐 Hermes readDefaultProjectDir）
@@ -811,10 +845,17 @@ fn start_eleved_process(eleve_home: &PathBuf) -> Result<ElevedChild, String> {
         .current_dir(&eleve_cwd)
         // 🔴 显式设置环境变量（对齐 Hermes main.cjs L4772-4784）
         .env("ELEVE_HOME", eleve_home.to_string_lossy().as_ref())
-        .env("TERMINAL_CWD", eleve_cwd.to_string_lossy().as_ref())
         // 🔴 ELEVE_DESKTOP=1 — 对齐 Hermes HERMES_DESKTOP=1（桌面端 spawn 时设置）
         // gated 工具（close_terminal / read_terminal）通过此变量判断是否可用
         .env("ELEVE_DESKTOP", "1");
+
+    // 🔴 2026-08-12（workspace 兑底矛盾修复）：TERMINAL_CWD 只注入用户显式设置
+    // （resolve_eleve_cwd_explicit = 默认工作目录/ELEVE_DESKTOP_CWD），优先级高于
+    // Agent workspace 兑底；兑底值（dev cwd/home）只作 spawn current_dir（resolve 链
+    // 最后兑底）——否则 Tauri 恒注入 home → workspace 兑底永不生效（矛盾）。
+    if let Some(explicit_cwd) = resolve_eleve_cwd_explicit() {
+        cmd.env("TERMINAL_CWD", explicit_cwd.to_string_lossy().as_ref());
+    }
 
     // stdout/stderr 重定向到 runtime/ 目录下的独立捕获文件
     // 与 eleved 自身的 logs/eleved.log (tracing) 分离，避免双写争用
