@@ -481,19 +481,6 @@ export default function App() {
     }
   }, [sess.sessionId]);
 
-  // 🔴 2026-08-09 进入项目（对齐 Hermes onEnterProject → syncProjectCwd + enterProject）：
-  //   ① 文件面板切到项目根目录（setSessionCwd = Hermes setCurrentCwd，临时显示，
-  //      下次 session.info 覆盖回会话绑定值——Hermes 同款）
-  //   ② 设置项目 scope：此后无会话新建聊天落项目根目录（Hermes $newChatWorkspaceTarget /
-  //      resolveNewSessionCwd 链）；退出钻取（handleBack）清除
-  const handleProjectEntered = useCallback((path: string) => {
-    if (!path) return;
-    setSessionCwd(path);
-    setProjectScopeCwd(path);
-  }, []);
-  const handleProjectExited = useCallback(() => {
-    setProjectScopeCwd(null);
-  }, []);
   useEffect(() => {
     return initPreviewEvents({
       getFocusedSessionId: () => focusedSessionIdRef.current,
@@ -909,6 +896,41 @@ export default function App() {
       return null;
     },
   });
+
+  // 🔴 2026-08-11 修复：选中项目 = 绑定项目（老大需求——点项目行钻取后直接说话应自动落到该项目）。
+  //   ① 文件面板切到项目根目录（setSessionCwd = Hermes setCurrentCwd，临时显示，
+  //      下次 session.info 覆盖回会话绑定值——Hermes 同款）
+  //   ② 设置项目 scope：此后无会话新建聊天落项目根目录（Hermes $newChatWorkspaceTarget /
+  //      resolveNewSessionCwd 链）；退出钻取（handleBack）清除
+  //   🔴 ③ 会话指针对齐（核心修复）：当前会话空闲且不属于该项目 → 重置会话视图
+  //      （clearSessionView：清指针 + 空白草稿）。否则说话时 usePromptActions.handleSend
+  //      复用旧会话（HOME）→ 消息进 HOME（cwd 烙印不绑项目）→ 树刷新归 Home 桶 =
+  //      「任务结束 fallback HOME」+ 右侧文件面板被 session.info 拉回旧会话 cwd。
+  //      重置后说话走懒创建分支（getNewSessionCwd scope 优先 = 项目根）→ 新会话
+  //      cwd 烙印 = 项目 → 绑定项目 + 右侧文件联动。
+  //      属于该项目（会话 cwd 在项目目录下）→ 保持当前会话；busy（任务运行中）→ 不打断；
+  //      宫格模式（会话 per-Agent 卡片自治）→ 跳过。
+  const handleProjectEntered = useCallback((path: string) => {
+    if (!path) return;
+    setSessionCwd(path);
+    setProjectScopeCwd(path);
+    if (viewMode === 'grid') return;
+    const sid = sess.sessionId;
+    if (sid && !isSendingRef.current) {
+      const cur = sess.sessions.find((s) => s.id === sid);
+      const curCwd = cur?.cwd ?? null;
+      // 路径边界判定（Windows 分隔符；防 C:\projAB 误判属于 C:\projA）
+      const belongs = !!curCwd && (curCwd === path
+        || curCwd.startsWith(path + '\\')
+        || curCwd.startsWith(path + '/'));
+      if (!belongs) {
+        clearSessionView(currentProfile);
+      }
+    }
+  }, [sess, isSendingRef, clearSessionView, currentProfile, viewMode]);
+  const handleProjectExited = useCallback(() => {
+    setProjectScopeCwd(null);
+  }, []);
 
   // 🔴 P1: 宫格模式 CommandCenter（CMD+K）命令执行路由进宫格（写入 per-agent 状态槽，非不可见的 zustand store）
   const gridAwareCommand = useCallback((cmdName: string, args: string) => {
