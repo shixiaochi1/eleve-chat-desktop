@@ -325,8 +325,28 @@ export function useMessageStream({
   )
 
   // ── upsertToolCall — 1:1 from Eleve upsertToolCall ──
+  // 🔴 2026-08-11 双卡修复（interim 密封分叉）：interim 密封置 streamId=null 后，
+  // 迟到的工具事件（tool.start/complete）经 mutateStream 懒分配新气泡 → 同一
+  // callId 的工具卡分叉成两张（密封消息里的卡永远 pending 无 duration + 新消息里的
+  // 卡 done 有 duration）= 老大看到的"工具重复：说话前无时间、说话后有时间"
+  // （实证：500785f7 会话 [1] write_file 卡 duration=None + [2] 同 callId duration=0.0068）。
+  // 修复：streamId=null 时，工具事件复用最近一条 interim/流式 assistant 消息
+  // （工具卡属于当前上下文消息，对齐 Hermes 语义），不再新建气泡；
+  // 文本 delta 仍走原分界（新建气泡）不受影响。
   const upsertToolCall = useCallback(
     (payload: GatewayEventPayload | undefined, phase: 'running' | 'complete') => {
+      if (!streamIdRef.current) {
+        const msgs = getMessages()
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const m = msgs[i]
+          if (!m || m.hidden || m.role !== 'assistant') continue
+          if (m.interim || m.pending) {
+            streamIdRef.current = m.id
+            break
+          }
+          break // 再往前没有流式上下文，不跨消息复用
+        }
+      }
       mutateStream(
         parts => upsertToolPart(parts, payload, phase),
         () => upsertToolPart([], payload, phase),
