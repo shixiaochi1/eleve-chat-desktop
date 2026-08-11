@@ -8,7 +8,7 @@
  *   - 可拖动、可缩放
  *   - 重复点击只聚焦，不重复创建
  */
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { WebviewWindow, getAllWebviewWindows } from '@tauri-apps/api/webviewWindow';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 // 🔴 2026-08-11 修复：原定义 KANBAN_WINDOW_LABEL_PREFIX 从未被引用，
@@ -25,24 +25,36 @@ const KANBAN_DEFAULT_HEIGHT = 680;
  */
 export async function openKanbanWindow(): Promise<void> {
   try {
-    // 先尝试 getByLabel 查找
+    // 查找已存在的看板窗口（对齐 Hermes 打开/聚焦语义，不 toggle 关闭）：
+    // getByLabel 优先，getAllWebviewWindows 兜底——Tauri v2 中 webview 注册表
+    // 与 getByLabel 查询可能不同步（创建中/残留），单查 getByLabel 会漏掉
+    // 已存在窗口 → new WebviewWindow 报 "a webview with label 'kanban' already
+    // exists"（2026-08-11 实证）。找到 → show+focus，不重复创建。
     let existing: WebviewWindow | null = null;
     try {
       existing = await WebviewWindow.getByLabel(KANBAN_WINDOW_LABEL);
     } catch {
       // getByLabel 也可能抛出 label 不存在的错误
     }
+    if (!existing) {
+      try {
+        const all = await getAllWebviewWindows();
+        existing = all.find((w) => w.label === KANBAN_WINDOW_LABEL) ?? null;
+      } catch {
+        // 查询失败继续尝试创建
+      }
+    }
 
     if (existing) {
-      console.log('[kanban-window] found existing, closing...');
+      console.log('[kanban-window] found existing, focusing...');
       try {
-        await existing.close();
-        // 等待 Tauri 清理资源
-        await new Promise(r => setTimeout(r, 1000));
-      } catch (closeErr) {
-        console.warn('[kanban-window] close failed:', closeErr);
-        // close 失败也继续尝试创建
+        await existing.show();
+        await existing.setFocus();
+        await existing.unminimize();
+      } catch (focusErr) {
+        console.warn('[kanban-window] focus failed:', focusErr);
       }
+      return;
     }
 
     // 获取主窗口位置和大小，计算看板窗口位置
@@ -91,8 +103,22 @@ export async function openKanbanWindow(): Promise<void> {
     webviewWindow.once('tauri://created', () => {
       console.log('[kanban-window] created OK');
     });
-    webviewWindow.once('tauri://error', (e: unknown) => {
-      console.error('[kanban-window] error:', (e as { payload?: unknown })?.payload);
+    webviewWindow.once('tauri://error', async (e: unknown) => {
+      const payload = (e as { payload?: string })?.payload;
+      console.error('[kanban-window] error:', payload);
+      // 创建失败（并发点击/残留 label）→ 兜底查找已存在窗口并聚焦
+      if (typeof payload === 'string' && payload.includes('already exists')) {
+        try {
+          const all = await getAllWebviewWindows();
+          const w = all.find((x) => x.label === KANBAN_WINDOW_LABEL);
+          if (w) {
+            await w.show();
+            await w.setFocus();
+          }
+        } catch (err2) {
+          console.warn('[kanban-window] fallback focus failed:', err2);
+        }
+      }
     });
   } catch (err) {
     console.error('[kanban-window] openKanbanWindow failed:', err);
