@@ -164,6 +164,15 @@ export function appendTextPart(parts: ChatMessagePart[], delta: string): ChatMes
     return next
   }
 
+  // 🔴 2026-08-11 修复（文本晚到乱序）：qwen 推理流中文本可能在工具事件之后到达
+  // → append 到末尾会渲染成 [TOOL][TEXT]（工具卡跑到文本前）。对齐 Hermes 视觉
+  // （文本上、工具卡下，Hermes mergeFinalAssistantText 是位置保持的替换）：
+  // 新开 text 插到第一个 tool-call 之前。
+  const firstToolIdx = next.findIndex((p) => p.type === 'tool-call')
+  if (firstToolIdx >= 0) {
+    return [...next.slice(0, firstToolIdx), textPart(delta), ...next.slice(firstToolIdx)]
+  }
+
   next.push(textPart(delta))
   return next
 }

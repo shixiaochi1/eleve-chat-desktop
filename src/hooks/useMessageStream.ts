@@ -1166,8 +1166,18 @@ export function useMessageStream({
               if (m.id !== streamId) return m
               // 🔴 文本合并（对齐 Hermes mergeFinalAssistantText：interim 权威文本替换
               // 流式 delta 文本，reasoning/tool parts 保留）——流式 delta 可能丢尾字符
+              // 🔴 2026-08-11 修复（工具卡跑文本前）：原实现 append 权威文本到 parts
+              // 末尾 → 渲染 [TOOL][TEXT]（qwen 文本晚到场景实证）。插到第一个
+              // tool-call 之前（对齐 Hermes 文本上、工具卡下的视觉）。
               const mergedParts = data.content
-                ? [...m.parts.filter(p => p.type !== 'text'), textPart(data.content)]
+                ? (() => {
+                    const nonText = m.parts.filter(p => p.type !== 'text')
+                    const toolIdx = nonText.findIndex(p => p.type === 'tool-call')
+                    if (toolIdx >= 0) {
+                      return [...nonText.slice(0, toolIdx), textPart(data.content), ...nonText.slice(toolIdx)]
+                    }
+                    return [...nonText, textPart(data.content)]
+                  })()
                 : m.parts
               return { ...m, parts: mergedParts, pending: false, interim: true }
             }),
