@@ -372,6 +372,8 @@ export function usePromptActions({
 
     try {
       await send(text, sessionId, modelOpts);
+      // 🔴 2026-08-12 树自动刷新：消息发送后 bump → 项目树静默重拉（预览会话标题/时间/计数回显）
+      setSessionListVersion?.((v) => v + 1);
     } finally {
       _submitInFlight.delete(submitLockKey);
     }

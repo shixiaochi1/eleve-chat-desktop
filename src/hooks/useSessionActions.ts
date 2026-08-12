@@ -131,19 +131,17 @@ export function useSessionActions({
         //    语义；Rust actor 命令串行，reset 需等 turn 收尾，interrupt 加速）
         ws.abortStream(currentSid).catch(() => {});
         // 2. 后端轮换：旧会话终结（memory preserved）+ 返回新 session_id
-        const data = await resetSession(currentSid) as { session_id?: string; id?: string };
+        // 🔴 2026-08-12 老大：reset 直传 scope cwd——后端创建新会话时同步烙印（防 cwd.set 竞态）
+        const data = await resetSession(currentSid, cwd?.trim() || undefined) as { session_id?: string; id?: string };
         const newId = data?.session_id || data?.id;
         if (newId) {
           // 新会话已由后端创建（非懒创建）；指针/WS 同步到新 id
           sess.setSessionId(newId);
           persistSessionPointer(newId);
           ws.switchSession(newId);
-          // 🔴 2026-08-12（老大需求：新会话自动绑定选中 Agent+项目）：scope 存在时
-          //   对新会话烙印 cwd（session.cwd.set → 后端 update_session_cwd + emit
-          //   session.info → 文件面板/工具层跟随项目根）；失败静默（后端 resolve 兜底）
-          if (cwd?.trim()) {
-            ws.sendRpc('session.cwd.set', { session_id: newId, cwd: cwd.trim() }).catch(() => {});
-          }
+          // 🔴 2026-08-12（老大需求：新会话自动绑定选中 Agent+项目）：scope 已在 reset
+          //   RPC 内由后端直接烙印（reset_session cwd 参数，mapping 后 UPSERT 落库）——
+          //   无需再 fire-and-forget session.cwd.set（同一 RPC 返回前完成，零竞态）
           isLazyDraft = false;
         } else {
           // 后端异常未返回新 id → 降级纯前端（Hermes startFreshSessionDraft 语义）

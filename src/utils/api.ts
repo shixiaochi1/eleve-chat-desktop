@@ -31,8 +31,8 @@ export async function createSession(options?: { model?: string; provider?: strin
 }
 
 /** 重置当前会话（对齐 Eleve reset_session：新 ID + 清消息 + 保留记忆） */
-export async function resetSession(sessionId: string): Promise<any> {
-  return call('reset_session', { session_id: sessionId });
+export async function resetSession(sessionId: string, cwd?: string): Promise<any> {
+  return call('reset_session', { session_id: sessionId, ...(cwd ? { cwd } : {}) });
 }
 
 export async function deleteSession(id: string): Promise<any> {

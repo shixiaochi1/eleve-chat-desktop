@@ -53,9 +53,11 @@ export interface SessionStatusDotProps {
   sessionId: string;
   /** 外层 wrapper 类名（hover 淡出等场景） */
   className?: string;
+  /** 🔴 2026-08-12 圆点颜色覆盖（SessionItem 选中行变橙色） */
+  dotClassName?: string;
 }
 
-export function SessionStatusDot({ sessionId, className }: SessionStatusDotProps) {
+export function SessionStatusDot({ sessionId, className, dotClassName }: SessionStatusDotProps) {
   const st = useSessionStatus(sessionId);
   const dotState = sessionDotState({
     hasBackground: st.background,
@@ -73,7 +75,7 @@ export function SessionStatusDot({ sessionId, className }: SessionStatusDotProps
       title={variant.title}
       aria-label={variant.title}
     >
-      <span className={cn(variant.className, variant.pulse && 'animate-pulse')} aria-hidden="true" />
+      <span className={cn(variant.className, variant.pulse && 'animate-pulse', dotClassName)} aria-hidden="true" />
     </span>
   );
 }

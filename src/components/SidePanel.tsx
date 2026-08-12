@@ -59,6 +59,8 @@ interface SidePanelProps {
   onNewSession?: () => void;
   isStreaming?: boolean;
   messageCount?: number;
+  /** 🔴 2026-08-12 会话列表版本号（新建/切会话/发消息 bump）——透传给 ProjectTreePanel 做树自动刷新信号 */
+  sessionListVersion?: number;
   /** 🔴 在该项目新建会话（对齐 Hermes onNewSessionInWorkspace）：worktree 创建成功后的自动建会话 */
   onNewSessionInProject?: (cwd: string) => void;
   /** 🔴 2026-08-09 进入项目（对齐 Hermes onEnterProject/syncProjectCwd）：

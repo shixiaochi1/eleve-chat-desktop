@@ -12,7 +12,7 @@
  *   projects.create/update/add_folder/set_primary/archive CRUD（对齐 Hermes 桌面端项目管理）。
  */
 import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
-import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, RefreshCw, Plus, MoreVertical, Pencil, FolderPlus, Check, Copy, Trash2, Home, Pin, Download, Archive, Undo2, Minimize2, BarChart3 } from 'lucide-react';
+import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, RefreshCw, Plus, MoreVertical, Pencil, FolderPlus, Copy, Trash2, Home, Pin, Download, Archive, Undo2, Minimize2, BarChart3 } from 'lucide-react';
 import { isTauri } from '@tauri-apps/api/core';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
@@ -98,6 +98,9 @@ interface TreeResult {
 
 interface ProjectTreePanelProps {
   sessionId?: string;
+  /** 🔴 2026-08-12 树自动刷新信号（App 会话列表版本号）：新建会话/切会话/发消息后 bump →
+   *   静默重拉 projects.tree（预览会话/计数/时间即时回显，老大需求：缺自动刷新机制） */
+  sessionListVersion?: number;
   onSwitchSession?: (id: string) => void;
   /** 当前活动 Agent（SidePanel 透传）——🔴 所有 projects.* RPC 显式携带，
    *  不依赖 sendRpc 全局盖章（宫格焦点冒泡时序坑，对齐 ClarifyCard 显式归属模式） */
@@ -271,11 +274,15 @@ function SessionItem({ s, isActive, onClick, actions, rowClassName }: {
         isActive && 'bg-accent/30',
         rowClassName,
       )}
-      onClick={onClick}
+      // 🔴 2026-08-12 冒泡修复：会话行点击必须 stopPropagation——否则冒泡到项目卡片
+      //   onClick（onActivate）触发 onEnterProject 联动，把刚点的会话切回项目最新会话
+      //   （症状：点击行消息区被覆盖/颜色不显示，只能钻取内点才生效）
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
     >
-      <SessionStatusDot sessionId={s.id} />
-      <MessageSquare size={12} className="text-muted-foreground shrink-0" />
-      <span className="truncate flex-1">{title}</span>
+      <SessionStatusDot sessionId={s.id} dotClassName={isActive ? '!bg-accent-orange' : undefined} />
+      {/* 🔴 2026-08-12 老大：选中会话行图标变橙色（区分当前消息） */}
+      <MessageSquare size={12} className={cn('shrink-0', isActive ? 'text-accent-orange' : 'text-muted-foreground')} />
+      <span className={cn('truncate flex-1', isActive && 'text-accent-orange')}>{title}</span>
       {isPinned && <Pin size={10} className="shrink-0 text-muted-foreground/50" />}
       <span className="text-[10px] text-muted-foreground shrink-0">{fmtTime(s.lastActive || s.startedAt)}</span>
       {menu}
@@ -438,23 +445,22 @@ function RepoNodeItem({ repo, sessionId, onSwitchSession, onStartWork, onReveal,
 
 // 项目行前置图标（对齐 Hermes projectIcon）：icon → 图标（color 着色）；
 // 无 icon 有 color → 纯色点；Home 桶 → home 图标；都无 → 默认 folder-library 图标
-// 🔴 2026-08-12 卡片化统一：active=true（选中）时图标反白（primary 色块上）；
-//   未选中时保留项目自定义色点缀，无 color 走主题 muted
-function ProjectLeadIcon({ project, active }: { project: ProjectNode; active?: boolean }) {
+// 🔴 2026-08-12 老大：项目卡片选中态不再反白（选中强调 = 描边+淡底+光环，图标恒本色）
+function ProjectLeadIcon({ project }: { project: ProjectNode }) {
   if (project.color && !project.icon) {
-    // 纯色点项目：选中 = 白点（primary 色块上）；未选中 = 原色点（主题淡底上）
-    return <div className="w-3 h-3 rounded-full shrink-0" style={{ background: active ? '#ffffff' : project.color }} />;
+    // 纯色点项目：恒原色点（muted 色块上）
+    return <div className="w-3 h-3 rounded-full shrink-0" style={{ background: project.color }} />;
   }
   if (project.isNoProject) {
-    return <Home size={13} strokeWidth={1.75} className={cn('shrink-0', active ? 'text-primary-foreground' : 'text-muted-foreground')} />;
+    return <Home size={13} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />;
   }
   const Icon = projectIconFor(project.icon);
   return (
     <Icon
       size={13}
       strokeWidth={1.75}
-      className={cn('shrink-0', !project.color && (active ? 'text-primary-foreground' : 'text-muted-foreground'))}
-      style={project.color ? { color: active ? '#ffffff' : project.color } : undefined}
+      className={cn('shrink-0', !project.color && 'text-muted-foreground')}
+      style={project.color ? { color: project.color } : undefined}
     />
   );
 }
@@ -671,22 +677,11 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onActivate,
       {/* 名称行 */}
       <div className="flex items-center gap-1.5">
         <TreeToggle expanded={expanded} onClick={toggleExpanded} />
-        {/* 项目图标色块：统一主题（未选中 bg-muted/40，选中 bg-primary 白图标） */}
-        <div
-          className={cn(
-            'flex items-center justify-center w-6 h-6 rounded-md shrink-0 overflow-hidden transition-all duration-150',
-            isActiveProject ? 'bg-primary' : 'bg-muted/40',
-          )}
-        >
-          <ProjectLeadIcon project={project} active={isActiveProject} />
+        {/* 项目图标色块：恒主题淡底（选中不再实底反白——老大 2026-08-12） */}
+        <div className="flex items-center justify-center w-6 h-6 rounded-md shrink-0 overflow-hidden transition-all duration-150 bg-muted/40">
+          <ProjectLeadIcon project={project} />
         </div>
         <span className="text-xs font-medium text-foreground truncate flex-1">{project.label}</span>
-        {/* 选中对勾：primary 实底圆点 + 白勾（与 Agent 卡片"给了颜色"样式统一） */}
-        {isActiveProject && (
-          <span className="flex items-center justify-center w-4 h-4 rounded-full shrink-0 bg-primary">
-            <Check size={10} strokeWidth={3} className="text-primary-foreground" />
-          </span>
-        )}
         {/* 会话数/时间：Home 桶不显示（老大 2026-08-12：取消 Home 卡片计数和时间） */}
         {!project.isNoProject && project.sessionCount > 0 && (
           <span className="text-[10px] tabular-nums text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">{project.sessionCount}</span>
@@ -1180,7 +1175,7 @@ function SessionRenameDialog({ session, onClose, onRenamed }: {
 
 // ── Panel ──
 
-export default function ProjectTreePanel({ sessionId, onSwitchSession, currentProfile, onNewSessionInProject, onEnterProject }: ProjectTreePanelProps) {
+export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwitchSession, currentProfile, onNewSessionInProject, onEnterProject }: ProjectTreePanelProps) {
   const [tree, setTree] = useState<TreeResult | null>(null);
   // 🔴 2026-08-12 点选状态修复 v2（老大指正：点击后全部未激活）：
   //   本地 selectedId = 用户显式点选（纯前端权威），null = 未点选 → 渲染跟随后端 active_id。
@@ -1562,6 +1557,16 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
     return () => { cancelled = true; };
   }, [fetchTree]);
 
+  // 🔴 2026-08-12 树自动刷新：会话变化（新建/切换/发消息 bump）→ 静默重拉 projects.tree——
+  //   项目卡片预览会话/计数/时间即时回显（原实现只在 mount/切 Agent/手动刷新时拉，
+  //   新会话说话后左侧树不更新 = 老大反馈的缺自动回显机制）
+  useEffect(() => {
+    if (!currentProfile) return;
+    if (sessionId === undefined && sessionListVersion === undefined) return;
+    void fetchTree(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, sessionListVersion]);
+
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {drill ? (
@@ -1598,7 +1603,7 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
             </div>
           )}
           {drillProject && (
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto min-h-0">
               {drillProject.repos.length === 0 ? (
                 <div className="p-4 text-xs text-muted-foreground">{drillProject.isNoProject ? '暂无会话' : '无 Repo 分组'}</div>
               ) : (
@@ -1662,7 +1667,7 @@ export default function ProjectTreePanel({ sessionId, onSwitchSession, currentPr
                   新建项目
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0">
+              <div className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0 [scrollbar-gutter:stable]">
                 {tree.projects.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-3 p-4">
                     <div className="w-10 h-10 rounded-xl bg-muted/40 flex items-center justify-center">

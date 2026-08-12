@@ -12,7 +12,7 @@ import { notifySuccess, notifyError } from '../utils/notifications';
 import { getWsClient } from '../services/ws-client';
 import { cn } from '@/lib/utils';
 import {
-  Bot, Cpu, Plug, Package, Check, Star, Loader,
+  Bot, Cpu, Plug, Package, Star, Loader,
   RefreshCw, Plus, Trash2,
 } from 'lucide-react';
 import CreateAgentDialog from './CreateAgentDialog';
@@ -111,7 +111,7 @@ function ProfileCard({
       onDoubleClick={() => onEdit?.(profile.name)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(profile.name); } }}
       className={cn(
-        'group relative w-full text-left px-2.5 py-2 pl-3 rounded-lg border bg-card shadow-sm transition-all duration-150 cursor-pointer overflow-hidden space-y-1.5 hover:bg-accent/30',
+        'group relative w-full text-left px-2.5 py-2 rounded-lg border bg-card shadow-sm transition-all duration-150 cursor-pointer overflow-hidden space-y-1.5 hover:bg-accent/30',
         switching && 'opacity-60'
       )}
       style={{
@@ -139,21 +139,12 @@ function ProfileCard({
       )}
       {/* 名称行 */}
       <div className="flex items-center gap-1.5">
-        {/* 头像容器：选中 = accent 实底渐变（白色内容）；未选中 = color 20% 淡底（无 color 透明） */}
-        <div
-          className="flex items-center justify-center w-6 h-6 rounded-md shrink-0 overflow-hidden transition-all duration-150"
-          style={{
-            background: active
-              ? (color
-                  ? `linear-gradient(135deg, ${color}, color-mix(in srgb, ${color} 82%, #000 18%))`
-                  : 'var(--dt-primary)')
-              : (color ? `color-mix(in srgb, ${color} 20%, transparent)` : undefined),
-          } as React.CSSProperties}
-        >
+        {/* 头像容器：恒无方块背景（老大 2026-08-12：与项目卡片一致，选中强调靠描边+淡底+光环） */}
+        <div className="flex items-center justify-center w-6 h-6 rounded-md shrink-0 overflow-hidden transition-all duration-150">
           {profile.avatar || profile.avatar_key ? (
-            <ProfileAvatar name={profile.display_name || profile.name} hasAvatar={profile.avatar} color={active ? '#ffffff' : color} avatarKey={profile.avatar_key} />
+            <ProfileAvatar name={profile.display_name || profile.name} hasAvatar={profile.avatar} color={color} avatarKey={profile.avatar_key} />
           ) : (
-            <Bot size={13} strokeWidth={1.5} style={{ color: active ? '#fff' : (color || undefined) }} />
+            <Bot size={13} strokeWidth={1.5} style={{ color: color || undefined }} />
           )}
         </div>
         <span className="text-xs font-medium text-foreground truncate flex-1">
@@ -170,14 +161,6 @@ function ProfileCard({
         )}
         {switching ? (
           <Loader size={12} strokeWidth={1.5} className="animate-spin text-primary" />
-        ) : active ? (
-          /* 选中对勾：accent 实底小圆 + 白色勾（无 color 用主题 primary——形态统一） */
-          <span
-            className="flex items-center justify-center w-4 h-4 rounded-full shrink-0"
-            style={{ background: accent }}
-          >
-            <Check size={10} strokeWidth={3} className="text-white" />
-          </span>
         ) : null}
         {/* 删除按钮（非 default，hover 显示） */}
         {!profile.is_default && onDelete && (
@@ -371,8 +354,9 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
         <div className="mx-3 mb-1 px-2 py-1 text-[11px] text-destructive bg-destructive/5 rounded border border-destructive/20 shrink-0">{error}</div>
       )}
 
-      {/* Agent 卡片列表（内部滚动，高度由 AgentsPanel 上限约束；pt-1.5 防首卡选中阴影被裁剪） */}
-      <div className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0">
+      {/* Agent 卡片列表（内部滚动，高度由 AgentsPanel 上限约束；pt-1.5 防首卡选中阴影被裁剪；
+          scrollbar-gutter 恒预留滚动条位，与项目列表宽度对齐） */}
+      <div className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0 [scrollbar-gutter:stable]">
         {loading && profiles.length === 0 ? (
           <div className="flex items-center justify-center py-6 text-xs text-muted-foreground">加载中...</div>
         ) : (

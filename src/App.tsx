@@ -1459,9 +1459,11 @@ export default function App() {
         <PaneShell
           leftOpen={true}
           leftWidth={activePanel ? `${52 + panelWidth}px` : '52px'}
-          onLeftResize={(w: number) => setPanelWidth(Math.max(180, Math.min(500, w - 52)))}
+          onLeftResize={(w: number) => setPanelWidth(Math.max(268, Math.min(500, w - 52)))}
           onLeftToggle={() => setActivePanel(activePanel ? null : 'agents')}
-          minLeftWidth={180}
+          // 🔴 2026-08-12 老大：Agent 面板最小宽度 320（总宽，含 52px 图标栏）——
+          //   拖拽不得让卡片/文字变形（面板最小 268px；初始 260px 不受影响）
+          minLeftWidth={320}
           maxLeftWidth={500}
           rightOpen={rightOpen}
           rightWidth={`${rightAnchor.rightW}px`}
@@ -1511,6 +1513,7 @@ export default function App() {
                   messageCount={messageCount}
                   onNewSessionInProject={handleNewSessionInProject}
                   onEnterProject={handleProjectEntered}
+                  sessionListVersion={sessionListVersion}
                 />
             </div>
             )}
