@@ -1,16 +1,16 @@
 /**
- * ThemePanel — 主题选择 + 自定义编辑器
+ * ThemePanel — 主题选择 + macOS 强调色调色板
  * 
  * 功能：
- * 1. 7 套预设主题快速切换
- * 2. 点击"编辑"进入颜色编辑模式
- * 3. 颜色按组件分类展示，每个变量有颜色选择器
- * 4. 实时预览 + 保存自定义颜色
+ * 1. macOS 强调色调色板 — 一键切换整套配色
+ * 2. 预设主题快速切换
+ * 3. 高级编辑模式 — 逐变量微调
  */
 
 import { useState } from 'react';
 import { useTheme } from '../themes';
 import { BUILTIN_THEME_LIST } from '../themes/presets';
+import { MACOS_ACCENT_COLORS, DEFAULT_MACOS_ACCENT } from '../themes/macos-accents';
 import type { DesktopThemeColors } from '../themes/types';
 import { cn } from '@/lib/utils';
 
@@ -18,7 +18,7 @@ interface ThemePanelProps {
   onClose?: () => void;
 }
 
-/** 颜色变量分类定义 */
+/** 颜色变量分类定义（高级编辑模式用） */
 const COLOR_CATEGORIES: {
   name: string;
   description: string;
@@ -28,7 +28,7 @@ const COLOR_CATEGORIES: {
     name: '背景层',
     description: '从深到浅的表面颜色',
     colors: [
-      { key: 'background', label: '背板', desc: '最外层背景' },
+      { key: 'background', label: '背板', desc: '最外层环境' },
       { key: 'sidebarBackground', label: '侧边栏', desc: '左侧栏背景' },
       { key: 'card', label: '卡片', desc: '消息区/卡片背景' },
       { key: 'cardForeground', label: '卡片文字', desc: '卡片内文字' },
@@ -87,15 +87,13 @@ const COLOR_CATEGORIES: {
 ];
 
 /**
- * 解析颜色为 {r,g,b}（支持 hex / rgb() / rgba() / color-mix(in srgb, ...) 递归）
- * 仅用于 color input 显示预览——编辑器里的色块要展示真实混合结果，不能回退灰块
+ * 解析颜色为 {r,g,b}（支持 hex / rgb() / rgba() / color-mix）
  */
 function parseColor(color: string): { r: number; g: number; b: number } | null {
   if (!color) return null;
   const c = color.trim();
   if (!c) return null;
 
-  // hex（#rgb / #rrggbb / #rrggbbaa → 丢 alpha）
   if (c.startsWith('#')) {
     if (/^#[0-9a-fA-F]{3}$/.test(c)) {
       return {
@@ -115,12 +113,9 @@ function parseColor(color: string): { r: number; g: number; b: number } | null {
     return null;
   }
 
-  // rgb() / rgba()（丢 alpha）
   const rgb = c.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*[\d.]+)?\s*\)$/);
   if (rgb) return { r: +rgb[1], g: +rgb[2], b: +rgb[3] };
 
-  // color-mix(in srgb, <c1> <p1>%, <c2> <p2>%)
-  // 权重规则（CSS 语义）：双百分比归一化；单百分比另一色补足；无百分比 50/50
   const mix = c.match(/^color-mix\(\s*in\s+srgb\s*,\s*(.+?)\s*,\s*(.+?)\s*\)$/);
   if (mix) {
     const parseSide = (s: string): { rgb: { r: number; g: number; b: number } | null; pct: number | null } => {
@@ -131,19 +126,12 @@ function parseColor(color: string): { r: number; g: number; b: number } | null {
     };
     const a = parseSide(mix[1]);
     const b2 = parseSide(mix[2]);
-    // transparent 参与 → color input 不支持 alpha，诚实降级返回另一色
     if (!a.rgb || !b2.rgb) return a.rgb ?? b2.rgb;
-    // -1 哨兵 = 未指定百分比（TS 收窄友好；CSS 语义：单百分比另一色补足，无百分比 50/50）
     let w1 = a.pct ?? -1;
     let w2 = b2.pct ?? -1;
-    if (w1 < 0 && w2 < 0) {
-      w1 = 50;
-      w2 = 50;
-    } else if (w1 < 0) {
-      w1 = 100 - w2;
-    } else if (w2 < 0) {
-      w2 = 100 - w1;
-    }
+    if (w1 < 0 && w2 < 0) { w1 = 50; w2 = 50; }
+    else if (w1 < 0) w1 = 100 - w2;
+    else if (w2 < 0) w2 = 100 - w1;
     const total = w1 + w2;
     return {
       r: Math.round((a.rgb.r * w1 + b2.rgb.r * w2) / total),
@@ -155,11 +143,10 @@ function parseColor(color: string): { r: number; g: number; b: number } | null {
   return null;
 }
 
-/** 简化颜色值为 hex（用于 color input）— color-mix/rgba 解析为真实混合色，不再一律回退 #888888 */
 function toHex(color: string): string {
   if (!color) return '#888888';
   if (color.startsWith('#') && (color.length === 7 || color.length === 4)) return color;
-  if (color.startsWith('#') && color.length === 9) return color.slice(0, 7); // rgba hex -> rgb hex
+  if (color.startsWith('#') && color.length === 9) return color.slice(0, 7);
   const parsed = parseColor(color);
   if (parsed) {
     return `#${[parsed.r, parsed.g, parsed.b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
@@ -168,12 +155,12 @@ function toHex(color: string): string {
 }
 
 export default function ThemePanel({ onClose }: ThemePanelProps) {
-  const { themeName, setTheme, customColors, hasCustomColors, setCustomColor, resetCustomColors } = useTheme();
-  const [isEditing, setIsEditing] = useState(false);
+  const { themeName, setTheme, customColors, hasCustomColors, setCustomColor, resetCustomColors, macosAccent, setMacOSAccent } = useTheme();
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const currentTheme = BUILTIN_THEME_LIST.find(t => t.name === themeName) ?? BUILTIN_THEME_LIST[0];
 
-  /** 获取当前颜色值（自定义覆盖 > 预设） */
+  /** 获取当前颜色值 */
   const getColor = (key: keyof DesktopThemeColors): string => {
     const customValue = customColors[key];
     if (customValue) return customValue as string;
@@ -185,20 +172,12 @@ export default function ThemePanel({ onClose }: ThemePanelProps) {
   const handleSelectPreset = (id: string) => {
     setTheme(id);
     resetCustomColors();
-    setIsEditing(false);
+    setShowAdvanced(false);
   };
 
-  /** 进入编辑模式 */
-  const handleStartEdit = (themeId?: string) => {
-    if (themeId && themeId !== themeName) {
-      setTheme(themeId);
-    }
-    setIsEditing(true);
-  };
-
-  /** 退出编辑模式 */
-  const handleStopEdit = () => {
-    setIsEditing(false);
+  /** 选择 macOS 强调色 */
+  const handleSelectAccent = (color: string) => {
+    setMacOSAccent(color);
   };
 
   /** 重置为预设 */
@@ -208,159 +187,204 @@ export default function ThemePanel({ onClose }: ThemePanelProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* 标题区 */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <p className="text-sm text-muted-foreground">
-            {isEditing
-              ? `正在编辑「${currentTheme.label}」主题颜色`
-              : '选择主题，或点击编辑自定义颜色'}
-          </p>
+      {/* ═══ macOS 强调色调色板 ═══ */}
+      <div className="mb-5">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold">强调色</h3>
+          <span className="text-[10px] text-muted-foreground">
+            选一个颜色，整套配色自动匹配
+          </span>
         </div>
-        {isEditing && (
-          <div className="flex gap-2">
-            <button
-              onClick={handleReset}
-              className="px-3 py-1.5 text-xs rounded-md border border-border hover:bg-accent/50 transition-colors"
-            >
-              重置为预设
-            </button>
-            <button
-              onClick={handleStopEdit}
-              className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-colors"
-            >
-              完成
-            </button>
+        
+        {/* 预设强调色圆点 */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {MACOS_ACCENT_COLORS.map(({ name, color }) => {
+            const isSelected = macosAccent.toLowerCase() === color.toLowerCase();
+            return (
+              <button
+                key={color}
+                onClick={() => handleSelectAccent(color)}
+                className={cn(
+                  'w-7 h-7 rounded-full transition-all duration-150 relative',
+                  'hover:scale-110 active:scale-95',
+                  isSelected
+                    ? 'ring-2 ring-offset-2 ring-offset-background ring-foreground/30 scale-105'
+                    : 'ring-1 ring-black/10'
+                )}
+                style={{ backgroundColor: color }}
+                title={name}
+                aria-label={name}
+              >
+                {isSelected && (
+                  <svg 
+                    className="w-3.5 h-3.5 absolute inset-0 m-auto" 
+                    fill="none" 
+                    viewBox="0 0 24 24" 
+                    stroke={isLightColor(color) ? '#1d1d1f' : '#ffffff'}
+                    strokeWidth={3}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+            );
+          })}
+          
+          {/* 自定义颜色选择器 */}
+          <div className="relative">
+            <input
+              type="color"
+              value={toHex(macosAccent)}
+              onChange={(e) => handleSelectAccent(e.target.value)}
+              className="w-7 h-7 rounded-full cursor-pointer border-0 p-0 bg-transparent"
+              title="自定义颜色"
+              style={{ 
+                borderRadius: '50%',
+                overflow: 'hidden',
+              }}
+            />
+          </div>
+        </div>
+
+        {/* 当前强调色预览条 */}
+        <div className="mt-3 flex items-center gap-2">
+          <div 
+            className="h-1.5 flex-1 rounded-full" 
+            style={{ 
+              background: `linear-gradient(90deg, ${macosAccent}20, ${macosAccent}, ${macosAccent}20)` 
+            }}
+          />
+        </div>
+      </div>
+
+      {/* ═══ 分隔线 ═══ */}
+      <div className="h-px bg-border mb-4" />
+
+      {/* ═══ 预设主题 ═══ */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold">预设主题</h3>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          {BUILTIN_THEME_LIST.map((t) => {
+            const selected = themeName === t.name && !hasCustomColors;
+            return (
+              <button
+                key={t.name}
+                onClick={() => handleSelectPreset(t.name)}
+                className={cn(
+                  'flex flex-col rounded-lg border-2 transition-all relative overflow-hidden',
+                  selected
+                    ? 'border-primary shadow-sm'
+                    : 'border-border hover:border-primary/50'
+                )}
+              >
+                {/* 颜色预览区 */}
+                <div className="w-full h-12 flex" style={{ background: t.colors.background }}>
+                  <div className="w-1/4 h-full" style={{ background: t.colors.sidebarBackground ?? t.colors.background }} />
+                  <div className="flex-1 p-1.5 flex flex-col gap-1">
+                    <div className="h-2 rounded" style={{ background: t.colors.card }} />
+                    <div className="h-2 rounded w-3/4" style={{ background: t.colors.card }} />
+                  </div>
+                </div>
+                <div className="px-2 py-1.5 text-center">
+                  <span className="text-xs font-medium">{t.label}</span>
+                </div>
+                {selected && (
+                  <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-primary flex items-center justify-center">
+                    <svg className="w-2.5 h-2.5 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ═══ 高级编辑（折叠） ═══ */}
+      <div className="border-t border-border pt-3">
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <svg 
+            className={cn('w-3 h-3 transition-transform', showAdvanced && 'rotate-90')} 
+            fill="none" 
+            viewBox="0 0 24 24" 
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+          高级编辑 — 逐变量微调
+        </button>
+
+        {showAdvanced && (
+          <div className="mt-3 space-y-4 max-h-[400px] overflow-y-auto pr-1">
+            {COLOR_CATEGORIES.map((category) => (
+              <div key={category.name}>
+                <h4 className="text-xs font-semibold mb-1">{category.name}</h4>
+                <p className="text-[10px] text-muted-foreground mb-2">{category.description}</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {category.colors.map(({ key, label, desc }) => {
+                    const color = getColor(key);
+                    const isCustomized = key in customColors;
+                    return (
+                      <div
+                        key={key}
+                        className={cn(
+                          'flex items-center gap-1.5 p-1.5 rounded-md border transition-colors',
+                          isCustomized
+                            ? 'border-primary/40 bg-primary/5'
+                            : 'border-border bg-background'
+                        )}
+                      >
+                        <input
+                          type="color"
+                          value={toHex(color)}
+                          onChange={(e) => setCustomColor(key, e.target.value)}
+                          className="w-6 h-6 rounded cursor-pointer border-0 p-0 bg-transparent"
+                          title={label}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[10px] font-medium truncate">
+                            {label}
+                            {isCustomized && (
+                              <span className="ml-1 text-[8px] text-primary">已修改</span>
+                            )}
+                          </div>
+                          <div className="text-[9px] text-muted-foreground truncate">{desc}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            
+            {/* 重置按钮 */}
+            {hasCustomColors && (
+              <button
+                onClick={handleReset}
+                className="w-full px-3 py-1.5 text-xs rounded-md border border-border hover:bg-accent/50 transition-colors"
+              >
+                重置为默认
+              </button>
+            )}
           </div>
         )}
       </div>
-
-      {/* 编辑模式：颜色选择器 */}
-      {isEditing ? (
-        <div className="flex-1 overflow-y-auto space-y-6 pr-1">
-          {COLOR_CATEGORIES.map((category) => (
-            <div key={category.name}>
-              <h3 className="text-sm font-semibold mb-1">{category.name}</h3>
-              <p className="text-xs text-muted-foreground mb-3">{category.description}</p>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                {category.colors.map(({ key, label, desc }) => {
-                  const color = getColor(key);
-                  const isCustomized = key in customColors;
-                  return (
-                    <div
-                      key={key}
-                      className={cn(
-                        'flex items-center gap-2 p-2 rounded-lg border transition-colors',
-                        isCustomized
-                          ? 'border-primary/40 bg-primary/5'
-                          : 'border-border bg-background'
-                      )}
-                    >
-                      <input
-                        type="color"
-                        value={toHex(color)}
-                        onChange={(e) => setCustomColor(key, e.target.value)}
-                        className="w-8 h-8 rounded cursor-pointer border-0 p-0 bg-transparent"
-                        title={label}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-medium truncate">
-                          {label}
-                          {isCustomized && (
-                            <span className="ml-1 text-[9px] text-primary">已修改</span>
-                          )}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground truncate">{desc}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        /* 选择模式：主题卡片 */
-        <div className="flex-1 overflow-y-auto">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {BUILTIN_THEME_LIST.map((t) => {
-              const selected = themeName === t.name;
-              return (
-                <div
-                  key={t.name}
-                  className={cn(
-                    'flex flex-col rounded-xl border-2 transition-all relative overflow-hidden',
-                    selected
-                      ? 'border-primary shadow-md'
-                      : 'border-border hover:border-primary'
-                  )}
-                >
-                  {/* 颜色预览区 */}
-                  <div className="w-full h-24 flex" style={{ background: t.colors.background }}>
-                    {/* 左侧栏 */}
-                    <div className="w-1/4 h-full flex flex-col items-center pt-2 gap-1" style={{ background: t.colors.sidebarBackground ?? t.colors.background }}>
-                      <div className="w-3 h-3 rounded" style={{ background: t.colors.primary }} />
-                      <div className="w-4 h-0.5 rounded" style={{ background: t.colors.foreground, opacity: 0.3 }} />
-                      <div className="w-4 h-0.5 rounded" style={{ background: t.colors.foreground, opacity: 0.3 }} />
-                      <div className="w-4 h-0.5 rounded" style={{ background: t.colors.foreground, opacity: 0.3 }} />
-                    </div>
-                    {/* 右侧内容区 */}
-                    <div className="flex-1 p-2 flex flex-col gap-1.5">
-                      <div className="h-3 rounded" style={{ background: t.colors.card }} />
-                      <div className="h-3 rounded w-3/4" style={{ background: t.colors.card }} />
-                      <div className="h-3 rounded w-1/2" style={{ background: t.colors.card }} />
-                    </div>
-                  </div>
-
-                  {/* 主题信息 + 按钮 */}
-                  <div className="p-3 flex flex-col gap-2">
-                    <div className="text-center">
-                      <span className="font-semibold text-sm">{t.label}</span>
-                    </div>
-
-                    <div className="flex gap-1.5">
-                      <button
-                        onClick={() => handleSelectPreset(t.name)}
-                        className={cn(
-                          'flex-1 px-2 py-1.5 text-xs rounded-md transition-colors',
-                          selected
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-accent/50 hover:bg-accent text-foreground'
-                        )}
-                      >
-                        {selected ? '使用中' : '使用'}
-                      </button>
-                      <button
-                        onClick={() => handleStartEdit(t.name)}
-                        className="px-2 py-1.5 text-xs rounded-md border border-border hover:bg-accent/50 transition-colors"
-                        title="编辑颜色"
-                      >
-                        编辑
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 选中指示器 */}
-                  {selected && (
-                    <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-primary flex items-center justify-center shadow-sm">
-                      <svg className="w-3 h-3 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                  )}
-
-                  {/* 自定义标记 */}
-                  {selected && hasCustomColors && (
-                    <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[9px] bg-primary/80 text-primary-foreground">
-                      已定制
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
+}
+
+/** 判断颜色是否为浅色（用于勾选标记颜色） */
+function isLightColor(hex: string): boolean {
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 128;
 }

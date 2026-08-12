@@ -16,9 +16,11 @@ import { call } from '../utils/bridge'
 
 import { BUILTIN_THEME_LIST, BUILTIN_THEMES, DEFAULT_SKIN_NAME, DEFAULT_TYPOGRAPHY, nousTheme } from './presets'
 import type { DesktopTheme, DesktopThemeColors } from './types'
+import { MACOS_ACCENT_COLORS, DEFAULT_MACOS_ACCENT, deriveMacOSThemeColors } from './macos-accents'
 
 const SKIN_KEY = 'eleve-desktop-theme-v2'
 const CUSTOM_COLORS_KEY = 'custom-theme-colors'
+const MACOS_ACCENT_KEY = 'macos-accent-color'
 
 const INJECTED_FONT_URLS = new Set<string>()
 
@@ -88,6 +90,19 @@ function saveThemeName(name: string): void {
   // 🔴 Config 架构 V2.0：同步写后端 config.yaml (display.skin)
   // 火即发，不 await（不阻塞 UI，失败静默——localStorage 已保证即时生效）
   call('update_config', { config: { display: { skin: name } } }).catch(() => {})
+}
+
+/** macOS 强调色持久化 — 双写 */
+function loadMacOSAccent(): string {
+  const local = localStorage.getItem(MACOS_ACCENT_KEY)
+  if (local) return local
+  const saved = storage.load(MACOS_ACCENT_KEY) as string | null
+  return saved ?? DEFAULT_MACOS_ACCENT
+}
+
+function saveMacOSAccent(color: string): void {
+  localStorage.setItem(MACOS_ACCENT_KEY, color)
+  storage.save(MACOS_ACCENT_KEY, color)
 }
 
 // ─── CSS 注入 ───────────────────────────────────────────────────────────────
@@ -393,6 +408,9 @@ interface ThemeContextValue {
   setCustomColor: (key: keyof DesktopThemeColors, value: string) => void
   setCustomColors: (colors: Partial<DesktopThemeColors>) => void
   resetCustomColors: () => void
+  // macOS 强调色系统
+  macosAccent: string
+  setMacOSAccent: (color: string) => void
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
@@ -406,6 +424,8 @@ const ThemeContext = createContext<ThemeContextValue>({
   setCustomColor: () => {},
   setCustomColors: () => {},
   resetCustomColors: () => {},
+  macosAccent: DEFAULT_MACOS_ACCENT,
+  setMacOSAccent: () => {},
 })
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -415,6 +435,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const [customColors, setCustomColorsState] = useState<Partial<DesktopThemeColors>>(() =>
     typeof window === 'undefined' ? {} : loadCustomColors()
+  )
+
+  // macOS 强调色
+  const [macosAccent, setMacOSAccentState] = useState(() =>
+    typeof window === 'undefined' ? DEFAULT_MACOS_ACCENT : loadMacOSAccent()
   )
 
   // 🔴 Config 架构 V2.0：启动时从后端 config.yaml display.skin 同步皮肤
@@ -476,6 +501,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     clearCustomColors()
   }, [])
 
+  // macOS 强调色设置
+  const setMacOSAccent = useCallback((color: string) => {
+    setMacOSAccentState(color)
+    saveMacOSAccent(color)
+    // 根据强调色生成完整配色并应用
+    const derivedColors = deriveMacOSThemeColors(color, isDark)
+    setCustomColorsState(derivedColors)
+    saveCustomColors(derivedColors)
+  }, [isDark])
+
   const value = useMemo(
     () => ({
       theme: activeTheme,
@@ -488,8 +523,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       setCustomColor,
       setCustomColors,
       resetCustomColors,
+      macosAccent,
+      setMacOSAccent,
     }),
-    [activeTheme, themeName, isDark, customColors, setTheme, setCustomColor, setCustomColors, resetCustomColors]
+    [activeTheme, themeName, isDark, customColors, setTheme, setCustomColor, setCustomColors, resetCustomColors, macosAccent, setMacOSAccent]
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
