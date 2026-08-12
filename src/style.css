@@ -90,44 +90,13 @@
   :root {
     color-scheme: light;
 
-    --theme-foreground: #17171a;
-    --theme-primary: #3b82f6;
-    --theme-secondary: color-mix(in srgb, #3b82f6 7%, #ffffff);
-    --theme-accent-soft: color-mix(in srgb, #3b82f6 10%, #ffffff);
-    --theme-midground: #3b82f6;
-    --theme-warm: #cf806d;
-    --theme-background-seed: #f8faff;
-    --theme-sidebar-seed: #f3f7ff;
-    --theme-card-seed: #ffffff;
-    --theme-elevated-seed: #ffffff;
-    --theme-bubble-seed: color-mix(in srgb, #3b82f6 6%, #ffffff);
-    --theme-neutral-chrome: #f3f3f3;
-    --theme-neutral-sidebar: #f3f3f3;
-    --theme-neutral-card: #fcfcfc;
-    --theme-mix-chrome: 92%;
-    --theme-mix-sidebar: 100%;
-    --theme-mix-card: 22%;
-    --theme-mix-backboard: 15%;
-    --theme-mix-elevated: 28%;
-    --theme-mix-bubble: 100%;
-    --theme-fill-primary-accent-mix: 16%;
-    --theme-fill-secondary-accent-mix: 11%;
-    --theme-fill-tertiary-accent-mix: 8%;
-    --theme-fill-quaternary-accent-mix: 5%;
-    --theme-fill-quinary-accent-mix: 3%;
-    --theme-stroke-primary-accent-mix: 24%;
-    --theme-stroke-secondary-accent-mix: 16%;
-    --theme-stroke-tertiary-accent-mix: 10%;
-    --theme-stroke-quaternary-accent-mix: 6%;
-    --theme-row-hover-accent-mix: 4%;
-    --theme-row-active-accent-mix: 8%;
-    --theme-control-hover-accent-mix: 6%;
-    --theme-control-active-accent-mix: 8%;
+    /* macOS 风格主题：所有 --theme-* 变量由 context.tsx 动态设置 */
+    /* 这里只保留不依赖主题的固定值 */
 
     --ui-base: var(--theme-foreground);
     --ui-accent: var(--theme-midground);
     --ui-accent-secondary: var(--theme-primary);
-    --ui-warm: var(--theme-warm);
+    --ui-warm: var(--theme-warm, #cf806d);
     --ui-red: #cf2d56;
     --ui-orange: #db704b;
     --ui-yellow: #c08532;
