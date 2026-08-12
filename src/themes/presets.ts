@@ -302,6 +302,114 @@ export const glassTheme: DesktopTheme = {
 }
 
 // ════════════════════════════════════════════════════════════
+//  8. Silver — 银灰极简（浅色）
+// ════════════════════════════════════════════════════════════
+export const silverTheme: DesktopTheme = {
+  name: 'silver',
+  label: 'Silver',
+  description: '银灰极简浅色',
+  colors: {
+    background: '#f0f0f2',
+    foreground: '#1a1a1c',
+    card: '#f8f8fa',
+    cardForeground: '#1a1a1c',
+    muted: 'rgba(74, 74, 78, 0.04)',
+    mutedForeground: '#9a9a9e',
+    popover: '#ffffff',
+    popoverForeground: '#1a1a1c',
+    primary: '#4a4a4e',
+    primaryForeground: '#ffffff',
+    secondary: 'rgba(74, 74, 78, 0.08)',
+    secondaryForeground: '#3a3a3e',
+    accent: 'rgba(74, 74, 78, 0.08)',
+    accentForeground: '#4a4a4e',
+    border: 'rgba(0, 0, 0, 0.06)',
+    input: 'rgba(0, 0, 0, 0.1)',
+    ring: '#4a4a4e',
+    midground: '#4a4a4e',
+    composerRing: '#4a4a4e',
+    destructive: '#cf2d56',
+    destructiveForeground: '#ffffff',
+    sidebarBackground: '#f4f4f6',
+    sidebarBorder: 'rgba(0, 0, 0, 0.06)',
+    userBubble: 'rgba(74, 74, 78, 0.08)',
+    userBubbleBorder: 'rgba(0, 0, 0, 0.1)',
+  },
+}
+
+// ════════════════════════════════════════════════════════════
+//  9. Graphite — 深灰沉稳（深色）
+// ════════════════════════════════════════════════════════════
+export const graphiteTheme: DesktopTheme = {
+  name: 'graphite',
+  label: 'Graphite',
+  description: '深灰沉稳深色',
+  colors: {
+    background: '#2a2a2e',
+    foreground: '#e8e8ea',
+    card: '#323236',
+    cardForeground: '#e8e8ea',
+    muted: '#3a3a3e',
+    mutedForeground: '#78787c',
+    popover: '#3a3a3e',
+    popoverForeground: '#e8e8ea',
+    primary: '#8a8a8e',
+    primaryForeground: '#2a2a2e',
+    secondary: '#424246',
+    secondaryForeground: '#a8a8ac',
+    accent: 'rgba(138, 138, 142, 0.18)',
+    accentForeground: '#e8e8ea',
+    border: 'rgba(255, 255, 255, 0.08)',
+    input: 'rgba(255, 255, 255, 0.14)',
+    ring: '#8a8a8e',
+    midground: '#8a8a8e',
+    composerRing: '#8a8a8e',
+    destructive: '#cf4848',
+    destructiveForeground: '#fef2f2',
+    sidebarBackground: '#262628',
+    sidebarBorder: 'rgba(255, 255, 255, 0.08)',
+    userBubble: 'rgba(138, 138, 142, 0.18)',
+    userBubbleBorder: 'rgba(255, 255, 255, 0.14)',
+  },
+}
+
+// ════════════════════════════════════════════════════════════
+//  10. Charcoal — 炭灰质感（深色）
+// ════════════════════════════════════════════════════════════
+export const charcoalTheme: DesktopTheme = {
+  name: 'charcoal',
+  label: 'Charcoal',
+  description: '炭灰质感深色',
+  colors: {
+    background: '#242426',
+    foreground: '#e8e8ea',
+    card: '#2c2c2e',
+    cardForeground: '#e8e8ea',
+    muted: '#343436',
+    mutedForeground: '#78787c',
+    popover: '#343436',
+    popoverForeground: '#e8e8ea',
+    primary: '#8a8a8e',
+    primaryForeground: '#242426',
+    secondary: '#3c3c3e',
+    secondaryForeground: '#a8a8ac',
+    accent: 'rgba(138, 138, 142, 0.15)',
+    accentForeground: '#e8e8ea',
+    border: 'rgba(255, 255, 255, 0.08)',
+    input: 'rgba(255, 255, 255, 0.14)',
+    ring: '#8a8a8e',
+    midground: '#8a8a8e',
+    composerRing: '#8a8a8e',
+    destructive: '#cf4848',
+    destructiveForeground: '#fef2f2',
+    sidebarBackground: '#202022',
+    sidebarBorder: 'rgba(255, 255, 255, 0.08)',
+    userBubble: 'rgba(138, 138, 142, 0.15)',
+    userBubbleBorder: 'rgba(255, 255, 255, 0.14)',
+  },
+}
+
+// ════════════════════════════════════════════════════════════
 //  导出
 // ════════════════════════════════════════════════════════════
 
@@ -313,6 +421,9 @@ export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
   cyberpunk: cyberpunkTheme,
   slate: slateTheme,
   glass: glassTheme,
+  silver: silverTheme,
+  graphite: graphiteTheme,
+  charcoal: charcoalTheme,
 }
 
 export const BUILTIN_THEME_LIST: DesktopTheme[] = [
@@ -323,6 +434,9 @@ export const BUILTIN_THEME_LIST: DesktopTheme[] = [
   cyberpunkTheme,
   slateTheme,
   glassTheme,
+  silverTheme,
+  graphiteTheme,
+  charcoalTheme,
 ]
 
 /** 默认主题 */
