@@ -28,16 +28,16 @@ interface EventConfig {
 }
 
 const EVENT_CONFIG: Record<string, EventConfig> = {
-  text:      { label: '消息',    color: 'var(--accent)',   Icon: MessageCircle },
-  reasoning: { label: '思考',    color: '#a78bfa',         Icon: ThinkingIcon },
-  tool_start:{ label: '工具开始',color: '#f59e0b',         Icon: ToolIcon },
-  tool_arg:  { label: '工具参数',color: '#f59e0b',         Icon: (s: Record<string, unknown>) => <Braces size={ICON_SIZE} {...strokeProps} {...s} /> },
+  text:      { label: '消息',    color: 'var(--dt-primary)',   Icon: MessageCircle },
+  reasoning: { label: '思考',    color: 'var(--ui-purple)',         Icon: ThinkingIcon },
+  tool_start:{ label: '工具开始',color: 'var(--ui-yellow)',         Icon: ToolIcon },
+  tool_arg:  { label: '工具参数',color: 'var(--ui-yellow)',         Icon: (s: Record<string, unknown>) => <Braces size={ICON_SIZE} {...strokeProps} {...s} /> },
   tool_complete:  { label: '工具完成',color: 'var(--success)',  Icon: CheckIcon },
-  usage:     { label: '用量',    color: 'var(--accent)',   Icon: ModelIcon },
+  usage:     { label: '用量',    color: 'var(--dt-primary)',   Icon: ModelIcon },
   done:      { label: '完成',    color: 'var(--success)',  Icon: CheckIcon },
   error:     { label: '错误',    color: 'var(--error)',    Icon: (s: Record<string, unknown>) => <AlertCircle size={ICON_SIZE} {...strokeProps} {...s} /> },
-  delegate:  { label: '委派',    color: '#ec4899',         Icon: (s: Record<string, unknown>) => <Users size={ICON_SIZE} {...strokeProps} {...s} /> },
-  model:     { label: '模型',    color: '#8b5cf6',         Icon: ModelIcon },
+  delegate:  { label: '委派',    color: 'var(--ui-pink)',         Icon: (s: Record<string, unknown>) => <Users size={ICON_SIZE} {...strokeProps} {...s} /> },
+  model:     { label: '模型',    color: 'var(--ui-blue)',         Icon: ModelIcon },
 };
 
 export default function DebugPanel({

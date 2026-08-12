@@ -887,7 +887,7 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
           <div className="flex items-center gap-2.5 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2">
             <div
               className="grid size-8 shrink-0 place-items-center rounded-lg text-white shadow-sm transition-colors"
-              style={{ background: color || '#8b8b8b' }}
+              style={{ background: color || 'var(--dt-primary)' }}
             >
               {icon ? (() => { const Ic = projectIconFor(icon); return <Ic size={15} />; })() : <FolderGit size={15} />}
             </div>

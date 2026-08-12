@@ -71,7 +71,7 @@ export default function SessionWindowApp() {
     [profiles, profileName],
   );
   const state = states[profileName] ?? EMPTY_STATE;
-  const color = cardColor(profile?.color || '#6366f1');
+  const color = cardColor(profile?.color || 'var(--dt-primary)');
 
   // 加载中（端口未就绪 / 会话未加载）
   if (!portReady || !profileName || !sessionId) {

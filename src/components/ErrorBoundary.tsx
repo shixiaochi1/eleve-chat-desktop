@@ -46,23 +46,25 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
           padding: '40px 24px',
           maxWidth: '600px',
           margin: '80px auto',
-          background: '#1a1a2e',
+          background: 'var(--dt-card)',
           borderRadius: '12px',
-          color: '#e0e0e0',
+          color: 'var(--dt-foreground)',
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+          border: '1px solid var(--dt-border)',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
         }}>
-          <h2 style={{ color: 'var(--ui-red, #ff6b6b)', marginBottom: '12px' }}>渲染错误</h2>
+          <h2 style={{ color: 'var(--ui-red)', marginBottom: '12px' }}>渲染错误</h2>
           <p style={{ marginBottom: '16px', opacity: 0.8 }}>
             页面遇到了一个渲染错误。你可以尝试恢复或刷新页面。
           </p>
           <div style={{
-            background: '#0d0d1a',
+            background: 'var(--dt-muted)',
             padding: '12px',
             borderRadius: '8px',
             marginBottom: '16px',
             fontSize: '12px',
             fontFamily: 'monospace',
-            color: '#ff6b6b',
+            color: 'var(--ui-red)',
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-all',
             maxHeight: '200px',
@@ -76,8 +78,8 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
               onClick={this.handleReload}
               style={{
                 padding: '8px 20px',
-                background: '#4a9eff',
-                color: '#fff',
+                background: 'var(--dt-primary)',
+                color: 'var(--dt-primary-foreground)',
                 border: 'none',
                 borderRadius: '6px',
                 cursor: 'pointer',
@@ -90,9 +92,9 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
               onClick={this.handleHardReload}
               style={{
                 padding: '8px 20px',
-                background: '#333',
-                color: '#fff',
-                border: 'none',
+                background: 'var(--dt-muted)',
+                color: 'var(--dt-foreground)',
+                border: '1px solid var(--dt-border)',
                 borderRadius: '6px',
                 cursor: 'pointer',
                 fontSize: '14px',
