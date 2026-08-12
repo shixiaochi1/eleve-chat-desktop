@@ -26,6 +26,8 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
     tool_output_max_line_length: 1000,
     checkpoints_max_snapshots: 5,
     toolsets: '',
+    session_idle_ttl_secs: 3600,
+    session_max_live: 1000,
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -44,6 +46,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       const terminal = bc.terminal || {};
       const tool_output = bc.tool_output || {};
       const checkpoints = agent.checkpoints || {};
+      const sessions = bc.sessions || {};
 
       setConfig({
         max_turns: agent.max_turns ?? 90,
@@ -61,6 +64,8 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
         tool_output_max_line_length: tool_output.max_line_length ?? 1000,
         checkpoints_max_snapshots: checkpoints.max_snapshots ?? 5,
         toolsets: (Array.isArray(agent.enabled_toolsets) ? agent.enabled_toolsets.join(', ') : ''),
+        session_idle_ttl_secs: sessions.idle_ttl_secs ?? 3600,
+        session_max_live: sessions.max_live_sessions ?? 1000,
       });
       setLoaded(true);
     } catch {
@@ -104,6 +109,10 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
             max_bytes: config.tool_output_max_bytes,
             max_lines: config.tool_output_max_lines,
             max_line_length: config.tool_output_max_line_length,
+          },
+          sessions: {
+            idle_ttl_secs: config.session_idle_ttl_secs,
+            max_live_sessions: config.session_max_live,
           },
         },
       });
@@ -396,6 +405,43 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
           checked={config.service_tier === 'fast'}
           onChange={e => update('service_tier', e.target.checked ? 'fast' : 'normal')}
         />
+      </div>
+
+      {/* ══════════ 会话治理（per-Agent 生效，走 sessions 节配置）══════════ */}
+      <div className="text-xs font-semibold text-muted-foreground mb-2 mt-5">
+        <span className="font-medium">会话治理</span>
+      </div>
+
+      {/* 闲置驱逐 TTL */}
+      <div className="mb-3">
+        <label className="block text-xs text-muted-foreground mb-1">闲置驱逐间隔（秒）</label>
+        <input
+          className="flex h-8 w-28 items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          type="number"
+          min={0}
+          step={60}
+          value={config.session_idle_ttl_secs}
+          onChange={e => update('session_idle_ttl_secs', parseInt(e.target.value) || 0)}
+        />
+        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
+          空闲超过此时间且非忙碌的会话会被移出内存（数据已落盘，可恢复）。0 = 禁用自动驱逐。
+        </p>
+      </div>
+
+      {/* 常驻会话上限 */}
+      <div className="mb-3">
+        <label className="block text-xs text-muted-foreground mb-1">常驻会话上限</label>
+        <input
+          className="flex h-8 w-28 items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          type="number"
+          min={0}
+          step={1}
+          value={config.session_max_live}
+          onChange={e => update('session_max_live', parseInt(e.target.value) || 0)}
+        />
+        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
+          内存中最多驻留的会话数，超限时驱逐最久未活跃的会话。0 = 不限制。
+        </p>
       </div>
 
       {/* 保存按钮 */}

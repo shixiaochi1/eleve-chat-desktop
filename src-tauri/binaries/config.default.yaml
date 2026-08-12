@@ -91,3 +91,9 @@ memory:
   memory_dir: ""  # 留空 = 使用 ELEVE_HOME/memories/
   nudge_interval: 10
   flush_min_turns: 6
+
+# === Session 治理 Configuration ===
+# 常驻会话生命周期治理（per-Agent 生效，也可在 设置 → 高级 → 会话治理 中修改）
+sessions:
+  idle_ttl_secs: 3600     # 闲置驱逐间隔（秒）：空闲超过此时间且非忙碌的会话移出内存（数据已落盘可恢复）。0 = 禁用自动驱逐
+  max_live_sessions: 1000 # 常驻会话上限：内存中最多驻留的会话数，超限驱逐最久未活跃。0 = 不限制
