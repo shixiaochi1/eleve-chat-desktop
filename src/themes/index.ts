@@ -1,3 +1,3 @@
 export { ThemeProvider, useTheme } from './context'
-export { BUILTIN_THEME_LIST, BUILTIN_THEMES, DEFAULT_SKIN_NAME } from './presets'
-export { MACOS_ACCENT_COLORS, DEFAULT_MACOS_ACCENT, deriveMacOSThemeColors } from './macos-accents'
+export { deriveColors, ACCENT_COLORS, DEFAULT_ACCENT, DEFAULT_APPEARANCE, migrateSkinConfig } from './derive'
+export type { Appearance, DerivedColors } from './derive'

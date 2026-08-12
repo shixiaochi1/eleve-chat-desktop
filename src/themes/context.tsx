@@ -1,28 +1,23 @@
 /**
- * 主题上下文 — 支持自定义颜色覆盖
- *
- * 6 套预设主题 + 自定义颜色覆盖
- * 用户选择预设主题后可逐变量调颜色，自定义颜色覆盖预设值
- *
- * 🔴 Config 架构 V2.0：皮肤持久化真相源是 config.yaml (display.skin)
- * localStorage + Tauri storage 是即时缓存（避免闪烁）
- * setTheme 同时写缓存 + 后端 config.set("display.skin")
- * 启动时优先从后端 config.get("display.skin") 读初始值
+ * 主题上下文 — macOS 风格
+ * 
+ * 核心设计：
+ * - 只有 2 个用户可控参数：accent（强调色）+ appearance（外观模式）
+ * - 所有颜色从这两个参数自动派生
+ * - 明暗模式独立于强调色
+ * 
+ * 持久化：
+ * - localStorage + Tauri storage 双写（即时缓存）
+ * - 后端 config.yaml 同步（持久化真相源）
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import * as storage from '../utils/storage'
 import { call } from '../utils/bridge'
+import { deriveColors, ACCENT_COLORS, DEFAULT_ACCENT, DEFAULT_APPEARANCE, type Appearance, type DerivedColors } from './derive'
 
-import { BUILTIN_THEME_LIST, BUILTIN_THEMES, DEFAULT_SKIN_NAME, DEFAULT_TYPOGRAPHY, nousTheme } from './presets'
-import type { DesktopTheme, DesktopThemeColors } from './types'
-import { MACOS_ACCENT_COLORS, DEFAULT_MACOS_ACCENT, deriveMacOSThemeColors } from './macos-accents'
-
-const SKIN_KEY = 'eleve-desktop-theme-v2'
-const CUSTOM_COLORS_KEY = 'custom-theme-colors'
-const MACOS_ACCENT_KEY = 'macos-accent-color'
-
-const INJECTED_FONT_URLS = new Set<string>()
+const ACCENT_KEY = 'eleve-accent-color'
+const APPEARANCE_KEY = 'eleve-appearance'
 
 // ─── 工具函数 ───────────────────────────────────────────────────────────────
 
@@ -32,12 +27,6 @@ function hexToRgb(hex: string): [number, number, number] | null {
   return [0, 2, 4].map(i => parseInt(clean.slice(i, i + 2), 16)) as [number, number, number]
 }
 
-/** 任意颜色加透明度（支持 hex / rgba / color-mix） */
-function hexToRgba(color: string, alpha: number): string {
-  return `color-mix(in srgb, ${color} ${Math.round(alpha * 100)}%, transparent)`
-}
-
-/** 根据背景色亮度判断是否为暗色模式 */
 function isDarkColor(hex: string): boolean {
   const rgb = hexToRgb(hex)
   if (!rgb) return false
@@ -45,233 +34,120 @@ function isDarkColor(hex: string): boolean {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b <= 0.5
 }
 
-function readableOn(hex: string): string {
-  return isDarkColor(hex) ? '#ffffff' : '#161616'
-}
+// ─── 持久化 ─────────────────────────────────────────────────────────────────
 
-// ─── 自定义颜色加载/保存 ────────────────────────────────────────────────────
-
-function loadCustomColors(): Partial<DesktopThemeColors> {
-  try {
-    // 优先从 localStorage 读取（同步可靠）
-    const local = localStorage.getItem(CUSTOM_COLORS_KEY)
-    if (local) return JSON.parse(local) as Partial<DesktopThemeColors>
-    // 降级：从 AppService storage 读取
-    const saved = storage.load(CUSTOM_COLORS_KEY)
-    if (saved && typeof saved === 'object') return saved as Partial<DesktopThemeColors>
-  } catch { /* ignore */ }
-  return {}
-}
-
-function saveCustomColors(colors: Partial<DesktopThemeColors>): void {
-  // 双写：localStorage + AppService
-  localStorage.setItem(CUSTOM_COLORS_KEY, JSON.stringify(colors))
-  storage.save(CUSTOM_COLORS_KEY, colors)
-}
-
-function clearCustomColors(): void {
-  localStorage.removeItem(CUSTOM_COLORS_KEY)
-  storage.remove(CUSTOM_COLORS_KEY)
-}
-
-/** 主题名持久化 — 双写 */
-function loadThemeName(): string {
-  // 优先 localStorage
-  const local = localStorage.getItem(SKIN_KEY)
+function loadAccent(): string {
+  const local = localStorage.getItem(ACCENT_KEY)
   if (local) return local
-  // 降级 storage
-  const saved = storage.load(SKIN_KEY) as string | null
-  return saved ?? DEFAULT_SKIN_NAME
+  const saved = storage.load(ACCENT_KEY) as string | null
+  return saved ?? DEFAULT_ACCENT
 }
 
-function saveThemeName(name: string): void {
-  localStorage.setItem(SKIN_KEY, name)
-  storage.save(SKIN_KEY, name)
-  // 🔴 Config 架构 V2.0：同步写后端 config.yaml (display.skin)
-  // 火即发，不 await（不阻塞 UI，失败静默——localStorage 已保证即时生效）
-  call('update_config', { config: { display: { skin: name } } }).catch(() => {})
+function saveAccent(color: string): void {
+  localStorage.setItem(ACCENT_KEY, color)
+  storage.save(ACCENT_KEY, color)
 }
 
-/** macOS 强调色持久化 — 双写 */
-function loadMacOSAccent(): string {
-  const local = localStorage.getItem(MACOS_ACCENT_KEY)
+function loadAppearance(): Appearance {
+  const local = localStorage.getItem(APPEARANCE_KEY) as Appearance | null
   if (local) return local
-  const saved = storage.load(MACOS_ACCENT_KEY) as string | null
-  return saved ?? DEFAULT_MACOS_ACCENT
+  const saved = storage.load(APPEARANCE_KEY) as Appearance | null
+  return saved ?? DEFAULT_APPEARANCE
 }
 
-function saveMacOSAccent(color: string): void {
-  localStorage.setItem(MACOS_ACCENT_KEY, color)
-  storage.save(MACOS_ACCENT_KEY, color)
+function saveAppearance(appearance: Appearance): void {
+  localStorage.setItem(APPEARANCE_KEY, appearance)
+  storage.save(APPEARANCE_KEY, appearance)
+}
+
+// ─── 系统明暗检测 ───────────────────────────────────────────────────────────
+
+function getSystemDarkMode(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
 }
 
 // ─── CSS 注入 ───────────────────────────────────────────────────────────────
 
-const mixesFor = (isDark: boolean) => ({
-  '--theme-mix-chrome': isDark ? '74%' : '92%',
-  '--theme-mix-sidebar': '100%',
-  '--theme-mix-card': isDark ? '38%' : '22%',
-  '--theme-mix-elevated': isDark ? '46%' : '28%',
-  '--theme-mix-bubble': isDark ? '46%' : '100%',
-})
-
-/** 合并预设主题颜色和自定义覆盖 */
-function mergeColors(base: DesktopThemeColors, overrides: Partial<DesktopThemeColors>): DesktopThemeColors {
-  return { ...base, ...overrides }
-}
-
-function applyThemeCSS(theme: DesktopTheme, customOverrides: Partial<DesktopThemeColors> = {}) {
+function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean) {
   if (typeof document === 'undefined') return
 
   const root = document.documentElement
-  // 合并自定义颜色
-  const c = mergeColors(theme.colors, customOverrides)
-  const typo = { ...DEFAULT_TYPOGRAPHY, ...theme.typography }
-  const isDark = isDarkColor(c.background)
-  const midground = c.midground ?? c.ring
 
   // 1. Dark class + color-scheme
   root.classList.toggle('dark', isDark)
   root.style.setProperty('color-scheme', isDark ? 'dark' : 'light')
-  root.dataset.eleveTheme = theme.name
-      root.dataset.eleveMode = isDark ? 'dark' : 'light'
+  root.dataset.eleveTheme = isGlass ? 'glass' : (isDark ? 'dark' : 'light')
+  root.dataset.eleveMode = isDark ? 'dark' : 'light'
 
-  // 2. Brand seeds
-  const seeds: Record<string, string> = {
-    '--theme-foreground': c.foreground,
-    '--theme-primary': c.primary,
-    '--theme-secondary': c.secondary,
-    '--theme-accent-soft': c.accent,
-    '--theme-midground': midground,
-    '--theme-warm': c.primary,
-    '--theme-background-seed': c.background,
-    '--theme-sidebar-seed': c.sidebarBackground ?? c.background,
-    '--theme-card-seed': c.card,
-    '--theme-elevated-seed': c.popover,
-    '--theme-bubble-seed': c.userBubble ?? c.popover,
+  // 2. 直接注入所有派生颜色
+  const vars: Record<string, string> = {
+    // 背景层
+    '--dt-background': colors.background,
+    '--dt-foreground': colors.foreground,
+    '--dt-card': colors.card,
+    '--dt-card-foreground': colors.cardForeground,
+    '--dt-popover': colors.popover,
+    '--dt-popover-foreground': colors.popoverForeground,
+    
+    // 文字层
+    '--dt-muted': colors.muted,
+    '--dt-muted-foreground': colors.mutedForeground,
+    
+    // 主色层
+    '--dt-primary': colors.primary,
+    '--dt-primary-foreground': colors.primaryForeground,
+    '--dt-secondary': colors.secondary,
+    '--dt-secondary-foreground': colors.secondaryForeground,
+    '--dt-accent': colors.accent,
+    '--dt-accent-foreground': colors.accentForeground,
+    
+    // 边框层
+    '--dt-border': colors.border,
+    '--dt-input': colors.input,
+    '--dt-ring': colors.ring,
+    '--dt-midground': colors.midground,
+    '--dt-composer-ring': colors.composerRing,
+    
+    // 语义层
+    '--dt-destructive': colors.destructive,
+    '--dt-destructive-foreground': colors.destructiveForeground,
+    
+    // 侧边栏
+    '--dt-sidebar-background': colors.sidebarBackground,
+    '--dt-sidebar-border': colors.sidebarBorder,
+    
+    // 气泡
+    '--dt-user-bubble': colors.userBubble,
+    '--dt-user-bubble-border': colors.userBubbleBorder,
+    
+    // 语义色（红/绿/黄/蓝等）
+    '--ui-red': isDark ? '#FF453A' : '#FF3B30',
+    '--ui-green': isDark ? '#34C759' : '#34C759',
+    '--ui-yellow': isDark ? '#FFCC00' : '#FFCC00',
+    '--ui-blue': isDark ? '#007AFF' : '#007AFF',
+    '--ui-purple': isDark ? '#AF52DE' : '#AF52DE',
+    '--ui-orange': isDark ? '#FF9500' : '#FF9500',
+    '--ui-pink': isDark ? '#FF2D55' : '#FF2D55',
+    '--ui-cyan': isDark ? '#5AC8FA' : '#5AC8FA',
   }
 
-  // 3. Direct palette tokens
-  const palette: Record<string, string> = {
-    '--dt-primary-foreground': c.primaryForeground,
-    '--dt-secondary-foreground': c.secondaryForeground,
-    '--dt-accent-foreground': c.accentForeground,
-    '--dt-border': c.border,
-    '--dt-input': c.input,
-    '--dt-ring': c.ring,
-    '--dt-muted': c.muted,
-    '--dt-midground-foreground': c.midgroundForeground ?? readableOn(midground),
-    '--dt-composer-ring': c.composerRing ?? midground,
-    '--dt-destructive': c.destructive,
-    '--dt-destructive-foreground': c.destructiveForeground,
-    '--dt-sidebar-border': c.sidebarBorder ?? c.border,
-    '--dt-user-bubble-border': c.userBubbleBorder ?? c.border,
-    '--dt-font-sans': typo.fontSans,
-    '--dt-font-mono': typo.fontMono,
-    '--noise-opacity-mul': isDark ? 'calc(0.04 / 0.21)' : 'calc(0.34 / 0.21)',
-
-    // ── 直接覆盖语义层 — 防止 CSS 硬编码覆盖 ──
-    '--ui-bg-chrome': c.background,
-    '--ui-bg-sidebar': c.sidebarBackground ?? c.background,
-    '--ui-bg-editor': c.card,
-    '--ui-bg-elevated': c.popover,
-    '--ui-bg-backboard': c.background,
-    '--ui-surface-background': c.card,
-    '--ui-sidebar-surface-background': c.sidebarBackground ?? c.background,
-    '--ui-chat-surface-background': c.background,
-    '--ui-editor-surface-background': c.background,
-    '--theme-neutral-chrome': c.background,
-    '--theme-neutral-sidebar': c.sidebarBackground ?? c.background,
-    '--theme-neutral-card': c.card,
-
-    // ── 暗色模式特有变量 ──
-    '--sidebar-edge-border': isDark
-      ? `color-mix(in srgb, ${c.foreground} 12%, transparent)`
-      : `color-mix(in srgb, ${c.foreground} 7.5%, transparent)`,
-    '--composer-ring-strength': isDark ? '1.3' : '1',
-    '--backdrop-invert-mul': isDark ? '0' : '1',
-
-    // ── 暗色模式语义色调整 ──
-    '--ui-red': isDark ? '#e75e78' : '#cf2d56',
-    '--ui-orange': isDark ? '#e8926e' : '#db704b',
-    '--ui-yellow': isDark ? '#d9a557' : '#c08532',
-    '--ui-green': isDark ? '#55a583' : '#1f8a65',
-    '--ui-cyan': isDark ? '#6f9ba6' : '#4c7f8c',
-    '--ui-blue': isDark ? '#6b9cff' : '#3b82f6',
-    '--ui-purple': isDark ? '#b3a9e8' : '#9e94d5',
-    '--ui-pink': isDark ? '#e88fb8' : '#c25a8e',
-
-    // ── 内联代码和选区（暗色用白色半透明，浅色用黑色半透明） ──
-    '--ui-inline-code-background': isDark
-      ? 'color-mix(in srgb, #ffffff 7%, transparent)'
-      : 'color-mix(in srgb, #141414 5%, transparent)',
-    '--ui-inline-code-border': isDark
-      ? 'color-mix(in srgb, #ffffff 10%, transparent)'
-      : 'color-mix(in srgb, #141414 8%, transparent)',
-    '--ui-inline-code-foreground': isDark
-      ? 'color-mix(in srgb, #ffffff 88%, transparent)'
-      : 'color-mix(in srgb, #141414 88%, transparent)',
-    '--ui-selection-background': isDark
-      ? 'color-mix(in srgb, #ffd24a 38%, transparent)'
-      : 'color-mix(in srgb, #ffd24a 55%, transparent)',
-
-    // ── 幻影变量别名 ──
-    '--text-secondary': 'var(--ui-text-secondary)',
-    '--text': 'var(--ui-text-primary)',
-    '--success': 'var(--ui-green)',
-    '--error': 'var(--ui-red)',
-    '--danger': 'var(--dt-destructive)',
-    '--accent': 'var(--dt-accent-foreground)',
-
-    // ── 方案C: 卡片颜色（从主题色派生）──
-    '--ui-card-bg': hexToRgba(c.card, 0.92),
-    '--ui-card-border': hexToRgba(isDark ? '#ffffff' : '#000000', 0.15),
-    '--ui-card-shadow-outer': 'rgba(0, 0, 0, 0.4)',
-    '--ui-card-shadow-inner': 'rgba(0, 0, 0, 0.3)',
-    '--ui-card-highlight': hexToRgba(isDark ? '#ffffff' : '#000000', 0.05),
-    '--ui-card-glow-cyan': hexToRgba(c.primary, 0.5),
-    '--ui-card-glow-purple': hexToRgba(c.midground || c.primary, 0.5),
-    '--ui-card-glow-cyan-mid': hexToRgba(c.primary, 0.3),
-    '--ui-card-glow-purple-mid': hexToRgba(c.midground || c.primary, 0.3),
-  }
-
-  for (const [k, v] of Object.entries({ ...seeds, ...mixesFor(isDark), ...palette })) {
+  for (const [k, v] of Object.entries(vars)) {
     root.style.setProperty(k, v)
   }
 
-  // 4. Radius scalar — ensure border-radius works on fresh installs
-  root.style.setProperty('--radius-scalar', '0.6')
-  root.style.setProperty('--radius', '0.75rem')
-
-  // 5. Font injection
-  if (typo.fontUrl && !INJECTED_FONT_URLS.has(typo.fontUrl)) {
-    const link = document.createElement('link')
-    link.rel = 'stylesheet'
-    link.href = typo.fontUrl
-    link.dataset.eleveThemeFont = 'true'
-    document.head.appendChild(link)
-    INJECTED_FONT_URLS.add(typo.fontUrl)
-  }
-
-  // 6. Glass-mode runtime CSS (gradient backplate + backdrop-filter blur)
-  applyGlassMode(root, theme.name)
-}
-
-// ─── Glass-mode: frosted glass + gradient backplate ─────────────────────────
-
-const GLASS_STYLE_ID = 'eleve-glass-css'
-
-/**
- * Inject glass-mode CSS when the 'glass' theme is active.
- * Performance: single-level blur (GPU-composited), no animated backdrop-filter,
- * CSS gradient backplate, contain: layout style isolation.
- */
-function applyGlassMode(root: HTMLElement, themeName: string) {
-  const existing = document.getElementById(GLASS_STYLE_ID)
-  if (themeName !== 'glass') {
-    existing?.remove()
+  // 3. Glass 模式特殊处理
+  if (isGlass) {
+    root.classList.add('glass-mode')
+    root.style.setProperty('--glass-bg-chrome', 'rgba(255,255,255,0.45)')
+    root.style.setProperty('--glass-bg-sidebar', 'rgba(255,255,255,0.38)')
+    root.style.setProperty('--glass-bg-editor', 'rgba(255,255,255,0.48)')
+    root.style.setProperty('--glass-bg-elevated', 'rgba(255,255,255,0.55)')
+    root.style.setProperty('--glass-bg-bubble', 'rgba(255,255,255,0.40)')
+    root.style.setProperty('--glass-bg-input', 'rgba(255,255,255,0.35)')
+    root.style.setProperty('--glass-border', 'rgba(255,255,255,0.22)')
+  } else {
     root.classList.remove('glass-mode')
-    // Reset surface vars to default opaque
     root.style.removeProperty('--glass-bg-chrome')
     root.style.removeProperty('--glass-bg-sidebar')
     root.style.removeProperty('--glass-bg-editor')
@@ -279,254 +155,127 @@ function applyGlassMode(root: HTMLElement, themeName: string) {
     root.style.removeProperty('--glass-bg-bubble')
     root.style.removeProperty('--glass-bg-input')
     root.style.removeProperty('--glass-border')
-    return
   }
-  root.classList.add('glass-mode')
-
-  // Override the surface variables directly so the entire UI chain uses transparent colors
-  root.style.setProperty('--glass-bg-chrome', 'rgba(255,255,255,0.45)')
-  root.style.setProperty('--glass-bg-sidebar', 'rgba(255,255,255,0.38)')
-  root.style.setProperty('--glass-bg-editor', 'rgba(255,255,255,0.48)')
-  root.style.setProperty('--glass-bg-elevated', 'rgba(255,255,255,0.55)')
-  root.style.setProperty('--glass-bg-bubble', 'rgba(255,255,255,0.40)')
-  root.style.setProperty('--glass-bg-input', 'rgba(255,255,255,0.35)')
-  root.style.setProperty('--glass-border', 'rgba(255,255,255,0.22)')
-
-  if (existing) return // already injected
-
-  const style = document.createElement('style')
-  style.id = GLASS_STYLE_ID
-  style.textContent = `
-/* Glass backplate — subtle multi-stop gradient for blur to reveal */
-.glass-mode body,
-.glass-mode #root {
-  background: linear-gradient(135deg, #f0f4ff 0%, #e8eeff 25%, #f5f0ff 50%, #f0f8f5 75%, #f8faff 100%) !important;
 }
 
-/* Override surface vars to transparent glass */
-.glass-mode {
-  --ui-bg-chrome: var(--glass-bg-chrome) !important;
-  --ui-bg-sidebar: var(--glass-bg-sidebar) !important;
-  --ui-bg-editor: var(--glass-bg-editor) !important;
-  --ui-bg-elevated: var(--glass-bg-elevated) !important;
-  --ui-bg-bubble: var(--glass-bg-bubble) !important;
-  --ui-bg-input: var(--glass-bg-input) !important;
-  --ui-stroke-secondary: var(--glass-border) !important;
-}
-
-/* Frosted glass blur on all surfaces */
-.glass-mode #root,
-.glass-mode body > * {
-  backdrop-filter: none;
-}
-.glass-mode [class*="bg-sidebar"],
-.glass-mode [data-slot="sidebar"],
-.glass-mode [class*="sidebar-surface"] {
-  backdrop-filter: blur(14px) saturate(1.15) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(1.15) !important;
-}
-.glass-mode [class*="bg-editor"],
-.glass-mode [class*="surface-background"],
-.glass-mode [class*="chat-surface"],
-.glass-mode [class*="bg-chrome"] {
-  backdrop-filter: blur(12px) saturate(1.12) !important;
-  -webkit-backdrop-filter: blur(12px) saturate(1.12) !important;
-}
-.glass-mode [class*="bg-card"],
-.glass-mode [data-slot="card"] {
-  backdrop-filter: blur(10px) saturate(1.10) !important;
-  -webkit-backdrop-filter: blur(10px) saturate(1.10) !important;
-  border-color: var(--glass-border) !important;
-}
-.glass-mode [data-slot="dropdown-menu-content"],
-.glass-mode [data-slot="select-content"],
-.glass-mode [data-slot="dialog-content"],
-.glass-mode [data-slot="popover-content"] {
-  backdrop-filter: blur(18px) saturate(1.25) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(1.25) !important;
-  border-color: var(--glass-border) !important;
-}
-
-/* Glass user bubble */
-.glass-mode [class*="human-message"],
-.glass-mode [class*="user-message"],
-.glass-mode [class*="user-bubble"] {
-  backdrop-filter: blur(10px) saturate(1.10) !important;
-  -webkit-backdrop-filter: blur(10px) saturate(1.10) !important;
-  border: 1px solid var(--glass-border) !important;
-}
-
-/* Glass composer / input */
-.glass-mode textarea,
-.glass-mode [class*="composer"],
-.glass-mode [class*="bg-input"] {
-  backdrop-filter: blur(10px) saturate(1.08) !important;
-  -webkit-backdrop-filter: blur(10px) saturate(1.08) !important;
-}
-
-/* Glass isolation */
-.glass-mode #root {
-  contain: layout style;
-}
-
-/* Glass border glow on key surfaces */
-.glass-mode [class*="bg-editor"] {
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.15), 0 2px 12px rgba(0,0,0,0.06) !important;
-}
-.glass-mode [class*="bg-sidebar"] {
-  border-right: 1px solid var(--glass-border) !important;
-}
-`
-  document.head.appendChild(style)
-}
-
-// ─── Boot-time paint (避免闪烁) ─────────────────────────────────────────────
-
-function normalizeSkin(name: string | null): string {
-  return name && BUILTIN_THEMES[name] ? name : DEFAULT_SKIN_NAME
-}
+// ─── Boot-time paint ────────────────────────────────────────────────────────
 
 if (typeof window !== 'undefined') {
-  const skin = normalizeSkin(loadThemeName())
-  const theme = BUILTIN_THEMES[skin] ?? nousTheme
-  const custom = loadCustomColors()
-  applyThemeCSS(theme, custom)
+  const accent = loadAccent()
+  const appearance = loadAppearance()
+  const isDark = appearance === 'dark' || (appearance === 'auto' && getSystemDarkMode())
+  const isGlass = appearance === 'glass'
+  const colors = deriveColors(accent, isDark)
+  applyThemeCSS(colors, isDark, isGlass)
 }
 
 // ─── Context ────────────────────────────────────────────────────────────────
 
-const SKIN_LIST = BUILTIN_THEME_LIST.map(({ name, label, description }) => ({ name, label, description }))
-
 interface ThemeContextValue {
-  theme: DesktopTheme
-  themeName: string
+  accent: string
+  appearance: Appearance
   isDark: boolean
-  customColors: Partial<DesktopThemeColors>
-  hasCustomColors: boolean
-  availableThemes: { name: string; label: string; description: string }[]
-  setTheme: (name: string) => void
-  setCustomColor: (key: keyof DesktopThemeColors, value: string) => void
-  setCustomColors: (colors: Partial<DesktopThemeColors>) => void
-  resetCustomColors: () => void
-  // macOS 强调色系统
-  macosAccent: string
-  setMacOSAccent: (color: string) => void
+  isGlass: boolean
+  colors: DerivedColors
+  setAccent: (color: string) => void
+  setAppearance: (appearance: Appearance) => void
+  accentColors: typeof ACCENT_COLORS
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
-  theme: nousTheme,
-  themeName: DEFAULT_SKIN_NAME,
+  accent: DEFAULT_ACCENT,
+  appearance: DEFAULT_APPEARANCE,
   isDark: false,
-  customColors: {},
-  hasCustomColors: false,
-  availableThemes: SKIN_LIST,
-  setTheme: () => {},
-  setCustomColor: () => {},
-  setCustomColors: () => {},
-  resetCustomColors: () => {},
-  macosAccent: DEFAULT_MACOS_ACCENT,
-  setMacOSAccent: () => {},
+  isGlass: false,
+  colors: deriveColors(DEFAULT_ACCENT, false),
+  setAccent: () => {},
+  setAppearance: () => {},
+  accentColors: ACCENT_COLORS,
 })
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [themeName, setThemeNameState] = useState(() =>
-    typeof window === 'undefined' ? DEFAULT_SKIN_NAME : normalizeSkin(loadThemeName())
+  const [accent, setAccentState] = useState(() =>
+    typeof window === 'undefined' ? DEFAULT_ACCENT : loadAccent()
+  )
+  const [appearance, setAppearanceState] = useState(() =>
+    typeof window === 'undefined' ? DEFAULT_APPEARANCE : loadAppearance()
+  )
+  const [systemDark, setSystemDark] = useState(() =>
+    typeof window === 'undefined' ? false : getSystemDarkMode()
   )
 
-  const [customColors, setCustomColorsState] = useState<Partial<DesktopThemeColors>>(() =>
-    typeof window === 'undefined' ? {} : loadCustomColors()
-  )
-
-  // macOS 强调色
-  const [macosAccent, setMacOSAccentState] = useState(() =>
-    typeof window === 'undefined' ? DEFAULT_MACOS_ACCENT : loadMacOSAccent()
-  )
-
-  // 🔴 Config 架构 V2.0：启动时从后端 config.yaml display.skin 同步皮肤
-  // 后端是持久化真相源，localStorage 是即时缓存
-  // 只在首次加载时同步一次（后端皮肤覆盖本地缓存）
-  const [backendSynced, setBackendSynced] = useState(false)
+  // 监听系统明暗变化
   useEffect(() => {
-    if (backendSynced) return
+    if (typeof window === 'undefined') return
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+
+  // 计算实际明暗
+  const isDark = useMemo(() => {
+    if (appearance === 'glass') return false
+    if (appearance === 'dark') return true
+    if (appearance === 'light') return false
+    return systemDark // auto
+  }, [appearance, systemDark])
+
+  const isGlass = appearance === 'glass'
+
+  // 派生颜色
+  const colors = useMemo(() => deriveColors(accent, isDark), [accent, isDark])
+
+  // 应用 CSS
+  useEffect(() => {
+    applyThemeCSS(colors, isDark, isGlass)
+  }, [colors, isDark, isGlass])
+
+  // 设置函数
+  const setAccent = useCallback((color: string) => {
+    setAccentState(color)
+    saveAccent(color)
+    // 同步到后端
+    call('update_config', { config: { display: { accent: color } } }).catch(() => {})
+  }, [])
+
+  const setAppearance = useCallback((newAppearance: Appearance) => {
+    setAppearanceState(newAppearance)
+    saveAppearance(newAppearance)
+    // 同步到后端
+    call('update_config', { config: { display: { appearance: newAppearance } } }).catch(() => {})
+  }, [])
+
+  // 启动时从后端同步
+  useEffect(() => {
     call('get_config', {}).then((cfg: Record<string, unknown>) => {
       const display = cfg?.display as Record<string, unknown> | undefined
-      const skin = display?.skin as string | undefined
-      if (skin && BUILTIN_THEMES[skin]) {
-        const local = normalizeSkin(loadThemeName())
-        if (local !== skin) {
-          setThemeNameState(skin)
-          saveThemeName(skin)
-        }
+      const backendAccent = display?.accent as string | undefined
+      const backendAppearance = display?.appearance as Appearance | undefined
+      
+      if (backendAccent && backendAccent !== accent) {
+        setAccentState(backendAccent)
+        saveAccent(backendAccent)
       }
-      setBackendSynced(true)
-    }).catch(() => { setBackendSynced(true) })
-  }, [backendSynced])
-
-  const baseTheme = useMemo(() => BUILTIN_THEMES[themeName] ?? nousTheme, [themeName])
-
-  // 合并后的主题（预设 + 自定义覆盖）
-  const activeTheme = useMemo((): DesktopTheme => {
-    if (Object.keys(customColors).length === 0) return baseTheme
-    return {
-      ...baseTheme,
-      colors: mergeColors(baseTheme.colors, customColors),
-    }
-  }, [baseTheme, customColors])
-
-  const isDark = useMemo(() => isDarkColor(activeTheme.colors.background), [activeTheme])
-
-  useEffect(() => { applyThemeCSS(baseTheme, customColors) }, [baseTheme, customColors])
-
-  const setTheme = useCallback((name: string) => {
-    const next = normalizeSkin(name)
-    setThemeNameState(next)
-    saveThemeName(next)
-  }, [])
-
-  const setCustomColor = useCallback((key: keyof DesktopThemeColors, value: string) => {
-    setCustomColorsState(prev => {
-      const next = { ...prev, [key]: value }
-      saveCustomColors(next)
-      return next
-    })
-  }, [])
-
-  const setCustomColors = useCallback((colors: Partial<DesktopThemeColors>) => {
-    setCustomColorsState(colors)
-    saveCustomColors(colors)
-  }, [])
-
-  const resetCustomColors = useCallback(() => {
-    setCustomColorsState({})
-    clearCustomColors()
-  }, [])
-
-  // macOS 强调色设置
-  const setMacOSAccent = useCallback((color: string) => {
-    setMacOSAccentState(color)
-    saveMacOSAccent(color)
-    // 根据强调色生成完整配色并应用
-    const derivedColors = deriveMacOSThemeColors(color, isDark)
-    setCustomColorsState(derivedColors)
-    saveCustomColors(derivedColors)
-  }, [isDark])
+      if (backendAppearance && backendAppearance !== appearance) {
+        setAppearanceState(backendAppearance)
+        saveAppearance(backendAppearance)
+      }
+    }).catch(() => {})
+  }, []) // 只在挂载时执行一次
 
   const value = useMemo(
     () => ({
-      theme: activeTheme,
-      themeName,
+      accent,
+      appearance,
       isDark,
-      customColors,
-      hasCustomColors: Object.keys(customColors).length > 0,
-      availableThemes: SKIN_LIST,
-      setTheme,
-      setCustomColor,
-      setCustomColors,
-      resetCustomColors,
-      macosAccent,
-      setMacOSAccent,
+      isGlass,
+      colors,
+      setAccent,
+      setAppearance,
+      accentColors: ACCENT_COLORS,
     }),
-    [activeTheme, themeName, isDark, customColors, setTheme, setCustomColor, setCustomColors, resetCustomColors, macosAccent, setMacOSAccent]
+    [accent, appearance, isDark, isGlass, colors, setAccent, setAppearance]
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>

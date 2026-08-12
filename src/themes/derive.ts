@@ -1,24 +1,60 @@
 /**
- * macOS 风格强调色系统
+ * macOS 风格颜色派生系统
  * 
- * 用户只选1个强调色（accent color），系统自动派生完整配色。
- * 参考 macOS System Preferences > General > Accent color
- * 
- * 预设强调色（macOS标准）：
- * - 蓝色 #007AFF
- * - 紫色 #AF52DE
- * - 粉色 #FF2D55
- * - 红色 #FF3B30
- * - 橙色 #FF9500
- * - 黄色 #FFCC00
- * - 绿色 #34C759
- * - 石墨色 #8E8E93
+ * 核心原则：
+ * - 只有 2 个用户可控参数：accent（强调色）+ appearance（外观模式）
+ * - 所有颜色从这两个参数自动派生
+ * - 明暗模式独立于强调色
  */
 
-import type { DesktopThemeColors } from './types'
+// ─── 类型定义 ───────────────────────────────────────────────────────────────
 
-/** macOS 标准预设强调色 */
-export const MACOS_ACCENT_COLORS = [
+export type Appearance = 'light' | 'dark' | 'auto' | 'glass'
+
+export interface DerivedColors {
+  // 背景层
+  background: string
+  foreground: string
+  card: string
+  cardForeground: string
+  popover: string
+  popoverForeground: string
+  
+  // 文字层
+  muted: string
+  mutedForeground: string
+  
+  // 主色层
+  primary: string
+  primaryForeground: string
+  secondary: string
+  secondaryForeground: string
+  accent: string
+  accentForeground: string
+  
+  // 边框层
+  border: string
+  input: string
+  ring: string
+  midground: string
+  composerRing: string
+  
+  // 语义层
+  destructive: string
+  destructiveForeground: string
+  
+  // 侧边栏
+  sidebarBackground: string
+  sidebarBorder: string
+  
+  // 气泡
+  userBubble: string
+  userBubbleBorder: string
+}
+
+// ─── 预设强调色（macOS 标准） ───────────────────────────────────────────────
+
+export const ACCENT_COLORS = [
   { name: '蓝色', color: '#007AFF' },
   { name: '紫色', color: '#AF52DE' },
   { name: '粉色', color: '#FF2D55' },
@@ -29,22 +65,22 @@ export const MACOS_ACCENT_COLORS = [
   { name: '石墨色', color: '#8E8E93' },
 ] as const
 
-/** 默认强调色 */
-export const DEFAULT_MACOS_ACCENT = '#007AFF'
+export const DEFAULT_ACCENT = '#007AFF'
+export const DEFAULT_APPEARANCE: Appearance = 'auto'
+
+// ─── 核心派生逻辑 ───────────────────────────────────────────────────────────
 
 /**
- * 根据强调色 + 明暗模式，派生完整配色
- * 参考 macOS HIG (Human Interface Guidelines) 的颜色系统
+ * 从 accent + isDark 派生完整配色
  */
-export function deriveMacOSThemeColors(accent: string, isDark: boolean): DesktopThemeColors {
-  if (isDark) {
-    return deriveDarkColors(accent)
-  }
-  return deriveLightColors(accent)
+export function deriveColors(accent: string, isDark: boolean): DerivedColors {
+  return isDark ? deriveDarkColors(accent) : deriveLightColors(accent)
 }
 
-/** 浅色模式配色派生 */
-function deriveLightColors(accent: string): DesktopThemeColors {
+/**
+ * 浅色模式配色
+ */
+function deriveLightColors(accent: string): DerivedColors {
   return {
     // 背景层 — 白色系
     background: '#F5F5F7',
@@ -93,8 +129,10 @@ function deriveLightColors(accent: string): DesktopThemeColors {
   }
 }
 
-/** 深色模式配色派生 */
-function deriveDarkColors(accent: string): DesktopThemeColors {
+/**
+ * 深色模式配色
+ */
+function deriveDarkColors(accent: string): DerivedColors {
   // 深色模式下强调色需要稍微调亮，保证可读性
   const adjustedAccent = adjustBrightnessForDark(accent)
   
@@ -189,4 +227,29 @@ function adjustBrightnessForDark(hex: string): string {
   }
   
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+}
+
+// ─── 迁移工具 ───────────────────────────────────────────────────────────────
+
+/**
+ * 旧 skin 名称 → 新 accent + appearance 映射
+ */
+const SKIN_MIGRATION_MAP: Record<string, { accent: string; appearance: Appearance }> = {
+  'default': { accent: '#007AFF', appearance: 'light' },
+  'midnight': { accent: '#AF52DE', appearance: 'dark' },
+  'ember': { accent: '#FF9500', appearance: 'dark' },
+  'mono': { accent: '#8E8E93', appearance: 'dark' },
+  'cyberpunk': { accent: '#34C759', appearance: 'dark' },
+  'slate': { accent: '#007AFF', appearance: 'dark' },
+  'glass': { accent: '#007AFF', appearance: 'glass' },
+  'silver': { accent: '#8E8E93', appearance: 'light' },
+  'graphite': { accent: '#8E8E93', appearance: 'dark' },
+  'charcoal': { accent: '#8E8E93', appearance: 'dark' },
+}
+
+/**
+ * 迁移旧 skin 配置到新格式
+ */
+export function migrateSkinConfig(skin: string): { accent: string; appearance: Appearance } {
+  return SKIN_MIGRATION_MAP[skin] ?? { accent: DEFAULT_ACCENT, appearance: DEFAULT_APPEARANCE }
 }
