@@ -97,3 +97,9 @@ memory:
 sessions:
   idle_ttl_secs: 3600     # 闲置驱逐间隔（秒）：空闲超过此时间且非忙碌的会话移出内存（数据已落盘可恢复）。0 = 禁用自动驱逐
   max_live_sessions: 1000 # 常驻会话上限：内存中最多驻留的会话数，超限驱逐最久未活跃。0 = 不限制
+
+# === Computer Use Configuration ===
+# capture_after 跟随截图模式（som | vision | ax，默认 som）
+# som = 截图 + 编号元素标注；vision = 纯截图；ax = 纯无障碍树
+computer_use:
+  capture_after_mode: "som"
