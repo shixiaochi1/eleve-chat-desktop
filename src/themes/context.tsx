@@ -80,46 +80,46 @@ function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean)
   root.dataset.eleveTheme = isGlass ? 'glass' : (isDark ? 'dark' : 'light')
   root.dataset.eleveMode = isDark ? 'dark' : 'light'
 
-  // 2. 直接注入所有派生颜色
+  // 2. 直接注入所有派生颜色（设置 --theme-* 变量，供 style.css 中的 --dt-* 引用）
   const vars: Record<string, string> = {
     // 背景层
-    '--dt-background': colors.background,
-    '--dt-foreground': colors.foreground,
-    '--dt-card': colors.card,
-    '--dt-card-foreground': colors.cardForeground,
-    '--dt-popover': colors.popover,
-    '--dt-popover-foreground': colors.popoverForeground,
+    '--theme-background': colors.background,
+    '--theme-foreground': colors.foreground,
+    '--theme-card': colors.card,
+    '--theme-card-foreground': colors.cardForeground,
+    '--theme-popover': colors.popover,
+    '--theme-popover-foreground': colors.popoverForeground,
     
     // 文字层
-    '--dt-muted': colors.muted,
-    '--dt-muted-foreground': colors.mutedForeground,
+    '--theme-muted': colors.muted,
+    '--theme-muted-foreground': colors.mutedForeground,
     
     // 主色层
-    '--dt-primary': colors.primary,
-    '--dt-primary-foreground': colors.primaryForeground,
-    '--dt-secondary': colors.secondary,
-    '--dt-secondary-foreground': colors.secondaryForeground,
-    '--dt-accent': colors.accent,
-    '--dt-accent-foreground': colors.accentForeground,
+    '--theme-primary': colors.primary,
+    '--theme-primary-foreground': colors.primaryForeground,
+    '--theme-secondary': colors.secondary,
+    '--theme-secondary-foreground': colors.secondaryForeground,
+    '--theme-accent': colors.accent,
+    '--theme-accent-foreground': colors.accentForeground,
     
     // 边框层
-    '--dt-border': colors.border,
-    '--dt-input': colors.input,
-    '--dt-ring': colors.ring,
-    '--dt-midground': colors.midground,
-    '--dt-composer-ring': colors.composerRing,
+    '--theme-border': colors.border,
+    '--theme-input': colors.input,
+    '--theme-ring': colors.ring,
+    '--theme-midground': colors.midground,
+    '--theme-composer-ring': colors.composerRing,
     
     // 语义层
-    '--dt-destructive': colors.destructive,
-    '--dt-destructive-foreground': colors.destructiveForeground,
+    '--theme-destructive': colors.destructive,
+    '--theme-destructive-foreground': colors.destructiveForeground,
     
     // 侧边栏
-    '--dt-sidebar-background': colors.sidebarBackground,
-    '--dt-sidebar-border': colors.sidebarBorder,
+    '--theme-sidebar-background': colors.sidebarBackground,
+    '--theme-sidebar-border': colors.sidebarBorder,
     
     // 气泡
-    '--dt-user-bubble': colors.userBubble,
-    '--dt-user-bubble-border': colors.userBubbleBorder,
+    '--theme-user-bubble': colors.userBubble,
+    '--theme-user-bubble-border': colors.userBubbleBorder,
     
     // 语义色（红/绿/黄/蓝等）
     '--ui-red': isDark ? '#FF453A' : '#FF3B30',
