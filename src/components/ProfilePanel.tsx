@@ -100,6 +100,9 @@ function ProfileCard({
   // 🔴 2026-08-02 卡片主题色联动：选中/未选中/头像全链路应用 Agent 主题色。
   // 无主题色（color 为 null）时回退原样式（primary 边框 + accent 背景）。
   const color = profile.color || null;
+  // 🔴 2026-08-12 老大指正：点选状态统一为"给了颜色"的样式——无 color 时颜色 = 主题
+  //   primary（var(--dt-primary)），不再出现"裸勾/无竖条"第二形态。Agent 与项目卡片同构。
+  const accent = color ?? 'var(--dt-primary)';
   return (
     <div
       role="button"
@@ -108,52 +111,49 @@ function ProfileCard({
       onDoubleClick={() => onEdit?.(profile.name)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(profile.name); } }}
       className={cn(
-        'group relative w-full text-left px-2.5 py-2 pl-3 rounded-lg border bg-card transition-all duration-150 cursor-pointer overflow-hidden space-y-1.5 hover:bg-accent/30',
-        // 无主题色：回退原样式（描边 border-border，选中态 primary 边框 + accent 底）
-        !color && 'border-border',
-        !color && active && 'border-primary/50 bg-accent/5',
+        'group relative w-full text-left px-2.5 py-2 pl-3 rounded-lg border bg-card shadow-sm transition-all duration-150 cursor-pointer overflow-hidden space-y-1.5 hover:bg-accent/30',
         switching && 'opacity-60'
       )}
-      style={
-        color ? {
-          '--agent-color': color,
-          // 🔴 卡片描边 = Agent 主题色（30% 透明混合，选中/未选中一致）
-          borderColor: `color-mix(in srgb, ${color} 30%, transparent)`,
-          // 🔴 选中态背景 = AGENT 色 10% 透明混合（未选中保持 bg-card）
-          background: active ? `color-mix(in srgb, ${color} 10%, var(--ui-card-bg))` : undefined,
-        } as React.CSSProperties : undefined
-      }
+      style={{
+        '--agent-color': color ?? undefined,
+        // 🔴 卡片描边 = accent 30% 透明混合（选中/未选中一致；无 color = 主题 primary）
+        borderColor: `color-mix(in srgb, ${accent} 30%, transparent)`,
+        // 🔴 选中态背景 = accent 10% 透明混合（未选中保持 bg-card）
+        background: active ? `color-mix(in srgb, ${accent} 10%, var(--ui-card-bg))` : undefined,
+        // 🔴 选中态背投影（对齐宫格卡片逻辑：细光环 + 明显投影；侧栏卡片小，光环 1px 不显粗）
+        boxShadow: active
+          ? `0 0 0 1px color-mix(in srgb, ${accent} 45%, transparent), 0 6px 18px rgba(0,0,0,0.16)`
+          : undefined,
+      } as React.CSSProperties}
     >
-      {/* 左侧主题色强调条：仅选中态渲染（实色+发光）；未选中无竖条 */}
-      {color && active && (
+      {/* 左侧 accent 强调条：仅选中态渲染（实色+发光）；无 color 用主题 primary */}
+      {active && (
         <span
           aria-hidden
           className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
           style={{
-            background: color,
-            boxShadow: `0 0 8px color-mix(in srgb, ${color} 65%, transparent)`,
+            background: accent,
+            boxShadow: `0 0 8px color-mix(in srgb, ${accent} 65%, transparent)`,
           }}
         />
       )}
       {/* 名称行 */}
       <div className="flex items-center gap-1.5">
-        {/* 头像容器：选中 = 主题色实底渐变（白色内容）；未选中 = 20% 淡底 */}
+        {/* 头像容器：选中 = accent 实底渐变（白色内容）；未选中 = color 20% 淡底（无 color 透明） */}
         <div
           className="flex items-center justify-center w-6 h-6 rounded-md shrink-0 overflow-hidden transition-all duration-150"
-          style={
-            color
-              ? {
-                  background: active
-                    ? `linear-gradient(135deg, ${color}, color-mix(in srgb, ${color} 82%, #000 18%))`
-                    : `color-mix(in srgb, ${color} 20%, transparent)`,
-                }
-              : undefined
-          }
+          style={{
+            background: active
+              ? (color
+                  ? `linear-gradient(135deg, ${color}, color-mix(in srgb, ${color} 82%, #000 18%))`
+                  : 'var(--dt-primary)')
+              : (color ? `color-mix(in srgb, ${color} 20%, transparent)` : undefined),
+          } as React.CSSProperties}
         >
           {profile.avatar || profile.avatar_key ? (
-            <ProfileAvatar name={profile.display_name || profile.name} hasAvatar={profile.avatar} color={active && color ? '#ffffff' : color} avatarKey={profile.avatar_key} />
+            <ProfileAvatar name={profile.display_name || profile.name} hasAvatar={profile.avatar} color={active ? '#ffffff' : color} avatarKey={profile.avatar_key} />
           ) : (
-            <Bot size={13} strokeWidth={1.5} style={{ color: active && color ? '#fff' : (color || undefined) }} />
+            <Bot size={13} strokeWidth={1.5} style={{ color: active ? '#fff' : (color || undefined) }} />
           )}
         </div>
         <span className="text-xs font-medium text-foreground truncate flex-1">
@@ -171,17 +171,13 @@ function ProfileCard({
         {switching ? (
           <Loader size={12} strokeWidth={1.5} className="animate-spin text-primary" />
         ) : active ? (
-          color ? (
-            /* 选中对勾：主题色实底小圆 + 白色勾（比裸勾更醒目） */
-            <span
-              className="flex items-center justify-center w-4 h-4 rounded-full shrink-0"
-              style={{ background: color }}
-            >
-              <Check size={10} strokeWidth={3} className="text-white" />
-            </span>
-          ) : (
-            <Check size={13} strokeWidth={2} className="text-primary" />
-          )
+          /* 选中对勾：accent 实底小圆 + 白色勾（无 color 用主题 primary——形态统一） */
+          <span
+            className="flex items-center justify-center w-4 h-4 rounded-full shrink-0"
+            style={{ background: accent }}
+          >
+            <Check size={10} strokeWidth={3} className="text-white" />
+          </span>
         ) : null}
         {/* 删除按钮（非 default，hover 显示） */}
         {!profile.is_default && onDelete && (
@@ -350,7 +346,7 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
           </button>
           <button
             onClick={() => { setDeletingTarget(null); setCreateOpen(true); }}
-            className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_1px_3px_rgba(0,0,0,0.18)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_8px_rgba(0,0,0,0.22)] hover:brightness-[1.06] hover:-translate-y-px"
+            className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(0,0,0,0.22)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_3px_10px_rgba(0,0,0,0.28)] hover:brightness-[1.06] hover:-translate-y-px"
             title="新建 Agent"
           >
             <span className="flex items-center justify-center w-[18px] h-[18px] rounded-full shrink-0 bg-white/25 text-primary-foreground">
@@ -375,8 +371,8 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
         <div className="mx-3 mb-1 px-2 py-1 text-[11px] text-destructive bg-destructive/5 rounded border border-destructive/20 shrink-0">{error}</div>
       )}
 
-      {/* Agent 卡片列表（内部滚动，高度由 AgentsPanel 上限约束） */}
-      <div className="flex-1 overflow-y-auto px-3 pb-2 space-y-1.5 min-h-0">
+      {/* Agent 卡片列表（内部滚动，高度由 AgentsPanel 上限约束；pt-1.5 防首卡选中阴影被裁剪） */}
+      <div className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0">
         {loading && profiles.length === 0 ? (
           <div className="flex items-center justify-center py-6 text-xs text-muted-foreground">加载中...</div>
         ) : (

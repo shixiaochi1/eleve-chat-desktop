@@ -182,7 +182,7 @@ function applyThemeCSS(theme: DesktopTheme, customOverrides: Partial<DesktopThem
     '--ui-yellow': isDark ? '#d9a557' : '#c08532',
     '--ui-green': isDark ? '#55a583' : '#1f8a65',
     '--ui-cyan': isDark ? '#6f9ba6' : '#4c7f8c',
-    '--ui-blue': isDark ? '#6b9cff' : '#0053fd',
+    '--ui-blue': isDark ? '#6b9cff' : '#3b82f6',
     '--ui-purple': isDark ? '#b3a9e8' : '#9e94d5',
     '--ui-pink': isDark ? '#e88fb8' : '#c25a8e',
 

@@ -21,10 +21,10 @@ const ModeSwitchButton = memo(function ModeSwitchButton({ mode, onToggle, agentC
   return (
     <button
       className={cn(
-        'flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors border bg-transparent',
+        'flex items-center gap-1 h-7 px-2.5 text-xs rounded-md transition-colors border bg-card shadow-sm',
         disabled
           ? 'border-border/40 text-muted-foreground/30 cursor-not-allowed'
-          : 'border-border/70 text-muted-foreground hover:text-foreground hover:bg-accent/50'
+          : 'border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/50'
       )}
       title={disabled ? '需要至少 2 个 Agent' : isGrid ? '单视图模式 (Ctrl+G)' : '宫格模式 (Ctrl+G)'}
       onClick={disabled ? undefined : onToggle}
