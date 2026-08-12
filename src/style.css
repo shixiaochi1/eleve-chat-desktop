@@ -207,9 +207,9 @@
     /* ── Eleve 语义映射层 — 换颜色只改这3行 ── */
 
 
-    /* ── 方案C: 背板与卡片颜色变量（主题可调）── */
-    --ui-card-bg: rgba(15, 31, 56, 0.92);
-    --ui-card-border: rgba(255, 255, 255, 0.15);
+    /* ── 方案C: 背板与卡片颜色变量（跟随主题动态变化）── */
+    --ui-card-bg: var(--theme-card);
+    --ui-card-border: var(--theme-border);
     --ui-card-shadow-outer: rgba(0, 0, 0, 0.4);
     --ui-card-shadow-inner: rgba(0, 0, 0, 0.3);
     --ui-card-highlight: rgba(255, 255, 255, 0.05);
