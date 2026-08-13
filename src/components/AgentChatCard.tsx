@@ -340,7 +340,7 @@ export const AgentChatCard = memo(function AgentChatCard({
         background: 'var(--ui-card-bg)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
-        boxShadow: focused ? `0 0 0 2px ${color.ring}, 0 8px 24px rgba(0,0,0,0.3)` : undefined,
+        boxShadow: focused ? `0 0 0 2px ${color.ring}, 0 8px 24px var(--theme-shadow-color-heavy)` : undefined,
       }}
     >
       {/* ── 工具状态栏（整条可拖拽换位 · data-drag-handle · 按钮经 closest('button') 排除）──

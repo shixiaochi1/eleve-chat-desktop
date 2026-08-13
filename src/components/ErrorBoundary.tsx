@@ -51,7 +51,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
           color: 'var(--dt-foreground)',
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
           border: '1px solid var(--dt-border)',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+          boxShadow: '0 4px 12px var(--theme-shadow-color)',
         }}>
           <h2 style={{ color: 'var(--ui-red)', marginBottom: '12px' }}>渲染错误</h2>
           <p style={{ marginBottom: '16px', opacity: 0.8 }}>

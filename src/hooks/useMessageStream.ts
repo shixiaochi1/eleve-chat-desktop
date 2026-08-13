@@ -1022,9 +1022,9 @@ export function useMessageStream({
       handleGlobalEvent('browser.progress', data as Record<string, unknown>);
     },
 
-    // Phase 6: 皮肤切换 — App 层处理（重新加载主题配置）
-    onSkinChanged: (_data: { skin: unknown }) => {
-      addDebugEvent('skin_changed', 'skin updated');
+    // Phase 6: 主题切换 — App 层处理（重新加载主题配置）
+    onThemeChanged: (_data: { accent?: string; appearance?: string }) => {
+      addDebugEvent('theme_changed', 'theme updated');
     },
 
     // Phase 6: 终端关闭 — 委托共享处理器

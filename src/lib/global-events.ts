@@ -10,7 +10,7 @@
  *    ✅ terminal.close — 终端关闭
  *    ✅ terminal.read.request — 终端读取（IIFE 自包含）
  *    ✅ browser.progress — 浏览器连接进度（error/warning → 通知）
- *    ✅ skin.changed — 皮肤切换（当前无主题系统，仅 debug 日志，与单视图 onSkinChanged 语义一致）
+ *    ✅ theme.changed — 主题切换（由 display.accent/appearance 驱动，debug 日志）
  *    ❌ 任何带 session_id 的 per-agent 事件 — 调用方负责
  * ═══════════════════════════════════════════════════════════════════
  */
@@ -81,10 +81,10 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
       return true;
     }
 
-    // skin.changed — 当前无主题系统，仅 debug 日志（与单视图 useMessageStream.onSkinChanged 语义一致）
-    // 宫格模式 useSSE 暂停时由此处兜底，消灭静默丢弃
-    case 'skin.changed':
-      console.debug('[global-events] skin.changed', payload.skin);
+    // theme.changed — 当前由前端 ThemeProvider 直接管理（localStorage + bridge），
+    // 此处仅 debug 日志。宫格模式 useSSE 暂停时由此处兜底，消灭静默丢弃
+    case 'theme.changed':
+      console.debug('[global-events] theme.changed', payload);
       return true;
 
     // wake.detected — 唤醒词命中（常开监听，全局广播无 session_id）

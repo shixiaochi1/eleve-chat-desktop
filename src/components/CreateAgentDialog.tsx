@@ -175,7 +175,7 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
             type="button"
             onClick={() => void handleCreate()}
             disabled={!canSubmit}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-[8px] bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_1px_3px_rgba(0,0,0,0.18)] hover:brightness-[1.06] active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-[8px] bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_1px_3px_var(--theme-shadow-color)] hover:brightness-[1.06] active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {busy ? <Loader size={13} strokeWidth={2} className="animate-spin" /> : <Plus size={13} strokeWidth={2.5} />}
             创建

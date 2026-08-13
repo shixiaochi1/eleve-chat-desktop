@@ -74,7 +74,7 @@ export default function Toast() {
           className={cn(
             'flex items-center justify-between px-3 py-1.5 pointer-events-auto',
             'backdrop-blur-xl saturate-180 border rounded-xl',
-            'border-border shadow-[0_8px_32px_rgba(0,0,0,0.28),0_2px_8px_rgba(0,0,0,0.12)]'
+            'border-border shadow-[0_8px_32px_var(--theme-shadow-color-heavy),0_2px_8px_var(--theme-shadow-color)]'
           )}
           style={{
             background: 'var(--ui-bg-elevated)',
@@ -114,7 +114,7 @@ function ToastItem({ notification }: ToastItemProps) {
       aria-live={notification.kind === 'error' ? 'assertive' : 'polite'}
       className={cn(
         'pointer-events-auto grid items-start p-2.5 rounded-xl',
-        'backdrop-blur-xl saturate-180 border shadow-[0_8px_32px_rgba(0,0,0,0.28),0_2px_8px_rgba(0,0,0,0.12)]',
+        'backdrop-blur-xl saturate-180 border shadow-[0_8px_32px_var(--theme-shadow-color-heavy),0_2px_8px_var(--theme-shadow-color)]',
         style.borderClass || 'border-border',
         'border-l-[3px]'
       )}

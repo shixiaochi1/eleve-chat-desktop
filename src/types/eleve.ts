@@ -27,7 +27,8 @@ export interface EleveConfig {
   }
   display?: {
     personality?: string
-    skin?: string
+    accent?: string
+    appearance?: string
   }
   terminal?: {
     cwd?: string
@@ -423,7 +424,7 @@ export interface RpcEvent<T = unknown> {
 }
 
 export interface GatewayReadyPayload {
-  skin?: unknown
+  // deprecated: skin replaced by accent + appearance in display config
 }
 
 // ── Action ──

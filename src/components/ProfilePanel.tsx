@@ -122,7 +122,7 @@ function ProfileCard({
         background: active ? `color-mix(in srgb, ${accent} 10%, var(--ui-card-bg))` : undefined,
         // 🔴 选中态背投影（对齐宫格卡片逻辑：细光环 + 明显投影；侧栏卡片小，光环 1px 不显粗）
         boxShadow: active
-          ? `0 0 0 1px color-mix(in srgb, ${accent} 45%, transparent), 0 6px 18px rgba(0,0,0,0.16)`
+          ? `0 0 0 1px color-mix(in srgb, ${accent} 45%, transparent), 0 6px 18px var(--theme-shadow-color-heavy)`
           : undefined,
       } as React.CSSProperties}
     >
@@ -329,7 +329,7 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
           </button>
           <button
             onClick={() => { setDeletingTarget(null); setCreateOpen(true); }}
-            className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(0,0,0,0.22)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_3px_10px_rgba(0,0,0,0.28)] hover:brightness-[1.06] hover:-translate-y-px"
+            className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_var(--theme-shadow-color)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_3px_10px_var(--theme-shadow-color-heavy)] hover:brightness-[1.06] hover:-translate-y-px"
             title="新建 Agent"
           >
             <span className="flex items-center justify-center w-[18px] h-[18px] rounded-full shrink-0 bg-white/25 text-primary-foreground">

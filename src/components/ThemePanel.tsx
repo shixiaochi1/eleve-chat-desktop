@@ -22,7 +22,7 @@ const APPEARANCE_OPTIONS: { value: Appearance; label: string; desc: string }[] =
 ]
 
 export default function ThemePanel({ onClose }: ThemePanelProps) {
-  const { accent, appearance, isDark, setAccent, setAppearance, accentColors } = useTheme()
+  const { accent, appearance, isDark, colors, setAccent, setAppearance, accentColors } = useTheme()
 
   return (
     <div className="flex flex-col h-full">
@@ -123,22 +123,22 @@ export default function ThemePanel({ onClose }: ThemePanelProps) {
       <div className="mt-auto pt-4 border-t border-border">
         <h3 className="text-xs font-semibold mb-2 text-muted-foreground">预览</h3>
         <div className="rounded-lg overflow-hidden border border-border">
-          {/* 模拟界面 */}
-          <div className="flex h-24" style={{ background: isDark ? '#1C1C1E' : '#F5F5F7' }}>
+          {/* 模拟界面 — 使用真实派生色 */}
+          <div className="flex h-24" style={{ background: colors.background }}>
             {/* 侧边栏 */}
             <div 
               className="w-1/4 h-full flex flex-col items-center pt-2 gap-1"
-              style={{ background: isDark ? '#242426' : '#EFEFF3' }}
+              style={{ background: colors.sidebarBackground }}
             >
               <div className="w-3 h-3 rounded" style={{ background: accent }} />
-              <div className="w-4 h-0.5 rounded" style={{ background: isDark ? '#F5F5F7' : '#1D1D1F', opacity: 0.3 }} />
-              <div className="w-4 h-0.5 rounded" style={{ background: isDark ? '#F5F5F7' : '#1D1D1F', opacity: 0.3 }} />
+              <div className="w-4 h-0.5 rounded" style={{ background: colors.mutedForeground, opacity: 0.3 }} />
+              <div className="w-4 h-0.5 rounded" style={{ background: colors.mutedForeground, opacity: 0.3 }} />
             </div>
             {/* 内容区 */}
             <div className="flex-1 p-2 flex flex-col gap-1.5">
-              <div className="h-3 rounded" style={{ background: isDark ? '#2C2C2E' : '#FFFFFF' }} />
-              <div className="h-3 rounded w-3/4" style={{ background: isDark ? '#2C2C2E' : '#FFFFFF' }} />
-              <div className="h-3 rounded w-1/2" style={{ background: isDark ? '#2C2C2E' : '#FFFFFF' }} />
+              <div className="h-3 rounded" style={{ background: colors.card }} />
+              <div className="h-3 rounded w-3/4" style={{ background: colors.card }} />
+              <div className="h-3 rounded w-1/2" style={{ background: colors.card }} />
             </div>
           </div>
         </div>

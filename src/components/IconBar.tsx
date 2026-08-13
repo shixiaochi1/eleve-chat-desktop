@@ -56,9 +56,9 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
   const navBtnBase =
     'group flex items-center justify-center w-10 h-10 rounded-[10px] text-muted-foreground transition-all duration-150 hover:bg-accent/50 hover:text-accent-foreground hover:scale-[1.04] active:scale-[0.97] relative focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
   const navBtnActive =
-    'bg-gradient-to-b from-accent to-accent/70 text-accent-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.08)]';
+    'bg-gradient-to-b from-accent to-accent/70 text-accent-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_var(--theme-shadow-color)]';
   const indicator =
-    'absolute -right-0.5 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-accent-foreground/90 shadow-[0_0_5px_rgba(0,0,0,0.15)]';
+    'absolute -right-0.5 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-accent-foreground/90 shadow-[0_0_5px_var(--theme-shadow-color)]';
 
   const renderButton = (item: NavItem) => {
     const isActive = activePanel === item.id;

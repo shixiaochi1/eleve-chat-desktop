@@ -3,6 +3,7 @@
  */
 import { File, Terminal, Globe, Box, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useTheme } from '@/themes';
 
 const TABS = [
   { key: 'files', label: '文件', Icon: File },
@@ -19,24 +20,38 @@ interface RightSidebarTabsProps {
 }
 
 export default function RightSidebarTabs({ activeTab, onTabChange, onClose }: RightSidebarTabsProps) {
+  const { accent } = useTheme();
+
   return (
     <div className={cn('group/rail-tabs flex h-10 shrink-0 items-stretch border-b border-border')}>
-      {TABS.map(({ key, label, Icon }) => (
-        <button
-          key={key}
-          className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-b-2 border-transparent shrink-0 whitespace-nowrap',
-            activeTab === key
-              ? 'text-accent-cyan border-accent-cyan'
-              : 'text-accent-cyan/60 hover:text-accent-cyan hover:bg-accent/5',
-          )}
-          onClick={() => onTabChange?.(key)}
-          title={label}
-        >
-          <Icon size={14} />
-          <span>{label}</span>
-        </button>
-      ))}
+      {TABS.map(({ key, label, Icon }) => {
+        const isActive = activeTab === key;
+        return (
+          <button
+            key={key}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-b-2 shrink-0 whitespace-nowrap"
+            style={{
+              color: isActive ? accent : undefined,
+              borderBottomColor: isActive ? accent : 'transparent',
+            }}
+            onMouseEnter={(e) => {
+              if (!isActive) {
+                (e.currentTarget as HTMLButtonElement).style.color = accent;
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isActive) {
+                (e.currentTarget as HTMLButtonElement).style.color = '';
+              }
+            }}
+            onClick={() => onTabChange?.(key)}
+            title={label}
+          >
+            <Icon size={14} />
+            <span>{label}</span>
+          </button>
+        );
+      })}
       <button
         type="button"
         onClick={onClose}

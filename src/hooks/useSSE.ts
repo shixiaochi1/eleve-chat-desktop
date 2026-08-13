@@ -142,8 +142,8 @@ export interface SSECallbacks {
   onBackgroundReview?: (data: { summary: string }) => void
   // Phase 6: 浏览器连接进度（对齐 Hermes browser.progress）
   onBrowserProgress?: (data: { message: string; level: string }) => void
-  // Phase 6: 皮肤切换（对齐 Hermes skin.changed）
-  onSkinChanged?: (data: { skin: unknown }) => void
+  // Phase 6: 主题切换（对齐 Hermes theme.changed，由 display.accent/appearance 驱动）
+  onThemeChanged?: (data: { accent?: string; appearance?: string }) => void
   // Phase 6: 终端关闭（对齐 Hermes terminal.close）
   onTerminalClose?: (data: { process_id: string }) => void
   // reaction — 用户 affection（ily / <3 / good bot / 心形 emoji，对齐 Hermes reaction 事件）
@@ -391,9 +391,9 @@ function processEvent(
       cbs.onBrowserProgress?.({ message: chunk.message as string, level: chunk.level as string });
       break;
 
-    // Phase 6: 皮肤切换（对齐 Hermes skin.changed）
-    case 'skin.changed':
-      cbs.onSkinChanged?.({ skin: chunk.skin });
+    // Phase 6: 主题切换（对齐 Hermes theme.changed）
+    case 'theme.changed':
+      cbs.onThemeChanged?.({ accent: chunk.accent, appearance: chunk.appearance });
       break;
 
     // Phase 6: 终端关闭（对齐 Hermes terminal.close）

@@ -651,7 +651,7 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onActivate,
         background: isActiveProject ? 'color-mix(in srgb, var(--dt-primary) 10%, var(--ui-card-bg))' : undefined,
         // 🔴 选中态背投影（对齐宫格卡片逻辑：细光环 + 明显投影；侧栏卡片小，光环 1px 不显粗）
         boxShadow: isActiveProject
-          ? '0 0 0 1px color-mix(in srgb, var(--dt-primary) 45%, transparent), 0 6px 18px rgba(0,0,0,0.16)'
+          ? '0 0 0 1px color-mix(in srgb, var(--dt-primary) 45%, transparent), 0 6px 18px var(--theme-shadow-color-heavy)'
           : undefined,
       } as React.CSSProperties}
       onClick={() => onActivate(project)}
@@ -886,8 +886,18 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
           {/* ① 实时预览（紧凑单行） */}
           <div className="flex items-center gap-2.5 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2">
             <div
-              className="grid size-8 shrink-0 place-items-center rounded-lg text-white shadow-sm transition-colors"
-              style={{ background: color || 'var(--dt-primary)' }}
+              className="grid size-8 shrink-0 place-items-center rounded-lg shadow-sm transition-colors"
+              style={{
+                background: color || 'var(--dt-primary)',
+                color: (() => {
+                  const bg = color || '#007AFF';
+                  const c = bg.replace('#', '');
+                  const r = parseInt(c.slice(0, 2), 16) / 255;
+                  const g = parseInt(c.slice(2, 4), 16) / 255;
+                  const b = parseInt(c.slice(4, 6), 16) / 255;
+                  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.5 ? '#1D1D1F' : '#FFFFFF';
+                })(),
+              }}
             >
               {icon ? (() => { const Ic = projectIconFor(icon); return <Ic size={15} />; })() : <FolderGit size={15} />}
             </div>
@@ -1657,7 +1667,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                   </button>
                 </div>
                 <button
-                  className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(0,0,0,0.22)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_3px_10px_rgba(0,0,0,0.28)] hover:brightness-[1.06] hover:-translate-y-px shrink-0"
+                  className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_var(--theme-shadow-color)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_3px_10px_var(--theme-shadow-color-heavy)] hover:brightness-[1.06] hover:-translate-y-px shrink-0"
                   onClick={handleCreate}
                   title="新建项目"
                 >
@@ -1675,7 +1685,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                     </div>
                     <p className="text-xs text-muted-foreground">暂无项目</p>
                     <button
-                      className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(0,0,0,0.22)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_3px_10px_rgba(0,0,0,0.28)] hover:brightness-[1.06] hover:-translate-y-px"
+                      className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_var(--theme-shadow-color)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_3px_10px_var(--theme-shadow-color-heavy)] hover:brightness-[1.06] hover:-translate-y-px"
                       onClick={handleCreate}
                     >
                       <span className="flex items-center justify-center w-[18px] h-[18px] rounded-full shrink-0 bg-white/25 text-primary-foreground">

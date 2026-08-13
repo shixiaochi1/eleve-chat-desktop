@@ -80,9 +80,9 @@ function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean)
   root.dataset.eleveTheme = isGlass ? 'glass' : (isDark ? 'dark' : 'light')
   root.dataset.eleveMode = isDark ? 'dark' : 'light'
 
-  // 2. 直接注入所有派生颜色（设置 --theme-* 变量，供 style.css 中的 --dt-* 引用）
+  // 2. 注入所有派生颜色（完整链路：--theme-* → --dt-* → --ui-*）
   const vars: Record<string, string> = {
-    // 背景层
+    // ── 背景层 ──
     '--theme-background': colors.background,
     '--theme-foreground': colors.foreground,
     '--theme-card': colors.card,
@@ -90,11 +90,11 @@ function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean)
     '--theme-popover': colors.popover,
     '--theme-popover-foreground': colors.popoverForeground,
     
-    // 文字层
+    // ── 文字层 ──
     '--theme-muted': colors.muted,
     '--theme-muted-foreground': colors.mutedForeground,
     
-    // 主色层
+    // ── 主色层 ──
     '--theme-primary': colors.primary,
     '--theme-primary-foreground': colors.primaryForeground,
     '--theme-secondary': colors.secondary,
@@ -102,34 +102,74 @@ function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean)
     '--theme-accent': colors.accent,
     '--theme-accent-foreground': colors.accentForeground,
     
-    // 边框层
+    // ── 边框层 ──
     '--theme-border': colors.border,
     '--theme-input': colors.input,
     '--theme-ring': colors.ring,
     '--theme-midground': colors.midground,
     '--theme-composer-ring': colors.composerRing,
     
-    // 语义层
+    // ── 语义层 ──
     '--theme-destructive': colors.destructive,
     '--theme-destructive-foreground': colors.destructiveForeground,
     
-    // 侧边栏
+    // ── 侧边栏 ──
     '--theme-sidebar-background': colors.sidebarBackground,
     '--theme-sidebar-border': colors.sidebarBorder,
     
-    // 气泡
+    // ── 气泡 ──
     '--theme-user-bubble': colors.userBubble,
     '--theme-user-bubble-border': colors.userBubbleBorder,
-    
-    // 语义色（红/绿/黄/蓝等）
-    '--ui-red': isDark ? '#FF453A' : '#FF3B30',
-    '--ui-green': isDark ? '#34C759' : '#34C759',
-    '--ui-yellow': isDark ? '#FFCC00' : '#FFCC00',
-    '--ui-blue': isDark ? '#007AFF' : '#007AFF',
-    '--ui-purple': isDark ? '#AF52DE' : '#AF52DE',
-    '--ui-orange': isDark ? '#FF9500' : '#FF9500',
-    '--ui-pink': isDark ? '#FF2D55' : '#FF2D55',
-    '--ui-cyan': isDark ? '#5AC8FA' : '#5AC8FA',
+
+    // ── ★ 新增：8 语义色（macOS 标准）──
+    '--theme-semantic-red': colors.semanticRed,
+    '--theme-semantic-orange': colors.semanticOrange,
+    '--theme-semantic-yellow': colors.semanticYellow,
+    '--theme-semantic-green': colors.semanticGreen,
+    '--theme-semantic-cyan': colors.semanticCyan,
+    '--theme-semantic-blue': colors.semanticBlue,
+    '--theme-semantic-purple': colors.semanticPurple,
+    '--theme-semantic-pink': colors.semanticPink,
+
+    // ── ★ 新增：功能色 ──
+    '--theme-input-background': colors.inputBackground,
+    '--theme-inline-code-background': colors.inlineCodeBackground,
+    '--theme-inline-code-border': colors.inlineCodeBorder,
+    '--theme-inline-code-foreground': colors.inlineCodeForeground,
+    '--theme-selection-background': colors.selectionBackground,
+    '--theme-warm-accent': colors.warmAccent,
+
+    // ── ★ 新增：阴影色 ──
+    '--theme-shadow-color': colors.shadowColor,
+    '--theme-shadow-color-heavy': colors.shadowColorHeavy,
+    '--theme-card-glow-cyan': colors.cardGlowCyan,
+    '--theme-card-glow-purple': colors.cardGlowPurple,
+
+    // ── ★ 新增：color-mix 系数（替代断裂的种子变量）──
+    '--theme-mix-chrome': colors.mixChrome,
+    '--theme-mix-backboard': colors.mixBackboard,
+    '--theme-mix-sidebar': colors.mixSidebar,
+    '--theme-mix-card': colors.mixCard,
+    '--theme-mix-elevated': colors.mixElevated,
+    '--theme-mix-bubble': colors.mixBubble,
+    '--theme-neutral-chrome': colors.neutralChrome,
+    '--theme-neutral-sidebar': colors.neutralSidebar,
+    '--theme-neutral-card': colors.neutralCard,
+
+    // ── ★ 新增：accent 混合百分比 ──
+    '--theme-fill-primary-accent-mix': colors.fillPrimaryAccentMix,
+    '--theme-fill-secondary-accent-mix': colors.fillSecondaryAccentMix,
+    '--theme-fill-tertiary-accent-mix': colors.fillTertiaryAccentMix,
+    '--theme-fill-quaternary-accent-mix': colors.fillQuaternaryAccentMix,
+    '--theme-fill-quinary-accent-mix': colors.fillQuinaryAccentMix,
+    '--theme-stroke-primary-accent-mix': colors.strokePrimaryAccentMix,
+    '--theme-stroke-secondary-accent-mix': colors.strokeSecondaryAccentMix,
+    '--theme-stroke-tertiary-accent-mix': colors.strokeTertiaryAccentMix,
+    '--theme-stroke-quaternary-accent-mix': colors.strokeQuaternaryAccentMix,
+    '--theme-row-hover-accent-mix': colors.rowHoverAccentMix,
+    '--theme-row-active-accent-mix': colors.rowActiveAccentMix,
+    '--theme-control-hover-accent-mix': colors.controlHoverAccentMix,
+    '--theme-control-active-accent-mix': colors.controlActiveAccentMix,
   }
 
   for (const [k, v] of Object.entries(vars)) {

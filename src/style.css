@@ -63,27 +63,27 @@
   --color-sidebar: var(--sidebar);
 
   --shadow-ink: var(--dt-foreground);
-  --shadow-xs: 0 0.0625rem 0.125rem color-mix(in srgb, #000 5%, transparent);
+  --shadow-xs: 0 0.0625rem 0.125rem var(--theme-shadow-color);
   --shadow-sm:
     0 0 0 0.0625rem color-mix(in srgb, var(--dt-foreground) 6%, transparent),
-    0 0.125rem 0.5rem color-mix(in srgb, #000 4%, transparent);
+    0 0.125rem 0.5rem var(--theme-shadow-color);
   --shadow-md:
     0 0 0 0.0625rem color-mix(in srgb, var(--dt-foreground) 8%, transparent),
-    0 0.25rem 1rem color-mix(in srgb, #000 8%, transparent),
-    0 1rem 2rem -1.5rem color-mix(in srgb, #000 18%, transparent);
+    0 0.25rem 1rem var(--theme-shadow-color-heavy),
+    0 1rem 2rem -1.5rem var(--theme-shadow-color-heavy);
   --shadow-lg:
-    inset 0 0.0625rem 0 color-mix(in srgb, #fff 28%, transparent),
+    inset 0 0.0625rem 0 rgba(255, 255, 255, 0.28),
     0 0 0 0.0625rem color-mix(in srgb, var(--dt-foreground) 8%, transparent),
-    0 0.75rem 2rem color-mix(in srgb, #000 12%, transparent);
+    0 0.75rem 2rem var(--theme-shadow-color-heavy);
   --shadow-header:
     0 0.0625rem 0 color-mix(in srgb, var(--dt-foreground) 7%, transparent),
-    0 0.625rem 1.5rem -1.25rem color-mix(in srgb, #000 16%, transparent);
-  --shadow-composer: 0 0.0625rem 0.125rem color-mix(in srgb, #000 5%, transparent);
+    0 0.625rem 1.5rem -1.25rem var(--theme-shadow-color-heavy);
+  --shadow-composer: 0 0.0625rem 0.125rem var(--theme-shadow-color);
   --shadow-composer-focus:
     0 0 0 0.125rem color-mix(in srgb, var(--dt-composer-ring) calc(10% * var(--composer-ring-strength)), transparent),
     0 0 0 0.0625rem color-mix(in srgb, var(--dt-composer-ring) calc(22% * var(--composer-ring-strength)), transparent),
-    0 0.25rem 0.875rem color-mix(in srgb, #000 8%, transparent),
-    0 0.75rem 2rem -1.25rem color-mix(in srgb, #000 14%, transparent);
+    0 0.25rem 0.875rem var(--theme-shadow-color-heavy),
+    0 0.75rem 2rem -1.25rem var(--theme-shadow-color-heavy);
 }
 
 @layer base {
@@ -96,38 +96,44 @@
     --ui-base: var(--theme-foreground);
     --ui-accent: var(--theme-midground);
     --ui-accent-secondary: var(--theme-primary);
-    --ui-warm: var(--theme-warm, #cf806d);
-    --ui-red: #cf2d56;
-    --ui-orange: #db704b;
-    --ui-yellow: #c08532;
-    --ui-green: #1f8a65;
-    --ui-cyan: #4c7f8c;
-    --ui-blue: #3b82f6;
-    --ui-purple: #9e94d5;
-    --ui-pink: #c25a8e;
+
+    /* ★ 语义色 — 跟随 Light/Dark 切换（context.tsx 注入 --theme-semantic-*） */
+    --ui-red: var(--theme-semantic-red);
+    --ui-orange: var(--theme-semantic-orange);
+    --ui-yellow: var(--theme-semantic-yellow);
+    --ui-green: var(--theme-semantic-green);
+    --ui-cyan: var(--theme-semantic-cyan);
+    --ui-blue: var(--theme-semantic-blue);
+    --ui-purple: var(--theme-semantic-purple);
+    --ui-pink: var(--theme-semantic-pink);
+
+    /* ★ 背景层 — 使用 color-mix 从新注入的种子变量派生 */
     --ui-bg-chrome: color-mix(
       in srgb,
-      var(--theme-background-seed) var(--theme-mix-chrome),
+      var(--theme-background) var(--theme-mix-chrome),
       var(--theme-neutral-chrome)
     );
     --ui-bg-backboard: color-mix(
       in srgb,
-      var(--theme-background-seed) var(--theme-mix-backboard),
+      var(--theme-background) var(--theme-mix-backboard),
       var(--theme-neutral-chrome)
     );
     --ui-bg-sidebar: color-mix(
       in srgb,
-      var(--theme-sidebar-seed) var(--theme-mix-sidebar),
+      var(--theme-sidebar-background) var(--theme-mix-sidebar),
       var(--theme-neutral-sidebar)
     );
-    --ui-bg-editor: color-mix(in srgb, var(--theme-card-seed) var(--theme-mix-card), var(--theme-neutral-card));
+    --ui-bg-editor: color-mix(in srgb, var(--theme-card) var(--theme-mix-card), var(--theme-neutral-card));
     --ui-bg-elevated: color-mix(
       in srgb,
-      var(--theme-elevated-seed) var(--theme-mix-elevated),
+      var(--theme-card) var(--theme-mix-elevated),
       var(--theme-neutral-card)
     );
     --ui-bg-card: color-mix(in srgb, var(--ui-accent) 4%, color-mix(in srgb, var(--ui-base) 4%, transparent));
-    --ui-bg-input: #fcfcfc;
+
+    /* ★ 功能色 — 跟随主题（context.tsx 注入 --theme-input-background 等） */
+    --ui-bg-input: var(--theme-input-background);
+
     --ui-bg-primary: color-mix(
       in srgb,
       var(--ui-accent) var(--theme-fill-primary-accent-mix),
@@ -210,23 +216,25 @@
     /* ── 方案C: 背板与卡片颜色变量（跟随主题动态变化）── */
     --ui-card-bg: var(--theme-card);
     --ui-card-border: var(--theme-border);
-    --ui-card-shadow-outer: rgba(0, 0, 0, 0.4);
-    --ui-card-shadow-inner: rgba(0, 0, 0, 0.3);
+    --ui-card-shadow-outer: var(--theme-shadow-color-heavy);
+    --ui-card-shadow-inner: var(--theme-shadow-color);
     --ui-card-highlight: rgba(255, 255, 255, 0.05);
-    --ui-card-glow-cyan: rgba(56, 189, 248, 0.5);
-    --ui-card-glow-purple: rgba(120, 80, 220, 0.5);
-    --ui-card-glow-cyan-mid: rgba(56, 189, 248, 0.3);
-    --ui-card-glow-purple-mid: rgba(120, 80, 220, 0.3);
+    --ui-card-glow-cyan: var(--theme-card-glow-cyan);
+    --ui-card-glow-purple: var(--theme-card-glow-purple);
+    --ui-card-glow-cyan-mid: color-mix(in srgb, var(--theme-card-glow-cyan) 60%, transparent);
+    --ui-card-glow-purple-mid: color-mix(in srgb, var(--theme-card-glow-purple) 60%, transparent);
     --ui-chat-bubble-background: color-mix(
       in srgb,
-      var(--theme-bubble-seed) var(--theme-mix-bubble),
+      var(--theme-card) var(--theme-mix-bubble),
       var(--theme-neutral-card)
     );
     --ui-chat-bubble-opaque-background: var(--ui-bg-editor);
-    --ui-inline-code-background: color-mix(in srgb, #141414 5%, transparent);
-    --ui-inline-code-border: color-mix(in srgb, #141414 8%, transparent);
-    --ui-inline-code-foreground: color-mix(in srgb, #141414 88%, transparent);
-    --ui-selection-background: color-mix(in srgb, #ffd24a 55%, transparent);
+
+    /* ★ 功能色 — 跟随主题（context.tsx 注入 --theme-inline-code-* 等） */
+    --ui-inline-code-background: var(--theme-inline-code-background);
+    --ui-inline-code-border: var(--theme-inline-code-border);
+    --ui-inline-code-foreground: var(--theme-inline-code-foreground);
+    --ui-selection-background: var(--theme-selection-background);
 
     /* macOS 风格主题：直接指向 theme 变量，由 context.tsx 动态设置 */
     --dt-background: var(--theme-background);
@@ -325,7 +333,7 @@
     --background: var(--dt-background);
     --foreground: var(--dt-foreground);
 
-    --warm-glow: color-mix(in srgb, var(--ui-warm) 32%, color-mix(in srgb, var(--ui-accent) 6%, transparent));
+    --warm-glow: color-mix(in srgb, var(--theme-warm-accent) 32%, color-mix(in srgb, var(--ui-accent) 6%, transparent));
     /* `--noise-opacity-mul` is set per-mode by `applyTheme()`. */
 
     --noise-opacity-mul: 1;
@@ -333,11 +341,13 @@
 
     /* ── 幻影变量别名 — 兼容旧引用，逐步迁移 ── */
     --text-secondary: var(--ui-text-secondary);
+    --text-tertiary: var(--ui-text-tertiary);
     --text: var(--ui-text-primary);
     --success: var(--ui-green);
     --error: var(--ui-red);
     --danger: var(--dt-destructive);
     --accent: var(--dt-accent-foreground);
+    --ui-status-error: var(--ui-red);
 
     /* ── 看板半透明派生变量 — 避免内联 rgba ── */
     --kanban-purple: var(--ui-purple);
@@ -457,7 +467,7 @@
 
   /* ── Focus ring consistency: visible on keyboard, none on mouse ── */
   *:focus-visible {
-    outline: 2px solid var(--ui-focus-ring-color, #0a84ff);
+    outline: 2px solid var(--theme-ring, #0a84ff);
     outline-offset: 2px;
     border-radius: 4px;
   }
@@ -885,7 +895,7 @@ canvas {
 }
 .tb-btn svg { width: 14px; height: 14px; }
 .tb-btn:hover { background: var(--ui-control-hover-background); color: var(--ui-text-primary); }
-.tb-btn-close:hover { background: var(--dt-destructive); color: #fff; }
+.tb-btn-close:hover { background: var(--dt-destructive); color: var(--dt-destructive-foreground); }
 
 /* ── 分割线 ── */
 .pane-resizer {
@@ -994,9 +1004,10 @@ canvas {
   border-radius: 12px;   /* 与内部卡片圆角对齐，阴影才是圆角 */
   border-color: transparent !important;
   opacity: 1 !important;
-  box-shadow: 0 18px 44px rgba(0,0,0,0.5), 0 0 0 2px var(--drag-ring, rgba(0,83,253,0.35)) !important;
+  box-shadow: 0 18px 44px var(--theme-shadow-color-heavy), 0 0 0 2px var(--drag-ring, var(--dt-ring)) !important;
   will-change: transform;
 }
+
 
 /* ================================================================
    侧边面板 — 中间栏
@@ -1183,18 +1194,14 @@ canvas {
   word-break: break-word;
 }
 
-/* 🔴 2026-08-09 推理过程文字颜色（老大三次调淡后最终方案）：
-   内联样式/普通 class 均被子元素覆盖（实测红色验证：组件生效但文字不变色），
-   用 !important 强制压制推理块内所有子元素（markdown p/span/strong/a/code…）。
-   查看时 55% 中灰、思考中 35%——与回复正文（--dt-foreground 全强度）拉开层次。
-   hover 轻微提升可读性（对齐 Hermes disclosure opacity 0.67→1.0 语义）。 */
+/* 🔴 推理过程文字颜色 — 跟随主题变量 */
 .reasoning-content,
 .reasoning-content * {
-  color: rgba(120, 120, 125, 0.55) !important;
+  color: color-mix(in srgb, var(--dt-muted-foreground) 55%, transparent) !important;
 }
 .reasoning-content:hover,
 .reasoning-content:hover * {
-  color: rgba(120, 120, 125, 0.8) !important;
+  color: color-mix(in srgb, var(--dt-muted-foreground) 80%, transparent) !important;
 }
 .reasoning-content .code-block-header,
 .reasoning-content .code-block-header * {
@@ -1426,7 +1433,7 @@ canvas {
   line-height: 1;
   animation: vibe-rise 1.5s ease-out forwards;
   will-change: transform, opacity;
-  filter: drop-shadow(0 2px 6px rgb(255 158 196 / 0.35));
+  filter: drop-shadow(0 2px 6px color-mix(in srgb, var(--ui-pink) 35%, transparent));
 }
 @keyframes vibe-rise {
   0%   { opacity: 0; transform: translate(0, 0) scale(0.6) rotate(-8deg); }
