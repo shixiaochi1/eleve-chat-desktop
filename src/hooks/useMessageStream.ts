@@ -750,6 +750,16 @@ export function useMessageStream({
         if (pending.secret) setActiveSecret?.(pending.secret);
         // 🔴 P1 修复：slash_confirm 恢复（之前漏掉，刷新后 pending 的 /new /undo /reset 确认卡不恢复）
         if (pending.slashConfirm) setActiveSlashConfirm?.(pending.slashConfirm as { confirmId: string; command: string; description: string });
+      } else {
+        // 🔴 2026-08-13 边界修复：session.info 是 pending 状态唯一快照权威——
+        // 快照为空 = 无任何 pending，必须清空（否则切到无 pending 的会话时
+        // 旧会话的审批/澄清卡残留——handleSwitchSession 路径不清理，只有
+        // loadSessionIntoView（P1-3）清，此前行为不一致）。
+        setActiveClarify(null);
+        setActiveApproval(null);
+        setActiveSudo?.(null);
+        setActiveSecret?.(null);
+        setActiveSlashConfirm?.(null);
       }
       // 更新 monitorState — 同步 usage 绝对值（session.info 每次 push 都是完整快照）
       setMonitorState((prev) => ({

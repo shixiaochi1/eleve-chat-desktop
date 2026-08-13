@@ -147,7 +147,10 @@ export function useGridChat(active: boolean): {
     if (accRef.current[profile]) resetAccumulator(accRef.current[profile]);
     sendingRef.current[profile] = false;
     clearQueue(profile);
-    patch(profile, (s) => ({ ...s, sessionId, status: 'idle', streamParts: [], activityHint: '' }));
+    // 🔴 2026-08-13 边界修复：切会话清 pending 槽（新会话无旧审批/澄清卡；
+    // loadLatest 不一定建 WS 流 → session.info 可能不推，必须显式清）
+    patch(profile, (s) => ({ ...s, sessionId, status: 'idle', streamParts: [], activityHint: '',
+      pendingApproval: null, pendingClarify: null, pendingSudo: null, pendingSecret: null, pendingSlashConfirm: null }));
     try {
       const res = await call('get_session_messages', { session_id: sessionId, limit: PAGE_SIZE }) as {
         messages?: SessionMessage[]; has_more?: boolean; oldest_id?: number | null;
@@ -896,16 +899,17 @@ export function useGridChat(active: boolean): {
             (payload.run_id as string) ?? statesRef.current[profile]?.sessionId ?? undefined,
           );
           if (pending || siModel || siUsage) {
+            // 🔴 2026-08-13 边界修复：session.info 是 pending 快照权威——快照为空时
+            // 清空（旧实现 pending=null 不 patch → 切会话后旧 pending 卡残留）
+            const hasPending = !!(pending?.approval || pending?.clarify || pending?.sudo || pending?.secret || pending?.slashConfirm);
             patch(profile, (s) => ({
               ...s,
-              ...(pending ? {
-                pendingApproval: pending.approval ?? s.pendingApproval,
-                pendingClarify: pending.clarify ?? s.pendingClarify,
-                pendingSudo: pending.sudo ?? s.pendingSudo,
-                pendingSecret: pending.secret ?? s.pendingSecret,
-                pendingSlashConfirm: pending.slashConfirm ?? s.pendingSlashConfirm,
-                status: 'waiting' as AgentStatus,
-              } : {}),
+              pendingApproval: pending?.approval ?? null,
+              pendingClarify: pending?.clarify ?? null,
+              pendingSudo: pending?.sudo ?? null,
+              pendingSecret: pending?.secret ?? null,
+              pendingSlashConfirm: pending?.slashConfirm ?? null,
+              ...(hasPending ? { status: 'waiting' as AgentStatus } : {}),
               ...(siModel ? { modelName: siModel } : {}),
               ...(siUsage ? { lastUsage: { input: (siUsage.input_tokens as number) || 0, output: (siUsage.output_tokens as number) || 0 } } : {}),
               lastActivity: Date.now(),

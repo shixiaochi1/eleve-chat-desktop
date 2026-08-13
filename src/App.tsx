@@ -422,6 +422,10 @@ export default function App() {
   // 手动导航 / 会话行点击 / 切其它项目 / 切 Agent → 解除，恢复跟随。
   // 与 projectCwdInjectedRef（防 setSessionId 清空）互补：一个防清空，一个防覆盖。
   const pinnedProjectCwdRef = useRef<string | null>(null);
+  // 🔴 2026-08-13 边界修复：无会话手动导航 → 新会话落点暂存（对齐 Hermes $newChatWorkspaceTarget）。
+  // 文件面板无会话时导航目录 → 新会话落该目录（此前只做了 remote 记忆，本会话不消费 = 断线）；
+  // 任何项目域动作（点项目/会话行/切 Agent）→ 清除（项目意图覆盖手动导航）。
+  const newChatWorkspaceTargetRef = useRef<string | null>(null);
   useEffect(() => {
     if (projectCwdInjectedRef.current) { projectCwdInjectedRef.current = null; return; }
     setSessionCwd('');
@@ -511,6 +515,18 @@ export default function App() {
   //   Hermes 同：session busy 4009）。无会话（新聊天未创建）：暂存为新会话目标
   //   （Hermes $newChatWorkspaceTarget 语义）——remote 模式由上方 effect 自动
   //   rememberWorkspaceCwd，后续 session.create 消费（App L859）
+  // 🔴 2026-08-13 边界修复：新会话落点单一漏斗（手动导航 target > 项目 scope > 启动 seed）。
+  // 统一消费点：handleNewSessionWithScope / gridAwareNewSession / 宫格 /new / handleSend 懒创建 /
+  // usePromptActions sessionCreate——禁止各处独立拼接（此前 4 处平行实现易漏 target）。
+  const resolveNewSessionCwd = useCallback((): string | null => {
+    const target = newChatWorkspaceTargetRef.current?.trim();
+    if (target) return target;
+    const scope = projectScopeCwdRef.current;
+    if (scope) return scope;
+    const seeded = seededCwdRef.current?.trim();
+    return seeded || null;
+  }, []);
+
   const handleFilePanelCwdChange = useCallback((path: string) => {
     // 🔴 2026-08-13 问题1修复：用户手动导航 → 解除项目钉住（文件面板恢复跟随会话 cwd）
     pinnedProjectCwdRef.current = null;
@@ -520,6 +536,8 @@ export default function App() {
       });
     } else {
       setSessionCwd(path);
+      // 🔴 2026-08-13 边界修复：无会话导航 → 新会话落点暂存（resolveNewSessionCwd 消费）
+      newChatWorkspaceTargetRef.current = path;
     }
   }, [sess.sessionId]);
 
@@ -722,6 +740,11 @@ export default function App() {
   // 串台防御完整架构详见 utils/session.ts 文件头。
   //
   const handleProfileChange = useCallback((name: string) => {
+    // 🔴 2026-08-13 边界修复：同 Agent 重复点选短路——否则单视图重跑四步
+    // （resetStream 重置流式状态 + loadSessionIntoView 清 pending 卡：
+    // 流式中/审批中点当前 Agent 卡片会把审批卡清掉、流式 UI 重置）；
+    // 宫格下同焦点卡片点选同样无需清 scope/pinned。
+    if (name === currentProfile) return;
     // 🔴 宫格模式：只切 UI 焦点 + WS 盖章，不做会话保存/恢复（useGridChat 自管 per-agent session）。
     // 侧栏点选 / 宫格点选 都走此路径，currentProfile 是焦点唯一权威源。
     if (viewMode === 'grid') {
@@ -731,6 +754,7 @@ export default function App() {
       setProjectScopeCwd(null);
       projectCwdInjectedRef.current = null; // 🔴 清豁免标记：A 的项目 cwd 不残留到 B 的文件面板
       pinnedProjectCwdRef.current = null; // 🔴 2026-08-13 问题1：切 Agent 解除项目钉住
+      newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：切 Agent 清手动导航落点
       return;
     }
 
@@ -759,6 +783,7 @@ export default function App() {
     setProjectScopeCwd(null);
     projectCwdInjectedRef.current = null; // 🔴 清豁免标记：A 的项目 cwd 不残留到 B 的文件面板
     pinnedProjectCwdRef.current = null; // 🔴 2026-08-13 问题1：切 Agent 解除项目钉住
+    newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：切 Agent 清手动导航落点
 
     // ── Step 3b: 🔴 S2 修复 — 刷新会话列表（后端按 profile 过滤，S1 保证 sendRpc 盖章新 profile） ──
     sess.refresh();
@@ -793,6 +818,7 @@ export default function App() {
     setProjectScopeCwd(null);
     projectCwdInjectedRef.current = null; // 🔴 清豁免标记
     pinnedProjectCwdRef.current = null; // 🔴 2026-08-13 问题1：宫格→单视图同样解除项目钉住
+    newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：宫格→单视图同样清手动导航落点
     // 🔴 S2: 宫格→单视图同样刷新会话列表（与 handleProfileChange 一致）
     sess.refresh();
     if (targetId) {
@@ -867,8 +893,8 @@ export default function App() {
   //   scope（选中项目/workspace）注入新建会话链的单一入口——单视图新建按钮、
   //   /new 命令、宫格新建都走它；懒创建路径（无会话发消息）已由 getNewSessionCwd 消费
   const handleNewSessionWithScope = useCallback(async (title?: string) => {
-    await handleNewSession(title, projectScopeCwdRef.current ?? undefined);
-  }, [handleNewSession]);
+    await handleNewSession(title, resolveNewSessionCwd() ?? undefined);
+  }, [handleNewSession, resolveNewSessionCwd]);
 
   // （useSessions.create 激活——原无 UI 调用方的死链；卡片立即有真实会话而非懒创建）
   const gridAwareNewSession = useCallback(async () => {
@@ -878,11 +904,11 @@ export default function App() {
       //   sessionCreate + loadLatest + persistSessionPointer + onFocusChange）——
       //   旧代码再 sess.create + switchToSession = 第二次创建 → 第一个会话成孤儿。
       //   只走一条创建路径，scope（选中项目）由 newSession cwd 参数烙印。
-      gridRef.current?.newSession(currentProfile, projectScopeCwdRef.current ?? undefined);
+      gridRef.current?.newSession(currentProfile, resolveNewSessionCwd() ?? undefined);
       return;
     }
     handleNewSessionWithScope();
-  }, [viewMode, currentProfile, handleNewSessionWithScope]);
+  }, [viewMode, currentProfile, handleNewSessionWithScope, resolveNewSessionCwd]);
 
   // 🔴 P1-2: 在该项目新建会话（对齐 Hermes goToProject newSession → requestStartWorkSession(cwd)）：
   // 立即创建带 cwd 的会话（后端 session.create 写入 cwd 烙印 → resolve_session_cwd 生效），
@@ -953,12 +979,7 @@ export default function App() {
     //      ❌ 旧实现继承当前显示 cwd（sessionCwdRef）——sessionCwd 会被
     //      session.info 推成启动目录/上个会话目录，裸新聊天静默落错目录
     //      （Hermes #71873/#80213/#77496 教训；旧注释自称 Hermes 同款 = 误读）。
-    getNewSessionCwd: () => {
-      const scope = projectScopeCwdRef.current;
-      if (scope) return scope;
-      const seeded = seededCwdRef.current?.trim();
-      return seeded || null;
-    },
+    getNewSessionCwd: resolveNewSessionCwd, // 🔴 2026-08-13 边界：统一单一漏斗（target > scope > seeded）
   });
 
   // 🔴 2026-08-12 联动重构（老大需求：选 Agent → 点项目/HOME → 消息区 + 右侧文件一起联动）：
@@ -976,9 +997,11 @@ export default function App() {
       projectCwdInjectedRef.current = path; // 🔴 豁免"会话切换清空"（无会话场景文件面板停留目标目录）
       pinnedProjectCwdRef.current = path; // 🔴 2026-08-13 问题1：进入项目钉住文件面板（防推荐会话 session.info 覆盖跳走）
       setProjectScopeCwd(path);     // ② 新会话落点 = 项目根 / workspace
+      newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：点项目 = 项目意图覆盖手动导航
     } else {
       setProjectScopeCwd(null);     // ② 空 path（旧后端兑底）：退出项目域
       pinnedProjectCwdRef.current = null; // 🔴 2026-08-13 问题1：退出项目域解除钉住
+      newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：退出项目域清手动导航落点
     }
     // ③ 消息区联动（推荐会话 = 后端分组权威：项目 = 该项目 previewSessions 最新；
     //    HOME = Home 桶 unowned 全集最新；无推荐 → 前端域匹配兑底 → 空态新建）
@@ -1032,6 +1055,8 @@ export default function App() {
   const handleProjectScopeChange = useCallback((path: string | null) => {
     setProjectScopeCwd(path);
     pinnedProjectCwdRef.current = null;
+    // 🔴 2026-08-13 边界：会话行点击 = 项目域意图 → 清手动导航落点
+    newChatWorkspaceTargetRef.current = null;
   }, []);
 
   // 🔴 P1: 宫格模式 CommandCenter（CMD+K）命令执行路由进宫格（写入 per-agent 状态槽，非不可见的 zustand store）
@@ -1041,7 +1066,7 @@ export default function App() {
       //   前端拦截 → 卡片新建带 scope cwd（后端 slash 无前端 scope 概念，直传会落
       //   workspace 而非选中项目）
       if (cmdName === 'new' || cmdName === 'reset') {
-        gridRef.current?.newSession(currentProfile, projectScopeCwdRef.current ?? undefined);
+        gridRef.current?.newSession(currentProfile, resolveNewSessionCwd() ?? undefined);
         return;
       }
       gridRef.current?.execCommand(currentProfile, cmdName, args);
@@ -1104,15 +1129,8 @@ export default function App() {
           // 项目 scope → 项目根；无 scope → 仅显式 default_project_dir / remote 记忆
           // （seededCwdRef）；❌ 不再继承当前显示 cwd（session.info 可能推成启动目录）
           let cwd: string | undefined;
-          const scopeCwd = projectScopeCwdRef.current;
-          if (scopeCwd) {
-            cwd = scopeCwd;
-          } else {
-            const seeded = seededCwdRef.current?.trim();
-            if (seeded) {
-              cwd = seeded;
-            }
-          }
+          // 🔴 2026-08-13 边界：统一单一漏斗（手动导航 target > 项目 scope > 启动 seed）
+          cwd = resolveNewSessionCwd() ?? undefined;
           const created = await ws.sessionCreate({
             profile: currentProfile,
             title: sess.pendingTitle ?? undefined,

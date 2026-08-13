@@ -1460,12 +1460,15 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
       await call('projects_set_active', { id: project.id, profile: currentProfile });
       // 🔴 2026-08-12 点选状态修复：菜单设激活同样即时置高亮（与单击路径一致）
       setSelectedId(project.id);
+      // 🔴 2026-08-13 边界修复：菜单设激活与单击路径同权——同步项目域 scope
+      // （否则高亮切了但 scope 还是旧项目 → 新建会话落错项目，与问题2同类断线）
+      onProjectScopeChange?.(project.path ?? null);
       notifySuccess(`已将「${project.label}」设为激活项目`);
       void fetchTree(true);
     } catch (e) {
       notifyError(e, '激活项目失败');
     }
-  }, [currentProfile, fetchTree]);
+  }, [currentProfile, fetchTree, onProjectScopeChange]);
 
   // 在文件管理器中显示（对齐 Hermes revealPath；tauri-opener 与文件面板同款）
   const handleReveal = useCallback(async (path: string) => {
