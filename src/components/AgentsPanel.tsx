@@ -24,19 +24,22 @@ interface AgentsPanelProps {
 }
 
 export default function AgentsPanel(props: AgentsPanelProps) {
-  // 🔴 2026-08-13 v3 自动对齐 + 平滑过渡（老大指示：不抖 + 自然）：
-  //   内容自然高度（scrollHeight）→ 显式 height + transition 300ms ease。
-  //   v2 踩坑：ResizeObserver 观察容器尺寸——容器被 max-h 裁剪后内容变化不影响
-  //   容器尺寸 → RO 永不触发 → 高度冻结在首帧（列表未加载时的值）→ 只显示 1 卡。
-  //   v3：MutationObserver 观察内容 DOM 变化 → 重测 scrollHeight（内容总高，
-  //   不受 max-h 裁剪影响）→ 高度跟随内容平滑过渡；内容超 42% 仍 clamp 内部滚动。
+  // 🔴 2026-08-13 v4 自动对齐 + 平滑过渡（v2/v3 测量死锁修复）：
+  //   死锁根因：容器被 max-h 裁剪后（height 显式），ProfilePanel h-full 拉伸
+  //   → 容器 scrollHeight 恒 = 渲染高度（自我印证）→ 测不到真实内容高。
+  //   v4：直接测 ProfilePanel 列表区 scrollHeight（data-agent-list，内容总高
+  //   独立于容器高度）+ 区块头 offsetHeight（data-agent-header）→ 真实内容高
+  //   → 显式 height + transition 300ms。无死锁：列表区 scrollHeight 不受裁剪影响。
   const agentAreaRef = useRef<HTMLDivElement>(null);
   const [agentContentHeight, setAgentContentHeight] = useState<number | null>(null);
   useEffect(() => {
     const el = agentAreaRef.current;
     if (!el) return;
     const measure = () => {
-      if (el.scrollHeight > 0) setAgentContentHeight(el.scrollHeight);
+      const header = el.querySelector<HTMLElement>('[data-agent-header]');
+      const list = el.querySelector<HTMLElement>('[data-agent-list]');
+      const h = (header?.offsetHeight ?? 0) + (list?.scrollHeight ?? 0);
+      if (h > 0) setAgentContentHeight(h);
     };
     measure();
     const mo = new MutationObserver(() => measure());

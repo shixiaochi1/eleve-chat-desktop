@@ -313,7 +313,7 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
   return (
     <div className="relative flex flex-col h-full min-h-0">
       {/* ── 区块头：AGENTS + 计数 + 刷新/新建（relative = 新建浮层锚点） ── */}
-      <div className="relative flex items-center gap-1.5 px-3 pt-2.5 pb-1.5 shrink-0">
+      <div data-agent-header className="relative flex items-center gap-1.5 px-3 pt-2.5 pb-1.5 shrink-0">
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/60 select-none">Agents</span>
         {!loading && profiles.length > 0 && (
           <span className="text-[10px] tabular-nums text-muted-foreground/40">{profiles.length}</span>
@@ -345,8 +345,9 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
       )}
 
       {/* Agent 卡片列表（内部滚动，高度由 AgentsPanel 上限约束；pt-1.5 防首卡选中阴影被裁剪；
-          scrollbar-gutter 恒预留滚动条位，与项目列表宽度对齐） */}
-      <div className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0 [scrollbar-gutter:stable]">
+          scrollbar-gutter 恒预留滚动条位，与项目列表宽度对齐）
+          🔴 data-agent-list：AgentsPanel 高度测量锚点（scrollHeight = 内容总高，不受容器裁剪影响） */}
+      <div data-agent-list className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0 [scrollbar-gutter:stable]">
         {loading && profiles.length === 0 ? (
           <div className="flex items-center justify-center py-6 text-xs text-muted-foreground">加载中...</div>
         ) : (
