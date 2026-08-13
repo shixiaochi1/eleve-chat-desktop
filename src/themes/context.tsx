@@ -69,7 +69,7 @@ function getSystemDarkMode(): boolean {
 
 // ─── CSS 注入 ───────────────────────────────────────────────────────────────
 
-function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean) {
+function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean, rawAccent: string) {
   if (typeof document === 'undefined') return
 
   const root = document.documentElement
@@ -177,19 +177,21 @@ function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean)
   }
 
   // 3. Glass 模式特殊处理：用 color-mix 把 accent 融入玻璃底色
+  // 🔴 2026-08-13 修复：混入 rawAccent（用户原始主题色）而非 colors.accent
+  // （colors.accent = 8% 透明度淡化色，混入后几乎不可见 = 联动为零）
   if (isGlass) {
     root.classList.add('glass-mode')
     const bg = isDark ? 'rgb(18,18,20)' : 'rgb(232,232,237)'
-    root.style.setProperty('--glass-body-top', `color-mix(in srgb, ${bg} 88%, ${colors.accent})`)
-    root.style.setProperty('--glass-body-bottom', `color-mix(in srgb, ${bg} 76%, ${colors.accent})`)
-    // 子组件玻璃色也跟随 accent
+    root.style.setProperty('--glass-body-top', `color-mix(in srgb, ${bg} 88%, ${rawAccent})`)
+    root.style.setProperty('--glass-body-bottom', `color-mix(in srgb, ${bg} 76%, ${rawAccent})`)
+    // 子组件玻璃色也跟随主题色
     const chromeAlpha = isDark ? 'rgba(18,18,20,0.88)' : 'rgba(232,232,237,0.92)'
-    root.style.setProperty('--glass-bg-chrome', `color-mix(in srgb, ${chromeAlpha} 70%, ${colors.accent})`)
-    root.style.setProperty('--glass-bg-sidebar', `color-mix(in srgb, ${chromeAlpha} 60%, ${colors.accent})`)
-    root.style.setProperty('--glass-bg-editor', `color-mix(in srgb, ${chromeAlpha} 65%, ${colors.accent})`)
-    root.style.setProperty('--glass-bg-elevated', `color-mix(in srgb, ${chromeAlpha} 75%, ${colors.accent})`)
-    root.style.setProperty('--glass-bg-bubble', `color-mix(in srgb, ${chromeAlpha} 55%, ${colors.accent})`)
-    root.style.setProperty('--glass-bg-input', `color-mix(in srgb, ${chromeAlpha} 50%, ${colors.accent})`)
+    root.style.setProperty('--glass-bg-chrome', `color-mix(in srgb, ${chromeAlpha} 70%, ${rawAccent})`)
+    root.style.setProperty('--glass-bg-sidebar', `color-mix(in srgb, ${chromeAlpha} 60%, ${rawAccent})`)
+    root.style.setProperty('--glass-bg-editor', `color-mix(in srgb, ${chromeAlpha} 65%, ${rawAccent})`)
+    root.style.setProperty('--glass-bg-elevated', `color-mix(in srgb, ${chromeAlpha} 75%, ${rawAccent})`)
+    root.style.setProperty('--glass-bg-bubble', `color-mix(in srgb, ${chromeAlpha} 55%, ${rawAccent})`)
+    root.style.setProperty('--glass-bg-input', `color-mix(in srgb, ${chromeAlpha} 50%, ${rawAccent})`)
     root.style.setProperty('--glass-border', isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)')
   } else {
     root.classList.remove('glass-mode')
@@ -214,7 +216,7 @@ if (typeof window !== 'undefined') {
   const isDark = appearance === 'dark' || (appearance !== 'light' && systemDark)
   const isGlass = appearance === 'glass'
   const colors = deriveColors(accent, isDark)
-  applyThemeCSS(colors, isDark, isGlass)
+  applyThemeCSS(colors, isDark, isGlass, accent)
   // 启动时初始化窗口效果（DWM 原生合成）
   call('set_window_effect', { appearance })
     .catch(() => {}) // 静默失败，不阻塞启动
@@ -278,7 +280,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   // 应用 CSS
   useEffect(() => {
-    applyThemeCSS(colors, isDark, isGlass)
+    applyThemeCSS(colors, isDark, isGlass, accent)
   }, [colors, isDark, isGlass])
 
   // 设置函数（写入本地 + 后端同步，失败不阻塞 UI）
