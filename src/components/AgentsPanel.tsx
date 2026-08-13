@@ -29,24 +29,25 @@ interface AgentsPanelProps {
 }
 
 export default function AgentsPanel(props: AgentsPanelProps) {
-  // 🔴 TEMP-DIAG（抖动排查 v11）：切 Agent 打印布局实测值——确认分割线是否真动
+  // 🔴 TEMP-DIAG（抖动排查 v12）：精确测**分割线**（上部容器 bottom）+ 项目区顶部
   const diagRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!diagRef.current) return;
     const r = diagRef.current.getBoundingClientRect();
     const list = diagRef.current.querySelector<HTMLElement>('[data-agent-list]');
     console.log('[DIAG] profile=' + props.currentProfile, JSON.stringify({
-      top: Math.round(r.top), bottom: Math.round(r.bottom), height: Math.round(r.height),
+      dividerY: Math.round(r.bottom), // 分割线 Y（项目区起点）
+      agentH: Math.round(r.height),
       listScrollH: list?.scrollHeight ?? -1, listClientH: list?.clientHeight ?? -1,
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.currentProfile]);
 
   return (
-    <div ref={diagRef} className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col h-full min-h-0">
       {/* ── 上部：Agent 卡片（自然高度自动对齐；max-h-[42%] 仅极端保护——
           超限时 ProfilePanel 列表区内部滚动，不挤没项目区） ── */}
-      <div className="flex flex-col min-h-0 max-h-[42%]">
+      <div ref={diagRef} className="flex flex-col min-h-0 max-h-[42%]">
         <ProfilePanel {...props} />
       </div>
 
