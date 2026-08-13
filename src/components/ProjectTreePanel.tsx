@@ -122,13 +122,19 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
         result.projects = result.projects.filter((p: ProjectNode) => !p.isAuto || !dismissed.has(p.id));
       }
       setTree(result);
-      // 🔴 2026-08-13 切 Agent 恢复激活项目（老大反馈：项目选中但文件面板"未打开项目"）：
-      // 仅切 Agent 后的首次加载（profileSwitchPendingRef）且该 Agent 有 active 项目时恢复
-      // scope + 文件面板到激活项目根；不动消息区（会话指针恢复由 handleProfileChange 管）。
-      if (profileSwitchPendingRef.current && result?.active_id) {
+      // 🔴 2026-08-13 切 Agent 恢复激活项目（老大反馈：项目选中但文件面板“未打开项目”）：
+      // 仅切 Agent 后的首次加载（profileSwitchPendingRef）——有 active 项目 → 恢复
+      // scope + 文件面板到激活项目根；无 active（或 active 无 path）→ 清面板（最终态
+      // 占位，2026-08-14 补：避免旧面板残留）。不动消息区（会话指针恢复由 handleProfileChange 管）。
+      if (profileSwitchPendingRef.current) {
         profileSwitchPendingRef.current = false;
-        const active = result.projects?.find((p: ProjectNode) => p.id === result.active_id);
-        if (active?.path) onProjectScopeRestored?.(active.path);
+        if (result?.active_id) {
+          const active = result.projects?.find((p: ProjectNode) => p.id === result.active_id);
+          if (active?.path) onProjectScopeRestored?.(active.path);
+          else onProjectScopeRestored?.(null);
+        } else {
+          onProjectScopeRestored?.(null);
+        }
       }
       // 🔴 v2：fetchTree 不写 selectedId（见 state 注释）——任何刷新不得覆盖用户点选
     } catch (e: any) {

@@ -618,7 +618,9 @@ export default function App() {
       setCurrentProfile(name);
       // 🔴 2026-08-12 断线修复：切 Agent 旧项目 scope 失效（对齐 Hermes 切 profile 后 scope stale）
       setProjectScopeCwd(null);
-      setPanelRoot(null); // 🔴 2026-08-13 老大语义重构：切 Agent 重置面板映射（等该 Agent 激活项目恢复）
+      // 🔴 2026-08-14 右侧面板抖动根治：切 Agent 不再立即 setPanelRoot(null)——
+      // 保持旧面板直到新 Agent 激活项目恢复（fetchTree 后一次切换），避免
+      // "未打开项目"占位 ↔ 文件树 两次切换的抖动（与左侧项目树 silent 同语义）
       newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：切 Agent 清手动导航落点
       return;
     }
@@ -652,7 +654,9 @@ export default function App() {
     // 🔴 2026-08-12 断线修复：切 Agent 旧项目 scope 失效（对齐 Hermes 切 profile 后 scope stale，
     //   否则新 Agent 说话时 getNewSessionCwd 返回旧 Agent 的项目根 → 新会话落错项目）
     setProjectScopeCwd(null);
-    setPanelRoot(null); // 🔴 2026-08-13 老大语义重构：切 Agent 重置面板映射（等该 Agent 激活项目恢复）
+    // 🔴 2026-08-14 右侧面板抖动根治：切 Agent 不再立即 setPanelRoot(null)——
+    // 保持旧面板直到新 Agent 激活项目恢复（fetchTree 后一次切换），避免
+    // "未打开项目"占位 ↔ 文件树 两次切换的抖动（与左侧项目树 silent 同语义）
     newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：切 Agent 清手动导航落点
 
     // ── Step 3b: 🔴 S2 修复 — 刷新会话列表（后端按 profile 过滤，S1 保证 sendRpc 盖章新 profile） ──
@@ -971,12 +975,18 @@ export default function App() {
   // 时保持跟随（会话 cwd 是展示权威，active 项目仅当无会话 cwd 时兜底）；
   // 会话无绑定（bound 空）→ handleSessionInfoCwd 的 scope 兜底显示项目根。
   // 不动消息区（会话指针恢复由 handleProfileChange 管）。
-  const handleProjectScopeRestored = useCallback((path: string) => {
+  const handleProjectScopeRestored = useCallback((path: string | null) => {
     setProjectScopeCwd(path);
     newChatWorkspaceTargetRef.current = null;
-    // 🔴 2026-08-13 老大语义重构：切 Agent 恢复激活项目 → 面板映射到项目绑定地址
-    // （无"锁"：映射随用户动作变，项目地址永不变）
-    setPanelRoot(path);
+    if (path) {
+      // 🔴 2026-08-13 老大语义重构：切 Agent 恢复激活项目 → 面板映射到项目绑定地址
+      // （无“锁”：映射随用户动作变，项目地址永不变）
+      setPanelRoot(path);
+    } else {
+      // 🔴 2026-08-14：新 Agent 无激活项目 → 最终态清面板（显示“未打开项目”）——
+      // 一次切换（旧面板 → 占位），而非切 Agent 时立即清再恢复的两次切换
+      setPanelRoot(null);
+    }
   }, []);
 
   // 🔴 P1: 宫格模式 CommandCenter（CMD+K）命令执行路由进宫格（写入 per-agent 状态槽，非不可见的 zustand store）

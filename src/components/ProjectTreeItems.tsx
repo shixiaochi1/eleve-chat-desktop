@@ -98,7 +98,7 @@ export interface ProjectTreePanelProps {
    *  active_id，但 scope/文件面板被切 Agent 清空 → 右侧抽屉"未打开项目"，必须再点一次）。
    *  切 Agent 后的首次树加载，若该 Agent 有 active 项目且用户未手动点选 → 恢复
    *  scope + 文件面板到激活项目根（不动消息区——会话指针恢复由 handleProfileChange 管）。 */
-  onProjectScopeRestored?: (path: string) => void;
+  onProjectScopeRestored?: (path: string | null) => void;
 }
 
 function fmtTime(ts: number): string {
