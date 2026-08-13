@@ -5,7 +5,7 @@
  *   从 ProjectTreePanel.tsx 纯移动抽取（diff 无逻辑变更）。只拆组织，不动状态归属——
  *   行组件全部 props 驱动，无平行状态源。
  */
-import { useState, Fragment } from 'react';
+import { memo, useState, Fragment } from 'react';
 import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, MoreVertical, Pencil, FolderPlus, Copy, Trash2, Home, Pin, Download, Archive, Undo2, Minimize2, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { projectIconFor } from '../lib/project-icons';
@@ -174,7 +174,7 @@ export function savePinnedIds(ids: Set<string>): void {
   } catch { /* ignore */ }
 }
 
-function SessionItem({ s, isActive, onClick, actions, rowClassName }: {
+const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, rowClassName }: {
   s: SessionPreview;
   isActive: boolean;
   onClick: () => void;
@@ -322,12 +322,12 @@ function SessionItem({ s, isActive, onClick, actions, rowClassName }: {
       </ContextMenuContent>
     </ContextMenu>
   );
-}
+});
 
 // lane 会话分页（对齐 Hermes SIDEBAR_GROUP_PAGE=5：已加载行分批显示）
 const SHOW_MORE_PAGE = 5;
 
-function LaneNode({ lane, sessionId, onSwitchSession, onSessionRowActivate, onReveal, onCopyPath, onRemoveWorktree, sessionActions }: { lane: LaneGroup; sessionId?: string; onSwitchSession?: (id: string) => void; /** 🔴 2026-08-13 问题2：会话行点击 → 所属项目域激活 */ onSessionRowActivate?: () => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void; sessionActions: SessionRowActions }) {
+const LaneNode = memo(function LaneNode({ lane, sessionId, onSwitchSession, onSessionRowActivate, onReveal, onCopyPath, onRemoveWorktree, sessionActions }: { lane: LaneGroup; sessionId?: string; onSwitchSession?: (id: string) => void; /** 🔴 2026-08-13 问题2：会话行点击 → 所属项目域激活 */ onSessionRowActivate?: () => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void; sessionActions: SessionRowActions }) {
   // 展开状态持久化（对齐 Hermes useWorkspaceNodeOpen；lane 默认折叠）
   const [expanded, toggleExpanded] = useWorkspaceNodeOpen(lane.id, false);
   // 会话分页：初始 5 条，点「显示更多」+5（对齐 Hermes WorkspaceShowMoreButton）
@@ -390,9 +390,9 @@ function LaneNode({ lane, sessionId, onSwitchSession, onSessionRowActivate, onRe
       )}
     </div>
   );
-}
+});
 
-export function RepoNodeItem({ repo, sessionId, onSwitchSession, onSessionRowActivate, onStartWork, onReveal, onCopyPath, onRemoveWorktree, lanes, sessionActions, defaultExpanded = false }: { repo: RepoNode; sessionId?: string; onSwitchSession?: (id: string) => void; /** 🔴 2026-08-13 问题2：会话行点击 → 所属项目域激活 */ onSessionRowActivate?: () => void; onStartWork?: (repoPath: string) => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void; /** 合并 git worktree 后的 lane 列表（对齐 Hermes mergeRepoWorktreeGroups 输出） */
+export const RepoNodeItem = memo(function RepoNodeItem({ repo, sessionId, onSwitchSession, onSessionRowActivate, onStartWork, onReveal, onCopyPath, onRemoveWorktree, lanes, sessionActions, defaultExpanded = false }: { repo: RepoNode; sessionId?: string; onSwitchSession?: (id: string) => void; /** 🔴 2026-08-13 问题2：会话行点击 → 所属项目域激活 */ onSessionRowActivate?: () => void; onStartWork?: (repoPath: string) => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void; /** 合并 git worktree 后的 lane 列表（对齐 Hermes mergeRepoWorktreeGroups 输出） */
   lanes: LaneGroup[]; sessionActions: SessionRowActions; defaultExpanded?: boolean }) {
   // 展开状态持久化（对齐 Hermes useWorkspaceNodeOpen；repo 默认展开）
   const [expanded, toggleExpanded] = useWorkspaceNodeOpen(repo.id, defaultExpanded);
@@ -423,7 +423,7 @@ export function RepoNodeItem({ repo, sessionId, onSwitchSession, onSessionRowAct
       ))}
     </div>
   );
-}
+});
 
 // 项目行前置图标（对齐 Hermes projectIcon）：icon → 图标（color 着色）；
 // 无 icon 有 color → 纯色点；Home 桶 → home 图标；都无 → 默认 folder-library 图标
@@ -557,7 +557,7 @@ function projectMenuSpecs(project: ProjectNode, h: {
   ];
 }
 
-export function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowActivate, onDrill, onActivate, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop, sessionActions, isDragging, isDragOver, onRowDragStart, onRowDragOver, onRowDrop, onRowDragEnd }: {
+export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowActivate, onDrill, onActivate, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop, sessionActions, isDragging, isDragOver, onRowDragStart, onRowDragOver, onRowDrop, onRowDragEnd }: {
   project: ProjectNode;
   sessionId?: string;
   onSwitchSession?: (id: string) => void;
@@ -718,6 +718,6 @@ export function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowA
       </ContextMenuContent>
     </ContextMenu>
   );
-}
+});
 
 // ── 项目新建/编辑对话框（显式项目管理，接线后端 projects CRUD）──

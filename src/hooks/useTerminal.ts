@@ -33,6 +33,10 @@ import {
 } from '@/lib/terminal-font';
 import { writeClipboardText } from '@/components/ui/copy-button';
 
+// 🔴 2026-08-13 Phase 2.2：scrollback 配置化起点（内存大头——xterm 每行保留 DOM/buffer；
+// 后端 config.yaml 暂无对应字段，先常量提出便于未来配置接线；对齐 Hermes PERSISTENT_SESSION_SCROLLBACK 语义）
+export const TERMINAL_SCROLLBACK = 1000;
+
 interface UseTerminalOptions {
   lazy?: boolean;
   /** Terminal entry id — used to register the buffer reader for read_terminal tool */
@@ -105,7 +109,7 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
           // 对齐 Hermes：opaque canvas（allowTransparency=false 走清晰渲染路径）
           allowTransparency: false,
           convertEol: true,
-          scrollback: 1000,
+          scrollback: TERMINAL_SCROLLBACK,
           // 对齐 Hermes：VS Code 4.5:1 对比钳制（默认 1 关闭 → 饱和 ANSI 在浅底上刺眼）
           minimumContrastRatio: 4.5,
           // ⌥-drag 强制选择（鼠标模式 TUI 里拖不动选区）；altClickMovesCursor 抢同一手势

@@ -1,14 +1,14 @@
 /**
  * 看板列 + 任务卡片 — 从 KanbanPanel.tsx 拆分（Tier 3 · 6-2）
  */
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { Plus, CheckCircle2, X, Trash2, AlertTriangle, Clock, Eye, Loader } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { KanbanTask, ColumnDef } from './types';
 import { isBlocked, isDone, getStaleness, fmtAge } from './helpers';
 
 // ── 任务卡片（Trail 极简风格 + 删除按钮）──
-function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, justCreated, isDragging, onDelete }: { task: KanbanTask; onSelect: (task: KanbanTask) => void; isSelected: boolean; onDragStart: (id: string) => void; checked: boolean; onCheck: (id: string) => void; justCreated: boolean; isDragging: boolean; onDelete?: (id: string) => void }) {
+const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, justCreated, isDragging, onDelete }: { task: KanbanTask; onSelect: (task: KanbanTask) => void; isSelected: boolean; onDragStart: (id: string) => void; checked: boolean; onCheck: (id: string) => void; justCreated: boolean; isDragging: boolean; onDelete?: (id: string) => void }) {
   const blocked = isBlocked(task);
   const done = isDone(task);
   const running = task.status === 'running';
@@ -145,7 +145,7 @@ function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, j
       </div>
     </div>
   );
-}
+});
 
 // ── 单列（含拖拽目标+内联创建）──
 interface KanbanColumnProps {
@@ -169,7 +169,7 @@ interface KanbanColumnProps {
   onDelete: (taskId: string) => void;
 }
 
-export function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart, onDrop, creatingIn, onCreateStart, onCreateCancel, checkedIds, onCheck, runningLanes, justCreatedIds, draggingTaskId, onCreateSubmit, newTitle, setNewTitle, onDelete }: KanbanColumnProps) {
+export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart, onDrop, creatingIn, onCreateStart, onCreateCancel, checkedIds, onCheck, runningLanes, justCreatedIds, draggingTaskId, onCreateSubmit, newTitle, setNewTitle, onDelete }: KanbanColumnProps) {
   const [dragOver, setDragOver] = useState(false);
 
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true); };
@@ -259,5 +259,4 @@ export function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart,
       )}
     </div>
   );
-}
-
+});
