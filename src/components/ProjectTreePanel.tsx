@@ -565,7 +565,10 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                   新建项目
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0 [scrollbar-gutter:stable]">
+              {/* 🔴 2026-08-13 v7（老大“定位点”指示）：key=currentProfile 切 Agent 重建列表
+                  → 滚动位置归零 + 无浏览器 scroll anchoring 干扰（旧滚动位置 clamp 到新树
+                  内容长度 = 项目卡片跳动根因） */}
+              <div key={currentProfile} className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0 [scrollbar-gutter:stable]">
                 {tree.projects.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-3 p-4">
                     <div className="w-10 h-10 rounded-xl bg-muted/40 flex items-center justify-center">
