@@ -1059,6 +1059,19 @@ export default function App() {
     newChatWorkspaceTargetRef.current = null;
   }, []);
 
+  // 🔴 2026-08-13 切 Agent 恢复激活项目（老大反馈：项目选中态来自后端 active_id，
+  // 但 scope/文件面板被切 Agent 清空 → 右侧抽屉"未打开项目"，必须再点一次）：
+  // 项目树切 Agent 后首次加载完成 → 该 Agent 有 active 项目 → 恢复 scope + 文件面板
+  // 到激活项目根并钉住（与"点项目进入"行为一致）；不动消息区（会话指针恢复由
+  // handleProfileChange 管）。用户手动点选项目/会话行后不再触发（组件内清标记）。
+  const handleProjectScopeRestored = useCallback((path: string) => {
+    setSessionCwd(path);
+    projectCwdInjectedRef.current = path; // 防 setSessionId 清空
+    pinnedProjectCwdRef.current = path;   // 钉住：防会话 session.info 覆盖跳走
+    setProjectScopeCwd(path);
+    newChatWorkspaceTargetRef.current = null;
+  }, []);
+
   // 🔴 P1: 宫格模式 CommandCenter（CMD+K）命令执行路由进宫格（写入 per-agent 状态槽，非不可见的 zustand store）
   const gridAwareCommand = useCallback((cmdName: string, args: string) => {
     if (viewMode === 'grid') {
@@ -1568,6 +1581,7 @@ export default function App() {
                   onNewSessionInProject={handleNewSessionInProject}
                   onEnterProject={handleProjectEntered}
                   onProjectScopeChange={handleProjectScopeChange}
+                  onProjectScopeRestored={handleProjectScopeRestored}
                   sessionListVersion={sessionListVersion}
                 />
             </div>

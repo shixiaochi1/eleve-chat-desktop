@@ -51,6 +51,8 @@ interface SidePanelProps {
   onRestart?: () => void;
   /** 🔴 2026-08-13 问题2：会话行点击 → 项目域 scope 同步（透传 ProjectTreePanel） */
   onProjectScopeChange?: (path: string | null) => void;
+  /** 🔴 2026-08-13 切 Agent 恢复激活项目（透传 ProjectTreePanel） */
+  onProjectScopeRestored?: (path: string) => void;
   // ── 会话 ──
   sessionId?: string | null;
   sessions?: Session[];

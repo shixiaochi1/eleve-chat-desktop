@@ -11,7 +11,7 @@
  * 管理：显式项目可新建/编辑（名称+主题色）/添加文件夹/归档——接线后端
  *   projects.create/update/add_folder/set_primary/archive CRUD（对齐 Hermes 桌面端项目管理）。
  */
-import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, RefreshCw, Plus, MoreVertical, Pencil, FolderPlus, Copy, Trash2, Home, Pin, Download, Archive, Undo2, Minimize2, BarChart3 } from 'lucide-react';
 import { isTauri } from '@tauri-apps/api/core';
 import { cn } from '@/lib/utils';
@@ -120,6 +120,11 @@ interface ProjectTreePanelProps {
    *  （防消息区联动把刚点的会话切回项目最新会话）。文件面板不强制切项目根——
    *  跟随该会话 session.info 的 bound_cwd（符合"文件树=会话 cwd"）。 */
   onProjectScopeChange?: (path: string | null) => void;
+  /** 🔴 2026-08-13 切 Agent 恢复激活项目（老大反馈：切 Agent 后项目选中态来自后端
+   *  active_id，但 scope/文件面板被切 Agent 清空 → 右侧抽屉"未打开项目"，必须再点一次）。
+   *  切 Agent 后的首次树加载，若该 Agent 有 active 项目且用户未手动点选 → 恢复
+   *  scope + 文件面板到激活项目根（不动消息区——会话指针恢复由 handleProfileChange 管）。 */
+  onProjectScopeRestored?: (path: string) => void;
 }
 
 // ── 辅助 ──
@@ -1192,7 +1197,7 @@ function SessionRenameDialog({ session, onClose, onRenamed }: {
 
 // ── Panel ──
 
-export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwitchSession, currentProfile, onNewSessionInProject, onEnterProject, onProjectScopeChange }: ProjectTreePanelProps) {
+export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwitchSession, currentProfile, onNewSessionInProject, onEnterProject, onProjectScopeChange, onProjectScopeRestored }: ProjectTreePanelProps) {
   const [tree, setTree] = useState<TreeResult | null>(null);
   // 🔴 2026-08-12 点选状态修复 v2（老大指正：点击后全部未激活）：
   //   本地 selectedId = 用户显式点选（纯前端权威），null = 未点选 → 渲染跟随后端 active_id。
@@ -1202,6 +1207,9 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   //   ✅ v2：fetchTree 永不写 selectedId（只更新树数据）；仅切 Agent 时重置为 null
   //   （让新 Agent 的 active_id 生效）。点选即持久高亮，不再被任何刷新回跳。
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // 🔴 2026-08-13 切 Agent 恢复激活项目：切 Agent 后的首次树加载等待 active_id 恢复
+  // （用户手动点选 → 清标记 → 不再自动恢复，防覆盖用户意图）
+  const profileSwitchPendingRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // 阶段二·钻取状态（projects.project_sessions，hydrate=true 全量水合）
@@ -1267,13 +1275,21 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
         result.projects = result.projects.filter((p: ProjectNode) => !p.isAuto || !dismissed.has(p.id));
       }
       setTree(result);
+      // 🔴 2026-08-13 切 Agent 恢复激活项目（老大反馈：项目选中但文件面板"未打开项目"）：
+      // 仅切 Agent 后的首次加载（profileSwitchPendingRef）且该 Agent 有 active 项目时恢复
+      // scope + 文件面板到激活项目根；不动消息区（会话指针恢复由 handleProfileChange 管）。
+      if (profileSwitchPendingRef.current && result?.active_id) {
+        profileSwitchPendingRef.current = false;
+        const active = result.projects?.find((p: ProjectNode) => p.id === result.active_id);
+        if (active?.path) onProjectScopeRestored?.(active.path);
+      }
       // 🔴 v2：fetchTree 不写 selectedId（见 state 注释）——任何刷新不得覆盖用户点选
     } catch (e: any) {
       setError(e?.message || '加载失败');
     } finally {
       setLoading(false);
     }
-  }, [currentProfile]);
+  }, [currentProfile, onProjectScopeRestored]);
 
   // 🔴 2026-08-12 断线修复：切 Agent 项目树必须跟随切换（对齐 Hermes
   // "Projects are per-profile, so they intentionally follow [profile switch]"）。
@@ -1289,6 +1305,8 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
     setWorktreesMap({});
     // 🔴 v2：切 Agent 重置本地点选 → 跟随新 Agent 后端 active_id（不串台）
     setSelectedId(null);
+    // 🔴 2026-08-13：切 Agent 后的首次树加载等待 active_id 恢复 scope+文件面板
+    profileSwitchPendingRef.current = true;
     void fetchTree();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProfile]);
@@ -1379,6 +1397,8 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   // handleActivate（项目行单击）与会话行点击共用；会话行点击不触发 onEnterProject——
   // 其消息区联动会把刚点的会话切回项目最新会话（2026-08-12 stopPropagation 同款教训）。
   const persistActiveProject = useCallback((project: ProjectNode) => {
+    // 🔴 2026-08-13：用户点选 = 意图明确，取消切 Agent 自动恢复（防覆盖用户刚点的选择）
+    profileSwitchPendingRef.current = false;
     setSelectedId(project.id);
     if (!project.isAuto && !project.isNoProject && project.id) {
       void call('projects_set_active', { id: project.id, profile: currentProfile })
@@ -1458,6 +1478,8 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   const handleSetActive = useCallback(async (project: ProjectNode) => {
     try {
       await call('projects_set_active', { id: project.id, profile: currentProfile });
+      // 🔴 2026-08-13：菜单设激活 = 用户意图，取消切 Agent 自动恢复
+      profileSwitchPendingRef.current = false;
       // 🔴 2026-08-12 点选状态修复：菜单设激活同样即时置高亮（与单击路径一致）
       setSelectedId(project.id);
       // 🔴 2026-08-13 边界修复：菜单设激活与单击路径同权——同步项目域 scope
