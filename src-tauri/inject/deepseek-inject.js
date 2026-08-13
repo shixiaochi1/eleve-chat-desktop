@@ -56,6 +56,37 @@
   /** 背板色：由 Rust 侧传入，填充 --ev-backboard 变量 */
   const BACKBOARD = window.__ELEVE_DEEPSEEK_BG__ || 'rgb(10,22,40)';
 
+  /** 解析页面实际背景色：圆角四角颜色必须与页面背景融合才能看出圆角 */
+  function resolvePageBg() {
+    const candidates = [document.body, document.documentElement];
+    for (const el of candidates) {
+      if (!el) continue;
+      const bg = getComputedStyle(el).backgroundColor;
+      if (bg && bg !== 'transparent' && !bg.startsWith('rgba(0, 0, 0, 0)')) {
+        return bg;
+      }
+    }
+    return BACKBOARD; // 兜底：背板色（与 WebView 原生底色同源）
+  }
+
+  /**
+   * JS 直接强制圆角（v3）：html + body 双重圆角，inline style + !important
+   * 优先级最高、不依赖 style 标签（防站点 CSS/SPA 动态样式干扰）。
+   * html 圆角保证 body 未铺满视口（居中布局）时视口四角也被裁剪；
+   * html overflow: clip 只裁视口绘制不阻断内部滚动容器。
+   */
+  function applyRoundedCorners() {
+    const root = document.documentElement;
+    const body = document.body;
+    if (body) {
+      body.style.setProperty('border-radius', '12px', 'important');
+      body.style.setProperty('overflow', 'clip', 'important');
+    }
+    root.style.setProperty('border-radius', '12px', 'important');
+    root.style.setProperty('overflow', 'clip', 'important');
+    root.style.setProperty('background', resolvePageBg(), 'important');
+  }
+
   function injectCSS() {
     if (document.getElementById(STYLE_ID)) return;
     // document-start 时 head 可能尚不存在，等 DOM 就绪
@@ -66,10 +97,14 @@
     style.textContent = `
       /* ── 背板色变量（html 画布底色 = 四角颜色） ── */
       :root { --ev-backboard: ${BACKBOARD}; }
+      /* ── 四角颜色 = 页面实际背景色（自适应，任何主题都能看出圆角） ── */
+      html { background: ${resolvePageBg()} !important; }
       /* ── 主题适配（来自 deepseek-theme.css，圆角核心） ── */
       ${THEME_CSS}
     `;
     (document.head || document.documentElement).appendChild(style);
+    // JS 强制注入（双保险）
+    applyRoundedCorners();
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -170,6 +205,12 @@
   } else {
     init();
   }
+
+  // ── 站点 CSS 完全加载后刷新圆角/背景色（DOMContentLoaded 时 SPA 样式可能未就绪） ──
+  window.addEventListener('load', () => {
+    createCloseButton();
+    applyRoundedCorners();
+  });
 
   // ── SPA 路由变化时重新注入（DeepSeek 是 React SPA） ──
   let lastPath = window.location.pathname;

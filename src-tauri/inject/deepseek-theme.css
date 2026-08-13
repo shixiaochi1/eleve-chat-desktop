@@ -1,15 +1,16 @@
-/* DeepSeek 嵌入圆角 — 背板色打底法（2026-08-13 重新启用）
+/* DeepSeek 嵌入圆角 — 背板色打底法（2026-08-13 v3：html+body 双重圆角）
  *
- * WebView2 子窗口 HWND 不支持逐像素透明，四角圆角后露出 WebView 原生底色。
- * Rust 侧 background_color = Eleve 背板色（探针 --ui-bg-backboard），
- * 这里把 html 背景也设为同源背板色 → 圆角四角与窗口底色完全一致 = 视觉无缝。
+ * WebView2 子窗口 HWND 不支持逐像素透明，四角圆角后露出 html 背景色。
+ * html 背景由 inject.js 动态解析（页面 body 实际背景色，兜底背板色）。
+ * html + body 都设圆角：body 未铺满视口（居中布局）时视口四角仍被裁剪。
  * 12px 对齐主窗口 .chat-card 圆角（src/style.css）。
  *
- * body overflow: clip：只裁剪绘制区域（含圆角）不创建滚动容器，
- * 滚动传播继续到 html —— 不阻断页面滚动（overflow:hidden 会禁滚）。
+ * overflow: clip：只裁剪绘制区域（含圆角）不创建滚动容器，
+ * 内部滚动容器不受影响（DeepSeek 聊天区/侧边栏均为内部滚动）。
  */
 html {
-  background: var(--ev-backboard) !important;
+  border-radius: 12px !important;
+  overflow: clip !important;
 }
 body {
   border-radius: 12px !important;
