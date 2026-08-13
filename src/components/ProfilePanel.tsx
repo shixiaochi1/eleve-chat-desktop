@@ -231,6 +231,14 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
     }
   }, []);
 
+  // 🔴 TEMP-DIAG3（抖动排查）：切 Agent 时打印渲染中间态——找上部撑高元凶
+  useEffect(() => {
+    console.log('[DIAG3] profile=' + currentProfile, JSON.stringify({
+      profiles: profiles.length, loading, error: !!error, switching: !!switching,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentProfile, profiles, loading]);
+
   // 🔴 冷启动竞态修复：mount 时 WS 可能未连（后端启动慢），sendRpc 在 disconnected 态必 reject
   // （不排队）→ 旧实现直接显示 "WebSocket not connected (state=disconnected)" 错误横幅，
   // 切走再切回（重挂载）时才消失。改为等 WS 连接后再 load（对齐 App 启动链补拉模式）。
