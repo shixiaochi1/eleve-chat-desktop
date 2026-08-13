@@ -423,6 +423,17 @@
     position: relative;
   }
 
+  /* ── Glass 模式：半透明渐变底色，Mica 系统级磨砂 ── */
+  /* Mica 由 Windows DWM 原生合成（零 WebView 开销），渐变由 GPU 光栅化 */
+  /* --glass-body-top/bottom 由 context.tsx 根据 accent 动态生成 */
+  .glass-mode body {
+    background: linear-gradient(
+      180deg,
+      var(--glass-body-top) 0%,
+      var(--glass-body-bottom) 100%
+    );
+  }
+
   /* ── 方案C: 噪点纹理层 ── */
   body::after {
     content: '';

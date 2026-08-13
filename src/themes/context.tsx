@@ -176,28 +176,25 @@ function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean)
     root.style.setProperty(k, v)
   }
 
-  // 3. Glass 模式特殊处理（明暗模式使用不同的半透明基底）
+  // 3. Glass 模式特殊处理：用 color-mix 把 accent 融入玻璃底色
   if (isGlass) {
     root.classList.add('glass-mode')
-    if (isDark) {
-      root.style.setProperty('--glass-bg-chrome', 'rgba(28,28,30,0.55)')
-      root.style.setProperty('--glass-bg-sidebar', 'rgba(28,28,30,0.48)')
-      root.style.setProperty('--glass-bg-editor', 'rgba(44,44,46,0.58)')
-      root.style.setProperty('--glass-bg-elevated', 'rgba(58,58,60,0.65)')
-      root.style.setProperty('--glass-bg-bubble', 'rgba(44,44,46,0.50)')
-      root.style.setProperty('--glass-bg-input', 'rgba(28,28,30,0.45)')
-      root.style.setProperty('--glass-border', 'rgba(255,255,255,0.12)')
-    } else {
-      root.style.setProperty('--glass-bg-chrome', 'rgba(255,255,255,0.45)')
-      root.style.setProperty('--glass-bg-sidebar', 'rgba(255,255,255,0.38)')
-      root.style.setProperty('--glass-bg-editor', 'rgba(255,255,255,0.48)')
-      root.style.setProperty('--glass-bg-elevated', 'rgba(255,255,255,0.55)')
-      root.style.setProperty('--glass-bg-bubble', 'rgba(255,255,255,0.40)')
-      root.style.setProperty('--glass-bg-input', 'rgba(255,255,255,0.35)')
-      root.style.setProperty('--glass-border', 'rgba(255,255,255,0.22)')
-    }
+    const bg = isDark ? 'rgb(18,18,20)' : 'rgb(232,232,237)'
+    root.style.setProperty('--glass-body-top', `color-mix(in srgb, ${bg} 88%, ${colors.accent})`)
+    root.style.setProperty('--glass-body-bottom', `color-mix(in srgb, ${bg} 76%, ${colors.accent})`)
+    // 子组件玻璃色也跟随 accent
+    const chromeAlpha = isDark ? 'rgba(18,18,20,0.88)' : 'rgba(232,232,237,0.92)'
+    root.style.setProperty('--glass-bg-chrome', `color-mix(in srgb, ${chromeAlpha} 70%, ${colors.accent})`)
+    root.style.setProperty('--glass-bg-sidebar', `color-mix(in srgb, ${chromeAlpha} 60%, ${colors.accent})`)
+    root.style.setProperty('--glass-bg-editor', `color-mix(in srgb, ${chromeAlpha} 65%, ${colors.accent})`)
+    root.style.setProperty('--glass-bg-elevated', `color-mix(in srgb, ${chromeAlpha} 75%, ${colors.accent})`)
+    root.style.setProperty('--glass-bg-bubble', `color-mix(in srgb, ${chromeAlpha} 55%, ${colors.accent})`)
+    root.style.setProperty('--glass-bg-input', `color-mix(in srgb, ${chromeAlpha} 50%, ${colors.accent})`)
+    root.style.setProperty('--glass-border', isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)')
   } else {
     root.classList.remove('glass-mode')
+    root.style.removeProperty('--glass-body-top')
+    root.style.removeProperty('--glass-body-bottom')
     root.style.removeProperty('--glass-bg-chrome')
     root.style.removeProperty('--glass-bg-sidebar')
     root.style.removeProperty('--glass-bg-editor')

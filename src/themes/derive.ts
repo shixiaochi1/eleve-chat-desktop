@@ -1,11 +1,12 @@
 /**
  * macOS 风格颜色派生系统
- * 
+ *
  * 核心原则：
  * - 只有 2 个用户可控参数：accent（强调色）+ appearance（外观模式）
  * - 所有颜色从这两个参数自动派生
  * - 明暗模式独立于强调色
  * - Light/Dark 语义色独立（macOS 标准）
+ * - **所有灰色/中性色都从 accent 色相派生**，换色时整体系色联动
  */
 
 // ─── 类型定义 ───────────────────────────────────────────────────────────────
@@ -20,11 +21,11 @@ export interface DerivedColors {
   cardForeground: string
   popover: string
   popoverForeground: string
-  
+
   // ── 文字层 ──
   muted: string
   mutedForeground: string
-  
+
   // ── 主色层 ──
   primary: string
   primaryForeground: string
@@ -32,22 +33,22 @@ export interface DerivedColors {
   secondaryForeground: string
   accent: string
   accentForeground: string
-  
+
   // ── 边框层 ──
   border: string
   input: string
   ring: string
   midground: string
   composerRing: string
-  
+
   // ── 语义层 ──
   destructive: string
   destructiveForeground: string
-  
+
   // ── 侧边栏 ──
   sidebarBackground: string
   sidebarBorder: string
-  
+
   // ── 气泡 ──
   userBubble: string
   userBubbleBorder: string
@@ -148,64 +149,78 @@ const SEMANTIC_COLORS = {
 
 /**
  * 从 accent + isDark 派生完整配色
+ *
+ * 架构铁律：所有中性色（背景/边框/阴影等）从 accent 色相派生，
+ * 换色时整体系色联动。选蓝=冷蓝灰，选橙=暖橙灰。
  */
 export function deriveColors(accent: string, isDark: boolean): DerivedColors {
   return isDark ? deriveDarkColors(accent) : deriveLightColors(accent)
 }
 
 /**
- * 浅色模式配色
+ * 浅色模式配色 —— 所有灰色从 accent 色相派生
  */
 function deriveLightColors(accent: string): DerivedColors {
+  const h = accentHue(accent)
   const semantic = SEMANTIC_COLORS.light
+
+  // 基于 accent 色相生成中性色盘（极低饱和度 = 灰色带色调倾向）
+  const neutral = {
+    backboard:  hsl(h, 6,  92),  // 背板色（原 #E8E8ED）
+    sidebar:    hsl(h, 5,  94),  // 侧边栏（原 #EFEFF3）
+    card:       hsl(h, 8,  100), // 卡片纯白
+    chrome:     hsl(h, 4,  100), // chrome 层
+    muted:      hsl(h, 4,  55),  // 次要文字（原 #86868B）
+    fg:         hsl(h, 8,  12),  // 主文字（原 #1D1D1F）
+  }
+
   return {
-    // ── 背景层 — 中性灰（背板）──
-    background: '#E8E8ED',
-    foreground: '#1D1D1F',
-    // ── 卡片层 — 纯白（3张功能卡片）──
-    card: '#FFFFFF',
-    cardForeground: '#1D1D1F',
-    popover: '#FFFFFF',
-    popoverForeground: '#1D1D1F',
-    
+    // ── 背景层 ──
+    background: neutral.backboard,
+    foreground: neutral.fg,
+    card: neutral.card,
+    cardForeground: neutral.fg,
+    popover: neutral.card,
+    popoverForeground: neutral.fg,
+
     // ── 文字层次 ──
-    muted: 'rgba(0, 0, 0, 0.04)',
-    mutedForeground: '#86868B',
-    
+    muted: hexToRgba(neutral.fg, 0.04),
+    mutedForeground: neutral.muted,
+
     // ── 主色 — 用户选的强调色 ──
     primary: accent,
     primaryForeground: getReadableOnAccent(accent),
-    
+
     // ── 次级 — 强调色淡化 ──
     secondary: hexToRgba(accent, 0.12),
     secondaryForeground: accent,
-    
+
     // ── 强调背景 — 更淡 ──
     accent: hexToRgba(accent, 0.08),
     accentForeground: accent,
-    
-    // ── 边框 — 黑色低透明度 ──
-    border: 'rgba(0, 0, 0, 0.08)',
-    input: 'rgba(0, 0, 0, 0.06)',
-    
+
+    // ── 边框 — 带 accent 色相的半透明灰 ──
+    border: hexToRgba(neutral.fg, 0.08),
+    input:  hexToRgba(neutral.fg, 0.06),
+
     // ── 焦点环 — 强调色 ──
     ring: accent,
     midground: accent,
     composerRing: accent,
-    
-    // ── 危险色 — macOS 标准红 ──
+
+    // ── 危险色 ──
     destructive: semantic.red,
     destructiveForeground: '#FFFFFF',
-    
-    // ── 侧边栏 — 略深于背景 ──
-    sidebarBackground: '#EFEFF3',
-    sidebarBorder: 'rgba(0, 0, 0, 0.06)',
-    
-    // ── 用户气泡 — 强调色淡化 ──
+
+    // ── 侧边栏 ──
+    sidebarBackground: neutral.sidebar,
+    sidebarBorder: hexToRgba(neutral.fg, 0.06),
+
+    // ── 用户气泡 ──
     userBubble: hexToRgba(accent, 0.1),
     userBubbleBorder: hexToRgba(accent, 0.2),
 
-    // ── 8 语义色（macOS 标准）──
+    // ── 8 语义色 ──
     semanticRed: semantic.red,
     semanticOrange: semantic.orange,
     semanticYellow: semantic.yellow,
@@ -216,16 +231,16 @@ function deriveLightColors(accent: string): DerivedColors {
     semanticPink: semantic.pink,
 
     // ── 功能色 ──
-    inputBackground: '#FCFCFC',
-    inlineCodeBackground: 'rgba(0, 0, 0, 0.05)',
-    inlineCodeBorder: 'rgba(0, 0, 0, 0.08)',
-    inlineCodeForeground: 'rgba(0, 0, 0, 0.88)',
-    selectionBackground: 'rgba(0, 122, 255, 0.3)',
+    inputBackground: neutral.chrome,
+    inlineCodeBackground: hexToRgba(neutral.fg, 0.05),
+    inlineCodeBorder: hexToRgba(neutral.fg, 0.08),
+    inlineCodeForeground: hexToRgba(neutral.fg, 0.88),
+    selectionBackground: hexToRgba(accent, 0.3),
     warmAccent: adjustHue(accent, -15),
 
     // ── 阴影色 ──
-    shadowColor: 'rgba(0, 0, 0, 0.1)',
-    shadowColorHeavy: 'rgba(0, 0, 0, 0.18)',
+    shadowColor: hexToRgba(hsl(h, 10, 15), 0.1),
+    shadowColorHeavy: hexToRgba(hsl(h, 10, 15), 0.18),
     cardGlowCyan: hexToRgba(semantic.cyan, 0.5),
     cardGlowPurple: hexToRgba(semantic.purple, 0.5),
 
@@ -236,88 +251,92 @@ function deriveLightColors(accent: string): DerivedColors {
     mixCard: '4%',
     mixElevated: '4%',
     mixBubble: '4%',
-    neutralChrome: '#FFFFFF',
-    neutralSidebar: '#EFEFF3',
-    neutralCard: '#FFFFFF',
+    neutralChrome: neutral.chrome,
+    neutralSidebar: neutral.sidebar,
+    neutralCard: neutral.card,
 
-    // ── accent 混合百分比（fill 层级：越往下越淡）──
+    // ── accent 混合百分比 ──
     fillPrimaryAccentMix: '10%',
     fillSecondaryAccentMix: '7%',
     fillTertiaryAccentMix: '5%',
     fillQuaternaryAccentMix: '4%',
     fillQuinaryAccentMix: '3%',
-
-    // ── accent 混合百分比（stroke 层级）──
     strokePrimaryAccentMix: '10%',
     strokeSecondaryAccentMix: '7%',
     strokeTertiaryAccentMix: '5%',
     strokeQuaternaryAccentMix: '3%',
-
-    // ── accent 混合百分比（row 层级）──
     rowHoverAccentMix: '3%',
     rowActiveAccentMix: '5%',
-
-    // ── accent 混合百分比（control 层级）──
     controlHoverAccentMix: '4%',
     controlActiveAccentMix: '5%',
   }
 }
 
 /**
- * 深色模式配色
+ * 深色模式配色 —— 所有灰色从 accent 色相派生
  */
 function deriveDarkColors(accent: string): DerivedColors {
   const adjustedAccent = adjustBrightnessForDark(accent)
+  const h = accentHue(adjustedAccent)
   const semantic = SEMANTIC_COLORS.dark
-  
+
+  // 基于 accent 色相生成暗色中性色盘
+  const neutral = {
+    backboard:  hsl(h, 8,  11),  // 背板（原 #1C1C1E）
+    sidebar:    hsl(h, 7,  15),  // 侧边栏（原 #242426）
+    card:       hsl(h, 10, 18),  // 卡片（原 #2C2C2E）
+    popover:    hsl(h, 12, 23),  // 弹出层（原 #3A3A3C）
+    muted:      hsl(h, 5, 60),   // 次要文字（原 #98989D）
+    fg:         hsl(h, 4, 96),   // 主文字（原 #F5F5F7）
+  }
+
   return {
-    // ── 背景层 — 深灰（背板）──
-    background: '#1C1C1E',
-    foreground: '#F5F5F7',
-    // ── 卡片层 — 中灰（3张功能卡片，比背板亮）──
-    card: '#2C2C2E',
-    cardForeground: '#F5F5F7',
-    popover: '#3A3A3C',
-    popoverForeground: '#F5F5F7',
-    
+    // ── 背景层 ──
+    background: neutral.backboard,
+    foreground: neutral.fg,
+    card: neutral.card,
+    cardForeground: neutral.fg,
+    popover: neutral.popover,
+    popoverForeground: neutral.fg,
+
     // ── 文字层次 ──
-    muted: 'rgba(255, 255, 255, 0.06)',
-    mutedForeground: '#98989D',
-    
-    // ── 主色 — 调整后的强调色 ──
+    muted: hexToRgba(neutral.fg, 0.06),
+    mutedForeground: neutral.muted,
+
+    // ── 主色 ──
     primary: adjustedAccent,
-    primaryForeground: '#1C1C1E',
-    
-    // ── 次级 — 强调色淡化 ──
+    primaryForeground: neutral.backboard,
+
+    // ── 次级 ──
     secondary: hexToRgba(adjustedAccent, 0.18),
     secondaryForeground: adjustedAccent,
-    
-    // ── 强调背景 — 更淡 ──
+
+    // ── 强调背景 ──
     accent: hexToRgba(adjustedAccent, 0.12),
     accentForeground: adjustedAccent,
-    
-    // ── 边框 — 白色低透明度 ──
-    border: 'rgba(255, 255, 255, 0.1)',
-    input: 'rgba(255, 255, 255, 0.08)',
-    
-    // ── 焦点环 — 强调色 ──
+
+    // ── 边框 ──
+    border: hexToRgba(neutral.fg, 0.1),
+    input:  hexToRgba(neutral.fg, 0.08),
+
+    // ── 焦点环 ──
     ring: adjustedAccent,
     midground: adjustedAccent,
     composerRing: adjustedAccent,
-    
-    // ── 危险色 — macOS 标准红（深色模式调亮）──
+
+    // ── 危险色 ──
     destructive: semantic.red,
     destructiveForeground: '#FFFFFF',
-    
-    // ── 侧边栏 — 略深于背景 ──
-    sidebarBackground: '#242426',
-    sidebarBorder: 'rgba(255, 255, 255, 0.08)',
-    
-    // ── 用户气泡 — 强调色淡化 ──
+
+    // ── 侧边栏 ──
+    sidebarBackground: neutral.sidebar,
+    sidebarBorder: hexToRgba(neutral.fg, 0.08),
+
+    // ── 用户气泡 ──
     userBubble: hexToRgba(adjustedAccent, 0.15),
     userBubbleBorder: hexToRgba(adjustedAccent, 0.25),
 
-    // ── 8 语义色（macOS 标准，Dark 模式调亮）──
+    // ── 8 语义色 ──
     semanticRed: semantic.red,
     semanticOrange: semantic.orange,
     semanticYellow: semantic.yellow,
@@ -327,49 +346,43 @@ function deriveDarkColors(accent: string): DerivedColors {
     semanticPurple: semantic.purple,
     semanticPink: semantic.pink,
 
-    // ── 功能色（暗色模式适配）──
-    inputBackground: '#2C2C2E',
-    inlineCodeBackground: 'rgba(255, 255, 255, 0.06)',
-    inlineCodeBorder: 'rgba(255, 255, 255, 0.1)',
-    inlineCodeForeground: 'rgba(255, 255, 255, 0.88)',
-    selectionBackground: 'rgba(10, 132, 255, 0.35)',
+    // ── 功能色 ──
+    inputBackground: neutral.card,
+    inlineCodeBackground: hexToRgba(neutral.fg, 0.06),
+    inlineCodeBorder: hexToRgba(neutral.fg, 0.1),
+    inlineCodeForeground: hexToRgba(neutral.fg, 0.88),
+    selectionBackground: hexToRgba(adjustedAccent, 0.35),
     warmAccent: adjustHue(adjustedAccent, -15),
 
-    // ── 阴影色（暗色模式使用 lighter shadow）──
-    shadowColor: 'rgba(0, 0, 0, 0.3)',
-    shadowColorHeavy: 'rgba(0, 0, 0, 0.45)',
+    // ── 阴影色 ──
+    shadowColor: hexToRgba(hsl(h, 10, 3), 0.3),
+    shadowColorHeavy: hexToRgba(hsl(h, 10, 3), 0.45),
     cardGlowCyan: hexToRgba(semantic.cyan, 0.4),
     cardGlowPurple: hexToRgba(semantic.purple, 0.4),
 
-    // ── color-mix 系数（暗色模式中性色调整）──
+    // ── color-mix 系数 ──
     mixChrome: '4%',
     mixBackboard: '4%',
     mixSidebar: '4%',
     mixCard: '4%',
     mixElevated: '4%',
     mixBubble: '4%',
-    neutralChrome: '#2C2C2E',
-    neutralSidebar: '#242426',
-    neutralCard: '#2C2C2E',
+    neutralChrome: neutral.card,
+    neutralSidebar: neutral.sidebar,
+    neutralCard: neutral.card,
 
-    // ── accent 混合百分比（暗色模式微调）──
+    // ── accent 混合百分比 ──
     fillPrimaryAccentMix: '12%',
     fillSecondaryAccentMix: '8%',
     fillTertiaryAccentMix: '6%',
     fillQuaternaryAccentMix: '5%',
     fillQuinaryAccentMix: '4%',
-
-    // ── accent 混合百分比（stroke 层级）──
     strokePrimaryAccentMix: '12%',
     strokeSecondaryAccentMix: '8%',
     strokeTertiaryAccentMix: '6%',
     strokeQuaternaryAccentMix: '4%',
-
-    // ── accent 混合百分比（row 层级）──
     rowHoverAccentMix: '4%',
     rowActiveAccentMix: '6%',
-
-    // ── accent 混合百分比（control 层级）──
     controlHoverAccentMix: '5%',
     controlActiveAccentMix: '6%',
   }
@@ -384,6 +397,40 @@ function hexToRgba(hex: string, alpha: number): string {
   const g = parseInt(clean.slice(2, 4), 16)
   const b = parseInt(clean.slice(4, 6), 16)
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+/** HSL → hex（饱和度/明度 0–100） */
+function hsl(h: number, s: number, l: number): string {
+  const hs = s / 100
+  const ls = l / 100
+  const c = (1 - Math.abs(2 * ls - 1)) * hs
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1))
+  const m = ls - c / 2
+  let r = 0, g = 0, b = 0
+  if (h < 60)       { r = c; g = x; b = 0 }
+  else if (h < 120) { r = x; g = c; b = 0 }
+  else if (h < 180) { r = 0; g = c; b = x }
+  else if (h < 240) { r = 0; g = x; b = c }
+  else if (h < 300) { r = x; g = 0; b = c }
+  else              { r = c; g = 0; b = x }
+  const toHex = (v: number) => Math.round((v + m) * 255).toString(16).padStart(2, '0')
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+}
+
+/** 提取 hex 的色相角度（0–360） */
+function accentHue(hex: string): number {
+  const clean = hex.replace('#', '')
+  let r = parseInt(clean.slice(0, 2), 16) / 255
+  let g = parseInt(clean.slice(2, 4), 16) / 255
+  let b = parseInt(clean.slice(4, 6), 16) / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  if (max === min) return 220 // 无饱和 → 默认冷蓝灰
+  let h = 0
+  if (max === r) h = ((g - b) / (max - min) + (g < b ? 6 : 0)) * 60
+  else if (max === g) h = ((b - r) / (max - min) + 2) * 60
+  else h = ((r - g) / (max - min) + 4) * 60
+  return h
 }
 
 // ─── 工具函数 ───────────────────────────────────────────────────────────────
