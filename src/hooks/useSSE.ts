@@ -2,6 +2,7 @@ import { useRef, useCallback, useEffect } from 'react';
 import { useIsStreaming, setIsStreaming as storeSetIsStreaming, getIsStreaming } from '@/store/messages';
 import { getWsClient } from '@/services/ws-client';
 import { handleGlobalEvent } from '@/lib/global-events';
+import { notifyExternalChange } from '@/lib/workspace-events';
 import { persistSessionPointer } from '../utils/session';
 import { createAccumulator, resetAccumulator, resetAccumulatorForStep, finalizeAccumulator, processAccumulatorEvent, type StreamAccumulator } from '@/lib/ws-event-processor';
 import type { ChatMessagePart } from '@/lib/chat-messages';
@@ -521,6 +522,16 @@ function processEvent(
     case 'keepalive':
       // 🔴 2026-08-08：WS 保活帧（对齐 Hermes SSE `: keepalive` 的 WS 等价物）—
       // 显式忽略，避免每 30s 走 default 刷 console.warn。
+      break;
+
+    case 'workspace.changed':
+      // 外部文件变更（后端 notify 目录监控，单一权威源）→ workspace-events 合并
+      // 与 tool.complete 同源去抖合并；消费端 useWorkspaceTick 零改动
+      notifyExternalChange({
+        root: (chunk.root as string) || undefined,
+        dirs: Array.isArray(chunk.dirs) ? (chunk.dirs as string[]) : undefined,
+        full: Boolean(chunk.full),
+      });
       break;
 
     case 'error':

@@ -6,6 +6,7 @@
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { call } from '../utils/bridge';
+import { getWsClient } from '../services/ws-client';
 
 interface FileEntry {
   name: string;
@@ -57,6 +58,8 @@ export function useFileTree(initialPath: string | null = null) {
   const [dirErrors, setDirErrors] = useState<Record<string, string | null>>({});
   const cacheRef = useRef<CacheMap>({});
   const mountedRef = useRef(true);
+  // workspace.watch 订阅 id（外部文件变更感知；单实例替换式）
+  const watchIdRef = useRef<string | null>(null);
   // 🔴 2026-08-12 竞态守卫（老大反馈：点项目/切 Agent 后文件面板不显示需刷新）：
   //   setRoot 是异步（listDir await），cwd 连续变化（项目点击 + session.info 覆盖 +
   //   豁免标记）时两次 setRoot 并发 → 后发先至/先发后至乱序 → data 与 rootPath 错位
@@ -96,6 +99,7 @@ export function useFileTree(initialPath: string | null = null) {
    */
   const setRoot = useCallback(async (path: string | null) => {
     const seq = ++rootSeqRef.current; // 🔴 竞态守卫：本请求序号
+    console.log(`[filetree] setRoot path=${path} seq=${seq}`);
     if (!path) {
       if (seq !== rootSeqRef.current) return; // 已有更新请求，丢弃旧结果
       setRootPath(null);
@@ -106,6 +110,11 @@ export function useFileTree(initialPath: string | null = null) {
     }
 
     setRootPath(path);
+    // 🔴 2026-08-13 错位根治：切根立即清 data——头部路径已变（setRootPath 同步），
+    // 若旧 data 继续渲染（data && !error 无条件渲染树），点击树行会进入旧路径目录
+    // （老大反馈：显示 WORKSPACE 内容却是新项目/反向）。清 data → loading 态渲染，
+    // listDir 完成前绝不呈现旧内容。
+    setData(null);
     setLoading(true);
     setError(null);
     // 切换根目录：重置展开状态 + 目录缓存 + 已加载子树（旧树状态不能残留到新目录）
@@ -115,6 +124,7 @@ export function useFileTree(initialPath: string | null = null) {
 
     try {
       const entries = await listDir(path);
+      console.log(`[filetree] setRoot done path=${path} seq=${seq} entries=${entries.length} latestSeq=${rootSeqRef.current}`);
       // 🔴 竞态守卫：仅最新请求可写 state（旧请求的 listDir 返回时已过时）
       if (mountedRef.current && seq === rootSeqRef.current) {
         setData(entries);
@@ -209,13 +219,25 @@ export function useFileTree(initialPath: string | null = null) {
   const invalidate = useCallback(async (change?: { dirs: string[]; full: boolean }) => {
     if (!rootPath) return;
     const ch = change ?? { dirs: [], full: true };
+    // 🔴 2026-08-13 竞态守卫（老大反馈：显示路径对但树内容是别的项目目录）：
+    // setRoot 有 seq 守卫，但 invalidate 的 setData 没有——旧闭包 invalidate
+    // （rootPath 快照为旧值）在途返回时会把旧 rootPath 的数据覆盖新 rootPath 的
+    // data → 面板显示新路径 + 旧项目内容（双向漂移）。快照语义：自进入以来若
+    // 有新的 setRoot（rootSeqRef 已递增）→ 丢弃本次写（setRoot 会写新数据）；
+    // 无新 setRoot → rootPath 未变，写入正确。
+    const seq = rootSeqRef.current;
 
     // ── 定向：只重读变更目录中已加载的（根 或 已展开/已加载目录）──
     if (!ch.full && ch.dirs.length > 0) {
       const rootNorm = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
       const targets = ch.dirs.filter((d) => {
         const norm = d.replace(/\\/g, '/').replace(/\/+$/, '');
-        return norm === rootNorm || loadedDirsRef.current[d] !== undefined;
+        // 🔴 2026-08-13 统一匹配契约：loadedDirs key 是 files.list 原生路径（Windows 反斜杠），
+        // 而 workspace-events 的 dirs 可能为归一格式（dirOf）或原生格式（workspace.changed 后端事件）——
+        // 归一化双向匹配，两条链路都精确命中（修复 tool.complete 子目录变更不刷新的既有隐患）。
+        return norm === rootNorm || Object.keys(loadedDirsRef.current).some(
+          (k) => k.replace(/\\/g, '/').replace(/\/+$/, '') === norm,
+        );
       });
       if (!targets.length) return;
 
@@ -227,7 +249,10 @@ export function useFileTree(initialPath: string | null = null) {
           if (!mountedRef.current) continue;
           const norm = dir.replace(/\\/g, '/').replace(/\/+$/, '');
           if (norm === rootNorm) {
-            setData(entries);
+            // 🔴 2026-08-13 守卫：期间有新的 setRoot → 丢弃（setRoot 会写）
+            if (seq === rootSeqRef.current) {
+              setData(entries);
+            }
           } else {
             setLoadedDirs((prev) => (prev[dir] === entries ? prev : { ...prev, [dir]: entries }));
           }
@@ -246,16 +271,17 @@ export function useFileTree(initialPath: string | null = null) {
     setLoading(true);
     try {
       const entries = await listDir(rootPath);
-      if (mountedRef.current) {
+      // 🔴 2026-08-13 守卫：期间有新的 setRoot → 丢弃（setRoot 会写新数据）
+      if (mountedRef.current && seq === rootSeqRef.current) {
         setData(entries);
       }
     } catch (err: unknown) {
-      if (mountedRef.current) {
+      if (mountedRef.current && seq === rootSeqRef.current) {
         setError((err as Error).message || '读取目录失败');
         setData([]);
       }
     } finally {
-      if (mountedRef.current) {
+      if (mountedRef.current && seq === rootSeqRef.current) {
         setLoading(false);
       }
       setRefreshNonce((n) => n + 1);
@@ -267,6 +293,46 @@ export function useFileTree(initialPath: string | null = null) {
       }
     }
   }, [rootPath, listDir, loadChildren]);
+
+  // 🔴 workspace.watch 订阅（外部文件变更感知，2026-08-13 Phase 1）：
+  // rootPath 变化 → 重新订阅；WS 未连 → 静默失败（手动刷新兑底），
+  // 连接恢复后无条件重发（后端同 path 幂等，替换式无副作用）；卸载 → unwatch。
+  // 连接恢复时同时全量刷新一次：覆盖断开期间丢失的 workspace.changed 事件
+  // （广播到空连接表被丢，重连后无法补发——全量重拉是唯一可靠恢复）。
+  // 不影响现有 tool.complete 刷新链路（workspace-events 同源合并）。
+  useEffect(() => {
+    if (!rootPath) return;
+    let cancelled = false;
+
+    const tryWatch = async () => {
+      try {
+        const res = await getWsClient().workspaceWatch(rootPath);
+        if (!cancelled) watchIdRef.current = res.id;
+      } catch {
+        // WS 未连/失败 → 手动刷新兑底；连接恢复后重试（下方 state 订阅）
+      }
+    };
+    void tryWatch();
+
+    // WS 连接恢复 → 重发 watch（幂等；原订阅若已失效则替换）
+    // + 全量刷新一次：覆盖断开期间丢失的 workspace.changed（广播到空连接表被丢）
+    const unsub = getWsClient().onStateChange((s) => {
+      if (s === 'connected') {
+        void tryWatch();
+        void invalidate({ dirs: [], full: true });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unsub();
+      if (watchIdRef.current) {
+        const id = watchIdRef.current;
+        watchIdRef.current = null;
+        getWsClient().workspaceUnwatch(id).catch(() => {});
+      }
+    };
+  }, [rootPath, invalidate]);
 
   /**
    * 折叠全部（对齐 Hermes collapseAll）：清空展开状态，整树收起。

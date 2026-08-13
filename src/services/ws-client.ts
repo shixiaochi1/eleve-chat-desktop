@@ -646,6 +646,16 @@ export class GatewayWsClient {
     return result as ImageDetachResponse
   }
 
+  /** 订阅后端工作区目录监控（外部文件变更 → workspace.changed 推送；单实例替换式，幂等） */
+  async workspaceWatch(path: string): Promise<{ watching: string; id: string }> {
+    return this.sendRpc('workspace.watch', { path }) as Promise<{ watching: string; id: string }>
+  }
+
+  /** 停止工作区目录监控 */
+  async workspaceUnwatch(id: string): Promise<{ stopped: boolean }> {
+    return this.sendRpc('workspace.unwatch', { id }) as Promise<{ stopped: boolean }>
+  }
+
   // ── 语音 RPC（对齐后端 ws/mod.rs voice.record）──
 
   /**

@@ -85,6 +85,19 @@ export function useWorkspaceTick(): number {
   return useSyncExternalStore(subscribe, () => tick);
 }
 
+/** 后端 workspace.changed 事件入口（外部文件变更权威源）
+ * 与 notifyWorkspaceChanged 同源合并：dirs → pendingDirs / full → pendingFull，
+ * 复用 500ms 去抖 fire()。消费端 consumeWorkspaceChange 零改动。 */
+export function notifyExternalChange(change: { root?: string; dirs?: string[]; full?: boolean }): void {
+  if (change.full) {
+    pendingFull = true;
+  }
+  for (const dir of change.dirs ?? []) {
+    if (dir) pendingDirs.add(dir);
+  }
+  fire();
+}
+
 // 写文件类工具名（Hermes MUTATING_TOOL_RE 移植）：terminal/shell 等隐式写文件
 // 工具无 inline_diff，名字匹配兜底。无裸 `file` 词元（会误匹配只读工具）。
 const MUTATING_TOOL_RE =
