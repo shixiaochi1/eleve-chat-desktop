@@ -11,7 +11,7 @@
  * 管理：显式项目可新建/编辑（名称+主题色）/添加文件夹/归档——接线后端
  *   projects.create/update/add_folder/set_primary/archive CRUD（对齐 Hermes 桌面端项目管理）。
  */
-import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Home, Plus, RefreshCw, FolderGit, ChevronRight } from 'lucide-react';
 import { isTauri } from '@tauri-apps/api/core';
 import { call } from '../utils/bridge';
@@ -53,33 +53,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   // 响应可能后到——若只靠闭包捕获的 currentProfile，旧响应会把树/scope 写成旧 Agent）
   const currentProfileRef = useRef(currentProfile);
   currentProfileRef.current = currentProfile;
-  // 🔴 TEMP-DIAG2（抖动排查 v14）：切 Agent + 树更新后打印滚动/行位置——
-  // scrollTop 变 = 滚动问题；firstRowTop 变 = 布局问题；都不变 = 视觉动画/重绘
-  const listRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const raf = requestAnimationFrame(() => {
-      const list = listRef.current;
-      if (!list) return;
-      const first = list.querySelector('[data-project-row]');
-      console.log('[DIAG2] profile=' + currentProfile, JSON.stringify({
-        innerH: window.innerHeight,
-        scrollTop: Math.round(list.scrollTop),
-        listH: Math.round(list.clientHeight), contentH: Math.round(list.scrollHeight),
-        firstRowTop: first ? Math.round((first as HTMLElement).offsetTop) : -1,
-      }));
-    });
-    return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentProfile, tree]);
   const [loading, setLoading] = useState(true);
-  // 🔴 TEMP-DIAG6（抖动排查）：每次渲染打印完整状态快照（loading/error/tree/drill + 高度）
-  useLayoutEffect(() => {
-    console.log('[DIAG6] profile=' + currentProfile, JSON.stringify({
-      loading, error: !!error, tree: !!tree, drill: !!drill,
-      listH: Math.round(listRef.current?.clientHeight ?? -1),
-      projAreaH: Math.round(document.querySelector('[data-proj-area]')?.getBoundingClientRect().height ?? -1),
-    }));
-  });
   const [error, setError] = useState<string | null>(null);
   // 阶段二·钻取状态（projects.project_sessions，hydrate=true 全量水合）
   const [drill, setDrill] = useState<ProjectNode | null>(null);
@@ -481,6 +455,11 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   }, []);
 
   // 🔴 冷启动竞态修复（同 ProfilePanel）：mount 时 WS 可能未连，等连接后再加载。
+  // 🔴 2026-08-14 抖动根治：依赖 [] 只 mount 跑一次——原依赖 [fetchTree]（其闭包依赖
+  //   currentProfile）→ 切 Agent → fetchTree 引用变 → 本 effect 重跑 → 非 silent
+  //   fetchTree() → setLoading(true) → 加载中占位与树并存（双 flex-1）→ 列表被压缩
+  //   → 项目卡片跳变（“往下走”根因）。切 Agent 的树刷新由 [currentProfile] effect
+  //   的 silent fetchTree(true) 负责（L187），本 effect 只需首次加载。
   useEffect(() => {
     let cancelled = false;
     getWsClient()
@@ -488,7 +467,8 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
       .then(() => { if (!cancelled) fetchTree(); })
       .catch(() => { if (!cancelled) setError('无法连接网关，请检查后端服务'); });
     return () => { cancelled = true; };
-  }, [fetchTree]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 🔴 2026-08-12 树自动刷新：会话变化（新建/切换/发消息 bump）→ 静默重拉 projects.tree——
   //   项目卡片预览会话/计数/时间即时回显（原实现只在 mount/切 Agent/手动刷新时拉，
@@ -563,7 +543,9 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
       ) : (
         // ── 阶段一：总览（项目行 + previewSessions 预览）──
         <>
-          {loading && (
+          {/* 🔴 2026-08-14 抖动防御：加载中占位仅当无树时显示——loading 与树并存时
+              双 flex-1 会压缩列表（项目卡片跳变根因）；树存在时保持树显示 */}
+          {loading && !tree && (
             <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">加载中...</div>
           )}
           {error && (
@@ -595,7 +577,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                   树内容替换（切 Agent）时浏览器会尝试保持“锚定元素”位置自动调整
                   scrollTop → 项目卡片“往下走到中间然后消失”的抖动根因
                   （对齐聊天线程既有用法 style.css [data-slot='aui_thread-viewport']） */}
-              <div ref={listRef} className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0 [scrollbar-gutter:stable] [overflow-anchor:none]">
+              <div className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0 [scrollbar-gutter:stable] [overflow-anchor:none]">
                 {tree.projects.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-3 p-4">
                     <div className="w-10 h-10 rounded-xl bg-muted/40 flex items-center justify-center">

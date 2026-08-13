@@ -10,8 +10,11 @@
  *   - 下部项目区：flex-1 = **Agent 区决定的剩余空间**（无任何固定占比概念）
  *   - 切 Agent 时 Agent 数量不变 + 卡片等高保障（ProfilePanel 元信息行 flex-nowrap，
  *     禁换行）→ 上部自然高度**恒不变** → 分割线/项目区起点不动 → 零抖动
- *   - 之前 v2-v9 的"JS 测量高度 + 显式 height + MO 观察 + 过渡动画"全是过度工程：
- *     测量滞后/同值冻结/误触发反而引入抖动（v8 同值冻结 1 卡、MO 误触发推项目区）
+ *
+ * 🔴 2026-08-14 抖动根治（配合 ProjectTreePanel）：
+ *   - 真根因 = ProjectTreePanel mount effect 依赖 [fetchTree]（闭包依赖 currentProfile）
+ *     → 切 Agent 重跑非 silent fetchTree → loading=true → 加载中占位与树并存（双 flex-1）
+ *     → 列表被压缩 → 项目卡片跳变。已在 ProjectTreePanel 修（依赖 [] + loading 防御）。
  *
  * 数据流（受控单向流，不重复造轮子）：
  *   - Agent 卡片复用 ProfilePanel（高亮权威源 = App.currentProfile prop）
@@ -20,7 +23,6 @@
  */
 import ProfilePanel from './ProfilePanel';
 import ProjectTreePanel from './ProjectTreePanel';
-import { useEffect, useLayoutEffect, useRef } from 'react';
 
 interface AgentsPanelProps {
   currentProfile?: string;
@@ -29,48 +31,11 @@ interface AgentsPanelProps {
 }
 
 export default function AgentsPanel(props: AgentsPanelProps) {
-  // 🔴 TEMP-DIAG4（抖动排查 v2）：切 Agent 后 30 帧监控 **AgentsPanel 根高度 + 项目区高度**
-  //（区分：根高度变 = 父容器压缩；根恒定但项目区小 = AgentsPanel 内部 flex 布局问题）
-  const rootRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const frames: string[] = [];
-    let raf = 0;
-    const tick = () => {
-      const root = rootRef.current;
-      const proj = root?.querySelector('[data-proj-area]');
-      frames.push((root ? Math.round(root.getBoundingClientRect().height) : -1) + 'r/' + (proj ? Math.round(proj.getBoundingClientRect().height) : -1) + 'p');
-      if (frames.length < 30) raf = requestAnimationFrame(tick);
-      else console.log('[DIAG4] profile=' + props.currentProfile, frames.join(' '));
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.currentProfile]);
-
-  // 🔴 TEMP-DIAG5（抖动排查）：**每次渲染**打印上部高度——抓中间态撑高帧
-  useLayoutEffect(() => {
-    console.log('[DIAG5] profile=' + props.currentProfile + ' agentH=' + Math.round(diagRef.current?.getBoundingClientRect().height ?? -1) + ' count=' + (props.agentCount ?? -1));
-  });
-
-  // 🔴 TEMP-DIAG（抖动排查 v12）：精确测**分割线**（上部容器 bottom）+ 项目区顶部
-  const diagRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!diagRef.current) return;
-    const r = diagRef.current.getBoundingClientRect();
-    const list = diagRef.current.querySelector<HTMLElement>('[data-agent-list]');
-    console.log('[DIAG] profile=' + props.currentProfile, JSON.stringify({
-      dividerY: Math.round(r.bottom), // 分割线 Y（项目区起点）
-      agentH: Math.round(r.height),
-      listScrollH: list?.scrollHeight ?? -1, listClientH: list?.clientHeight ?? -1,
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.currentProfile]);
-
   return (
-    <div ref={rootRef} className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col h-full min-h-0">
       {/* ── 上部：Agent 卡片（自然高度自动对齐；max-h-[42%] 仅极端保护——
           超限时 ProfilePanel 列表区内部滚动，不挤没项目区） ── */}
-      <div ref={diagRef} className="flex flex-col min-h-0 max-h-[42%]">
+      <div className="flex flex-col min-h-0 max-h-[42%]">
         <ProfilePanel {...props} />
       </div>
 
@@ -78,7 +43,7 @@ export default function AgentsPanel(props: AgentsPanelProps) {
       <div className="border-t border-border shrink-0" />
 
       {/* ── 下部：项目区（flex-1 = Agent 区决定的剩余空间，无固定占比概念） ── */}
-      <div data-proj-area className="flex-1 min-h-0 flex flex-col">
+      <div className="flex-1 min-h-0 flex flex-col">
         <ProjectTreePanel {...props} />
       </div>
     </div>
