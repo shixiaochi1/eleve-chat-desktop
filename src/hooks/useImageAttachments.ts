@@ -196,11 +196,12 @@ export function useImageAttachments(options?: {
 
   /** submit 时上传所有本地暂存（uploaded=false）的图片 — 对齐 Hermes syncAttachmentsForSubmit。
    * 调用方（App.handleSend）须先确保会话存在（无则 session.create 懒创建），再传入 sessionId。
-   * @returns true=全部成功；false=有失败（已 setError，调用方应中止发送，对齐 Hermes 附件同步失败即 abort）
+   * @returns { ok: true=全部成功；false=有失败（已 setError，调用方应中止发送）; paths: 本次上传的
+   *   后端路径（调用方在"上传期间会话已切换"时用于 detach 清理残留，防旧会话下次 submit 幽灵 drain） }
    */
-  const uploadUnuploaded = useCallback(async (sessionId: string): Promise<boolean> => {
+  const uploadUnuploaded = useCallback(async (sessionId: string): Promise<{ ok: boolean; paths: string[] }> => {
     const pending = attachedImages.filter((img) => !img.uploaded);
-    if (pending.length === 0) return true;
+    if (pending.length === 0) return { ok: true, paths: [] };
 
     // 对齐 Hermes uploadState spinner：submit 时统一上传转圈（lazy 语义下 uploading 仅此处活跃）
     setUploading(pending.length);
@@ -243,7 +244,7 @@ export function useImageAttachments(options?: {
       );
     }
 
-    return allOk;
+    return { ok: allOk, paths: [...updatedPaths.values()] };
   }, [attachedImages]);
 
   const clearImages = useCallback(() => {

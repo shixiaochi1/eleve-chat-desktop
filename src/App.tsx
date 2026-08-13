@@ -1205,7 +1205,17 @@ export default function App() {
         }
       }
       const synced = await uploadUnuploaded(sid);
-      if (!synced) return; // 对齐 Hermes: 附件同步失败 → 中止发送
+      if (!synced.ok) return; // 对齐 Hermes: 附件同步失败 → 中止发送
+      // 🔴 2026-08-13 深度审查竞态修复：上传 await 期间用户可能切 Agent/会话——
+      // 旧附件（图片内容/文件引用）不得发到新会话（跨 Agent 内容串台）。
+      // 中止发送 + 已上传图片从旧会话 detach（防残留 → 旧会话下次 submit 幽灵 drain 误发）。
+      if (sess.sessionId !== sid) {
+        const ws = getWsClient();
+        for (const p of synced.paths) {
+          ws.imageDetach(p, sid).catch(() => {});
+        }
+        return;
+      }
     }
 
     // 准备附件元数据 + base64（排队用）
