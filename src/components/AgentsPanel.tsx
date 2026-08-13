@@ -38,6 +38,18 @@ export default function AgentsPanel(props: AgentsPanelProps) {
   const agentAreaRef = useRef<HTMLDivElement>(null);
   const [agentContentHeight, setAgentContentHeight] = useState<number | null>(null);
 
+  // 🔴 TEMP-DIAG（2026-08-13 抖动排查，验证后删除）：分割线实时 Y 坐标
+  // 切 Agent 时若此数字变化 = 上部高度在变（布局抖动源）；不变 = 抖在项目区内容
+  const [diagY, setDiagY] = useState(0);
+  useEffect(() => {
+    const el = agentAreaRef.current;
+    if (!el) return;
+    const update = () => setDiagY(el.getBoundingClientRect().bottom);
+    update();
+    const raf = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(raf);
+  });
+
   // 🔴 2026-08-13 v8：仅在 agentCount 变化（建/删 Agent）时重测对齐；切 Agent 零触发。
   // 测量 = 区块头 offsetHeight + 列表区 scrollHeight（内容总高，独立于容器高度无死锁）
   useEffect(() => {
@@ -50,7 +62,11 @@ export default function AgentsPanel(props: AgentsPanelProps) {
   }, [props.agentCount]);
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="relative flex flex-col h-full min-h-0">
+      {/* 🔴 TEMP-DIAG：分割线位置标记（红点 + Y 坐标） */}
+      <div className="pointer-events-none absolute right-0 z-50" style={{ top: diagY - 8 }}>
+        <span className="text-[9px] font-mono text-red-500 bg-black/60 px-1 rounded">Y={diagY.toFixed(0)}</span>
+      </div>
       {/* ── 上部：Agent 卡片（内容自然高度，上限 42% 仅作极端保护——卡片数极多时
           不挤没项目区；数量不变 → 高度恒定 → 分割线/项目区起点不动） ── */}
       <div
