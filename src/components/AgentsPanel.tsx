@@ -29,16 +29,18 @@ interface AgentsPanelProps {
 }
 
 export default function AgentsPanel(props: AgentsPanelProps) {
-  // 🔴 TEMP-DIAG4（抖动排查）：切 Agent 后 30 帧监控 AgentsPanel 高度轨迹
-  //（791→522→791 的膨胀在哪帧发生、持续几帧）
+  // 🔴 TEMP-DIAG4（抖动排查 v2）：切 Agent 后 30 帧监控 **AgentsPanel 根高度 + 项目区高度**
+  //（区分：根高度变 = 父容器压缩；根恒定但项目区小 = AgentsPanel 内部 flex 布局问题）
+  const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const frames: number[] = [];
+    const frames: string[] = [];
     let raf = 0;
     const tick = () => {
-      const h = Math.round(diagRef.current?.getBoundingClientRect().height ?? -1);
-      frames.push(h);
+      const root = rootRef.current;
+      const proj = root?.querySelector('[data-proj-area]');
+      frames.push((root ? Math.round(root.getBoundingClientRect().height) : -1) + 'r/' + (proj ? Math.round(proj.getBoundingClientRect().height) : -1) + 'p');
       if (frames.length < 30) raf = requestAnimationFrame(tick);
-      else console.log('[DIAG4] profile=' + props.currentProfile, JSON.stringify(frames));
+      else console.log('[DIAG4] profile=' + props.currentProfile, frames.join(' '));
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
@@ -60,7 +62,7 @@ export default function AgentsPanel(props: AgentsPanelProps) {
   }, [props.currentProfile]);
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div ref={rootRef} className="flex flex-col h-full min-h-0">
       {/* ── 上部：Agent 卡片（自然高度自动对齐；max-h-[42%] 仅极端保护——
           超限时 ProfilePanel 列表区内部滚动，不挤没项目区） ── */}
       <div ref={diagRef} className="flex flex-col min-h-0 max-h-[42%]">
@@ -71,7 +73,7 @@ export default function AgentsPanel(props: AgentsPanelProps) {
       <div className="border-t border-border shrink-0" />
 
       {/* ── 下部：项目区（flex-1 = Agent 区决定的剩余空间，无固定占比概念） ── */}
-      <div className="flex-1 min-h-0 flex flex-col">
+      <div data-proj-area className="flex-1 min-h-0 flex flex-col">
         <ProjectTreePanel {...props} />
       </div>
     </div>
