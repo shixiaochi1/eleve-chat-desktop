@@ -15,8 +15,7 @@
  */
 import ProfilePanel from './ProfilePanel';
 import ProjectTreePanel from './ProjectTreePanel';
-import { useRef, useState } from 'react';
-import { useResizeObserver } from '../hooks/use-resize-observer';
+import { useEffect, useRef, useState } from 'react';
 
 interface AgentsPanelProps {
   currentProfile?: string;
@@ -25,19 +24,25 @@ interface AgentsPanelProps {
 }
 
 export default function AgentsPanel(props: AgentsPanelProps) {
-  // 🔴 2026-08-13 自动对齐 + 平滑过渡（老大指示：固定 42% 太僵硬）：
-  //   内容自然高度（scrollHeight 不受 max-height 裁剪影响）→ 显式 height +
-  //   transition 300ms ease——切 Agent 时内容高度变化平滑过渡，项目区自然
-  //   跟随不抖动；内容超 42% 时仍被 max-h 裁剪（ProfilePanel 列表区内部滚动）。
-  //   复用既有 useResizeObserver hook（对齐 Hermes useResizeObserver），不造轮子。
+  // 🔴 2026-08-13 v3 自动对齐 + 平滑过渡（老大指示：不抖 + 自然）：
+  //   内容自然高度（scrollHeight）→ 显式 height + transition 300ms ease。
+  //   v2 踩坑：ResizeObserver 观察容器尺寸——容器被 max-h 裁剪后内容变化不影响
+  //   容器尺寸 → RO 永不触发 → 高度冻结在首帧（列表未加载时的值）→ 只显示 1 卡。
+  //   v3：MutationObserver 观察内容 DOM 变化 → 重测 scrollHeight（内容总高，
+  //   不受 max-h 裁剪影响）→ 高度跟随内容平滑过渡；内容超 42% 仍 clamp 内部滚动。
   const agentAreaRef = useRef<HTMLDivElement>(null);
   const [agentContentHeight, setAgentContentHeight] = useState<number | null>(null);
-  useResizeObserver(() => {
+  useEffect(() => {
     const el = agentAreaRef.current;
-    if (el && el.scrollHeight > 0) {
-      setAgentContentHeight(el.scrollHeight);
-    }
-  }, agentAreaRef);
+    if (!el) return;
+    const measure = () => {
+      if (el.scrollHeight > 0) setAgentContentHeight(el.scrollHeight);
+    };
+    measure();
+    const mo = new MutationObserver(() => measure());
+    mo.observe(el, { childList: true, subtree: true, attributes: true, characterData: true });
+    return () => mo.disconnect();
+  }, []);
 
   return (
     <div className="flex flex-col h-full min-h-0">
