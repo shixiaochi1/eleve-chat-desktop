@@ -20,6 +20,9 @@ use tauri::Manager;
 use tauri::menu::{MenuBuilder, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use std::path::PathBuf;
+
+#[cfg(target_os = "windows")]
+use window_vibrancy::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::time::Duration;
@@ -118,7 +121,46 @@ fn read_windows_user_env_var(_name: &str) -> Option<String> {
     None
 }
 
-/// 解析 Eleve Home 目录（Tauri 前端侧使用）
+/// 设置窗口毛玻璃效果（Rust 下沉层，DWM 原生合成）
+///
+/// 架构原则：窗口效果是系统级属性，归 Tauri 壳管。
+/// 前端 appearance 变化时通过 IPC 通知，Rust 侧调用系统 API。
+/// Win11 → Mica（真毛玻璃，透桌面壁纸），Win10 → Acrylic（fallback）
+#[tauri::command]
+async fn set_window_effect(window: tauri::Window, appearance: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        if appearance == "glass" {
+            // Win11 用 Mica（真毛玻璃，透桌面壁纸）
+            let os_version = windows_version::OsVersion::current();
+            if os_version.major >= 10 && os_version.build >= 22000 {
+                apply_mica(&window, None).map_err(|e| format!("Mica failed: {}", e))?;
+            } else {
+                // Win10 fallback → Acrylic
+                apply_acrylic(&window, Some((18, 18, 18, 128)))
+                    .map_err(|e| format!("Acrylic failed: {}", e))?;
+            }
+            eprintln!("[TAURI] Window effect: glass (Mica/Acrylic)");
+        } else {
+            // 清除所有效果
+            let os_version = windows_version::OsVersion::current();
+            if os_version.major >= 10 && os_version.build >= 22000 {
+                clear_mica(&window).map_err(|e| format!("Clear mica failed: {}", e))?;
+            } else {
+                clear_acrylic(&window).map_err(|e| format!("Clear acrylic failed: {}", e))?;
+            }
+            eprintln!("[TAURI] Window effect: cleared");
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+        let _ = appearance;
+    }
+    Ok(())
+}
+
+/// 解析 Eleve Home 目录（Tauri 前端侧使用）。
 ///
 /// 🔴 2026-08-12 加固（重启后数据"消失"事故根治）：
 ///   优先级 = 安装版特征 > env > 注册表 > exe/data > LOCALAPPDATA > ~/.eleve。
@@ -1127,6 +1169,7 @@ pub fn run() {
             get_gateway_port,
             get_auto_start,
             set_auto_start,
+            set_window_effect,
             // 🔴 W-1 死代码清除（2026-08-05）：resolve_media 命令全库零调用——
             // MEDIA 处理唯一消费链 src/utils/media.ts → WS media.resolve
             // （后端 misc_service 权威实现），此命令为早期 Tauri 本地处理遗留

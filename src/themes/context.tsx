@@ -218,6 +218,9 @@ if (typeof window !== 'undefined') {
   const isGlass = appearance === 'glass'
   const colors = deriveColors(accent, isDark)
   applyThemeCSS(colors, isDark, isGlass)
+  // 启动时初始化窗口效果（DWM 原生合成）
+  call('set_window_effect', { appearance })
+    .catch(() => {}) // 静默失败，不阻塞启动
 }
 
 // ─── Context ────────────────────────────────────────────────────────────────
@@ -294,6 +297,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     saveAppearance(newAppearance)
     call('update_config', { config: { display: { appearance: newAppearance } } })
       .catch(() => console.warn('[Theme] 后端配置同步失败'))
+    // 通知 Rust 侧设置窗口毛玻璃效果（DWM 原生合成）
+    call('set_window_effect', { appearance: newAppearance })
+      .catch(() => console.warn('[Theme] 窗口效果设置失败'))
   }, [])
 
   // 启动时从后端同步（仅当本地无保存值时才使用后端值 —— 本地优先，防覆盖用户选择）
