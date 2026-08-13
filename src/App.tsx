@@ -429,6 +429,11 @@ export default function App() {
   useEffect(() => {
     if (projectCwdInjectedRef.current) { projectCwdInjectedRef.current = null; return; }
     setSessionCwd('');
+    // 🔴 2026-08-13 边界修复：会话切换 → 解除项目钉住。
+    // handleSwitchSession/ArtifactPanel 路径不经过 handleProjectScopeChange，
+    // 不解除则文件面板停留在旧项目根（与会话脱节）；豁免标记保护"点项目进入"
+    // 的瞬时推荐切换（handleProjectEntered 先设豁免再切会话）。
+    pinnedProjectCwdRef.current = null;
   }, [sess.sessionId]);
 
   // 🔴 2026-08-09 启动 seed（对齐 Hermes ensureDefaultWorkspaceCwd + $currentCwd

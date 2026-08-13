@@ -96,6 +96,8 @@ export function useSessions(): {
         const newId = data.session_id || data.id!;
         setSessionId(newId);
         persistSessionPointer(newId);
+        // 🔴 2026-08-13 架构统一：reset 后同样订阅新会话（与 switchTo/create 对齐）
+        getWsClient().switchSession(newId);
         await refresh();
       }
     } catch { /* offline */ }
@@ -116,6 +118,10 @@ export function useSessions(): {
     if (id === sessionId) return;
     setSessionId(id);
     persistSessionPointer(id);
+    // 🔴 2026-08-13 架构统一：切换当前会话 → 同步订阅（attach → 后端推 session.info
+    // 含 pending_prompts/cwd——单视图 handleSwitchSession 路径此前不 attach，
+    // 切到的会话审批/交互不恢复；与 loadSessionIntoView 的 switchSession 对齐）
+    getWsClient().switchSession(id);
   }, [sessionId]);
 
   // ── titles ──
