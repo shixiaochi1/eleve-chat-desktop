@@ -393,7 +393,7 @@ function deriveDarkColors(accent: string): DerivedColors {
 // ─── 工具函数 ───────────────────────────────────────────────────────────────
 
 /** hex 转 rgba */
-function hexToRgba(hex: string, alpha: number): string {
+export function hexToRgba(hex: string, alpha: number): string {
   const clean = hex.replace('#', '')
   const r = parseInt(clean.slice(0, 2), 16)
   const g = parseInt(clean.slice(2, 4), 16)

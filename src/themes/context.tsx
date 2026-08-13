@@ -14,7 +14,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import * as storage from '../utils/storage'
 import { call } from '../utils/bridge'
-import { deriveColors, ACCENT_COLORS, DEFAULT_ACCENT, DEFAULT_APPEARANCE, type Appearance, type DerivedColors } from './derive'
+import { deriveColors, ACCENT_COLORS, DEFAULT_ACCENT, DEFAULT_APPEARANCE, hexToRgba, type Appearance, type DerivedColors } from './derive'
 
 const ACCENT_KEY = 'eleve-accent-color'
 const APPEARANCE_KEY = 'eleve-appearance'
@@ -176,22 +176,25 @@ function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean,
     root.style.setProperty(k, v)
   }
 
-  // 3. Glass 模式特殊处理：用 color-mix 把 accent 融入玻璃底色
-  // 🔴 2026-08-13 修复：混入 rawAccent（用户原始主题色）而非 colors.accent
-  // （colors.accent = 8% 透明度淡化色，混入后几乎不可见 = 联动为零）
+  // 3. Glass 模式特殊处理：用 color-mix 把主题色融入玻璃底色
+  // 🔴 2026-08-13 修复 v2：半透明主题色（35% alpha）混入——
+  //   v1 用实色（alpha=1）→ body 渐变不透明 → 盖住 Mica 窗口效果 → 玻璃消失；
+  //   原版用 colors.accent（8% alpha）→ 保留玻璃但色相几乎不可见（联动≈0）。
+  //   35% alpha 折中：玻璃半透明保留（Mica 透出）+ 主题色联动可见（≈4.4 倍）
   if (isGlass) {
     root.classList.add('glass-mode')
+    const accentMix = hexToRgba(rawAccent, 0.35)
     const bg = isDark ? 'rgb(18,18,20)' : 'rgb(232,232,237)'
-    root.style.setProperty('--glass-body-top', `color-mix(in srgb, ${bg} 88%, ${rawAccent})`)
-    root.style.setProperty('--glass-body-bottom', `color-mix(in srgb, ${bg} 76%, ${rawAccent})`)
-    // 子组件玻璃色也跟随主题色
+    root.style.setProperty('--glass-body-top', `color-mix(in srgb, ${bg} 88%, ${accentMix})`)
+    root.style.setProperty('--glass-body-bottom', `color-mix(in srgb, ${bg} 76%, ${accentMix})`)
+    // 子组件玻璃色也跟随主题色（同样半透明，防盖 Mica）
     const chromeAlpha = isDark ? 'rgba(18,18,20,0.88)' : 'rgba(232,232,237,0.92)'
-    root.style.setProperty('--glass-bg-chrome', `color-mix(in srgb, ${chromeAlpha} 70%, ${rawAccent})`)
-    root.style.setProperty('--glass-bg-sidebar', `color-mix(in srgb, ${chromeAlpha} 60%, ${rawAccent})`)
-    root.style.setProperty('--glass-bg-editor', `color-mix(in srgb, ${chromeAlpha} 65%, ${rawAccent})`)
-    root.style.setProperty('--glass-bg-elevated', `color-mix(in srgb, ${chromeAlpha} 75%, ${rawAccent})`)
-    root.style.setProperty('--glass-bg-bubble', `color-mix(in srgb, ${chromeAlpha} 55%, ${rawAccent})`)
-    root.style.setProperty('--glass-bg-input', `color-mix(in srgb, ${chromeAlpha} 50%, ${rawAccent})`)
+    root.style.setProperty('--glass-bg-chrome', `color-mix(in srgb, ${chromeAlpha} 70%, ${accentMix})`)
+    root.style.setProperty('--glass-bg-sidebar', `color-mix(in srgb, ${chromeAlpha} 60%, ${accentMix})`)
+    root.style.setProperty('--glass-bg-editor', `color-mix(in srgb, ${chromeAlpha} 65%, ${accentMix})`)
+    root.style.setProperty('--glass-bg-elevated', `color-mix(in srgb, ${chromeAlpha} 75%, ${accentMix})`)
+    root.style.setProperty('--glass-bg-bubble', `color-mix(in srgb, ${chromeAlpha} 55%, ${accentMix})`)
+    root.style.setProperty('--glass-bg-input', `color-mix(in srgb, ${chromeAlpha} 50%, ${accentMix})`)
     root.style.setProperty('--glass-border', isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)')
   } else {
     root.classList.remove('glass-mode')
