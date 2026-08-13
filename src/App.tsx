@@ -826,6 +826,18 @@ export default function App() {
     }
   }, [viewMode, handleDeleteSession, sess.sessions]);
 
+  // 🔴 2026-08-13 对齐修复：busy 时点项目 → pending 烙印（turn 完成后自动
+  // session.cwd.set 到项目根）——否则当前会话后续 turn 仍工作旧目录
+  const pendingProjectCwdRef = useRef<{ sid: string; path: string } | null>(null);
+  const handlePendingProjectCwd = useCallback(() => {
+    const pending = pendingProjectCwdRef.current;
+    pendingProjectCwdRef.current = null;
+    if (!pending) return;
+    void getWsClient()
+      .sendRpc('session.cwd.set', { session_id: pending.sid, cwd: pending.path })
+      .catch((e) => console.warn('[App] pending project cwd failed:', e));
+  }, []);
+
   // ── usePromptActions: send/regenerate/abort/queue ──
   const {
     handleSend: rawHandleSend,
@@ -858,6 +870,7 @@ export default function App() {
     //      session.info 推成启动目录/上个会话目录，裸新聊天静默落错目录
     //      （Hermes #71873/#80213/#77496 教训；旧注释自称 Hermes 同款 = 误读）。
     getNewSessionCwd: resolveNewSessionCwd, // 🔴 2026-08-13 边界：统一单一漏斗（target > scope > seeded）
+    onTurnComplete: handlePendingProjectCwd, // 🔴 2026-08-13 对齐修复：busy 点项目 pending 烙印消费
   });
 
   // 🔴 2026-08-12 联动重构（老大需求：选 Agent → 点项目/HOME → 消息区 + 右侧文件一起联动）：
@@ -907,8 +920,24 @@ export default function App() {
       return c === p || c.startsWith(p + '\\') || c.startsWith(p + '/');
     })();
     // 当前会话已属于该项目 → 保持（任务运行中也不打断）
-    if (belongs) return;
-    if (isSendingRef.current) return; // busy：不打断
+    if (belongs) {
+      // 🔴 2026-08-13 对齐修复（老大指示，Hermes syncProjectCwd 语义）：
+      // 同项目内点项目根 = 回根——烙印项目根，子目录会话拉回项目根
+      if (sid && path) {
+        void getWsClient()
+          .sendRpc('session.cwd.set', { session_id: sid, cwd: path })
+          .catch((e) => console.warn('[App] project cwd.set failed:', e));
+      }
+      return;
+    }
+    if (isSendingRef.current) {
+      // 🔴 2026-08-13 对齐修复（老大指示）：busy 不打断——记录 pending 烙印，
+      // turn 完成后（onTurnComplete）自动 session.cwd.set 到项目根
+      if (sid && path) {
+        pendingProjectCwdRef.current = { sid, path };
+      }
+      return;
+    }
     if (recommendedSessionId) {
       if (recommendedSessionId === sid) return; // 已在该域最新会话 → 保持
       // 归属校验（后端分组权威，profile 校验防串台）

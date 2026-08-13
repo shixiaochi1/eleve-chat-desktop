@@ -39,6 +39,7 @@ export function usePromptActions({
   currentProfile,
   onSlashConfirm,
   getNewSessionCwd,
+  onTurnComplete,
 }: {
   sess: SessionManagerHandle
   genId: () => string
@@ -57,6 +58,9 @@ export function usePromptActions({
    *  workspaceTarget/currentCwd 链）：无会话发送首条消息时决定新建会话的工作目录——
    *  项目 scope（进入项目后新聊天落项目）→ remote 记忆；null/空 → 不传 cwd */
   getNewSessionCwd?: () => string | null
+  /** 🔴 2026-08-13 对齐修复：turn 结束通知（含 abort/失败）——App 消费 busy 期间
+   *  点项目记录的 pending 烙印（turn 完成后自动 session.cwd.set 到项目根） */
+  onTurnComplete?: () => void
 }): {
   handleSend: (text: string, attachments?: QueuedAttachment[], attachmentDataURLs?: string[]) => void
   handleAbort: () => void
@@ -376,6 +380,9 @@ export function usePromptActions({
       setSessionListVersion?.((v) => v + 1);
     } finally {
       _submitInFlight.delete(submitLockKey);
+      // 🔴 2026-08-13 对齐修复：turn 结束（含 abort/失败）通知——
+      // App 消费 pending 项目烙印（busy 时点项目 → turn 完成后自动 session.cwd.set）
+      onTurnComplete?.();
     }
 
     if (sess.pendingTitle) {
@@ -384,7 +391,7 @@ export function usePromptActions({
     if (sess.freshDraftReady) {
       sess.setFreshDraftReady(false);
     }
-  }, [sess, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, currentProfile, getNewSessionCwd]);
+  }, [sess, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, currentProfile, getNewSessionCwd, onTurnComplete]);
 
   // ── abort ──
   const handleAbort = useCallback(() => {
