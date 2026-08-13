@@ -56,24 +56,12 @@
   /** 背板色：由 Rust 侧传入，填充 --ev-backboard 变量 */
   const BACKBOARD = window.__ELEVE_DEEPSEEK_BG__ || 'rgb(10,22,40)';
 
-  /** 解析页面实际背景色：圆角四角颜色必须与页面背景融合才能看出圆角 */
-  function resolvePageBg() {
-    const candidates = [document.body, document.documentElement];
-    for (const el of candidates) {
-      if (!el) continue;
-      const bg = getComputedStyle(el).backgroundColor;
-      if (bg && bg !== 'transparent' && !bg.startsWith('rgba(0, 0, 0, 0)')) {
-        return bg;
-      }
-    }
-    return BACKBOARD; // 兜底：背板色（与 WebView 原生底色同源）
-  }
-
   /**
-   * JS 直接强制圆角（v3）：html + body 双重圆角，inline style + !important
+   * JS 直接强制圆角（v4）：html + body 双重圆角，inline style + !important
    * 优先级最高、不依赖 style 标签（防站点 CSS/SPA 动态样式干扰）。
-   * html 圆角保证 body 未铺满视口（居中布局）时视口四角也被裁剪；
-   * html overflow: clip 只裁视口绘制不阻断内部滚动容器。
+   * 🔴 四角颜色必须 = Eleve 背板色（BACKBOARD，与 WebView background_color
+   * 同源、与主窗口背景一致）→ 四角与周围 UI 融合，WebView 边缘才呈现圆角。
+   * （改成页面背景色 = 方向错误：四角与页面融为一体，方角矩形依旧可见）
    */
   function applyRoundedCorners() {
     const root = document.documentElement;
@@ -84,7 +72,7 @@
     }
     root.style.setProperty('border-radius', '12px', 'important');
     root.style.setProperty('overflow', 'clip', 'important');
-    root.style.setProperty('background', resolvePageBg(), 'important');
+    root.style.setProperty('background', BACKBOARD, 'important');
   }
 
   function injectCSS() {
@@ -95,11 +83,9 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      /* ── 背板色变量（html 画布底色 = 四角颜色） ── */
+      /* ── 背板色变量（html 画布底色 = 四角颜色 = Eleve 背板色，与主窗口融合） ── */
       :root { --ev-backboard: ${BACKBOARD}; }
-      /* ── 四角颜色 = 页面实际背景色（自适应，任何主题都能看出圆角） ── */
-      html { background: ${resolvePageBg()} !important; }
-      /* ── 主题适配（来自 deepseek-theme.css，圆角核心） ── */
+      /* ── 圆角核心（deepseek-theme.css：html+body 圆角 + clip） ── */
       ${THEME_CSS}
     `;
     (document.head || document.documentElement).appendChild(style);
