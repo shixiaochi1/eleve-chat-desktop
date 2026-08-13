@@ -127,6 +127,8 @@ interface GridModeViewProps {
   onFocusChange?: (name: string) => void;
   /** 焦点 Agent 的 session 变化 → 上抛 App（侧栏会话列表高亮跟随 focusedAgent） */
   onFocusedSessionChange?: (sessionId: string | null) => void;
+  /** 🔴 2026-08-13 并发修复：焦点卡片 session.info 的 cwd 推送（App 传 handleSessionInfoCwd，含项目钉住检查） */
+  onSessionCwd?: (cwd: string) => void;
   /** 网关就绪（slash 补全拉取命令列表） */
   portReady: boolean;
   /** 新建会话的全局副作用（清 localStorage 指针 + 刷新会话列表），由 App 注入，
@@ -180,7 +182,7 @@ function slotPos(index: number, cols: number, cellW: number, cellH: number) {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, onFocusedSessionChange, portReady, onNewSessionEffects, onSelectModel }, ref) {
+const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, onFocusedSessionChange, onSessionCwd, portReady, onNewSessionEffects, onSelectModel }, ref) {
   // 🔴 M-1/M-2 修复：不再从 Context 取全局 currentModel（发送链已去 model，
   // 各卡片展示用后端 per-session 推送的 modelName，选择走 onSelectModel 绑定卡片）
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
@@ -192,7 +194,14 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   const [height, setHeight] = useState(0);
 
   // 宫格聊天引擎：挂载即激活（本组件仅 grid 模式挂载）
-  const { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand, handleSlashConfirmDone, sendQueueNow, deleteQueueEntry } = useGridChat(true);
+  // 🔴 2026-08-13 并发修复：onSessionCwd 只推焦点卡片 cwd（App 层 pinned 检查）；
+  // currentProfile getter 用 ref 防闭包过期（useGridChat 事件 handler 长生命周期）
+  const currentProfileRef = useRef(currentProfile);
+  currentProfileRef.current = currentProfile;
+  const { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand, handleSlashConfirmDone, sendQueueNow, deleteQueueEntry } = useGridChat(true, {
+    onSessionCwd: onSessionCwd,
+    currentProfile: () => currentProfileRef.current,
+  });
 
   // 🔴 Phase 4b #4: 焦点 Agent 的真实 session 上抛 App → 侧栏会话列表高亮跟随 focusedAgent
   // （宫格模式下 sess.sessionId 是进宫格前的单视图全局 session，与焦点 Agent 不一致）

@@ -1599,7 +1599,10 @@ export default function App() {
                   onExitGrid={handleExitGrid}
                   onExpandAgent={handleExpandAgent}
                   onFocusChange={handleProfileChange}
+  // 🔴 2026-08-13 并发修复：宫格/独立窗口复用同一 handleSessionInfoCwd（焦点卡片 session.info
+  // → 文件面板跟随，含项目钉住检查）；GridModeView 经 useGridChat opts 接线
                   onFocusedSessionChange={setFocusedGridSessionId}
+                  onSessionCwd={handleSessionInfoCwd}
                   portReady={portReady}
                   onNewSessionEffects={handleGridNewSessionEffects}
                   onSelectModel={handleGridSelectModel}

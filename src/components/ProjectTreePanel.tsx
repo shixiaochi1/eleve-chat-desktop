@@ -1207,9 +1207,13 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   //   ✅ v2：fetchTree 永不写 selectedId（只更新树数据）；仅切 Agent 时重置为 null
   //   （让新 Agent 的 active_id 生效）。点选即持久高亮，不再被任何刷新回跳。
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // 🔴 2026-08-13 切 Agent 恢复激活项目：切 Agent 后的首次树加载等待 active_id 恢复
+  // 🔴 2026-08-13 并发修复：切 Agent 后的首次树加载等待 active_id 恢复
   // （用户手动点选 → 清标记 → 不再自动恢复，防覆盖用户意图）
   const profileSwitchPendingRef = useRef(false);
+  // 🔴 2026-08-13 并发修复：fetchTree 过期响应守卫（快速切 Agent 时旧 profile 的
+  // 响应可能后到——若只靠闭包捕获的 currentProfile，旧响应会把树/scope 写成旧 Agent）
+  const currentProfileRef = useRef(currentProfile);
+  currentProfileRef.current = currentProfile;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // 阶段二·钻取状态（projects.project_sessions，hydrate=true 全量水合）
@@ -1268,7 +1272,11 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
       if (!silent) setLoading(true);
       setError(null);
       // 🔴 显式 profile：per-profile projects.db 路由，切 Agent 自动重拉（依赖 currentProfile）
-      const result = await call('projects_tree', { preview_limit: 3, include_discovered: true, profile: currentProfile });
+      const reqProfile = currentProfile;
+      const result = await call('projects_tree', { preview_limit: 3, include_discovered: true, profile: reqProfile });
+      // 🔴 2026-08-13 并发修复：过期响应守卫——快速切 Agent 时旧请求返回后直接丢弃
+      // （不写树、不触发 scope 恢复；loading 归位由 finally 兜底）
+      if (currentProfileRef.current !== reqProfile) return;
       // 🔴 自动项目 dismiss 过滤（对齐 Hermes filterVisibleProjects：本地隐藏，不删后端）
       const dismissed = getDismissedAutoProjectIds();
       if (dismissed.size > 0 && result?.projects) {

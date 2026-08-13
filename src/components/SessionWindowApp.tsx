@@ -53,7 +53,10 @@ export default function SessionWindowApp() {
   }, []);
 
   // 3. 宫格聊天状态（单 Agent 承载；复用既有完整链路）
-  const grid = useGridChat(true);
+  // 🔴 2026-08-13 并发修复：独立窗口不写 localStorage 全局指针/profile_session_map——
+  // 窗口会话由 URL 显式指定，无需持久化；防与主窗口并发写互相污染（主窗口的
+  // session 指针/unread 判定基准被窗口覆盖 = 串台）。
+  const grid = useGridChat(true, { persistGlobalPointers: false });
   const {
     states, loadLatest, sendTo, loadMore, abortAgent, clearPending,
     resetAgent, execCommand, handleSlashConfirmDone, sendQueueNow, deleteQueueEntry,

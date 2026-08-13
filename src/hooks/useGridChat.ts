@@ -103,7 +103,20 @@ function emptyState(): AgentChatState {
 let gridMsgSeq = 0;
 const gridMsgId = () => `grid-${Date.now()}-${++gridMsgSeq}`;
 
-export function useGridChat(active: boolean): {
+export function useGridChat(
+  active: boolean,
+  options?: {
+    /** 🔴 2026-08-13 并发修复：焦点卡片 session.info 的 cwd 推送（App 传 handleSessionInfoCwd，含项目钉住检查）。
+     *  单视图由 useSSE routeWsEvent 过滤 + useMessageStream 推送；宫格下 useGridChat 接管事件，
+     *  此前不推 cwd → 切焦点卡片文件面板停留在旧卡片目录（串台观感）。 */
+    onSessionCwd?: (cwd: string) => void;
+    /** 当前焦点 profile getter（GridModeView 传 () => currentProfile）——只推焦点卡片的 cwd */
+    currentProfile?: () => string | null;
+    /** 🔴 2026-08-13 并发修复：独立窗口（SessionWindowApp）传 false——不写 localStorage
+     *  全局指针/profile_session_map，防多窗口并发写污染主窗口的会话指针（窗口会话由 URL 显式指定）。 */
+    persistGlobalPointers?: boolean;
+  },
+): {
   states: Record<string, AgentChatState>;
   loadLatest: (profile: string, sessionId: string) => Promise<void>;
   loadMore: (profile: string) => Promise<void>;
@@ -253,7 +266,8 @@ export function useGridChat(active: boolean): {
     // explicitSessionId 场景：同步 slot 指针 + 持久化（该 session 由前端预创建，prompt.submit 不再返回新 id）
     if (opts?.explicitSessionId && sessionId) {
       patch(profile, (st) => ({ ...st, sessionId }));
-      persistSessionPointer(sessionId);
+      // 🔴 2026-08-13 并发修复：独立窗口不写全局指针（防多窗口并发写污染主窗口）
+      if (options?.persistGlobalPointers !== false) persistSessionPointer(sessionId);
     }
     // 🔴 自含防御（审查 P2）：前缀不匹配即同步清除 slot 脏指针 — 不归属本 profile 的 sessionId 不应占据 slot
     // （后续 abortAgent/execCommand 语义亦正确）。与 handler stale 守卫的前缀校验双保险：
@@ -314,7 +328,7 @@ export function useGridChat(active: boolean): {
       // 后端可能新建 session → 记录 sessionId + 🔴 P1-F 即时持久化（防崩溃丢失）
       if (result?.session_id && result.session_id !== sessionId) {
         patch(profile, (st) => ({ ...st, sessionId: result.session_id! }));
-        persistSessionPointer(result.session_id);
+        if (options?.persistGlobalPointers !== false) persistSessionPointer(result.session_id);
       }
       // 🔴 Phase 2: busy 直发消费后端路由结果（route_busy_submit outcome）：
       // - status 存在 = 命中 busy 分支。steered → 注入 live turn，无新 turn 事件，UI 提示。
@@ -416,7 +430,7 @@ export function useGridChat(active: boolean): {
         messages: [...st.messages, { id: gridMsgId(), role: 'system', parts: [textPart(output)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
       };
     });
-    if (newSid) persistSessionPointer(newSid);
+    if (newSid && options?.persistGlobalPointers !== false) persistSessionPointer(newSid);
   }, [patch]);
 
   // ── 新建会话：清空本 Agent 的 session 指针 + 消息 + 流式/交互状态 ──
@@ -475,7 +489,7 @@ export function useGridChat(active: boolean): {
             sessionId: action.newSessionId,
             messages: [{ id: gridMsgId(), role: 'system', parts: [textPart(slashStatusText(cmdName, action.output))] } as ChatMessage],
           }));
-          persistSessionPointer(action.newSessionId);
+          if (options?.persistGlobalPointers !== false) persistSessionPointer(action.newSessionId);
           return;
         case 'output':
           patch(profile, (st) => ({ ...st, messages: [...st.messages, { id: gridMsgId(), role: 'system', parts: [textPart(slashStatusText(cmdName, action.output))] } as ChatMessage].slice(-WINDOW_MAX) }));
@@ -710,7 +724,7 @@ export function useGridChat(active: boolean): {
                 sessionId: newSid,
                 lastActivity: Date.now(),
               }));
-              persistSessionPointer(newSid);
+              if (options?.persistGlobalPointers !== false) persistSessionPointer(newSid);
             }
           } else if ((suKind === 'goal' || suKind === 'compacting') && suText) {
             // 目标状态 / 压缩进度 → 系统消息 + 活动提示
@@ -856,6 +870,13 @@ export function useGridChat(active: boolean): {
         }
         // ── 会话详情恢复（对齐单视图 onSessionInfo — pending 交互重建 + 🔴 Phase B running=false 自愈）──
         case 'session.info': {
+          // 🔴 2026-08-13 并发修复：焦点卡片 cwd 推送（宫格/独立窗口文件面板跟随）。
+          // 单视图由 useSSE routeWsEvent 过滤 + useMessageStream 推送；宫格下 useGridChat
+          // 接管事件——此前不推 → 切焦点卡片文件面板停留在旧卡片目录（串台观感）。
+          // 只推焦点卡片（currentProfile 匹配），后台 Agent 的 session.info 不污染全局 cwd。
+          if (options?.onSessionCwd && options.currentProfile?.() === profile) {
+            options.onSessionCwd((payload.cwd as string) || '');
+          }
           // 🔴 Phase B: running=false 自愈 — WS 重连 / 后端重启后，锁可能泄漏（message.complete 丢失）
           // 单视图 useMessageStream:565 有等价分支；宫格之前缺失 → 流式卡死锁无逃生
           if (payload.running === false && sendingRef.current[profile]) {
