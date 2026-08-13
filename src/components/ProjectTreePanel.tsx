@@ -75,10 +75,23 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   const desktop = isTauri();
 
   // 渲染列表：手排 order 覆盖在确定性排序之上（对齐 Hermes orderProjectsByIds）
+  // 🔴 2026-08-14 老大：项目顺序完全手动——不传 active_id（激活不再置顶/重排）
   const orderedProjects = useMemo(
-    () => (tree ? orderProjectsByIds(tree.projects, projectOrder, tree.active_id) : []),
+    () => (tree ? orderProjectsByIds(tree.projects, projectOrder) : []),
     [tree, projectOrder],
   );
+
+  // 🔴 2026-08-14 老大：首次加载自动固化手排 order（当前确定性顺序快照）——
+  // 此后纯手排（拖动更新），点击激活/活跃状态永不重排；新项目追加底部
+  useEffect(() => {
+    if (!tree || projectOrder.length) return;
+    const ids = orderProjectsByIds(tree.projects, []).map(p => p.id);
+    if (ids.length) {
+      setProjectOrder(ids);
+      setProjectOrderIds(ids);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tree]);
 
   // ── 拖拽排序 handlers（对齐 Hermes setOrderIds：手排 order 持久化）──
   const handleRowDragStart = useCallback((id: string) => setDragId(id), []);

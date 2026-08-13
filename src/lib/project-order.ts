@@ -1,9 +1,17 @@
 /**
  * 项目手动拖拽排序（对齐 Hermes $sidebarProjectOrderIds persistentAtom +
- * orderProjectsByIds）。空 order = 确定性默认排序（激活→显式→有会话→活跃）；
- * 用户拖拽后 order 生效，新项目（未在 order 中）按确定性位置插入：
- * 有会话的 fresh 置顶（用户刚起步的项目仍可见），零会话的沉底（磁盘扫描
- * 新发现不挤占手排列表）。
+ * orderProjectsByIds）。
+ *
+ * 🔴 2026-08-14 老大决策：项目卡片顺序**完全手动**（拖动固定）——
+ *   点击激活/活跃状态**永不改变顺序**；新项目（未在 order 中）按确定性
+ *   排序追加底部（不自动置顶）。项目内的消息列表（previewSessions）
+ *   保持自动排序（后端按 session_time）。
+ *
+ * 行为：
+ * - 空 order = 确定性默认排序（显式→有会话→活跃→名称，**不含激活置顶**）
+ * - 用户拖拽后 order 生效（localStorage 持久化）
+ * - 新项目（未在 order）→ 确定性排序追加底部
+ * - Home 桶恒首
  */
 
 const KEY = 'eleve.sidebarProjectOrderIds.v1';
@@ -43,15 +51,12 @@ function homeFirst<T extends OrderableProject>(projects: T[]): T[] {
   return [...home, ...projects.filter(p => !p.isNoProject)];
 }
 
-/** 确定性排序（激活→显式→有会话→活跃→名称）—— 与 ProjectTreePanel 的 sortProjectsForOverview 同规则 */
+/** 确定性排序（显式→有会话→活跃→名称）—— 🔴 2026-08-14 去掉激活置顶权重：
+ *  点击项目（set_active）不再改变项目顺序（老大：顺序完全手动） */
 export function sortProjectsForOverview<T extends OrderableProject>(
   projects: T[],
-  activeProjectId?: string | null,
 ): T[] {
   const sorted = [...projects].sort((a, b) => {
-    const aActive = Boolean(activeProjectId && a.id === activeProjectId && !a.isAuto);
-    const bActive = Boolean(activeProjectId && b.id === activeProjectId && !b.isAuto);
-    if (aActive !== bActive) return aActive ? -1 : 1;
     if (!a.isAuto !== !b.isAuto) return a.isAuto ? 1 : -1;
     const aHasSessions = a.sessionCount > 0;
     const bHasSessions = b.sessionCount > 0;
@@ -67,10 +72,9 @@ export function sortProjectsForOverview<T extends OrderableProject>(
 export function orderProjectsByIds<T extends OrderableProject>(
   projects: T[],
   orderIds: string[],
-  activeProjectId?: string | null,
 ): T[] {
   if (!orderIds.length) {
-    return sortProjectsForOverview(projects, activeProjectId);
+    return sortProjectsForOverview(projects);
   }
 
   const byId = new Map(projects.map(p => [p.id, p]));
@@ -82,11 +86,9 @@ export function orderProjectsByIds<T extends OrderableProject>(
     return homeFirst(ordered);
   }
 
+  // 🔴 2026-08-14：新项目确定性排序**追加底部**（不按会话数自动置顶——老大：顺序手动）
   return homeFirst([
-    // fresh 有会话的置顶（对齐 Hermes：用户刚起步的项目仍 surface）
-    ...fresh.filter(p => p.sessionCount > 0),
     ...ordered,
-    // fresh 零会话的沉底（磁盘扫描新发现不挤占手排列表）
-    ...fresh.filter(p => p.sessionCount <= 0),
+    ...sortProjectsForOverview(fresh),
   ]);
 }
