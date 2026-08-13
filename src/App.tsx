@@ -1378,8 +1378,9 @@ export default function App() {
                   onNewSessionInProject={handleNewSessionInProject}
                   onEnterProject={handleProjectEntered}
                   onProjectScopeChange={handleProjectScopeChange}
-                  onProjectScopeRestored={handleProjectScopeRestored}
+  onProjectScopeRestored={handleProjectScopeRestored}
                   sessionListVersion={sessionListVersion}
+                  agentCount={agentCount}
                 />
             </div>
             )}

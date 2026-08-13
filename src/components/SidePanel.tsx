@@ -31,6 +31,9 @@ interface SidePanelProps {
   gatewayChecking?: boolean;
   /** 网关重连（GatewayPanel 透传，pool/port 重新探测） */
   onGatewayRetry?: () => void;
+  /** 🔴 2026-08-13 v8：Agent 数量（App agentCount 唯一持有者，ProfilePanel onProfilesChange 上抛）
+   *  —— AgentsPanel 高度对齐的唯一触发器（老大逻辑：数量不变 → 项目区完全不动） */
+  agentCount?: number;
   // ── Agent / Profile ──
   currentProfile?: string;
   /** 🔴 昵称全局生效：当前 Agent 的显示名（display_name），由 App 从 ProfilePanel 上抛映射解析 */

@@ -20,34 +20,42 @@ import { useEffect, useRef, useState } from 'react';
 interface AgentsPanelProps {
   currentProfile?: string;
   currentProfileLabel?: string;
+  /** 🔴 2026-08-13 v8：Agent 数量（App agentCount 唯一持有者）——高度对齐唯一触发器 */
+  agentCount?: number;
   [key: string]: unknown;
 }
 
 export default function AgentsPanel(props: AgentsPanelProps) {
-  // 🔴 2026-08-13 v6（老大方案：Agent 数量是稳定变量，只有建/删才变）：
-  //   检测机制 = MutationObserver 只观察列表区 childList（卡片增删）——
-  //   切 Agent 卡片数不变（无 childList 变化）→ 不触发 → 上部高度稳定
-  //   → 项目区零移动；新建/删除 Agent → 卡片增删 → 重测高度（300ms 过渡）。
-  //   忽略 attributes/characterData（内容/样式变化）——卡片等高（v6 配套
-  //   flex-nowrap）后数量不变高度恒不变，无需观察内容。
+  // 🔴 2026-08-13 v8（老大逻辑修正：项目区无固定占比概念 = Agent 区决定的剩余；
+  //   数量不变 → 项目区完全不动）：
+  //   - 触发器 = agentCount（数据源，建/删 Agent 才变）→ 切 Agent 零触发零变化
+  //   - 项目区 flex-1（剩余空间，无 58/42 固定值概念）
+  //   - 之前 DOM MutationObserver 方案有误触发（选中高亮条增删也属 childList 变化）
+  //     + 高度测量微差 → 300ms 动画推动项目区 = “从 58 往上动”的抖动来源
+  //   - 卡片等高保障（ProfilePanel 元信息行 flex-nowrap）→ 数量不变时列表总高恒不变
   const agentAreaRef = useRef<HTMLDivElement>(null);
   const [agentContentHeight, setAgentContentHeight] = useState<number | null>(null);
   useEffect(() => {
+    // 仅在 agentCount 变化（建/删 Agent）时重测对齐；切 Agent 不触发
     const el = agentAreaRef.current;
     if (!el) return;
-    const measure = () => {
-      const header = el.querySelector<HTMLElement>('[data-agent-header]');
-      const list = el.querySelector<HTMLElement>('[data-agent-list]');
-      const h = (header?.offsetHeight ?? 0) + (list?.scrollHeight ?? 0);
-      if (h > 0) setAgentContentHeight(h);
-    };
-    measure();
-    const list = el.querySelector('[data-agent-list]');
-    if (!list) return;
-    const mo = new MutationObserver(() => measure());
-    mo.observe(list, { childList: true, subtree: false });
-    return () => mo.disconnect();
-  }, []);
+    const header = el.querySelector<HTMLElement>('[data-agent-header]');
+    const list = el.querySelector<HTMLElement>('[data-agent-list]');
+    const h = (header?.offsetHeight ?? 0) + (list?.scrollHeight ?? 0);
+    if (h > 0) setAgentContentHeight(h);
+  }, [props.agentCount]);
+
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      {/* ── 上部：Agent 卡片（内容自然高度，上限 42% 仅作极端保护——卡片数极多时
+          不挤没项目区；数量不变 → 高度恒定 → 分割线/项目区起点不动） ── */}
+      <div
+        ref={agentAreaRef}
+        className="flex flex-col min-h-0 max-h-[42%] overflow-hidden transition-[height] duration-300 ease-out"
+        style={agentContentHeight ? { height: `${agentContentHeight}px` } : undefined}
+      >
+        <ProfilePanel {...props} />
+      </div>
 
   return (
     <div className="flex flex-col h-full min-h-0">
