@@ -115,8 +115,8 @@
     );
     --ui-bg-backboard: color-mix(
       in srgb,
-      var(--theme-background) var(--theme-mix-backboard),
-      var(--theme-neutral-chrome)
+      var(--ui-accent) 5%,
+      color-mix(in srgb, var(--theme-background) var(--theme-mix-backboard), var(--theme-neutral-chrome))
     );
     --ui-bg-sidebar: color-mix(
       in srgb,

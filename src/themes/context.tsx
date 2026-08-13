@@ -2,9 +2,9 @@
  * 主题上下文 — macOS 风格
  * 
  * 核心设计：
- * - 只有 2 个用户可控参数：accent（强调色）+ appearance（外观模式）
+ * - 只有 2 个用户可控参数：accent（主题色）+ appearance（外观模式）
  * - 所有颜色从这两个参数自动派生
- * - 明暗模式独立于强调色
+ * - 明暗模式独立于主题色
  * 
  * 持久化：
  * - localStorage + Tauri storage 双写（即时缓存）

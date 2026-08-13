@@ -3,7 +3,7 @@
  * 
  * 只有两个控制项：
  * 1. 外观模式：Light / Dark / Auto / Glass
- * 2. 强调色：8 个预设 + 自定义
+ * 2. 主题色：8 个预设 + 自定义
  */
 
 import { useTheme, isDarkColor } from '../themes'
@@ -50,11 +50,11 @@ export default function ThemePanel() {
       {/* ═══ 分隔线 ═══ */}
       <div className="h-px bg-border mb-5" />
 
-      {/* ═══ 强调色 ═══ */}
+      {/* ═══ 主题色 ═══ */}
       <div className="mb-5">
-        <h3 className="text-sm font-semibold mb-3">强调色</h3>
+        <h3 className="text-sm font-semibold mb-3">主题色</h3>
         
-        {/* 预设强调色圆点 */}
+        {/* 预设主题色圆点 */}
         <div className="flex items-center gap-3 flex-wrap">
           {accentColors.map(({ name, color }) => {
             const isSelected = accent.toLowerCase() === color.toLowerCase()
@@ -98,7 +98,7 @@ export default function ThemePanel() {
           />
         </div>
 
-        {/* 当前强调色预览条 */}
+        {/* 当前主题色预览条 */}
         <div className="mt-4 flex items-center gap-2">
           <div 
             className="h-2 flex-1 rounded-full" 

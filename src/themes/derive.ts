@@ -2,9 +2,9 @@
  * macOS 风格颜色派生系统
  *
  * 核心原则：
- * - 只有 2 个用户可控参数：accent（强调色）+ appearance（外观模式）
+ * - 只有 2 个用户可控参数：accent（主题色）+ appearance（外观模式）
  * - 所有颜色从这两个参数自动派生
- * - 明暗模式独立于强调色
+ * - 明暗模式独立于主题色
  * - Light/Dark 语义色独立（macOS 标准）
  * - **所有灰色/中性色都从 accent 色相派生**，换色时整体系色联动
  */
@@ -104,7 +104,7 @@ export interface DerivedColors {
   controlActiveAccentMix: string
 }
 
-// ─── 预设强调色（macOS 标准） ───────────────────────────────────────────────
+// ─── 预设主题色（macOS 标准） ───────────────────────────────────────────────
 
 export const ACCENT_COLORS = [
   { name: '蓝色', color: '#007AFF' },
@@ -118,7 +118,7 @@ export const ACCENT_COLORS = [
 ] as const
 
 // 🔴 2026-08-13 老大指示：默认主题 = 灰色（Graphite 风格）——安装首次打开默认灰，
-// 不抢眼；用户可在设置里换其它强调色（按钮/选中态跟主题走，无硬编码）
+// 不抢眼；用户可在设置里换其它主题色（按钮/选中态跟主题走，无硬编码）
 export const DEFAULT_ACCENT = '#8E8E93'
 export const DEFAULT_APPEARANCE: Appearance = 'auto'
 
@@ -168,7 +168,7 @@ function deriveLightColors(accent: string): DerivedColors {
 
   // 基于 accent 色相生成中性色盘（极低饱和度 = 灰色带色调倾向）
   const neutral = {
-    backboard:  hsl(h, 6,  92),  // 背板色（原 #E8E8ED）
+    backboard:  hsl(h, 10, 92),  // 背板色（🔴 2026-08-13 联动增强：饱和度 6→10，主题色调更明显）
     sidebar:    hsl(h, 5,  94),  // 侧边栏（原 #EFEFF3）
     card:       hsl(h, 8,  100), // 卡片纯白
     chrome:     hsl(h, 4,  100), // chrome 层
@@ -189,11 +189,11 @@ function deriveLightColors(accent: string): DerivedColors {
     muted: hexToRgba(neutral.fg, 0.04),
     mutedForeground: neutral.muted,
 
-    // ── 主色 — 用户选的强调色（🔴 2026-08-13 降饱和 15%：选中态/主按钮实底不抢眼，色相不变）──
+    // ── 主色 — 用户选的主题色（🔴 2026-08-13 降饱和 15%：选中态/主按钮实底不抢眼，色相不变）──
     primary: desaturate(accent, 0.85),
     primaryForeground: getReadableOnAccent(desaturate(accent, 0.85)),
 
-    // ── 次级 — 强调色淡化 ──
+    // ── 次级 — 主题色淡化 ──
     secondary: hexToRgba(accent, 0.12),
     secondaryForeground: accent,
 
@@ -205,7 +205,7 @@ function deriveLightColors(accent: string): DerivedColors {
     border: hexToRgba(neutral.fg, 0.08),
     input:  hexToRgba(neutral.fg, 0.06),
 
-    // ── 焦点环 — 强调色 ──
+    // ── 焦点环 — 主题色 ──
     ring: accent,
     midground: accent,
     composerRing: accent,
@@ -284,7 +284,7 @@ function deriveDarkColors(accent: string): DerivedColors {
 
   // 基于 accent 色相生成暗色中性色盘
   const neutral = {
-    backboard:  hsl(h, 8,  11),  // 背板（原 #1C1C1E）
+    backboard:  hsl(h, 14, 11),  // 背板（🔴 2026-08-13 联动增强：饱和度 8→14，主题色调更明显）
     sidebar:    hsl(h, 7,  15),  // 侧边栏（原 #242426）
     card:       hsl(h, 10, 18),  // 卡片（原 #2C2C2E）
     popover:    hsl(h, 12, 23),  // 弹出层（原 #3A3A3C）
@@ -472,12 +472,12 @@ export function isDarkColor(hex: string): boolean {
   return relativeLuminance(hex) <= 0.5
 }
 
-/** 获取强调色上的可读文字颜色 */
+/** 获取主题色上的可读文字颜色 */
 function getReadableOnAccent(accent: string): string {
   return isDarkColor(accent) ? '#FFFFFF' : '#1D1D1F'
 }
 
-/** 深色模式下调整强调色亮度：相对亮度低于 0.179（3:1 对比度底线）时调亮 */
+/** 深色模式下调整主题色亮度：相对亮度低于 0.179（3:1 对比度底线）时调亮 */
 export function adjustBrightnessForDark(hex: string): string {
   const clean = hex.replace('#', '')
   let r = parseInt(clean.slice(0, 2), 16)
