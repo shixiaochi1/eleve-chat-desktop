@@ -623,8 +623,20 @@ export default function App() {
   // 🔴 2026-08-13 问题1修复：session.info 的 cwd 覆盖在"项目钉住"期间被忽略
   // （点击项目进入 → 文件面板保持项目根；推荐会话 cwd=子目录/workspace 时不跳走）。
   // 兼容 Dispatch 签名（useMessageStream 只传 string；函数值直接透传）。
+  // 🔴 2026-08-13 二轮：空 cwd + scope 存在 → 项目根兜底（会话无绑定时不显示
+  // "未打开项目"——切 Agent 恢复 active 项目 / 点项目后会话无绑定的场景）。
   const handleSessionInfoCwd = useCallback((cwd: React.SetStateAction<string>) => {
-    if (typeof cwd === 'string' && pinnedProjectCwdRef.current) return;
+    if (typeof cwd !== 'string') {
+      setSessionCwd(cwd);
+      return;
+    }
+    // 用户钉住（点项目行）：任何 session.info 覆盖都忽略（保持项目根）
+    if (pinnedProjectCwdRef.current) return;
+    // 会话无绑定（bound_cwd 空）+ 有项目域 scope → 显示 scope 项目根（非空态）
+    if (!cwd && projectScopeCwdRef.current) {
+      setSessionCwd(projectScopeCwdRef.current);
+      return;
+    }
     setSessionCwd(cwd);
   }, []);
 
@@ -814,11 +826,16 @@ export default function App() {
     resetSendingLockRef.current?.();
     setWsActiveProfile(profile);
     setCurrentProfile(profile);
-    // 🔴 2026-08-12 断线修复：宫格→单视图同样清旧项目 scope（防新会话落错项目）
-    setProjectScopeCwd(null);
-    projectCwdInjectedRef.current = null; // 🔴 清豁免标记
-    pinnedProjectCwdRef.current = null; // 🔴 2026-08-13 问题1：宫格→单视图同样解除项目钉住
-    newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：宫格→单视图同样清手动导航落点
+    // 🔴 2026-08-13 边界修复：仅焦点变化时清 scope/pinned/target——
+    // 宫格退出（restoreProfileSession(currentProfile)，焦点未变）保留宫格期间选的项目
+    // （用户退出宫格应回到同一项目上下文）；展开其它卡片（焦点变）才清（旧焦点残留不带走）。
+    if (profile !== currentProfile) {
+      // 🔴 2026-08-12 断线修复：宫格→单视图同样清旧项目 scope（防新会话落错项目）
+      setProjectScopeCwd(null);
+      projectCwdInjectedRef.current = null; // 🔴 清豁免标记
+      pinnedProjectCwdRef.current = null; // 🔴 2026-08-13 问题1：宫格→单视图同样解除项目钉住
+      newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：宫格→单视图同样清手动导航落点
+    }
     // 🔴 S2: 宫格→单视图同样刷新会话列表（与 handleProfileChange 一致）
     sess.refresh();
     if (targetId) {
@@ -1062,14 +1079,19 @@ export default function App() {
   // 🔴 2026-08-13 切 Agent 恢复激活项目（老大反馈：项目选中态来自后端 active_id，
   // 但 scope/文件面板被切 Agent 清空 → 右侧抽屉"未打开项目"，必须再点一次）：
   // 项目树切 Agent 后首次加载完成 → 该 Agent 有 active 项目 → 恢复 scope + 文件面板
-  // 到激活项目根并钉住（与"点项目进入"行为一致）；不动消息区（会话指针恢复由
-  // handleProfileChange 管）。用户手动点选项目/会话行后不再触发（组件内清标记）。
+  // 到激活项目根；**不钉住**——会话真实 cwd 已到达（session.info 先于 fetchTree 响应）
+  // 时保持跟随（会话 cwd 是展示权威，active 项目仅当无会话 cwd 时兜底）；
+  // 会话无绑定（bound 空）→ handleSessionInfoCwd 的 scope 兜底显示项目根。
+  // 不动消息区（会话指针恢复由 handleProfileChange 管）。
   const handleProjectScopeRestored = useCallback((path: string) => {
-    setSessionCwd(path);
-    projectCwdInjectedRef.current = path; // 防 setSessionId 清空
-    pinnedProjectCwdRef.current = path;   // 钉住：防会话 session.info 覆盖跳走
     setProjectScopeCwd(path);
     newChatWorkspaceTargetRef.current = null;
+    // 文件面板：仅当当前无会话 cwd（尚未跟随任何会话）时显示项目根瞬态；
+    // 会话真实 cwd 已到达 → 保持跟随（防 restore 把会话 cwd 覆盖回项目根）
+    if (!sessionCwdRef.current) {
+      setSessionCwd(path);
+      projectCwdInjectedRef.current = path; // 防 setSessionId 清空
+    }
   }, []);
 
   // 🔴 P1: 宫格模式 CommandCenter（CMD+K）命令执行路由进宫格（写入 per-agent 状态槽，非不可见的 zustand store）
