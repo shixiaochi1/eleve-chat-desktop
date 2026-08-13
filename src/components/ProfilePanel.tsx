@@ -174,8 +174,9 @@ function ProfileCard({
         )}
       </div>
 
-      {/* 元信息 */}
-      <div className="flex flex-wrap items-center gap-1.5 pl-7">
+      {/* 元信息（🔴 2026-08-13 v6 等高保障：flex-nowrap 禁换行——provider 有无不再
+          导致卡片高度差异；切 Agent 数量不变 → 列表总高恒定 → 项目区零移动） */}
+      <div className="flex items-center gap-1.5 pl-7 min-w-0">
         {profile.model ? (
           <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground" title="模型">
             <Cpu size={9} strokeWidth={1.5} />

@@ -24,12 +24,12 @@ interface AgentsPanelProps {
 }
 
 export default function AgentsPanel(props: AgentsPanelProps) {
-  // 🔴 2026-08-13 v4 自动对齐 + 平滑过渡（v2/v3 测量死锁修复）：
-  //   死锁根因：容器被 max-h 裁剪后（height 显式），ProfilePanel h-full 拉伸
-  //   → 容器 scrollHeight 恒 = 渲染高度（自我印证）→ 测不到真实内容高。
-  //   v4：直接测 ProfilePanel 列表区 scrollHeight（data-agent-list，内容总高
-  //   独立于容器高度）+ 区块头 offsetHeight（data-agent-header）→ 真实内容高
-  //   → 显式 height + transition 300ms。无死锁：列表区 scrollHeight 不受裁剪影响。
+  // 🔴 2026-08-13 v6（老大方案：Agent 数量是稳定变量，只有建/删才变）：
+  //   检测机制 = MutationObserver 只观察列表区 childList（卡片增删）——
+  //   切 Agent 卡片数不变（无 childList 变化）→ 不触发 → 上部高度稳定
+  //   → 项目区零移动；新建/删除 Agent → 卡片增删 → 重测高度（300ms 过渡）。
+  //   忽略 attributes/characterData（内容/样式变化）——卡片等高（v6 配套
+  //   flex-nowrap）后数量不变高度恒不变，无需观察内容。
   const agentAreaRef = useRef<HTMLDivElement>(null);
   const [agentContentHeight, setAgentContentHeight] = useState<number | null>(null);
   useEffect(() => {
@@ -42,8 +42,10 @@ export default function AgentsPanel(props: AgentsPanelProps) {
       if (h > 0) setAgentContentHeight(h);
     };
     measure();
+    const list = el.querySelector('[data-agent-list]');
+    if (!list) return;
     const mo = new MutationObserver(() => measure());
-    mo.observe(el, { childList: true, subtree: true, attributes: true, characterData: true });
+    mo.observe(list, { childList: true, subtree: false });
     return () => mo.disconnect();
   }, []);
 
