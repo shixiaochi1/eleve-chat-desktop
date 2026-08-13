@@ -56,52 +56,9 @@ import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
 import { enqueue as queueEnqueue, dequeue as queueDequeue, peek as queuePeek, clearQueue, getQueueLength, getQueue, removeEntry, promoteEntry, MAX_DRAIN_ATTEMPTS, getDrainFailures, incrementDrainFailures, clearDrainFailures, resetAllDrainFailures, stashAttachmentData, takeAttachmentData, type QueuedAttachment } from '@/lib/message-queue';
 import { getSessionStatus } from '@/store/session-status';
 import type { ChatMessage } from '@/types';
-
-const WINDOW_MAX = 100;   // 每 Agent 内存最多保留消息数（超出 evict 头部）
-const PAGE_SIZE = 20;     // 每次加载条数
-const FLUSH_MS = 33;      // ~30fps 流式 flush
-
-export type AgentStatus = 'idle' | 'streaming' | 'waiting';
-
-export interface AgentChatState {
-  sessionId: string | null;
-  messages: ChatMessage[];
-  hasMore: boolean;
-  oldestId: number | null;   // 上翻游标
-  isLoadingMore: boolean;
-  status: AgentStatus;
-  /** 🔴 Phase 1: 流式 in-flight parts（到达序 segment，累加器 acc.parts 的 30fps flush 镜像）。
-   *  完成后经 finalizeAccumulator 并入 messages、清空。与单视图 live parts 同构（同一套 segment 规则）。 */
-  streamParts: ChatMessagePart[];
-  pendingApproval: unknown | null;
-  pendingClarify: unknown | null;
-  pendingSudo: unknown | null;
-  pendingSecret: unknown | null;
-  /** 破坏性 slash 命令二次确认（对齐单视图 SlashConfirmCard） */
-  pendingSlashConfirm: { confirmId: string; command: string; description: string } | null;
-  /** 瞬态活动提示（thinking / tool.progress / delegate.progress，message.complete 清空） */
-  activityHint: string;
-  /** 后端推送的会话标题（session.title 事件） */
-  sessionTitle: string | null;
-  /** 当前模型名（model.name 事件） */
-  modelName: string | null;
-  /** 最近一轮 token 用量（message.complete usage） */
-  lastUsage: { input: number; output: number; reasoning?: number; total?: number } | null;
-  lastActivity: number;
-}
-
-function emptyState(): AgentChatState {
-  return {
-    sessionId: null, messages: [], hasMore: false, oldestId: null,
-    isLoadingMore: false, status: 'idle', streamParts: [],
-    pendingApproval: null, pendingClarify: null, pendingSudo: null, pendingSecret: null,
-    pendingSlashConfirm: null, activityHint: '', sessionTitle: null, modelName: null, lastUsage: null,
-    lastActivity: 0,
-  };
-}
-
-let gridMsgSeq = 0;
-const gridMsgId = () => `grid-${Date.now()}-${++gridMsgSeq}`;
+import { WINDOW_MAX, PAGE_SIZE, FLUSH_MS, emptyState, gridMsgId, type AgentStatus, type AgentChatState } from './gridChatTypes';
+// 🔴 2026-08-13 Phase 2 拆分：类型/常量移入 gridChatTypes.ts（re-export 保持消费方零改动）
+export type { AgentStatus, AgentChatState } from './gridChatTypes';
 
 export function useGridChat(
   active: boolean,
