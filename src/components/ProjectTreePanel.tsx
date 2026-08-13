@@ -565,10 +565,11 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                   新建项目
                 </button>
               </div>
-              {/* 🔴 2026-08-13 v11：去掉 key={currentProfile}（v7 引入“先滚动归零旧内容
-                  → 再替换新内容”两次变化 = 更明显的跳动）——silent 旧树保持（滚动位置
-                  保持）→ 新数据到达一次替换，滚动 clamp 随内容自然归位 */}
-              <div className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0 [scrollbar-gutter:stable]">
+              {/* 🔴 2026-08-13 v13：overflow-anchor:none 禁用浏览器滚动锚定——
+                  树内容替换（切 Agent）时浏览器会尝试保持“锚定元素”位置自动调整
+                  scrollTop → 项目卡片“往下走到中间然后消失”的抖动根因
+                  （对齐聊天线程既有用法 style.css [data-slot='aui_thread-viewport']） */}
+              <div className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0 [scrollbar-gutter:stable] [overflow-anchor:none]">
                 {tree.projects.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-3 p-4">
                     <div className="w-10 h-10 rounded-xl bg-muted/40 flex items-center justify-center">
