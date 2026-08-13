@@ -20,7 +20,7 @@
  */
 import ProfilePanel from './ProfilePanel';
 import ProjectTreePanel from './ProjectTreePanel';
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 
 interface AgentsPanelProps {
   currentProfile?: string;
@@ -46,6 +46,11 @@ export default function AgentsPanel(props: AgentsPanelProps) {
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.currentProfile]);
+
+  // 🔴 TEMP-DIAG5（抖动排查）：**每次渲染**打印上部高度——抓中间态撑高帧
+  useLayoutEffect(() => {
+    console.log('[DIAG5] profile=' + props.currentProfile + ' agentH=' + Math.round(diagRef.current?.getBoundingClientRect().height ?? -1) + ' count=' + (props.agentCount ?? -1));
+  });
 
   // 🔴 TEMP-DIAG（抖动排查 v12）：精确测**分割线**（上部容器 bottom）+ 项目区顶部
   const diagRef = useRef<HTMLDivElement>(null);
