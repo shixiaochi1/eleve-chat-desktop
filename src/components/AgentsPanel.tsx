@@ -50,16 +50,30 @@ export default function AgentsPanel(props: AgentsPanelProps) {
     return () => cancelAnimationFrame(raf);
   });
 
-  // 🔴 2026-08-13 v8：仅在 agentCount 变化（建/删 Agent）时重测对齐；切 Agent 零触发。
-  // 测量 = 区块头 offsetHeight + 列表区 scrollHeight（内容总高，独立于容器高度无死锁）
+  // 🔴 2026-08-13 v9（v8 agentCount 触发有同值冻结缺陷：App 预取 agentCount 与
+  //   ProfilePanel 加载上报同值 → bail out → 重测不触发 → 高度冻结 loading 小值 = 1 卡）：
+  //   MutationObserver 观察列表区**直接子节点**（subtree:false——选中高亮条等卡片内部
+  //   变化不触发 → 切 Agent 零触发）→ measure（header + list.scrollHeight）+ 值比较
+  //   （仅真实高度变化才 setState）→ loading→卡片/建删触发对齐，切 Agent 高度不动
   useEffect(() => {
     const el = agentAreaRef.current;
     if (!el) return;
-    const header = el.querySelector<HTMLElement>('[data-agent-header]');
-    const list = el.querySelector<HTMLElement>('[data-agent-list]');
-    const h = (header?.offsetHeight ?? 0) + (list?.scrollHeight ?? 0);
-    if (h > 0) setAgentContentHeight(h);
-  }, [props.agentCount]);
+    const list = el.querySelector('[data-agent-list]');
+    if (!list) return;
+    let last = -1;
+    const measure = () => {
+      const header = el.querySelector<HTMLElement>('[data-agent-header]');
+      const h = (header?.offsetHeight ?? 0) + (list.scrollHeight ?? 0);
+      if (h > 0 && h !== last) {
+        last = h;
+        setAgentContentHeight(h);
+      }
+    };
+    measure();
+    const mo = new MutationObserver(() => measure());
+    mo.observe(list, { childList: true, subtree: false });
+    return () => mo.disconnect();
+  }, []);
 
   return (
     <div className="relative flex flex-col h-full min-h-0">
