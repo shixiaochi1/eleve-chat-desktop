@@ -180,10 +180,10 @@ function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean,
   // 🔴 2026-08-13 修复 v2：半透明主题色（35% alpha）混入——
   //   v1 用实色（alpha=1）→ body 渐变不透明 → 盖住 Mica 窗口效果 → 玻璃消失；
   //   原版用 colors.accent（8% alpha）→ 保留玻璃但色相几乎不可见（联动≈0）。
-  //   35% alpha 折中：玻璃半透明保留（Mica 透出）+ 主题色联动可见（≈4.4 倍）
+  //   35% alpha 折中：玻璃半透明保留（Mica 透出）+ 主题色联动可见（≈2.5 倍）
   if (isGlass) {
     root.classList.add('glass-mode')
-    const accentMix = hexToRgba(rawAccent, 0.35)
+    const accentMix = hexToRgba(rawAccent, 0.20)
     const bg = isDark ? 'rgb(18,18,20)' : 'rgb(232,232,237)'
     root.style.setProperty('--glass-body-top', `color-mix(in srgb, ${bg} 88%, ${accentMix})`)
     root.style.setProperty('--glass-body-bottom', `color-mix(in srgb, ${bg} 76%, ${accentMix})`)
