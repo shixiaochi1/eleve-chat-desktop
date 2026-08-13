@@ -29,6 +29,22 @@ interface AgentsPanelProps {
 }
 
 export default function AgentsPanel(props: AgentsPanelProps) {
+  // 🔴 TEMP-DIAG4（抖动排查）：切 Agent 后 30 帧监控 AgentsPanel 高度轨迹
+  //（791→522→791 的膨胀在哪帧发生、持续几帧）
+  useEffect(() => {
+    const frames: number[] = [];
+    let raf = 0;
+    const tick = () => {
+      const h = Math.round(diagRef.current?.getBoundingClientRect().height ?? -1);
+      frames.push(h);
+      if (frames.length < 30) raf = requestAnimationFrame(tick);
+      else console.log('[DIAG4] profile=' + props.currentProfile, JSON.stringify(frames));
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.currentProfile]);
+
   // 🔴 TEMP-DIAG（抖动排查 v12）：精确测**分割线**（上部容器 bottom）+ 项目区顶部
   const diagRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
