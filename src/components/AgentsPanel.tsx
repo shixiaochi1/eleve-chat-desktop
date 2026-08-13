@@ -25,8 +25,10 @@ interface AgentsPanelProps {
 export default function AgentsPanel(props: AgentsPanelProps) {
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* ── 上部：Agent 卡片（自然高度，最多占 42%，超出内部滚动） ── */}
-      <div className="flex flex-col min-h-0 max-h-[42%]">
+      {/* ── 上部：Agent 卡片（🔴 2026-08-13 固定 42%：原 max-h 自然高度——切 Agent 时
+          列表 loading/数量变化 → 上部高度变化 → 下部项目区位置移动 → 项目卡片上下抖动；
+          固定后 ProfilePanel 列表区内部滚动接管，项目区位置恒定零抖动） ── */}
+      <div className="flex flex-col min-h-0 h-[42%]">
         <ProfilePanel {...props} />
       </div>
 
