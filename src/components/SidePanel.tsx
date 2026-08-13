@@ -49,6 +49,8 @@ interface SidePanelProps {
   onEditAgent?: (name: string) => void;
   onOpenSettings?: () => void;
   onRestart?: () => void;
+  /** 🔴 2026-08-13 问题2：会话行点击 → 项目域 scope 同步（透传 ProjectTreePanel） */
+  onProjectScopeChange?: (path: string | null) => void;
   // ── 会话 ──
   sessionId?: string | null;
   sessions?: Session[];

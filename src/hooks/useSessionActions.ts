@@ -3,7 +3,7 @@ import { activateSession, resetSession } from '../utils/api';
 import { setMessages as storeSetMessages } from '../store/messages';
 import { setMonitor } from '../store/debug';
 import { getWsClient } from '../services/ws-client';
-import { clearSessionPointer, persistSessionPointer, profileFromSessionId, removeProfilePointer } from '../utils/session';
+import { clearSessionPointer, persistSessionPointer, profileFromSessionId, removeProfilePointer, sessionIdMatchesProfile } from '../utils/session';
 import type { SessionManagerHandle } from './useMessageStream';
 import { textPart } from '@/lib/chat-messages'
 import type { ChatMessage } from '@/types';
@@ -30,6 +30,7 @@ export function useSessionActions({
   resetSendingLock,
   resetStream,
   currentSessionIdRef,
+  currentProfile,
 }: {
   sess: SessionManagerHandle
   genId: () => string
@@ -38,6 +39,8 @@ export function useSessionActions({
   resetStream?: (nextSessionId?: string | null) => void
   /** 🔴 当前显示 session 的同步权威 ref（resetStream 锁定）——loadHistory 过期响应守卫必须比它 */
   currentSessionIdRef: MutableRefObject<string | null>
+  /** 🔴 2026-08-13 P2-1：切会话前归属校验（串台防御纵深） */
+  currentProfile?: string
 }): {
   handleSwitchSession: (id: string) => Promise<void>
   handleDeleteSession: (id: string) => Promise<void>
@@ -49,6 +52,11 @@ export function useSessionActions({
   // 🔴 后端是消息唯一权威源，始终 loadHistory，缓存仅秒显占位
   const handleSwitchSession = useCallback(async (id: string) => {
     if (id === sess.sessionId) return;
+    // 🔴 2026-08-13 P2-1：串台防御纵深——切会话前校验归属。
+    // id 来源均为后端权威列表（session.list / projects.tree / 刚创建的 sid），
+    // 此校验为兑底：防未知来源 id 串台 + 防未校验 id 经 switchTo 污染 profile_session_map。
+    // 旧格式 id（纯 UUID）无法判定 → sessionIdMatchesProfile 放行。
+    if (currentProfile && !sessionIdMatchesProfile(id, currentProfile)) return;
     resetSendingLock?.();
     // 🔴 串台根因修复：同步锁定过滤 ref 到目标 session
     resetStream?.(id);
@@ -80,7 +88,7 @@ export function useSessionActions({
         storeSetMessages([{ id: genId(), role: 'system', parts: [textPart(`会话已切换 (${shortId(id)})`)] }]);
       }
     });
-  }, [sess, genId, resetSendingLock, resetStream, currentSessionIdRef]);
+  }, [sess, genId, resetSendingLock, resetStream, currentSessionIdRef, currentProfile]);
 
   // ── session delete handler ──
   const handleDeleteSession = useCallback(async (id: string) => {

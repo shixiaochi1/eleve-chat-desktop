@@ -99,8 +99,18 @@ function patch(sessionId: string, p: Partial<SessionLiveState>): void {
   emit();
 }
 
+// 🔴 2026-08-13 P2-2：宫格焦点会话 override（unread 判定基准）。
+// 单视图：全局指针（storage session_id）；宫格：焦点卡片会话（App 经
+// setActiveSessionOverride 同步 focusedGridSessionId）——宫格焦点切换不写全局指针
+// （防污染单视图指针语义，退出宫格 restoreProfileSession 用 map 权威）。
+let activeSessionOverride: string | null = null;
+/** 设置/清除宫格焦点会话 override（null = 清除 → 回退全局指针） */
+export function setActiveSessionOverride(id: string | null): void {
+  activeSessionOverride = id;
+}
+
 function activeSessionId(): string | null {
-  return (storage.load('session_id', null) as string | null) ?? null;
+  return activeSessionOverride ?? (storage.load('session_id', null) as string | null) ?? null;
 }
 
 // ── 事件接线（模块加载时注册一次；ws 单例懒创建，事件在连接后到达） ──

@@ -18,6 +18,7 @@ import { useImageAttachments } from './hooks/useImageAttachments';
 import { useFileAttachments } from './hooks/useFileAttachments';
 import { dragHasPaths, collectDroppedPaths } from '@/lib/paths-dnd';
 import { useSessionActions } from './hooks/useSessionActions';
+import { setActiveSessionOverride } from './store/session-status';
 import { onWakeDetected } from './lib/wake-events';
 import useModels from './hooks/useModels';
 import { useMediaQuery } from './hooks/use-media-query';
@@ -272,6 +273,12 @@ export default function App() {
   }, [paneOpenRequest, viewMode]);
   // 🔴 Phase 4b #4: 宫格焦点 Agent 的实时 sessionId（GridModeView 上抛）→ 侧栏会话列表高亮跟随
   const [focusedGridSessionId, setFocusedGridSessionId] = useState<string | null>(null);
+  // 🔴 2026-08-13 P2-2：宫格 unread 判定基准 = 焦点卡片会话（session-status override）。
+  // 宫格焦点切换不写全局 session 指针（防污染单视图指针语义），故 unread 判定需独立基准；
+  // 退出宫格 → override 清空 → 回退全局指针（单视图模式）。
+  useEffect(() => {
+    setActiveSessionOverride(viewMode === 'grid' ? focusedGridSessionId : null);
+  }, [viewMode, focusedGridSessionId]);
   const [agentCount, setAgentCount] = useState<number>(1);  // Agent 数量（宫格按钮禁用判断）
   const [deepseekVisible, setDeepseekVisible] = useState<boolean>(false);  // DeepSeek 嵌入 WebView 显隐
   const chatCardRef = useRef<HTMLDivElement>(null);  // DeepSeek WebView 锚点
@@ -410,6 +417,11 @@ export default function App() {
   //   文件面板回默认目录而非项目根，观感=点了项目没联动）。豁免一次：保留注入值，
   //   之后由 session.info 推送的会话真实 cwd 覆盖（Hermes 文件树=会话 cwd 语义）。
   const projectCwdInjectedRef = useRef<string | null>(null);
+  // 🔴 2026-08-13 问题1修复：项目钉住（防 session.info 覆盖跳走）。
+  // 点击项目行进入 → 文件面板钉住项目根；session.info 推送的会话 cwd 覆盖被忽略；
+  // 手动导航 / 会话行点击 / 切其它项目 / 切 Agent → 解除，恢复跟随。
+  // 与 projectCwdInjectedRef（防 setSessionId 清空）互补：一个防清空，一个防覆盖。
+  const pinnedProjectCwdRef = useRef<string | null>(null);
   useEffect(() => {
     if (projectCwdInjectedRef.current) { projectCwdInjectedRef.current = null; return; }
     setSessionCwd('');
@@ -500,6 +512,8 @@ export default function App() {
   //   （Hermes $newChatWorkspaceTarget 语义）——remote 模式由上方 effect 自动
   //   rememberWorkspaceCwd，后续 session.create 消费（App L859）
   const handleFilePanelCwdChange = useCallback((path: string) => {
+    // 🔴 2026-08-13 问题1修复：用户手动导航 → 解除项目钉住（文件面板恢复跟随会话 cwd）
+    pinnedProjectCwdRef.current = null;
     if (sess.sessionId) {
       void getWsClient().sendRpc('session.cwd.set', { session_id: sess.sessionId, cwd: path }).catch((e) => {
         console.warn('[App] session.cwd.set failed:', e);
@@ -588,6 +602,14 @@ export default function App() {
   const drainQueueRef = useRef<any>(null);
   const resetSendingLockRef = useRef<(() => void) | null>(null);
 
+  // 🔴 2026-08-13 问题1修复：session.info 的 cwd 覆盖在"项目钉住"期间被忽略
+  // （点击项目进入 → 文件面板保持项目根；推荐会话 cwd=子目录/workspace 时不跳走）。
+  // 兼容 Dispatch 签名（useMessageStream 只传 string；函数值直接透传）。
+  const handleSessionInfoCwd = useCallback((cwd: React.SetStateAction<string>) => {
+    if (typeof cwd === 'string' && pinnedProjectCwdRef.current) return;
+    setSessionCwd(cwd);
+  }, []);
+
   // ── useMessageStream: SSE callbacks + throttle + useSSE ──
   const {
     isStreaming,
@@ -606,7 +628,7 @@ export default function App() {
     setActiveSudo,
     setActiveSecret,
     setActiveSlashConfirm,
-    setSessionCwd,
+    setSessionCwd: handleSessionInfoCwd, // 🔴 2026-08-13 问题1：项目钉住期间忽略 session.info 覆盖
     sess,
     drainQueueRef,
     setSessionListVersion,
@@ -708,6 +730,7 @@ export default function App() {
       // 🔴 2026-08-12 断线修复：切 Agent 旧项目 scope 失效（对齐 Hermes 切 profile 后 scope stale）
       setProjectScopeCwd(null);
       projectCwdInjectedRef.current = null; // 🔴 清豁免标记：A 的项目 cwd 不残留到 B 的文件面板
+      pinnedProjectCwdRef.current = null; // 🔴 2026-08-13 问题1：切 Agent 解除项目钉住
       return;
     }
 
@@ -735,6 +758,7 @@ export default function App() {
     //   否则新 Agent 说话时 getNewSessionCwd 返回旧 Agent 的项目根 → 新会话落错项目）
     setProjectScopeCwd(null);
     projectCwdInjectedRef.current = null; // 🔴 清豁免标记：A 的项目 cwd 不残留到 B 的文件面板
+    pinnedProjectCwdRef.current = null; // 🔴 2026-08-13 问题1：切 Agent 解除项目钉住
 
     // ── Step 3b: 🔴 S2 修复 — 刷新会话列表（后端按 profile 过滤，S1 保证 sendRpc 盖章新 profile） ──
     sess.refresh();
@@ -768,6 +792,7 @@ export default function App() {
     // 🔴 2026-08-12 断线修复：宫格→单视图同样清旧项目 scope（防新会话落错项目）
     setProjectScopeCwd(null);
     projectCwdInjectedRef.current = null; // 🔴 清豁免标记
+    pinnedProjectCwdRef.current = null; // 🔴 2026-08-13 问题1：宫格→单视图同样解除项目钉住
     // 🔴 S2: 宫格→单视图同样刷新会话列表（与 handleProfileChange 一致）
     sess.refresh();
     if (targetId) {
@@ -809,6 +834,7 @@ export default function App() {
     resetSendingLock: () => resetSendingLockRef.current?.(), // 🔴 P0-1.1: ref 接线（同 drainQueueRef 模式）
     resetStream,
     currentSessionIdRef, // 🔴 BUG1: loadHistory 过期响应守卫用同步权威 ref
+    currentProfile, // 🔴 2026-08-13 P2-1：切会话归属校验（防未知来源 id 串台 + 污染 map）
   });
 
   // 🔴 宫格"新建会话"全局副作用 — 复用 handleNewSession 同一套工具链，不重复造轮子
@@ -948,9 +974,11 @@ export default function App() {
     if (path) {
       setSessionCwd(path);          // ① 文件面板 → 项目根 / workspace
       projectCwdInjectedRef.current = path; // 🔴 豁免"会话切换清空"（无会话场景文件面板停留目标目录）
+      pinnedProjectCwdRef.current = path; // 🔴 2026-08-13 问题1：进入项目钉住文件面板（防推荐会话 session.info 覆盖跳走）
       setProjectScopeCwd(path);     // ② 新会话落点 = 项目根 / workspace
     } else {
       setProjectScopeCwd(null);     // ② 空 path（旧后端兑底）：退出项目域
+      pinnedProjectCwdRef.current = null; // 🔴 2026-08-13 问题1：退出项目域解除钉住
     }
     // ③ 消息区联动（推荐会话 = 后端分组权威：项目 = 该项目 previewSessions 最新；
     //    HOME = Home 桶 unowned 全集最新；无推荐 → 前端域匹配兑底 → 空态新建）
@@ -997,6 +1025,14 @@ export default function App() {
       clearSessionView(currentProfile);
     }
   }, [sess, isSendingRef, clearSessionView, currentProfile, viewMode, gridAwareSwitchSession]);
+
+  // 🔴 2026-08-13 问题2修复：会话行点击 → 项目域 scope 同步（高亮由 ProjectTreePanel
+  // 内部 setSelectedId + set_active；App 只同步 scope + 解除文件面板钉住——
+  // 用户明确点了会话 → 文件面板跟随该会话 cwd，不再钉项目根）。
+  const handleProjectScopeChange = useCallback((path: string | null) => {
+    setProjectScopeCwd(path);
+    pinnedProjectCwdRef.current = null;
+  }, []);
 
   // 🔴 P1: 宫格模式 CommandCenter（CMD+K）命令执行路由进宫格（写入 per-agent 状态槽，非不可见的 zustand store）
   const gridAwareCommand = useCallback((cmdName: string, args: string) => {
@@ -1513,6 +1549,7 @@ export default function App() {
                   messageCount={messageCount}
                   onNewSessionInProject={handleNewSessionInProject}
                   onEnterProject={handleProjectEntered}
+                  onProjectScopeChange={handleProjectScopeChange}
                   sessionListVersion={sessionListVersion}
                 />
             </div>

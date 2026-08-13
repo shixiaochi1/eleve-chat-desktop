@@ -115,6 +115,11 @@ interface ProjectTreePanelProps {
    *  🔴 2026-08-12 扩展：第二参 = 后端分组的最活跃会话 id（previewSessions[0]，
    *  权威分组——HOME=unowned 全集/项目=该项目域；消息区联动直接切，无则空态新建） */
   onEnterProject?: (path: string, sessionId?: string | null) => void;
+  /** 🔴 2026-08-13 问题2修复：会话行点击 → 项目域 scope 同步（App setProjectScopeCwd）。
+   *  高亮由本组件内部 setSelectedId + projects.set_active 完成；不触发 onEnterProject
+   *  （防消息区联动把刚点的会话切回项目最新会话）。文件面板不强制切项目根——
+   *  跟随该会话 session.info 的 bound_cwd（符合"文件树=会话 cwd"）。 */
+  onProjectScopeChange?: (path: string | null) => void;
 }
 
 // ── 辅助 ──
@@ -345,7 +350,7 @@ function SessionItem({ s, isActive, onClick, actions, rowClassName }: {
 // lane 会话分页（对齐 Hermes SIDEBAR_GROUP_PAGE=5：已加载行分批显示）
 const SHOW_MORE_PAGE = 5;
 
-function LaneNode({ lane, sessionId, onSwitchSession, onReveal, onCopyPath, onRemoveWorktree, sessionActions }: { lane: LaneGroup; sessionId?: string; onSwitchSession?: (id: string) => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void; sessionActions: SessionRowActions }) {
+function LaneNode({ lane, sessionId, onSwitchSession, onSessionRowActivate, onReveal, onCopyPath, onRemoveWorktree, sessionActions }: { lane: LaneGroup; sessionId?: string; onSwitchSession?: (id: string) => void; /** 🔴 2026-08-13 问题2：会话行点击 → 所属项目域激活 */ onSessionRowActivate?: () => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void; sessionActions: SessionRowActions }) {
   // 展开状态持久化（对齐 Hermes useWorkspaceNodeOpen；lane 默认折叠）
   const [expanded, toggleExpanded] = useWorkspaceNodeOpen(lane.id, false);
   // 会话分页：初始 5 条，点「显示更多」+5（对齐 Hermes WorkspaceShowMoreButton）
@@ -396,7 +401,7 @@ function LaneNode({ lane, sessionId, onSwitchSession, onReveal, onCopyPath, onRe
         )}
       </div>
       {expanded && visible.map(s => (
-        <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => onSwitchSession?.(s.id)} actions={sessionActions} />
+        <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => { onSessionRowActivate?.(); onSwitchSession?.(s.id); }} actions={sessionActions} />
       ))}
       {expanded && lane.sessions.length > visible.length && (
         <button
@@ -410,7 +415,7 @@ function LaneNode({ lane, sessionId, onSwitchSession, onReveal, onCopyPath, onRe
   );
 }
 
-function RepoNodeItem({ repo, sessionId, onSwitchSession, onStartWork, onReveal, onCopyPath, onRemoveWorktree, lanes, sessionActions, defaultExpanded = false }: { repo: RepoNode; sessionId?: string; onSwitchSession?: (id: string) => void; onStartWork?: (repoPath: string) => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void; /** 合并 git worktree 后的 lane 列表（对齐 Hermes mergeRepoWorktreeGroups 输出） */
+function RepoNodeItem({ repo, sessionId, onSwitchSession, onSessionRowActivate, onStartWork, onReveal, onCopyPath, onRemoveWorktree, lanes, sessionActions, defaultExpanded = false }: { repo: RepoNode; sessionId?: string; onSwitchSession?: (id: string) => void; /** 🔴 2026-08-13 问题2：会话行点击 → 所属项目域激活 */ onSessionRowActivate?: () => void; onStartWork?: (repoPath: string) => void; onReveal?: (path: string) => void; onCopyPath?: (path: string) => void; onRemoveWorktree?: (lane: LaneGroup) => void; /** 合并 git worktree 后的 lane 列表（对齐 Hermes mergeRepoWorktreeGroups 输出） */
   lanes: LaneGroup[]; sessionActions: SessionRowActions; defaultExpanded?: boolean }) {
   // 展开状态持久化（对齐 Hermes useWorkspaceNodeOpen；repo 默认展开）
   const [expanded, toggleExpanded] = useWorkspaceNodeOpen(repo.id, defaultExpanded);
@@ -437,7 +442,7 @@ function RepoNodeItem({ repo, sessionId, onSwitchSession, onStartWork, onReveal,
         )}
       </div>
       {expanded && lanes.map(g => (
-        <LaneNode key={g.id} lane={g} sessionId={sessionId} onSwitchSession={onSwitchSession} onReveal={onReveal} onCopyPath={onCopyPath} onRemoveWorktree={onRemoveWorktree} sessionActions={sessionActions} />
+        <LaneNode key={g.id} lane={g} sessionId={sessionId} onSwitchSession={onSwitchSession} onSessionRowActivate={onSessionRowActivate} onReveal={onReveal} onCopyPath={onCopyPath} onRemoveWorktree={onRemoveWorktree} sessionActions={sessionActions} />
       ))}
     </div>
   );
@@ -575,7 +580,7 @@ function projectMenuSpecs(project: ProjectNode, h: {
   ];
 }
 
-function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onActivate, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop, sessionActions, isDragging, isDragOver, onRowDragStart, onRowDragOver, onRowDrop, onRowDragEnd }: {
+function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowActivate, onDrill, onActivate, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop, sessionActions, isDragging, isDragOver, onRowDragStart, onRowDragOver, onRowDrop, onRowDragEnd }: {
   project: ProjectNode;
   sessionId?: string;
   onSwitchSession?: (id: string) => void;
@@ -600,6 +605,8 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onActivate,
   onRowDragOver?: (id: string) => void;
   onRowDrop?: (id: string) => void;
   onRowDragEnd?: () => void;
+  /** 🔴 2026-08-13 问题2：会话行点击 → 所属项目域激活 */
+  onSessionRowActivate?: (project: ProjectNode) => void;
 }) {
   // 展开状态持久化（对齐 Hermes useWorkspaceNodeOpen；项目行默认展开）
   const [expanded, toggleExpanded] = useWorkspaceNodeOpen(project.id, true);
@@ -698,7 +705,7 @@ function ProjectItem({ project, sessionId, onSwitchSession, onDrill, onActivate,
         <div className="mt-1 border-t border-border/40 pt-0.5">
           {previews.length > 0 ? (
             previews.map(s => (
-              <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => onSwitchSession?.(s.id)} actions={sessionActions} rowClassName="pl-6 rounded-md hover:bg-accent/30" />
+              <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => { onSessionRowActivate?.(project); onSwitchSession?.(s.id); }} actions={sessionActions} rowClassName="pl-6 rounded-md hover:bg-accent/30" />
             ))
           ) : (
             <div className="pl-6 pr-1 py-1 text-[10px] text-muted-foreground/50">暂无会话</div>
@@ -1185,7 +1192,7 @@ function SessionRenameDialog({ session, onClose, onRenamed }: {
 
 // ── Panel ──
 
-export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwitchSession, currentProfile, onNewSessionInProject, onEnterProject }: ProjectTreePanelProps) {
+export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwitchSession, currentProfile, onNewSessionInProject, onEnterProject, onProjectScopeChange }: ProjectTreePanelProps) {
   const [tree, setTree] = useState<TreeResult | null>(null);
   // 🔴 2026-08-12 点选状态修复 v2（老大指正：点击后全部未激活）：
   //   本地 selectedId = 用户显式点选（纯前端权威），null = 未点选 → 渲染跟随后端 active_id。
@@ -1368,20 +1375,34 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
     },
   }), [currentProfile, handleDeleteSession, pinnedIds, togglePin, archivedIds, toggleArchive]);
 
+  // 🔴 2026-08-13 问题2修复：项目域激活公共逻辑（高亮 + 显式项目 set_active 持久化）。
+  // handleActivate（项目行单击）与会话行点击共用；会话行点击不触发 onEnterProject——
+  // 其消息区联动会把刚点的会话切回项目最新会话（2026-08-12 stopPropagation 同款教训）。
+  const persistActiveProject = useCallback((project: ProjectNode) => {
+    setSelectedId(project.id);
+    if (!project.isAuto && !project.isNoProject && project.id) {
+      void call('projects_set_active', { id: project.id, profile: currentProfile })
+        .then(() => void fetchTree(true))
+        .catch(() => {});
+    }
+  }, [currentProfile, fetchTree]);
+
+  // 🔴 2026-08-13 问题2修复：会话行点击 → 项目域同步激活（高亮 + set_active + scope）。
+  // 不触发 onEnterProject（防把刚点的会话切回项目最新会话）；文件面板不强制切项目根
+  // （跟随该会话 session.info 的 bound_cwd，符合"文件树=会话 cwd"）。
+  const handleSessionRowActivate = useCallback((project: ProjectNode) => {
+    persistActiveProject(project);
+    onProjectScopeChange?.(project.path ?? null);
+  }, [persistActiveProject, onProjectScopeChange]);
+
   // 🔴 2026-08-12 单击激活（老大指示：单击激活与 Agent 联动，双击才进入项目）：
   //   只做联动：① onEnterProject（文件面板切项目根/workspace + scope + 消息区选最新会话）
   //   ② 显式项目自动设为激活。不进入钻取视图（双击 handleDrill 才钻取）。
   const handleActivate = useCallback((project: ProjectNode) => {
     // 🔴 2026-08-12 点选状态 v2：点击立即置本地高亮（含自动/Home），持久不被刷新回跳
-    setSelectedId(project.id);
+    persistActiveProject(project);
     onEnterProject?.(project.path ?? '', project.previewSessions?.[0]?.id ?? null);
-    if (!project.isAuto && !project.isNoProject && project.id) {
-      // 显式项目持久化到后端（v2：高亮不依赖后端回填；重拉仅为刷新预览数据）
-      void call('projects_set_active', { id: project.id, profile: currentProfile })
-        .then(() => void fetchTree(true))
-        .catch(() => {});
-    }
-  }, [currentProfile, onEnterProject, fetchTree]);
+  }, [persistActiveProject, onEnterProject]);
 
   // 钻取：双击项目行 → 全量水合的 Repo/Lane/Session 树
   // （双击时浏览器会先触发两次单击（handleActivate，幂等无害），再触发本钻取）
@@ -1623,6 +1644,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                     repo={r}
                     sessionId={sessionId}
                     onSwitchSession={onSwitchSession}
+                    onSessionRowActivate={() => handleSessionRowActivate(drillProject)}
                     onStartWork={handleStartWork}
                     onReveal={handleReveal}
                     onCopyPath={handleCopyPath}
@@ -1702,6 +1724,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                       project={p}
                       sessionId={sessionId}
                       onSwitchSession={onSwitchSession}
+                      onSessionRowActivate={handleSessionRowActivate}
                       onDrill={handleDrill}
                       onActivate={handleActivate}
                       onEdit={handleEdit}
