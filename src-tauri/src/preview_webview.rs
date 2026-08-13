@@ -82,6 +82,9 @@ pub async fn preview_webview_create(
         tauri::WebviewUrl::External(parsed),
     )
     .initialization_script(&init_script)
+    // 🔴 必须与主窗口同 additional_browser_args（同一 user data folder 内 args 必须一致）
+    // 缺此 → WebView2 创建挂起/失败（看板 0x8007139F 同款，2026-08-13 修复）
+    .additional_browser_args(crate::ELEVE_WEBVIEW_ARGS)
     .on_page_load(move |_wv, payload| {
         use tauri::webview::PageLoadEvent;
         let state = match payload.event() {

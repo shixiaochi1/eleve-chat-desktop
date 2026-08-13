@@ -439,6 +439,15 @@ fn set_auto_start(enable: bool) -> Result<bool, String> {
 // DEEPSEEK EMBED — 子 WebView 创建（带 initialization_script 注入）
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// 主窗口 WebView2 additional browser args（tauri.conf.json app.windows[].additionalBrowserArgs 同步值）
+///
+/// 🔴 铁律：同一 user data folder 内所有 WebView 的 additional browser args 必须一致，
+/// 否则 WebView2 创建失败/挂起（看板 0x8007139F 同款根因，2026-08-13 深挖确认：
+/// 主窗口 08-10 加 args 后，所有不带同 args 的动态 WebView 全部受影响）。
+/// 动态创建的 WebView（add_child 子 webview / WebviewWindowBuilder 窗口）必须显式带此值。
+pub(crate) const ELEVE_WEBVIEW_ARGS: &str =
+    "--disable-background-timer-throttling --disable-backgrounding-occluded-windows";
+
 /// 创建 DeepSeek 嵌入子 WebView（带布局裁剪 + 主题注入）
 ///
 /// 前端通过 invoke('create_deepseek_webview', { x, y, width, height }) 调用。
@@ -494,6 +503,9 @@ async fn create_deepseek_webview(
         tauri::WebviewUrl::External(url),
     )
     .initialization_script(&init_script)
+    // 🔴 必须与主窗口同 additional_browser_args（同一 user data folder 内 args 必须一致）
+    // 缺此 → WebView2 创建挂起/失败（看板 0x8007139F 同款，2026-08-13 修复）
+    .additional_browser_args(ELEVE_WEBVIEW_ARGS)
     // 颜色匹配法：WebView 原生背景 = Eleve 背板色（不透明）
     // body CSS 做 12px 圆角裁剪，四角露出 WebView 底色 = 背板色 = 视觉无缝
     // （WebView2 子窗口是独立 HWND，不支持逐像素透明合成，不能用 transparent）
@@ -561,7 +573,7 @@ async fn toggle_kanban_window(app: tauri::AppHandle) -> Result<String, String> {
         .resizable(true)
         .decorations(true)
         .visible(false)
-        .additional_browser_args("--disable-background-timer-throttling --disable-backgrounding-occluded-windows");
+        .additional_browser_args(ELEVE_WEBVIEW_ARGS);
 
     let w = builder.build().map_err(|e| {
         eprintln!("[TAURI] kanban rebuild FAILED: {}", e);
