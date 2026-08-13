@@ -393,7 +393,7 @@ function processEvent(
 
     // Phase 6: 主题切换（对齐 Hermes theme.changed）
     case 'theme.changed':
-      cbs.onThemeChanged?.({ accent: chunk.accent, appearance: chunk.appearance });
+      cbs.onThemeChanged?.({ accent: chunk.accent as string, appearance: chunk.appearance as string });
       break;
 
     // Phase 6: 终端关闭（对齐 Hermes terminal.close）
