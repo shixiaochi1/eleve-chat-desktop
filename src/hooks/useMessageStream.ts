@@ -498,6 +498,12 @@ export function useMessageStream({
 
   // ── SSE streaming callbacks — aligned with Eleve handleGatewayEvent ──
   sseCallbacks.current = {
+    // 🔴 2026-08-13 对齐修复：项目数据变化 → bump sessionListVersion →
+    // ProjectTreePanel [sessionId, sessionListVersion] effect 自动静默刷新树
+    onProjectsChanged: () => {
+      if (setSessionListVersion) setSessionListVersion(v => v + 1)
+    },
+
     // ── Text delta — 1:1 with Eleve message.delta ──
     // queueDelta uses the INCREMENTAL delta.
     // 3.3: fullText 不再追踪 — onDone 走 drainFinalParts() 从共享累加器取权威 parts

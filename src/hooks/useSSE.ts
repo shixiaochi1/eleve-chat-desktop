@@ -49,6 +49,8 @@ export interface SSECallbacks {
     filesRead?: string[]; filesWritten?: string[]; outputTail?: unknown[]; costUsd?: number; exitReason?: string
   }) => void
   onSystemNotice?: (data: { text: string; level?: string; kind?: string; ttl_ms?: number; key?: string; id?: string }) => void
+  /** 🔴 2026-08-13 对齐修复：项目数据变化（工具 create/switch/delete/active）→ 前端刷新项目树 */
+  onProjectsChanged?: () => void
   onNoticeClear?: (data: { key: string }) => void
   onStatusUpdate?: (data: { kind: string; text: string }) => void
   onClarify?: (data: { clarify_id: string; question: string; choices?: string[] }) => void
@@ -510,6 +512,12 @@ function processEvent(
         session_id: (chunk.session_id as string) || '',
         title: (chunk.title as string) || '',
       });
+      break;
+
+    // 🔴 2026-08-13 对齐修复：项目数据变化（无 session_id 全局广播放行）→
+    // 前端项目树静默刷新（工具 project_create/switch/delete 后 active 高亮/列表跟随）
+    case 'projects.changed':
+      cbs.onProjectsChanged?.();
       break;
 
     // ── 流生命周期 ──
