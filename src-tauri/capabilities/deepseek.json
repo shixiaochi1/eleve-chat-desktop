@@ -1,0 +1,14 @@
+{
+  "identifier": "deepseek-embed",
+  "description": "DeepSeek child webview (remote chat.deepseek.com) minimal capability — may ONLY invoke deepseek_webview_close (close button); all other Tauri APIs and commands rejected",
+  "windows": ["main"],
+  "webviews": ["deepseek-embed"],
+  "remote": {
+    "urls": ["https://chat.deepseek.com/*"]
+  },
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "allow-deepseek-webview-close"
+  ]
+}

@@ -17,6 +17,7 @@
 //!   - 当前只打 Windows 包，暂不处理跨平台条件配置
 
 use tauri::Manager;
+use tauri::Emitter;
 use tauri::menu::{MenuBuilder, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use std::path::PathBuf;
@@ -528,6 +529,29 @@ async fn create_deepseek_webview(
 
     eprintln!("[TAURI] DeepSeek webview created: {}", wv.label());
     Ok(wv.label().to_string())
+}
+
+/// 关闭 DeepSeek 嵌入 WebView（注入脚本浮动关闭按钮调用）
+///
+/// 安全：capability 已限 deepseek-embed webview 最小权限（仅此命令），
+/// 这里再做 URL 双保险（仅允许 chat.deepseek.com 域名页面触发）。
+/// 只发事件不直接 hide——前端监听 deepseek-embed-closed 统一走 hideDeepSeek()
+/// （单一状态权威：与工具栏 toggle 双入口共享 JS 模块级 visible 状态，
+/// Rust 直接 hide 会造成前端状态错乱）。
+#[tauri::command]
+fn deepseek_webview_close(window: tauri::Window) -> Result<(), String> {
+    const LABEL: &str = "deepseek-embed";
+    if let Some(wv) = window.webviews().into_iter().find(|w| w.label() == LABEL) {
+        let is_official = wv
+            .url()
+            .map(|u| u.as_str().starts_with("https://chat.deepseek.com"))
+            .unwrap_or(false);
+        if !is_official {
+            return Err("forbidden: caller is not chat.deepseek.com".into());
+        }
+        let _ = window.emit("deepseek-embed-closed", ());
+    }
+    Ok(())
 }
 
 /// 看板窗口 toggle（老大 2026-08-11 需求：
@@ -1186,6 +1210,7 @@ pub fn run() {
             // MEDIA 处理唯一消费链 src/utils/media.ts → WS media.resolve
             // （后端 misc_service 权威实现），此命令为早期 Tauri 本地处理遗留
             create_deepseek_webview,
+            deepseek_webview_close,
             toggle_kanban_window,
             mark_restarting,
             // 预览控制台：子 Webview 生命周期 + console 缓冲治理

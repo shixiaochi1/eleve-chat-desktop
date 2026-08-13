@@ -11,10 +11,40 @@
 (function () {
   'use strict';
 
-  // ── 登录页不注入（保留完整登录表单） ──
+  // ── 浮动关闭按钮（登录页也必须能关，故在 isLoginPage 判断之前注入）──
+  function createCloseButton() {
+    if (!document.body || document.getElementById('eleve-deepseek-close')) return;
+    const btn = document.createElement('div');
+    btn.id = 'eleve-deepseek-close';
+    btn.setAttribute('role', 'button');
+    btn.setAttribute('aria-label', '关闭 DeepSeek');
+    btn.title = '关闭';
+    btn.textContent = '✕';
+    // 内联样式（防被站点 CSS 覆盖）；半透明黑底白叉，任意主题可见
+    btn.style.cssText =
+      'position:fixed;top:10px;right:10px;z-index:2147483647;width:28px;height:28px;' +
+      'border-radius:50%;display:flex;align-items:center;justify-content:center;' +
+      'font-size:13px;line-height:1;color:#fff;background:rgba(0,0,0,0.45);' +
+      'cursor:pointer;user-select:none;border:1px solid rgba(255,255,255,0.18);' +
+      'backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);' +
+      'transition:background .15s;font-family:system-ui,sans-serif;';
+    btn.addEventListener('mouseenter', () => (btn.style.background = 'rgba(0,0,0,0.65)'));
+    btn.addEventListener('mouseleave', () => (btn.style.background = 'rgba(0,0,0,0.45)'));
+    btn.addEventListener('click', async () => {
+      try {
+        // __TAURI_INTERNALS__ 在所有 webview 注入（无需 withGlobalTauri）；
+        // 远程页面能否调用由 ACL capability（deepseek.json）控制
+        await window.__TAURI_INTERNALS__.invoke('deepseek_webview_close');
+      } catch (err) {
+        console.error('[DeepSeek] close invoke failed:', err);
+      }
+    });
+    document.body.appendChild(btn);
+  }
+
+  // ── 登录页不注入主题（保留完整登录表单），但保留关闭按钮 ──
   const path = window.location.pathname;
   const isLoginPage = path.includes('sign_in') || path.includes('login') || path.includes('register');
-  if (isLoginPage) return;
 
   // ═══════════════════════════════════════════════════════════
   // CSS 注入
@@ -103,6 +133,9 @@
 
   // ── 初始化 ──
   function init() {
+    // 关闭按钮优先（登录页也必须能关）
+    createCloseButton();
+    if (isLoginPage) return;
     injectCSS();
     sweepAndHide(document.body);
     hideDisclaimer(document.body);

@@ -187,7 +187,7 @@ export default function App() {
     }
   }, [viewMode]);
 
-  // ── DeepSeek 嵌入 WebView toggle ──
+  // ── DeepSeek 嵌入 toggle ──
   const handleToggleDeepSeek = useCallback(async () => {
     const anchor = chatCardRef.current;
     console.log('[DeepSeek] toggle clicked, anchor:', anchor ? 'found' : 'NULL');
@@ -195,6 +195,25 @@ export default function App() {
     const nowVisible = await toggleDeepSeek(anchor);
     console.log('[DeepSeek] result:', nowVisible);
     setDeepseekVisible(nowVisible);
+  }, []);
+
+  // ── DeepSeek 内嵌关闭按钮 → 统一走 hideDeepSeek（单一状态权威，防双入口状态错乱）──
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      if (cancelled) return;
+      listen('deepseek-embed-closed', () => {
+        hideDeepSeek().then(() => setDeepseekVisible(false));
+      }).then((u) => {
+        if (cancelled) u();
+        else unlisten = u;
+      });
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
