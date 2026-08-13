@@ -191,7 +191,9 @@ function deriveLightColors(accent: string): DerivedColors {
 
     // ── 主色 — 用户选的主题色（🔴 2026-08-13 降饱和 15%：选中态/主按钮实底不抢眼，色相不变）──
     primary: desaturate(accent, 0.85),
-    primaryForeground: getReadableOnAccent(desaturate(accent, 0.85)),
+    // 🔴 2026-08-13 老大指示：主按钮文字/图标统一白色（getReadableOnAccent 对浅色
+    // 主题色返回黑字 #1D1D1F，黑字突兀）——白字在任何主题色下视觉统一干净
+    primaryForeground: '#FFFFFF',
 
     // ── 次级 — 主题色淡化 ──
     secondary: hexToRgba(accent, 0.12),
