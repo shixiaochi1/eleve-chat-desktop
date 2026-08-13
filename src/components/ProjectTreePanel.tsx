@@ -53,6 +53,23 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   // 响应可能后到——若只靠闭包捕获的 currentProfile，旧响应会把树/scope 写成旧 Agent）
   const currentProfileRef = useRef(currentProfile);
   currentProfileRef.current = currentProfile;
+  // 🔴 TEMP-DIAG2（抖动排查 v14）：切 Agent + 树更新后打印滚动/行位置——
+  // scrollTop 变 = 滚动问题；firstRowTop 变 = 布局问题；都不变 = 视觉动画/重绘
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      const list = listRef.current;
+      if (!list) return;
+      const first = list.querySelector('[data-project-row]');
+      console.log('[DIAG2] profile=' + currentProfile, JSON.stringify({
+        scrollTop: Math.round(list.scrollTop),
+        listH: Math.round(list.clientHeight), contentH: Math.round(list.scrollHeight),
+        firstRowTop: first ? Math.round((first as HTMLElement).offsetTop) : -1,
+      }));
+    });
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentProfile, tree]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // 阶段二·钻取状态（projects.project_sessions，hydrate=true 全量水合）
@@ -569,7 +586,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                   树内容替换（切 Agent）时浏览器会尝试保持“锚定元素”位置自动调整
                   scrollTop → 项目卡片“往下走到中间然后消失”的抖动根因
                   （对齐聊天线程既有用法 style.css [data-slot='aui_thread-viewport']） */}
-              <div className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0 [scrollbar-gutter:stable] [overflow-anchor:none]">
+              <div ref={listRef} className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0 [scrollbar-gutter:stable] [overflow-anchor:none]">
                 {tree.projects.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-3 p-4">
                     <div className="w-10 h-10 rounded-xl bg-muted/40 flex items-center justify-center">

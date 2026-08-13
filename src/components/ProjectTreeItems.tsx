@@ -623,6 +623,7 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
   //   项目自定义色仅保留在图标/色点着色（点缀）。
   const row = (
     <div
+      data-project-row
       className={cn(
         'group/workspace relative w-full text-left px-2.5 py-2 rounded-lg border bg-card shadow-sm transition-all duration-150 cursor-pointer hover:bg-accent/30',
         isDragging && 'opacity-40',
