@@ -2385,6 +2385,12 @@
           "markdownDescription": "Enables the create_deepseek_webview command without any pre-configured scope."
         },
         {
+          "description": "Enables the deepseek_webview_close command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-deepseek-webview-close",
+          "markdownDescription": "Enables the deepseek_webview_close command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_auto_start command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-auto-start",
@@ -2509,6 +2515,12 @@
           "type": "string",
           "const": "deny-create-deepseek-webview",
           "markdownDescription": "Denies the create_deepseek_webview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the deepseek_webview_close command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-deepseek-webview-close",
+          "markdownDescription": "Denies the deepseek_webview_close command without any pre-configured scope."
         },
         {
           "description": "Denies the get_auto_start command without any pre-configured scope.",
