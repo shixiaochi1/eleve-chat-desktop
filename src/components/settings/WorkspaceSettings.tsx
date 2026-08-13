@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen, X } from 'lucide-react';
-import { isDesktop, call } from '../../utils/bridge';
-import { pickDirectory } from '../../utils/directory-picker';
+import { call } from '../../utils/bridge';
 import { notifySuccess, notifyError } from '../../utils/notifications';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -12,20 +10,17 @@ import { TERMINAL_FONT_SUGGESTIONS, normalizeTerminalFontFamily, setTerminalFont
 /**
  * WorkspaceSettings — 工作区设置
  *
- * 工作目录、代码执行模式、持久化 Shell、文件读取字符上限。
+ * 🔴 2026-08-13 老大指示：工作目录设置已移除（减少影响面）——
+ * 新会话/面板目录由项目绑定地址与 Agent workspace 决定，不再有终端默认工作目录配置。
+ * 保留：代码执行模式、持久化 Shell、终端字体、文件读取字符上限。
  *
  * 🔴 字段路径对齐后端 Config（信代码实证，消灭顶层死键）：
- * - cwd            → terminal.cwd
  * - code_exec_mode → code_execution.mode（取值 project/strict，与后端一致）
  * - persistent_shell → terminal.persistent_shell（对齐 Hermes，主要作用 SSH 后端）
  * - file_read_max_chars → 顶层 file_read_max_chars（字符数，对齐 Hermes，默认 100000）
- *
- * 🔴 已移除 env_whitelist：Hermes 无此功能（仅 docker_forward_env，ELEVE 已有），
- *    该字段为前端幻象，写入即磁盘死键，对齐 Hermes = 移除。
  */
 export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void }) {
   const [config, setConfig] = useState({
-    cwd: '',
     code_exec_mode: 'project',
     persistent_shell: true,
     file_read_max_chars: 100000,
@@ -46,7 +41,6 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
       const terminal = bc.terminal || {};
       const code_execution = bc.code_execution || {};
       setConfig({
-        cwd: terminal.cwd || '',
         code_exec_mode: code_execution.mode || 'project',
         persistent_shell: terminal.persistent_shell ?? true,
         file_read_max_chars: bc.file_read_max_chars ?? 100000,
@@ -67,14 +61,9 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
   const handleSave = async () => {
     setSaving(true);
     try {
-      // 🔴 按后端真实路径分组写入（加性通道 config.set.raw，合并保留各 section 其它键）
-      // 🔴 清空 cwd 必须写 null 而非 undefined：js-yaml dump 丢弃 undefined 值 →
-      // 后端 flatten 收不到键 → 加性更新不清旧值（同 timezone 88357e2 教训）。
-      // null → yaml.dump 输出 `cwd: null` → flatten 收集叶节点 → update_value 置 None。
       await call('update_config', {
         config: {
           terminal: {
-            cwd: config.cwd || null,
             persistent_shell: config.persistent_shell,
             font_family: normalizeTerminalFontFamily(config.terminal_font_family),
           },
@@ -99,42 +88,6 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
 
   return (
     <div>
-      {/* 工作目录 */}
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">工作目录</label>
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-xs text-foreground/80 hover:bg-accent transition-colors"
-            onClick={async () => {
-              if (isDesktop()) {
-                const sel = await pickDirectory('选择工作目录');
-                if (sel) update('cwd', sel);
-              } else {
-                notifyError(new Error('目录选择仅桌面端可用'), '无法选择目录');
-              }
-            }}
-            title={config.cwd || '选择工作目录'}
-          >
-            <FolderOpen size={13} className="text-warning shrink-0" />
-            <span className="truncate">{config.cwd || '未设置（点击选择目录）'}</span>
-          </button>
-          {config.cwd && (
-            <button
-              type="button"
-              className="grid size-8 shrink-0 place-items-center rounded-md border border-input text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-              onClick={() => update('cwd', '')}
-              title="清除（留空 = 交给系统默认工作目录）"
-            >
-              <X size={13} />
-            </button>
-          )}
-        </div>
-        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          Agent 运行命令和工具时使用的默认工作目录，留空使用系统「默认工作目录」。仅影响未指定目录的新会话；会话已有目录时不受影响。
-        </p>
-      </div>
-
       {/* 代码执行模式 */}
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">代码执行模式</label>

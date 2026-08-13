@@ -803,23 +803,37 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
       } catch (e) { notifyError(e, '更新文件夹失败'); }
     } else {
       // 新建模式：追加到多文件夹列表（去重；首个 = primary）
-      setFolders(prev => (prev.includes(path) ? prev : [...prev, path]));
+      setFolders(prev => {
+        if (prev.includes(path)) return prev;
+        // 🔴 2026-08-13 老大指示：项目名称自动取所选文件夹名（首个文件夹定名，后续不改）
+        if (prev.length === 0) {
+          const base = path.replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop() || '';
+          if (base) setName(base);
+        }
+        return [...prev, path];
+      });
     }
   }, [desktop, initial, onSaved, profile]);
 
   const save = useCallback(async () => {
-    if (!name.trim()) { notifyError(null, '请输入项目名称'); return; }
+    // 🔴 2026-08-13 老大指示：新建项目必须先选文件夹（名称自动取文件夹名，无手写名称栏）
+    if (!initial && folders.length === 0) {
+      notifyError(null, '请先选择项目文件夹');
+      return;
+    }
+    if (initial && !name.trim()) { notifyError(null, '请输入项目名称'); return; }
+    const finalName = initial ? name.trim() : (name.trim() || (folders[0] ? folders[0].replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop() || '' : ''));
     setSaving(true);
     try {
       let savedFolder: string | undefined;
       if (initial && !initial.isAuto) {
-        await call('projects_update', { id: initial.id, name: name.trim(), color, ...(icon ? { icon } : { icon: '' }), profile });
+        await call('projects_update', { id: initial.id, name: finalName, color, ...(icon ? { icon } : { icon: '' }), profile });
         notifySuccess('项目已更新');
       } else if (initial) {
         // 🔴 自动项目编辑 = 收养（对齐 Hermes setProjectAppearance adopt）：
         // 无 projects.db 记录 → create 带外观 + 主文件夹（repo root）
         await call('projects_create', {
-          name: name.trim(),
+          name: finalName,
           color,
           ...(icon ? { icon } : {}),
           ...(folder ? { folders: [folder], primary_path: folder } : {}),
@@ -829,7 +843,7 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
         notifySuccess('已设为显式项目');
       } else {
         await call('projects_create', {
-          name: name.trim(),
+          name: finalName,
           color,
           ...(icon ? { icon } : {}),
           ...(folders.length > 0 ? { folders, primary_path: folders[0] } : {}),
@@ -921,17 +935,26 @@ function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
             </div>
           </div>
 
-          {/* ② 项目名称 */}
-          <div>
-            <label className="mb-1 block text-[11px] font-medium text-muted-foreground">项目名称</label>
-            <input
-              className="desktop-input-chrome h-8 w-full rounded-lg border border-border bg-background px-2.5 text-sm outline-none transition-shadow focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="如：Eleve Agent"
-              autoFocus
-            />
-          </div>
+          {/* ② 项目名称：新建 = 自动取所选文件夹名（老大 2026-08-13，无手写栏）；编辑 = 可手写 */}
+          {initial ? (
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">项目名称</label>
+              <input
+                className="desktop-input-chrome h-8 w-full rounded-lg border border-border bg-background px-2.5 text-sm outline-none transition-shadow focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="如：Eleve Agent"
+                autoFocus
+              />
+            </div>
+          ) : (
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">项目名称（自动取所选文件夹名）</label>
+              <div className="h-8 w-full rounded-lg border border-border bg-muted/30 px-2.5 text-sm leading-8 text-foreground/70 truncate">
+                {name.trim() || '未选择文件夹'}
+              </div>
+            </div>
+          )}
 
           {/* ③ 外观：主题色 + 图标（flex 固定尺寸，间距恒定不随容器放大） */}
           <div className="flex flex-col gap-2">

@@ -24,7 +24,7 @@ import useModels from './hooks/useModels';
 import { useMediaQuery } from './hooks/use-media-query';
 import { loadMarkdownDeps } from './utils/markdown';
 import * as storage from './utils/storage';
-import { loadSettingsFromRust, loadSettings, isSettingsReady } from './utils/settings-store';
+import { loadSettingsFromRust } from './utils/settings-store';
 import { discoverPort, call, isDesktop } from './utils/bridge';
 import { loadConnection, isRemoteMode, applyConnection } from './lib/connection';
 import { getRememberedWorkspaceCwd, rememberWorkspaceCwd } from './lib/workspace-cwd';
@@ -412,35 +412,29 @@ export default function App() {
   // 🔴 W-7: 会话 cwd（session.info 推送）— 传预览中心供重启预览使用
   // 会话切换时清空，等新会话的 session.info 重新推送
   const [sessionCwd, setSessionCwd] = useState('');
-  // 🔴 2026-08-12 断线修复：项目行点击注入的 cwd 不被"会话切换清空"effect 抹掉
-  //   （项目下无会话 → clearSessionView → setSessionId(null) → 旧逻辑把 cwd 清空 →
-  //   文件面板回默认目录而非项目根，观感=点了项目没联动）。豁免一次：保留注入值，
-  //   之后由 session.info 推送的会话真实 cwd 覆盖（Hermes 文件树=会话 cwd 语义）。
-  const projectCwdInjectedRef = useRef<string | null>(null);
-  // 🔴 2026-08-13 问题1修复：项目钉住（防 session.info 覆盖跳走）。
-  // 点击项目行进入 → 文件面板钉住项目根；session.info 推送的会话 cwd 覆盖被忽略；
-  // 手动导航 / 会话行点击 / 切其它项目 / 切 Agent → 解除，恢复跟随。
-  // 与 projectCwdInjectedRef（防 setSessionId 清空）互补：一个防清空，一个防覆盖。
-  const pinnedProjectCwdRef = useRef<string | null>(null);
+  // 🔴 2026-08-13 老大语义定稿：三个独立功能 + 单向联动。
+  // panelRoot = 右侧文件面板的重定向根（真实文件树的显示位置）：
+  //   ① 点选项目卡片（含 HOME）→ 单向重定向到该项目绑定的物理地址（项目虚拟、
+  //      per-profile 绑定物理路径，终身不变——面板操作永不反向影响项目）
+  //   ② 面板内导航/操作 = 真实文件导航（可编辑/删除/重命名），只作用于文件系统
+  //   ③ 会话切换/新建/session.info → 不重定向面板（面板不跟随会话）
+  //   ④ 切 Agent → 重置（该 Agent 激活项目恢复时重定向）
+  const [panelRoot, setPanelRoot] = useState<string | null>(null);
   // 🔴 2026-08-13 边界修复：无会话手动导航 → 新会话落点暂存（对齐 Hermes $newChatWorkspaceTarget）。
   // 文件面板无会话时导航目录 → 新会话落该目录（此前只做了 remote 记忆，本会话不消费 = 断线）；
   // 任何项目域动作（点项目/会话行/切 Agent）→ 清除（项目意图覆盖手动导航）。
   const newChatWorkspaceTargetRef = useRef<string | null>(null);
   useEffect(() => {
-    if (projectCwdInjectedRef.current) { projectCwdInjectedRef.current = null; return; }
+    // 🔴 2026-08-13 老大语义重构：会话切换只影响 sessionCwd（终端/新会话落点），
+    // 不碰 panelRoot（文件面板是项目映射视图，不跟随会话）。
     setSessionCwd('');
-    // 🔴 2026-08-13 边界修复：会话切换 → 解除项目钉住。
-    // handleSwitchSession/ArtifactPanel 路径不经过 handleProjectScopeChange，
-    // 不解除则文件面板停留在旧项目根（与会话脱节）；豁免标记保护"点项目进入"
-    // 的瞬时推荐切换（handleProjectEntered 先设豁免再切会话）。
-    pinnedProjectCwdRef.current = null;
   }, [sess.sessionId]);
 
   // 🔴 2026-08-09 启动 seed（对齐 Hermes ensureDefaultWorkspaceCwd + $currentCwd
   // 初始值 = getRememberedWorkspaceCwd）：无会话时把工作目录 seed 到当前 cwd——
   //   remote → 上次工作目录记忆（per baseUrl+profile）
-  //   local → 设置「默认工作目录」（settings.json default_project_dir；settings
-  //     可能未从后端加载完 → isSettingsReady 轮询，SystemSettings 同款）
+  //   local → 不 seed（🔴 2026-08-13 老大指示：默认工作目录设置已取消——
+  //     启动后由用户点选项目/HOME 单向重定向面板；新会话落点由项目 scope 决定）
   // 对齐 Hermes seedLiveCwd：文件面板/终端/预览显示该目录；无会话新聊天
   // （getNewSessionCwd 链）继承它 = 新会话落默认目录（Hermes 新会话继承 currentCwd）。
   // 目录不存在时 FileBrowserPanel setRoot 失败 → error → fallback（默认目录→home）
@@ -456,16 +450,11 @@ export default function App() {
         if (r) {
           seededCwdRef.current = r;
           setSessionCwd(r);
+          setPanelRoot(r); // 🔴 2026-08-13 老大语义重构：初始面板映射 = seed 目录
         }
         return true; // remote：记忆有无都算完成
       }
-      if (!isSettingsReady()) return false;
-      const def = loadSettings().default_project_dir?.trim() || '';
-      if (def) {
-        seededCwdRef.current = def;
-        setSessionCwd(def);
-      }
-      return true;
+      return true; // local：不 seed（默认工作目录设置已取消）
     };
     if (!trySeed()) {
       const t = setInterval(() => {
@@ -533,8 +522,9 @@ export default function App() {
   }, []);
 
   const handleFilePanelCwdChange = useCallback((path: string) => {
-    // 🔴 2026-08-13 问题1修复：用户手动导航 → 解除项目钉住（文件面板恢复跟随会话 cwd）
-    pinnedProjectCwdRef.current = null;
+    // 🔴 2026-08-13 老大语义重构：手动导航只改面板显示（映射视图）——
+    // setPanelRoot(path)；项目地址本身后端权威、永不被改。
+    setPanelRoot(path);
     if (sess.sessionId) {
       void getWsClient().sendRpc('session.cwd.set', { session_id: sess.sessionId, cwd: path }).catch((e) => {
         console.warn('[App] session.cwd.set failed:', e);
@@ -635,8 +625,8 @@ export default function App() {
       setSessionCwd(cwd);
       return;
     }
-    // 用户钉住（点项目行）：任何 session.info 覆盖都忽略（保持项目根）
-    if (pinnedProjectCwdRef.current) return;
+    // 🔴 2026-08-13 老大语义重构：session.info 只更新 sessionCwd（终端/新会话落点），
+    // 不碰 panelRoot（文件面板是项目映射视图，会话 cwd 不驱动它）。
     // 会话无绑定（bound_cwd 空）+ 有项目域 scope → 显示 scope 项目根（非空态）
     if (!cwd && projectScopeCwdRef.current) {
       setSessionCwd(projectScopeCwdRef.current);
@@ -773,8 +763,7 @@ export default function App() {
       setCurrentProfile(name);
       // 🔴 2026-08-12 断线修复：切 Agent 旧项目 scope 失效（对齐 Hermes 切 profile 后 scope stale）
       setProjectScopeCwd(null);
-      projectCwdInjectedRef.current = null; // 🔴 清豁免标记：A 的项目 cwd 不残留到 B 的文件面板
-      pinnedProjectCwdRef.current = null; // 🔴 2026-08-13 问题1：切 Agent 解除项目钉住
+      setPanelRoot(null); // 🔴 2026-08-13 老大语义重构：切 Agent 重置面板映射（等该 Agent 激活项目恢复）
       newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：切 Agent 清手动导航落点
       return;
     }
@@ -808,8 +797,7 @@ export default function App() {
     // 🔴 2026-08-12 断线修复：切 Agent 旧项目 scope 失效（对齐 Hermes 切 profile 后 scope stale，
     //   否则新 Agent 说话时 getNewSessionCwd 返回旧 Agent 的项目根 → 新会话落错项目）
     setProjectScopeCwd(null);
-    projectCwdInjectedRef.current = null; // 🔴 清豁免标记：A 的项目 cwd 不残留到 B 的文件面板
-    pinnedProjectCwdRef.current = null; // 🔴 2026-08-13 问题1：切 Agent 解除项目钉住
+    setPanelRoot(null); // 🔴 2026-08-13 老大语义重构：切 Agent 重置面板映射（等该 Agent 激活项目恢复）
     newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：切 Agent 清手动导航落点
 
     // ── Step 3b: 🔴 S2 修复 — 刷新会话列表（后端按 profile 过滤，S1 保证 sendRpc 盖章新 profile） ──
@@ -847,8 +835,7 @@ export default function App() {
     if (profile !== currentProfile) {
       // 🔴 2026-08-12 断线修复：宫格→单视图同样清旧项目 scope（防新会话落错项目）
       setProjectScopeCwd(null);
-      projectCwdInjectedRef.current = null; // 🔴 清豁免标记
-      pinnedProjectCwdRef.current = null; // 🔴 2026-08-13 问题1：宫格→单视图同样解除项目钉住
+      setPanelRoot(null); // 🔴 2026-08-13 老大语义重构：宫格→单视图重置面板映射
       newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：宫格→单视图同样清手动导航落点
     }
     // 🔴 S2: 宫格→单视图同样刷新会话列表（与 handleProfileChange 一致）
@@ -1028,16 +1015,16 @@ export default function App() {
   //      → 有则切换（宫格=焦点卡片；单视图=完整切换链），无则空白草稿（懒创建落 scope）
   //      ；当前会话已属于该域且非 busy → 保持不打断
   const handleProjectEntered = useCallback((path: string, recommendedSessionId?: string | null) => {
+    console.log(`[app] handleProjectEntered path=${path} rec=${recommendedSessionId}`);
     if (path) {
-      setSessionCwd(path);          // ① 文件面板 → 项目根 / workspace
-      projectCwdInjectedRef.current = path; // 🔴 豁免"会话切换清空"（无会话场景文件面板停留目标目录）
-      pinnedProjectCwdRef.current = path; // 🔴 2026-08-13 问题1：进入项目钉住文件面板（防推荐会话 session.info 覆盖跳走）
-      setProjectScopeCwd(path);     // ② 新会话落点 = 项目根 / workspace
+      setPanelRoot(path);        // ① 文件面板映射 → 项目绑定地址（视图，非项目地址本身）
+      setSessionCwd(path);       // 终端/新会话落点 → 项目根（Hermes syncProjectCwd 语义）
+      setProjectScopeCwd(path);  // ② 新会话落点 = 项目根 / workspace
       newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：点项目 = 项目意图覆盖手动导航
     } else {
-      setProjectScopeCwd(null);     // ② 空 path（旧后端兑底）：退出项目域
-      pinnedProjectCwdRef.current = null; // 🔴 2026-08-13 问题1：退出项目域解除钉住
-      newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：退出项目域清手动导航落点
+      // 空 path（旧后端兑底/无绑定项目）：退出项目域；面板保持当前映射（无绑定地址可切）
+      setProjectScopeCwd(null);
+      newChatWorkspaceTargetRef.current = null;
     }
     // ③ 消息区联动（推荐会话 = 后端分组权威：项目 = 该项目 previewSessions 最新；
     //    HOME = Home 桶 unowned 全集最新；无推荐 → 前端域匹配兑底 → 空态新建）
@@ -1085,12 +1072,10 @@ export default function App() {
     }
   }, [sess, isSendingRef, clearSessionView, currentProfile, viewMode, gridAwareSwitchSession]);
 
-  // 🔴 2026-08-13 问题2修复：会话行点击 → 项目域 scope 同步（高亮由 ProjectTreePanel
-  // 内部 setSelectedId + set_active；App 只同步 scope + 解除文件面板钉住——
-  // 用户明确点了会话 → 文件面板跟随该会话 cwd，不再钉项目根）。
+  // 🔴 2026-08-13 老大语义重构：会话行点击 → 只同步 scope（新会话落点）；
+  // 文件面板是项目映射视图（只跟项目卡片/手动导航），不随会话行点击改变。
   const handleProjectScopeChange = useCallback((path: string | null) => {
     setProjectScopeCwd(path);
-    pinnedProjectCwdRef.current = null;
     // 🔴 2026-08-13 边界：会话行点击 = 项目域意图 → 清手动导航落点
     newChatWorkspaceTargetRef.current = null;
   }, []);
@@ -1105,12 +1090,9 @@ export default function App() {
   const handleProjectScopeRestored = useCallback((path: string) => {
     setProjectScopeCwd(path);
     newChatWorkspaceTargetRef.current = null;
-    // 文件面板：仅当当前无会话 cwd（尚未跟随任何会话）时显示项目根瞬态；
-    // 会话真实 cwd 已到达 → 保持跟随（防 restore 把会话 cwd 覆盖回项目根）
-    if (!sessionCwdRef.current) {
-      setSessionCwd(path);
-      projectCwdInjectedRef.current = path; // 防 setSessionId 清空
-    }
+    // 🔴 2026-08-13 老大语义重构：切 Agent 恢复激活项目 → 面板映射到项目绑定地址
+    // （无"锁"：映射随用户动作变，项目地址永不变）
+    setPanelRoot(path);
   }, []);
 
   // 🔴 P1: 宫格模式 CommandCenter（CMD+K）命令执行路由进宫格（写入 per-agent 状态槽，非不可见的 zustand store）
@@ -1901,7 +1883,7 @@ export default function App() {
                 <RightSidebarTabs activeTab={rightTab} onTabChange={setRightTab} onClose={() => setRightOpen(false)} />
                 {rightTab === 'files' && (
                   <FileBrowserPanel
-                    cwd={sessionCwd}
+                    cwd={panelRoot}
                     sessionId={sess.sessionId}
                     onCwdChange={handleFilePanelCwdChange}
                     onFileAttach={(path: string) => requestComposerInsert(`@file:"${path}"`)}

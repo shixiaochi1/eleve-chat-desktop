@@ -16,10 +16,9 @@ import { notifyError, notifySuccess } from '../utils/notifications';
 import { isDesktop, call } from '@/utils/bridge';
 import { setPathsDragPayload } from '@/lib/paths-dnd';
 import FolderPickerDialog from './FolderPickerDialog';
-import { pickDirectory } from '../utils/directory-picker';
 import ErrorBoundary from './ErrorBoundary';
-import { loadSettings } from '../utils/settings-store';
 import { loadConnection, isRemoteMode } from '../lib/connection';
+import { pickDirectory } from '../utils/directory-picker';
 import { isFsRemoteMode } from '../lib/remote-fs';
 
 interface FileEntry {
@@ -81,10 +80,12 @@ const STATUS_COLOR: Record<string, string> = {
 
 interface FileBrowserPanelProps {
   onFileAttach?: (path: string) => void;
-  /** 当前会话工作目录 — 权威根目录来源（对齐 Hermes RightSidebarPane：
-   *  文件树 = 会话 cwd）。手动切换目录/上级只是临时 override，
-   *  会话切换（cwd 变化）→ 重新跟随。 */
-  cwd?: string;
+  /** 文件面板重定向根（老大 2026-08-13 语义定稿：三个独立功能 + 单向联动）
+   * 右侧文件面板 = 真实文件树（可导航/编辑/删除/重命名，操作真实生效）。
+   * 联动单向：点选项目卡片 → 面板重定向到该项目绑定物理地址；
+   * 面板任何操作（导航/编辑文件）都不反向影响项目（项目是虚拟会话管理单元，
+   * per-profile 绑定物理路径、终身不变）。本 prop = 单向重定向的目标根。 */
+  cwd?: string | null;
   /** 会话 id（目录切换需后端烙印 — 对齐 Hermes use-cwd-actions session.cwd.set） */
   sessionId?: string | null;
   /** 目录切换回调（2026-08-09 对齐 Hermes：前端 setRoot 只改显示，
@@ -488,6 +489,7 @@ export default function FileBrowserPanel({
   // 无 cwd 的 detached 会话 → setRoot(null) 清空树显示"未打开项目"（Hermes
   // hasWorkspace=false → useProjectTree('') → 树空；旧实现保留上次浏览位置 =
   // 切到 detached 会话仍显示旧目录，与 Hermes 展示语义不一致）。
+  // 🔴 2026-08-13 诊断：cwd → setRoot 链路
   useEffect(() => {
     if (cwd) void setRoot(cwd);
     else void setRoot(null);
@@ -573,15 +575,13 @@ export default function FileBrowserPanel({
   }, [toggleOpen, loadChildren]);
 
   // ── fallback root（对齐 Hermes sanitizeWorkspaceCwd → resolveHermesCwd）──
-  // 会话 cwd 读取失败（目录被删/换机器）→ 回退候选链（Hermes resolveHermesCwd
-  // 的候选顺序：readDefaultProjectDir → home）：
-  //   ① 系统设置「默认工作目录」（settings.json default_project_dir，Hermes
-  //      readDefaultProjectDir 第一优先）
-  //   ② 用户主目录（后端 system.home = dirs::home_dir，Hermes 主进程
+  // 会话 cwd 读取失败（目录被删/换机器）→ 回退候选链（🔴 2026-08-13 老大指示：
+  // 默认工作目录设置已取消 → 候选只剩用户主目录）：
+  //   用户主目录（后端 system.home = dirs::home_dir，Hermes 主进程
   //      app.getPath('home') 同源；🔴 2026-08-09 移除激活项目候选——Hermes 无
   //      激活项目持久化概念，项目激活≠目录选择，误当 fallback 会显示用户
   //      未为文件面板选过的目录）
-  //   都无 → 维持报错+3s 重试（ROOT_ERROR_RETRY_MS self-heal，原逻辑）。
+  //   无 → 维持报错+3s 重试（ROOT_ERROR_RETRY_MS self-heal，原逻辑）。
   // 回退期间 3s 探针原 cwd，一旦恢复自动切回（Hermes use-project-tree 同款两段逻辑）。
   const [usingFallback, setUsingFallback] = useState(false);
   const originalCwdRef = useRef<string | null>(null);
@@ -592,8 +592,7 @@ export default function FileBrowserPanel({
     // 远程树读远程后端 fs，cwd 无效时保持报错+3s 重试即可，不落本地候选
     if (isRemoteMode(loadConnection())) return;
     let cancelled = false;
-    // 候选①：系统默认工作目录（settings.json；未配置/不存在 → 继续候选②）
-    const configuredDefault = loadSettings().default_project_dir?.trim() || '';
+    // 🔴 2026-08-13 老大指示：默认工作目录设置已取消 → fallback 候选只剩用户主目录
     const tryFallback = (path: string): boolean => {
       if (cancelled || !path) return false;
       if (path.replace(/\\/g, '/').replace(/\/+$/, '') === cwd.replace(/\\/g, '/').replace(/\/+$/, '')) return false;
@@ -602,10 +601,7 @@ export default function FileBrowserPanel({
       void setRoot(path);
       return true;
     };
-    if (configuredDefault) {
-      if (tryFallback(configuredDefault)) return;
-    }
-    // 候选②：用户主目录（后端 system.home；查询失败 → 维持报错+3s 重试）
+    // 候选①：用户主目录（后端 system.home；查询失败 → 维持报错+3s 重试）
     call('system_home')
       .then((d) => {
         if (cancelled) return;
@@ -659,7 +655,7 @@ export default function FileBrowserPanel({
     } else {
       setPickerOpen(true);
     }
-  }, [setRoot, onCwdChange]);
+  }, [setRoot, onCwdChange, rootPath]);
 
   // ── 上下文菜单操作（对齐 Hermes file-actions）──
 
