@@ -117,7 +117,9 @@ export const ACCENT_COLORS = [
   { name: '石墨色', color: '#8E8E93' },
 ] as const
 
-export const DEFAULT_ACCENT = '#007AFF'
+// 🔴 2026-08-13 老大指示：默认主题 = 灰色（Graphite 风格）——安装首次打开默认灰，
+// 不抢眼；用户可在设置里换其它强调色（按钮/选中态跟主题走，无硬编码）
+export const DEFAULT_ACCENT = '#8E8E93'
 export const DEFAULT_APPEARANCE: Appearance = 'auto'
 
 // ─── macOS 标准语义色 ───────────────────────────────────────────────────────
@@ -187,9 +189,9 @@ function deriveLightColors(accent: string): DerivedColors {
     muted: hexToRgba(neutral.fg, 0.04),
     mutedForeground: neutral.muted,
 
-    // ── 主色 — 用户选的强调色 ──
-    primary: accent,
-    primaryForeground: getReadableOnAccent(accent),
+    // ── 主色 — 用户选的强调色（🔴 2026-08-13 降饱和 15%：选中态/主按钮实底不抢眼，色相不变）──
+    primary: desaturate(accent, 0.85),
+    primaryForeground: getReadableOnAccent(desaturate(accent, 0.85)),
 
     // ── 次级 — 强调色淡化 ──
     secondary: hexToRgba(accent, 0.12),
@@ -303,8 +305,8 @@ function deriveDarkColors(accent: string): DerivedColors {
     muted: hexToRgba(neutral.fg, 0.06),
     mutedForeground: neutral.muted,
 
-    // ── 主色 ──
-    primary: adjustedAccent,
+    // ── 主色 ──（🔴 2026-08-13 降饱和 15%：与 light 同规则——选中态/主按钮实底收敛）
+    primary: desaturate(adjustedAccent, 0.85),
     primaryForeground: neutral.backboard,
 
     // ── 次级 ──
@@ -417,6 +419,27 @@ function hsl(h: number, s: number, l: number): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`
 }
 
+/** 降低饱和度（factor 0–1，0.85 = 饱和度 ×0.85；用于 primary 实底色——
+ *  选中态/主按钮实底收敛不抢眼，色相与亮度不变。🔴 2026-08-13 老大指示：
+ *  桌面 UI 选中状态主题色降饱和 15%） */
+function desaturate(hex: string, factor: number): string {
+  const clean = hex.replace('#', '')
+  const r = parseInt(clean.slice(0, 2), 16) / 255
+  const g = parseInt(clean.slice(2, 4), 16) / 255
+  const b = parseInt(clean.slice(4, 6), 16) / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  if (max === min) return hex // 无饱和（灰）→ 原样
+  const d = max - min
+  const l = (max + min) / 2
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+  let h = 0
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) * 60
+  else if (max === g) h = ((b - r) / d + 2) * 60
+  else h = ((r - g) / d + 4) * 60
+  return hsl(h, Math.max(0, s * factor) * 100, l * 100)
+}
+
 /** 提取 hex 的色相角度（0–360） */
 function accentHue(hex: string): number {
   const clean = hex.replace('#', '')
@@ -521,13 +544,13 @@ function adjustHue(hex: string, degrees: number): string {
  * 旧 skin 名称 → 新 accent + appearance 映射
  */
 const SKIN_MIGRATION_MAP: Record<string, { accent: string; appearance: Appearance }> = {
-  'default': { accent: '#007AFF', appearance: 'light' },
+  'default': { accent: '#8E8E93', appearance: 'light' },
   'midnight': { accent: '#AF52DE', appearance: 'dark' },
   'ember': { accent: '#FF9500', appearance: 'dark' },
   'mono': { accent: '#8E8E93', appearance: 'dark' },
   'cyberpunk': { accent: '#34C759', appearance: 'dark' },
-  'slate': { accent: '#007AFF', appearance: 'dark' },
-  'glass': { accent: '#007AFF', appearance: 'glass' },
+  'slate': { accent: '#8E8E93', appearance: 'dark' },
+  'glass': { accent: '#8E8E93', appearance: 'glass' },
   'silver': { accent: '#8E8E93', appearance: 'light' },
   'graphite': { accent: '#8E8E93', appearance: 'dark' },
   'charcoal': { accent: '#8E8E93', appearance: 'dark' },

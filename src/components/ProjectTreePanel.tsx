@@ -551,23 +551,13 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                     项目
                     <span className="tabular-nums text-muted-foreground/40 ml-1">{tree.projects.length}</span>
                   </span>
-                  <button
-                    className="flex items-center justify-center w-6 h-6 rounded-[7px] text-muted-foreground/50 hover:text-foreground hover:bg-accent/40 transition-colors disabled:opacity-40"
-                    onClick={() => fetchTree()}
-                    disabled={loading}
-                    title="刷新"
-                  >
-                    <RefreshCw size={12} strokeWidth={1.5} className={loading ? 'animate-spin' : ''} />
-                  </button>
                 </div>
                 <button
-                  className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_var(--theme-shadow-color)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_3px_10px_var(--theme-shadow-color-heavy)] hover:brightness-[1.06] hover:-translate-y-px shrink-0"
+                  className="inline-flex items-center gap-1.5 pl-1 pr-2.5 h-[22px] rounded-full text-[11px] leading-normal font-semibold transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_1px_3px_rgba(0,0,0,0.12),0_3px_8px_var(--theme-shadow-color)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(0,0,0,0.16),0_6px_16px_var(--theme-shadow-color-heavy)] hover:brightness-[1.06] hover:-translate-y-[1.5px] shrink-0"
                   onClick={handleCreate}
                   title="新建项目"
                 >
-                  <span className="flex items-center justify-center w-[18px] h-[18px] rounded-full shrink-0 bg-white/25 text-primary-foreground">
-                    <Plus size={11} strokeWidth={3} />
-                  </span>
+                  <Plus size={12} strokeWidth={2.5} className="shrink-0" />
                   新建项目
                 </button>
               </div>
@@ -579,12 +569,10 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                     </div>
                     <p className="text-xs text-muted-foreground">暂无项目</p>
                     <button
-                      className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_var(--theme-shadow-color)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_3px_10px_var(--theme-shadow-color-heavy)] hover:brightness-[1.06] hover:-translate-y-px"
+                      className="inline-flex items-center gap-1.5 pl-1 pr-2.5 h-[22px] rounded-full text-[11px] leading-normal font-semibold transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_1px_3px_rgba(0,0,0,0.12),0_3px_8px_var(--theme-shadow-color)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(0,0,0,0.16),0_6px_16px_var(--theme-shadow-color-heavy)] hover:brightness-[1.06] hover:-translate-y-[1.5px]"
                       onClick={handleCreate}
                     >
-                      <span className="flex items-center justify-center w-[18px] h-[18px] rounded-full shrink-0 bg-white/25 text-primary-foreground">
-                        <Plus size={11} strokeWidth={3} />
-                      </span>
+                      <Plus size={12} strokeWidth={2.5} className="shrink-0" />
                       新建项目
                     </button>
                   </div>
