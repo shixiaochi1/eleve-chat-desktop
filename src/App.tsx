@@ -1814,7 +1814,7 @@ export default function App() {
         {overlayPanel === 'theme' && (
           <ErrorBoundary>
             <OverlayView onClose={handleCloseOverlay} title="主题">
-              <ThemePanel onClose={handleCloseOverlay} />
+              <ThemePanel />
             </OverlayView>
           </ErrorBoundary>
         )}

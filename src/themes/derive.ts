@@ -386,14 +386,20 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-/** 判断颜色是否为暗色 */
-function isDarkColor(hex: string): boolean {
+// ─── 工具函数 ───────────────────────────────────────────────────────────────
+
+/** WCAG 2.0 相对亮度（0–1，所有亮度判断的唯一真相源） */
+export function relativeLuminance(hex: string): number {
   const clean = hex.replace('#', '')
   const r = parseInt(clean.slice(0, 2), 16) / 255
   const g = parseInt(clean.slice(2, 4), 16) / 255
   const b = parseInt(clean.slice(4, 6), 16) / 255
-  // 相对亮度公式
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b <= 0.5
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+/** 判断颜色是否为暗色（以相对亮度 0.5 为阈值） */
+export function isDarkColor(hex: string): boolean {
+  return relativeLuminance(hex) <= 0.5
 }
 
 /** 获取强调色上的可读文字颜色 */
@@ -401,22 +407,21 @@ function getReadableOnAccent(accent: string): string {
   return isDarkColor(accent) ? '#FFFFFF' : '#1D1D1F'
 }
 
-/** 深色模式下调整强调色亮度 */
-function adjustBrightnessForDark(hex: string): string {
+/** 深色模式下调整强调色亮度：相对亮度低于 0.179（3:1 对比度底线）时调亮 */
+export function adjustBrightnessForDark(hex: string): string {
   const clean = hex.replace('#', '')
   let r = parseInt(clean.slice(0, 2), 16)
   let g = parseInt(clean.slice(2, 4), 16)
   let b = parseInt(clean.slice(4, 6), 16)
-  
-  // 如果颜色太暗，调亮一些
-  const brightness = (r + g + b) / 3
-  if (brightness < 100) {
+
+  const luminance = relativeLuminance(hex)
+  if (luminance < 0.179) {
     const factor = 1.4
     r = Math.min(255, Math.round(r * factor))
     g = Math.min(255, Math.round(g * factor))
     b = Math.min(255, Math.round(b * factor))
   }
-  
+
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
 }
 

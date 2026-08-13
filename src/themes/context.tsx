@@ -176,16 +176,26 @@ function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean)
     root.style.setProperty(k, v)
   }
 
-  // 3. Glass 模式特殊处理
+  // 3. Glass 模式特殊处理（明暗模式使用不同的半透明基底）
   if (isGlass) {
     root.classList.add('glass-mode')
-    root.style.setProperty('--glass-bg-chrome', 'rgba(255,255,255,0.45)')
-    root.style.setProperty('--glass-bg-sidebar', 'rgba(255,255,255,0.38)')
-    root.style.setProperty('--glass-bg-editor', 'rgba(255,255,255,0.48)')
-    root.style.setProperty('--glass-bg-elevated', 'rgba(255,255,255,0.55)')
-    root.style.setProperty('--glass-bg-bubble', 'rgba(255,255,255,0.40)')
-    root.style.setProperty('--glass-bg-input', 'rgba(255,255,255,0.35)')
-    root.style.setProperty('--glass-border', 'rgba(255,255,255,0.22)')
+    if (isDark) {
+      root.style.setProperty('--glass-bg-chrome', 'rgba(28,28,30,0.55)')
+      root.style.setProperty('--glass-bg-sidebar', 'rgba(28,28,30,0.48)')
+      root.style.setProperty('--glass-bg-editor', 'rgba(44,44,46,0.58)')
+      root.style.setProperty('--glass-bg-elevated', 'rgba(58,58,60,0.65)')
+      root.style.setProperty('--glass-bg-bubble', 'rgba(44,44,46,0.50)')
+      root.style.setProperty('--glass-bg-input', 'rgba(28,28,30,0.45)')
+      root.style.setProperty('--glass-border', 'rgba(255,255,255,0.12)')
+    } else {
+      root.style.setProperty('--glass-bg-chrome', 'rgba(255,255,255,0.45)')
+      root.style.setProperty('--glass-bg-sidebar', 'rgba(255,255,255,0.38)')
+      root.style.setProperty('--glass-bg-editor', 'rgba(255,255,255,0.48)')
+      root.style.setProperty('--glass-bg-elevated', 'rgba(255,255,255,0.55)')
+      root.style.setProperty('--glass-bg-bubble', 'rgba(255,255,255,0.40)')
+      root.style.setProperty('--glass-bg-input', 'rgba(255,255,255,0.35)')
+      root.style.setProperty('--glass-border', 'rgba(255,255,255,0.22)')
+    }
   } else {
     root.classList.remove('glass-mode')
     root.style.removeProperty('--glass-bg-chrome')
@@ -203,7 +213,8 @@ function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean)
 if (typeof window !== 'undefined') {
   const accent = loadAccent()
   const appearance = loadAppearance()
-  const isDark = appearance === 'dark' || (appearance === 'auto' && getSystemDarkMode())
+  const systemDark = getSystemDarkMode()
+  const isDark = appearance === 'dark' || (appearance !== 'light' && systemDark)
   const isGlass = appearance === 'glass'
   const colors = deriveColors(accent, isDark)
   applyThemeCSS(colors, isDark, isGlass)
@@ -255,10 +266,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   // 计算实际明暗
   const isDark = useMemo(() => {
-    if (appearance === 'glass') return false
     if (appearance === 'dark') return true
     if (appearance === 'light') return false
-    return systemDark // auto
+    return systemDark // auto / glass 跟随系统
   }, [appearance, systemDark])
 
   const isGlass = appearance === 'glass'
@@ -271,33 +281,34 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     applyThemeCSS(colors, isDark, isGlass)
   }, [colors, isDark, isGlass])
 
-  // 设置函数
+  // 设置函数（写入本地 + 后端同步，失败不阻塞 UI）
   const setAccent = useCallback((color: string) => {
     setAccentState(color)
     saveAccent(color)
-    // 同步到后端
-    call('update_config', { config: { display: { accent: color } } }).catch(() => {})
+    call('update_config', { config: { display: { accent: color } } })
+      .catch(() => console.warn('[Theme] 后端配置同步失败'))
   }, [])
 
   const setAppearance = useCallback((newAppearance: Appearance) => {
     setAppearanceState(newAppearance)
     saveAppearance(newAppearance)
-    // 同步到后端
-    call('update_config', { config: { display: { appearance: newAppearance } } }).catch(() => {})
+    call('update_config', { config: { display: { appearance: newAppearance } } })
+      .catch(() => console.warn('[Theme] 后端配置同步失败'))
   }, [])
 
-  // 启动时从后端同步
+  // 启动时从后端同步（仅当本地无保存值时才使用后端值 —— 本地优先，防覆盖用户选择）
   useEffect(() => {
     call('get_config', {}).then((cfg: Record<string, unknown>) => {
       const display = cfg?.display as Record<string, unknown> | undefined
       const backendAccent = display?.accent as string | undefined
       const backendAppearance = display?.appearance as Appearance | undefined
-      
-      if (backendAccent && backendAccent !== accent) {
+
+      // 仅当本地 localStorage 无值（首次启动或缓存被清）时才从后端填充
+      if (backendAccent && !localStorage.getItem(ACCENT_KEY)) {
         setAccentState(backendAccent)
         saveAccent(backendAccent)
       }
-      if (backendAppearance && backendAppearance !== appearance) {
+      if (backendAppearance && !localStorage.getItem(APPEARANCE_KEY)) {
         setAppearanceState(backendAppearance)
         saveAppearance(backendAppearance)
       }

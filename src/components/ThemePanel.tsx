@@ -6,13 +6,9 @@
  * 2. 强调色：8 个预设 + 自定义
  */
 
-import { useTheme } from '../themes'
+import { useTheme, isDarkColor } from '../themes'
 import type { Appearance } from '../themes/derive'
 import { cn } from '@/lib/utils'
-
-interface ThemePanelProps {
-  onClose?: () => void
-}
 
 const APPEARANCE_OPTIONS: { value: Appearance; label: string; desc: string }[] = [
   { value: 'light', label: '浅色', desc: '始终使用浅色模式' },
@@ -21,7 +17,7 @@ const APPEARANCE_OPTIONS: { value: Appearance; label: string; desc: string }[] =
   { value: 'glass', label: '毛玻璃', desc: '半透明玻璃效果' },
 ]
 
-export default function ThemePanel({ onClose }: ThemePanelProps) {
+export default function ThemePanel() {
   const { accent, appearance, isDark, colors, setAccent, setAppearance, accentColors } = useTheme()
 
   return (
@@ -82,7 +78,7 @@ export default function ThemePanel({ onClose }: ThemePanelProps) {
                     className="w-4 h-4 absolute inset-0 m-auto" 
                     fill="none" 
                     viewBox="0 0 24 24" 
-                    stroke={isLightColor(color) ? '#1d1d1f' : '#ffffff'}
+                    stroke={isDarkColor(color) ? '#ffffff' : '#1d1d1f'}
                     strokeWidth={3}
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -93,19 +89,13 @@ export default function ThemePanel({ onClose }: ThemePanelProps) {
           })}
           
           {/* 自定义颜色选择器 */}
-          <div className="relative">
-            <input
-              type="color"
-              value={accent}
-              onChange={(e) => setAccent(e.target.value)}
-              className="w-8 h-8 rounded-full cursor-pointer border-0 p-0 bg-transparent"
-              title="自定义颜色"
-              style={{ 
-                borderRadius: '50%',
-                overflow: 'hidden',
-              }}
-            />
-          </div>
+          <input
+            type="color"
+            value={accent}
+            onChange={(e) => setAccent(e.target.value)}
+            className="w-8 h-8 rounded-full cursor-pointer"
+            title="自定义颜色"
+          />
         </div>
 
         {/* 当前强调色预览条 */}
@@ -145,13 +135,4 @@ export default function ThemePanel({ onClose }: ThemePanelProps) {
       </div>
     </div>
   )
-}
-
-/** 判断颜色是否为浅色（用于勾选标记颜色） */
-function isLightColor(hex: string): boolean {
-  const clean = hex.replace('#', '')
-  const r = parseInt(clean.slice(0, 2), 16)
-  const g = parseInt(clean.slice(2, 4), 16)
-  const b = parseInt(clean.slice(4, 6), 16)
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 128
 }
