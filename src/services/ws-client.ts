@@ -515,17 +515,38 @@ export class GatewayWsClient {
   switchSession(newSessionId: string): void {
     this.sessionId = newSessionId
     // 🔴 订阅注册表：记录已 attach 的 session（重连后自动 re-attach）
-    if (newSessionId) this.attachedSessions.add(newSessionId)
-    // 🔴 恢复链修复：切换 session 时通知后端注册 ws_clients 事件路由 + 推送 session.info
-    // 保证切换后流式事件有投递目标 + pending 交互可恢复（不依赖 prompt.submit 才注册）
-    if (newSessionId && this._state === 'connected') {
-      this.sendRpc('session.attach', { session_id: newSessionId }).catch((e) => { console.warn('[ws] session.attach failed:', e) })
-    }
+    if (newSessionId) this.subscribeSession(newSessionId)
   }
 
   /** 取消订阅（会话删除时调用，从注册表移除，重连后不再 re-attach） */
   detachSession(sessionId: string): void {
+    this.unsubscribeSession(sessionId)
+  }
+
+  // 🔴 2026-08-13 架构统一：会话订阅（多视图统一接入，替代仅单视图 switchSession 的隐式订阅）。
+  // 单视图 switchSession / 宫格卡片 / 独立窗口 统一走 subscribeSession——
+  // ① 加入 attachedSessions 重连恢复注册表（重连批量 re-attach → session.info 快照恢复）
+  // ② attach RPC（后端注册 ws_clients 事件路由 + 推 session.info 含 pending_prompts/cwd）
+  // 幂等：已订阅跳过 RPC；视图卸载 unsubscribeSession（保留全局当前会话）。
+  subscribeSession(sessionId: string): void {
+    if (!sessionId) return
+    const isNew = !this.attachedSessions.has(sessionId)
+    this.attachedSessions.add(sessionId)
+    if (isNew && this._state === 'connected') {
+      this.sendRpc('session.attach', { session_id: sessionId }).catch((e) => { console.warn('[ws] session.attach failed:', e) })
+    }
+  }
+
+  /** 取消订阅（视图卸载/会话删除）：从重连恢复注册表移除。
+   *  后端 ws_clients 条目残留无害——事件投递由前端按 slot/current 过滤兜底。 */
+  unsubscribeSession(sessionId: string): void {
     this.attachedSessions.delete(sessionId)
+  }
+
+  /** 当前全局会话 id（单视图语义；宫格/窗口多会话下为最后 switchSession 值；
+   *  视图卸载清理时用它跳过全局会话，防误取消） */
+  getCurrentSessionId(): string | null {
+    return this.sessionId
   }
 
   // ── 便捷方法 ──
