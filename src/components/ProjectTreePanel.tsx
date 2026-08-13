@@ -62,6 +62,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
       if (!list) return;
       const first = list.querySelector('[data-project-row]');
       console.log('[DIAG2] profile=' + currentProfile, JSON.stringify({
+        innerH: window.innerHeight,
         scrollTop: Math.round(list.scrollTop),
         listH: Math.round(list.clientHeight), contentH: Math.round(list.scrollHeight),
         firstRowTop: first ? Math.round((first as HTMLElement).offsetTop) : -1,
