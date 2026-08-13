@@ -756,6 +756,10 @@ export default function App() {
   // profile_session_map 数据流详见 GridModeView.tsx 文件头。
   // 串台防御完整架构详见 utils/session.ts 文件头。
   //
+  // 🔴 2026-08-13 附件清理 ref（切 Agent 清附件；ref 避免依赖数组引用后定义的
+  // clearImages/clearFilesAttachment 导致 TDZ——附件 hook 在下方定义）
+  const clearImagesRef = useRef<() => void>(() => {});
+  const clearFilesAttachmentRef = useRef<() => void>(() => {});
   const handleProfileChange = useCallback((name: string) => {
     // 🔴 2026-08-13 边界修复：同 Agent 重复点选短路——否则单视图重跑四步
     // （resetStream 重置流式状态 + loadSessionIntoView 清 pending 卡：
@@ -774,6 +778,12 @@ export default function App() {
       newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：切 Agent 清手动导航落点
       return;
     }
+
+    // 🔴 2026-08-13 边界修复：切 Agent 清附件（图片/文件条）——App 层附件是单视图
+    // composer 级状态，跨 Agent 残留 = A 的附件串到 B 的会话（发送时按当前会话上传/注入）。
+    // 切会话（同 Agent）保留（附件跟随用户输入意图，对齐 Hermes composer 语义）。
+    clearImagesRef.current();
+    clearFilesAttachmentRef.current();
 
     // ── Step 1: 记住指针（每个 Agent 上次用哪个 session） ──
     const map = loadProfilePointers();
@@ -843,6 +853,10 @@ export default function App() {
     }
     // 🔴 S2: 宫格→单视图同样刷新会话列表（与 handleProfileChange 一致）
     sess.refresh();
+    // 🔴 2026-08-13 宫格→单视图同样清附件（宫格期间 App 层附件条不可见，
+    // 进宫格前残留的附件退出后不应串到单视图会话）
+    clearImagesRef.current();
+    clearFilesAttachmentRef.current();
     if (targetId) {
       loadSessionIntoView(targetId);
       // 🔴 P0-1.2: 同上，pending 交互恢复依赖后端推送 session.info 事件
@@ -1142,6 +1156,10 @@ export default function App() {
     clearFiles: clearFilesAttachment,
     clearError: clearFileError,
   } = useFileAttachments({ getSessionId: () => sess.sessionId });
+  // 🔴 2026-08-13：附件清理 ref 接线（切 Agent/宫格退出时调用；useImageAttachments 的
+  // clearImages 在上一解构块，一并同步）
+  clearImagesRef.current = clearImages;
+  clearFilesAttachmentRef.current = clearFilesAttachment;
 
   // 图片大图预览（对齐 Hermes ImageLightbox：聊天区缩略图点击 → 遮罩大图 + 下载）
   const [lightbox, setLightbox] = useState<{ src: string; name?: string } | null>(null);
