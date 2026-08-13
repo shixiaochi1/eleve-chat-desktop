@@ -154,7 +154,11 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
     setSelectedId(null);
     // 🔴 2026-08-13：切 Agent 后的首次树加载等待 active_id 恢复 scope+文件面板
     profileSwitchPendingRef.current = true;
-    void fetchTree();
+    // 🔴 2026-08-13 抖动修复：切 Agent 刷新改 silent——非 silent 会 setLoading(true)
+    // → 树区域整体替换成“加载中...”（区块头+项目卡片全消失 → 高度塌缩）→ 数据
+    // 回来再恢复 = 两次突变 = 项目卡片上下抖动。silent 保留旧树直到新数据到达，
+    // 一次替换（正常数据刷新，无 loading 闪变）
+    void fetchTree(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProfile]);
 
