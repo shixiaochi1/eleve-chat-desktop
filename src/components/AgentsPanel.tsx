@@ -15,6 +15,8 @@
  */
 import ProfilePanel from './ProfilePanel';
 import ProjectTreePanel from './ProjectTreePanel';
+import { useRef, useState } from 'react';
+import { useResizeObserver } from '../hooks/use-resize-observer';
 
 interface AgentsPanelProps {
   currentProfile?: string;
@@ -23,12 +25,28 @@ interface AgentsPanelProps {
 }
 
 export default function AgentsPanel(props: AgentsPanelProps) {
+  // 🔴 2026-08-13 自动对齐 + 平滑过渡（老大指示：固定 42% 太僵硬）：
+  //   内容自然高度（scrollHeight 不受 max-height 裁剪影响）→ 显式 height +
+  //   transition 300ms ease——切 Agent 时内容高度变化平滑过渡，项目区自然
+  //   跟随不抖动；内容超 42% 时仍被 max-h 裁剪（ProfilePanel 列表区内部滚动）。
+  //   复用既有 useResizeObserver hook（对齐 Hermes useResizeObserver），不造轮子。
+  const agentAreaRef = useRef<HTMLDivElement>(null);
+  const [agentContentHeight, setAgentContentHeight] = useState<number | null>(null);
+  useResizeObserver(() => {
+    const el = agentAreaRef.current;
+    if (el && el.scrollHeight > 0) {
+      setAgentContentHeight(el.scrollHeight);
+    }
+  }, agentAreaRef);
+
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* ── 上部：Agent 卡片（🔴 2026-08-13 固定 42%：原 max-h 自然高度——切 Agent 时
-          列表 loading/数量变化 → 上部高度变化 → 下部项目区位置移动 → 项目卡片上下抖动；
-          固定后 ProfilePanel 列表区内部滚动接管，项目区位置恒定零抖动） ── */}
-      <div className="flex flex-col min-h-0 h-[42%]">
+      {/* ── 上部：Agent 卡片（内容自然高度，上限 42% 内部滚动，高度变化平滑过渡） ── */}
+      <div
+        ref={agentAreaRef}
+        className="flex flex-col min-h-0 max-h-[42%] overflow-hidden transition-[height] duration-300 ease-out"
+        style={agentContentHeight ? { height: `${agentContentHeight}px` } : undefined}
+      >
         <ProfilePanel {...props} />
       </div>
 
