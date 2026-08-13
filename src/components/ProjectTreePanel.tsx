@@ -11,7 +11,7 @@
  * 管理：显式项目可新建/编辑（名称+主题色）/添加文件夹/归档——接线后端
  *   projects.create/update/add_folder/set_primary/archive CRUD（对齐 Hermes 桌面端项目管理）。
  */
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import { Home, Plus, RefreshCw, FolderGit, ChevronRight } from 'lucide-react';
 import { isTauri } from '@tauri-apps/api/core';
 import { call } from '../utils/bridge';
@@ -72,6 +72,14 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProfile, tree]);
   const [loading, setLoading] = useState(true);
+  // 🔴 TEMP-DIAG6（抖动排查）：每次渲染打印完整状态快照（loading/error/tree/drill + 高度）
+  useLayoutEffect(() => {
+    console.log('[DIAG6] profile=' + currentProfile, JSON.stringify({
+      loading, error: !!error, tree: !!tree, drill: !!drill,
+      listH: Math.round(listRef.current?.clientHeight ?? -1),
+      projAreaH: Math.round(document.querySelector('[data-proj-area]')?.getBoundingClientRect().height ?? -1),
+    }));
+  });
   const [error, setError] = useState<string | null>(null);
   // 阶段二·钻取状态（projects.project_sessions，hydrate=true 全量水合）
   const [drill, setDrill] = useState<ProjectNode | null>(null);
