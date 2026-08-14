@@ -137,7 +137,7 @@ function TaskCard({ task, sessionId }: TaskCardProps) {
     if (!text || sending) return;
     setSending(true);
     try {
-      const res = await steerSubagent(task.id, text);
+      const res = await steerSubagent(sessionId ?? '', task.id, text);
       if (res.status === 'injected') {
         notifySuccess('指令已注入子 Agent（下个工具调用边界生效）');
         setInstruction('');

@@ -182,9 +182,10 @@ export async function interruptSubagent(sessionId: string, subagentId?: string):
   return call('subagent_interrupt', params);
 }
 
-/** 🔴 2026-08-15 编排对齐：向运行中子 Agent 下达指令（步边界注入，不打断当前工具） */
-export async function steerSubagent(subagentId: string, instruction: string): Promise<{ status: string; subagent_id: string }> {
-  return call('subagent_steer', { subagent_id: subagentId, text: instruction });
+/** 🔴 2026-08-15 编排对齐：向运行中子 Agent 下达指令（步边界注入，不打断当前工具）。
+ *  2026-08-15 祖先权威：session_id 为调用方会话（后端校验起源/活树祖先）。 */
+export async function steerSubagent(sessionId: string, subagentId: string, instruction: string): Promise<{ status: string; subagent_id: string }> {
+  return call('subagent_steer', { session_id: sessionId, subagent_id: subagentId, text: instruction });
 }
 
 /** 子会话历史消息（对齐 DSH subagent.history：parent 校验 + 分页游标） */
