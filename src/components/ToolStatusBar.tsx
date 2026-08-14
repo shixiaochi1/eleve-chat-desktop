@@ -133,12 +133,13 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
         </span>
 
         {/* 🔴 2026-08-15 子 Agent 监控触发按钮（对齐 DSH SubagentCatalogAction trigger：
-            StateDot 像素追逐动画点 + 计数 + chevron；点击弹出顶部抽屉） */}
+            StateDot 像素追逐动画点 + 计数 + chevron；点击弹出顶部抽屉）。
+            老大调整：按钮右移（ml-auto）、文案"子Agent（个数）"。 */}
         {hasMonitorTasks && (
           <button
             type="button"
             className={cn(
-              'flex items-center gap-[3px] min-h-[28px] px-1 rounded-md bg-transparent text-[12px] leading-[18px] cursor-pointer transition-colors',
+              'ml-auto flex items-center gap-[3px] min-h-[28px] px-1 rounded-md bg-transparent text-[12px] leading-[18px] cursor-pointer transition-colors',
               monitorOpen ? 'text-foreground' : 'text-muted-foreground/70 hover:text-foreground'
             )}
             aria-haspopup="true"
@@ -150,7 +151,7 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
               <StateDot running={runningCount > 0} />
             </span>
             <span className="mx-[5px]">
-              {runningCount > 0 ? `${runningCount} 运行中` : `共 ${monitorTasks.length}`}
+              子Agent（{monitorTasks.length}）
             </span>
             <ChevronDown
               size={14}
@@ -209,12 +210,19 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
           </div>
         )}
       </div>
-      {/* 🔴 2026-08-15 监控抽屉：从状态栏下缘向下滑出、覆盖消息区（absolute 定位，
-          不挤压聊天布局）。chat-area 为定位锚点（style.css position:relative）。 */}
+      {/* 🔴 2026-08-15 监控抽屉：从状态栏底边向下滑出、覆盖消息区。
+          clip 层自状态栏底边（top:40px）开始且 overflow:hidden——抽屉收起时
+          上滑被裁剪在状态栏底边处（视觉锚定"从底边弹出/收回"，而非窗口顶边）。
+          老大调整：鼠标离开抽屉自动收起。 */}
       {hasMonitorTasks && (
-        <div className={cn('subagent-drawer', monitorOpen && 'subagent-drawer-open')}>
-          <div className="subagent-drawer-panel">
-            <SubagentMonitor sessionId={sessionId} onClose={() => setMonitorOpen(false)} />
+        <div className="subagent-drawer-clip">
+          <div
+            className={cn('subagent-drawer', monitorOpen && 'subagent-drawer-open')}
+            onMouseLeave={() => setMonitorOpen(false)}
+          >
+            <div className="subagent-drawer-panel">
+              <SubagentMonitor sessionId={sessionId} onClose={() => setMonitorOpen(false)} />
+            </div>
           </div>
         </div>
       )}

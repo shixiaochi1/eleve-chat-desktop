@@ -1056,15 +1056,27 @@ canvas {
   37.5%, 100% { opacity: 0.15; }
 }
 
-/* ── 子 Agent 监控抽屉：从消息区顶部（状态栏下方）向下滑出，覆盖消息区。
+/* ── 子 Agent 监控抽屉：从状态栏底边向下滑出，覆盖消息区。
+   clip 层自状态栏底边（top:40px = h-10 状态栏高度）开始且 overflow:hidden：
+   抽屉收起时上滑被裁剪在状态栏底边处——视觉锚定"从底边弹出/收回"
+   （若无此层，裁剪发生在 chat-area 顶边即窗口顶边，观感变成"从顶边弹"）。
    仅 transform/opacity 过渡（GPU 合成，零重绘），对齐项目动画惯例。 */
-.subagent-drawer {
+.subagent-drawer-clip {
   position: absolute;
-  top: 40px; /* 状态栏高度 h-10，抽屉自其下缘滑出 */
+  top: 40px; /* 状态栏高度 h-10，裁剪边界=状态栏底边 */
   left: 0;
   right: 0;
+  bottom: 0;
   z-index: 30;
-  transform: translateY(-104%); /* 收起：上滑藏入状态栏后方（chat-area overflow hidden 裁掉） */
+  overflow: hidden;
+  pointer-events: none; /* 不拦消息区点击，抽屉本体自行接管 */
+}
+.subagent-drawer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  transform: translateY(-100%); /* 收起：上滑藏入 clip 层上方（被状态栏底边裁掉） */
   opacity: 0;
   pointer-events: none;
   transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;

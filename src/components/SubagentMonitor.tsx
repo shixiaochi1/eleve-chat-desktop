@@ -349,22 +349,20 @@ export default function SubagentMonitor({ sessionId, onClose }: { sessionId?: st
 
   return (
     <div className="px-3 py-2 space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="text-[11px] font-medium text-foreground/85">子 Agent 监控</div>
-        <div className="flex items-center gap-2">
-          <div className="text-[10px] text-muted-foreground/60">
-            {runningCount} 运行中 / 共 {tasks.length}
-          </div>
-          {onClose && (
-            <button
-              className="text-muted-foreground/60 hover:text-foreground transition-colors"
-              onClick={onClose}
-              title="收起监控面板"
-            >
-              <X size={12} />
-            </button>
-          )}
+      {/* 头部：计数 + 收起（老大调整：去掉"子 Agent 监控"标题） */}
+      <div className="flex items-center justify-end gap-2">
+        <div className="text-[10px] text-muted-foreground/60">
+          {runningCount} 运行中 / 共 {tasks.length}
         </div>
+        {onClose && (
+          <button
+            className="text-muted-foreground/60 hover:text-foreground transition-colors"
+            onClick={onClose}
+            title="收起监控面板"
+          >
+            <X size={12} />
+          </button>
+        )}
       </div>
       <div className="space-y-2 max-h-64 overflow-y-auto">
         {tasks.map((t) => (
