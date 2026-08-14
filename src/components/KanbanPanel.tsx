@@ -111,7 +111,7 @@ import { useKanban } from './kanban/useKanban';
 // 看板面板主组件
 // ═══════════════════════════════════════════════════════════════
 
-export default function KanbanPanel({ monitorState, board = 'default' }: { monitorState?: Record<string, unknown>; board?: string }) {
+export default function KanbanPanel({ board = 'default' }: { board?: string }) {
   // 🔴 2026-08-13 Phase 2 拆分：状态与回调抽离到 useKanban（纯移动，无逻辑变更）。
   const {
     apiTasks,
@@ -241,7 +241,6 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
     bulkPriority,
     setBulkPriority,
     loadBoard,
-    sseTasks,
     allTasks,
     filteredTasks,
     grouped,
@@ -263,7 +262,7 @@ export default function KanbanPanel({ monitorState, board = 'default' }: { monit
     handleUpdateBoard,
     handleDispatch,
     handleReassign,
-  } = useKanban({ monitorState, board });
+  } = useKanban({ board });
 
   return (
     <div className="flex flex-col h-full">

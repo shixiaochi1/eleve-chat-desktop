@@ -49,10 +49,10 @@ import {
 } from '@/utils/api';
 import type { KanbanTask } from './types';
 import { COLUMNS, COLUMN_STATUS, updateStaleConfig } from './constants';
-import { taskColumn, normalizeBoardData, mergeTasks } from './helpers';
+import { taskColumn, normalizeBoardData } from './helpers';
 import { useKanbanSSE } from './useKanbanSSE';
 
-export function useKanban({ monitorState, board = 'default' }: { monitorState?: Record<string, unknown>; board?: string }) {
+export function useKanban({ board = 'default' }: { board?: string }) {
   const [apiTasks, setApiTasks] = useState<KanbanTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -182,8 +182,11 @@ export function useKanban({ monitorState, board = 'default' }: { monitorState?: 
 
   useEffect(() => { const i = setInterval(() => loadBoard(), 60000); return () => clearInterval(i); }, [loadBoard]);
 
-  const sseTasks = (monitorState?.delegateTasks || {}) as Record<string, unknown>;
-  const allTasks = useMemo(() => mergeTasks(apiTasks, sseTasks), [apiTasks, sseTasks]);
+  // 🔴 2026-08-15 前端普查待办②：monitorState prop 悬空清理——KanbanWindowApp
+  // 从不传 delegateTasks，合并链恒为空对象（mergeTasks 空输入原样返回，此处
+  // 直接 apiTasks 行为逐字节等价）。subagent 任务在看板的呈现属未来特性
+  // （如需再接，用 SubagentMonitor 数据源 + 显式接线，不走隐式 prop）。
+  const allTasks = useMemo(() => apiTasks, [apiTasks]);
 
   // 搜索 + 负责人过滤
   const filteredTasks = useMemo(() => {
@@ -729,7 +732,6 @@ export function useKanban({ monitorState, board = 'default' }: { monitorState?: 
     bulkPriority,
     setBulkPriority,
     loadBoard,
-    sseTasks,
     allTasks,
     filteredTasks,
     grouped,

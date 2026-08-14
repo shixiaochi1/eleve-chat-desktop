@@ -139,7 +139,7 @@ export function usePromptActions({
     }
 
     setConnectionStatus('connected');
-    setMonitor((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: entry.text.slice(0, 40) }));
+    setMonitor((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0 }));
     addDebugEvent('text', `user: ${entry.text.slice(0, 60)}`);
     try {
       // 🔴 Phase 2: drain 续发带 queued:true（红线 3 — Hermes server.py:7258：
@@ -371,7 +371,7 @@ export function usePromptActions({
     // 新消息必须走 route_busy_submit 三模式路由，带 queued 会把 steer/interrupt 强制降级
 
     setConnectionStatus('connected');
-    setMonitor((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0, lastSent: text.slice(0, 40) }));
+    setMonitor((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0 }));
     addDebugEvent('text', `user: ${text.slice(0, 60)}`);
 
     try {

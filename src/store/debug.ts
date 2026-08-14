@@ -33,9 +33,7 @@ export interface MonitorState {
   delegateTasks: Record<string, unknown>
   tokensIn?: number
   tokensOut?: number
-  lastSent?: string
   sessionStartedAt?: number | null
-  statusText?: string
 }
 
 /** 🔴 2026-08-15 编排对齐（③ 前端子 Agent 监控）：delegateTasks 条目结构 */

@@ -11,7 +11,7 @@ import {
   updateMessage,
   setIsStreaming as storeSetIsStreaming,
 } from '../store/messages';
-import { type DebugToolCall } from '../store/debug';
+import { type DebugToolCall, type MonitorState } from '../store/debug';
 import {
   textPart,
   reasoningPart,
@@ -56,7 +56,7 @@ export interface UseMessageStreamProps {
   addDebugEvent: (type: string, detail: string) => void
   setConnectionStatus: React.Dispatch<React.SetStateAction<string>>
   setDebugToolCalls: React.Dispatch<React.SetStateAction<DebugToolCall[]>>
-  setMonitorState: React.Dispatch<React.SetStateAction<{ modelName: string | null; delegateTasks: Record<string, unknown>; tokensIn?: number; tokensOut?: number; lastSent?: string; sessionStartedAt?: number | null; statusText?: string }>>
+  setMonitorState: React.Dispatch<React.SetStateAction<MonitorState>>
   setActiveClarify: React.Dispatch<React.SetStateAction<{ clarify_id: string; question: string; choices: string[] } | null>>
   setActiveApproval: React.Dispatch<React.SetStateAction<{ command: string; description: string; pattern: string; choices: string[]; run_id: string } | null>>
   setActiveSudo?: React.Dispatch<React.SetStateAction<{ request_id: string; prompt?: string } | null>>
@@ -1088,13 +1088,11 @@ export function useMessageStream({
           //（旧分支名 'compressing' 是 Hermes 手动压缩 RPC 的开始 kind，ELEVE
           //  统一走 compress_context 内部，只发 compacting——消费方以 compacting 为准）
           if (text) appendIndependentMessage({ id: genId(), role: 'system' as const, parts: [textPart(text)], timestamp: Date.now() });
-          setMonitorState((prev) => ({ ...prev, modelName: prev.modelName, statusText: text }));
           break;
         case 'compacted':
           // 压缩完成（对齐 Hermes gateway-event.ts L1079-1081）：退役压缩态。
-          // 压缩态退役由 store/session-status 统一处理（status.update 接线），
-          // 这里只需更新状态栏为完成文案（Hermes 同：compacted 后 status 恢复）。
-          if (text) setMonitorState((prev) => ({ ...prev, modelName: prev.modelName, statusText: text }));
+          // 压缩态退役由 store/session-status 统一处理（status.update 接线）。
+          // monitor.statusText 死状态已清理（2026-08-15 前端普查待办②）。
           break;
         case 'background':
           // 🔴 Phase 2: 后台任务结果回推（对齐 Hermes _run_background_task deliver）→ 独立 system 消息（对齐宫格）+ toast
@@ -1107,8 +1105,7 @@ export function useMessageStream({
         case 'lifecycle':
         case 'warn':
         case 'error': {
-          // 生命周期/警告/错误 → 更新状态栏 + 错误通知
-          setMonitorState((prev) => ({ ...prev, modelName: prev.modelName, statusText: text }));
+          // 生命周期/警告/错误 → 错误通知
           const level = kind === 'error' ? 'error' : kind === 'warn' ? 'warning' : 'info';
           import('../utils/notifications').then(({ notifyError }) => {
             if (level === 'error' || level === 'warning') {
@@ -1119,8 +1116,8 @@ export function useMessageStream({
         }
         case 'status':
         default:
-          // 普通状态 → 仅更新状态栏
-          setMonitorState((prev) => ({ ...prev, modelName: prev.modelName, statusText: text }));
+          // 普通状态：monitor.statusText 死状态已清理（2026-08-15 前端普查待办②），
+          // 无监视器字段更新。
           break;
       }
     },
@@ -1134,7 +1131,6 @@ export function useMessageStream({
     // Agent 思考状态（对齐 Hermes thinking_callback）
     onThinking: (text: string) => {
       addDebugEvent('thinking', text.slice(0, 60));
-      setMonitorState((prev) => ({ ...prev, statusText: text }));
     },
 
     // 工具参数生成中（drafting 状态，对齐 Hermes setSessionDraftingTool）
@@ -1142,13 +1138,11 @@ export function useMessageStream({
     // one」——generating 只做状态提示，绝不创建工具行（幽灵卡根因，已从累加器移除）。
     onToolGenerating: (name: string) => {
       addDebugEvent('tool_generating', name);
-      setMonitorState((prev) => ({ ...prev, statusText: `${name} 准备中...` }));
     },
 
     // 工具进度（对齐 Hermes tool_progress_command）
     onToolProgress: (data: { eventType: string; toolName: string; preview?: string; args?: unknown; duration?: number; error?: boolean; toolCallId?: string }) => {
       addDebugEvent('tool_progress', `${data.toolName}: ${data.preview || data.eventType}`);
-      setMonitorState((prev) => ({ ...prev, statusText: data.preview ? `${data.toolName}: ${data.preview}` : `${data.toolName} 执行中...` }));
     },
 
     // Fallback 已激活（对齐 Hermes fallback 通知）
