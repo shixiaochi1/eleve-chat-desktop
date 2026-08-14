@@ -753,7 +753,10 @@ export function useGridChat(
           const dpSummary = (payload.progress_summary as string) || (payload.summary as string) || '';
           const dpGoal = payload.goal as string | undefined;
           const dpTool = payload.tool_name as string | undefined;
-          if (dpEventType === 'complete' || dpEventType === 'end') {
+          // 🔴 2026-08-15 编排对齐修复：后端 DelegateEvent::Complete 的 wire 值是
+          // 'subagent.complete'（eleve-core DelegateEvent.as_str），原比对
+          // 'complete'/'end' 永不命中 → 宫格模式的「✔ 子 Agent 完成」气泡从未出现。
+          if (dpEventType === 'subagent.complete') {
             patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(`✔ 子 Agent 完成: ${dpSummary || dpGoal || 'done'}`)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), activityHint: '', lastActivity: Date.now() }));
           } else if (dpTool) {
             patch(profile, (s) => ({ ...s, activityHint: `↳ 子Agent: ${dpTool}`, lastActivity: Date.now() }));
