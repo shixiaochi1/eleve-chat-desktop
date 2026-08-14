@@ -9,7 +9,11 @@
  *    当前工具，下个 tool call 边界生效——与主 Agent steer_subagent 工具同机制）；
  * ③ 逐分支 kill（复用 ToolStatusBar 的 subagent.interrupt）。
  *
- * 仅在存在活跃/已完成委托任务时渲染（App 挂在 ToolStatusBar 下方）。
+ * 仅在存在活跃/已完成委托任务时渲染。
+ *
+ * 🔴 2026-08-15 修复（遮挡主聊天窗口）：原由 App 无条件挂载、弹出后无法收起；
+ * 现改由 ToolStatusBar 的"监控"按钮控制开合，本组件头部提供 X 收起按钮
+ * （onClose 可选，未提供则不渲染）。
  */
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Bot, X, Send, ChevronDown, ChevronUp, History } from 'lucide-react';
@@ -313,26 +317,52 @@ function TaskCard({ task, sessionId }: TaskCardProps) {
   );
 }
 
-export default function SubagentMonitor({ sessionId }: { sessionId?: string | null }) {
+/** 推导任务状态（与 TaskCard 同源：status 缺省时按 eventType 兜底） */
+function taskStatus(task: DelegateTask): string {
+  return task.status ?? (task.eventType === 'subagent.complete' ? 'completed' : 'running');
+}
+
+/** 任务列表 + 运行中计数：ToolStatusBar 按钮徽章与面板共用单一数据源 */
+export function useSubagentTasks(): { tasks: DelegateTask[]; runningCount: number } {
   const rawTasks = useMonitorDelegateTasks();
   const tasks = useMemo(() => {
     const list = Object.values(rawTasks).filter((t) => t && typeof t === 'object') as DelegateTask[];
     if (list.length === 0) return [];
     return list.slice().sort((a, b) => {
-      const sa = a.status === 'running' ? 0 : 1;
-      const sb = b.status === 'running' ? 0 : 1;
+      const sa = taskStatus(a) === 'running' ? 0 : 1;
+      const sb = taskStatus(b) === 'running' ? 0 : 1;
       return sa - sb;
     });
   }, [rawTasks]);
+  const runningCount = useMemo(
+    () => tasks.filter((t) => taskStatus(t) === 'running').length,
+    [tasks],
+  );
+  return { tasks, runningCount };
+}
+
+export default function SubagentMonitor({ sessionId, onClose }: { sessionId?: string | null; onClose?: () => void }) {
+  const { tasks, runningCount } = useSubagentTasks();
 
   if (tasks.length === 0) return null;
 
   return (
-    <div className="border-b border-border bg-background/40 px-3 py-2 space-y-2">
+    <div className="subagent-monitor-in border-b border-border bg-background/40 px-3 py-2 space-y-2">
       <div className="flex items-center justify-between">
         <div className="text-[11px] font-medium text-foreground/85">子 Agent 监控</div>
-        <div className="text-[10px] text-muted-foreground/60">
-          {tasks.filter((t) => (t.status ?? 'running') === 'running').length} 运行中 / 共 {tasks.length}
+        <div className="flex items-center gap-2">
+          <div className="text-[10px] text-muted-foreground/60">
+            {runningCount} 运行中 / 共 {tasks.length}
+          </div>
+          {onClose && (
+            <button
+              className="text-muted-foreground/60 hover:text-foreground transition-colors"
+              onClick={onClose}
+              title="收起监控面板"
+            >
+              <X size={12} />
+            </button>
+          )}
         </div>
       </div>
       <div className="space-y-2 max-h-64 overflow-y-auto">
