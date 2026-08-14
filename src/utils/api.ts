@@ -182,6 +182,11 @@ export async function interruptSubagent(sessionId: string, subagentId?: string):
   return call('subagent_interrupt', params);
 }
 
+/** 🔴 2026-08-15 编排对齐：向运行中子 Agent 下达指令（步边界注入，不打断当前工具） */
+export async function steerSubagent(subagentId: string, instruction: string): Promise<{ status: string; subagent_id: string }> {
+  return call('subagent_steer', { subagent_id: subagentId, text: instruction });
+}
+
 // F3: 输入增强
 
 export interface CompletionItem {

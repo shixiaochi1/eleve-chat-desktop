@@ -986,8 +986,20 @@ export function useMessageStream({
       if (data.subagentId) {
         setMonitorState((prev) => {
           const tasks = { ...((prev.delegateTasks as Record<string, unknown>) || {}) };
+          const prior = (tasks[data.subagentId!] as Record<string, unknown> | undefined) || {};
+          // 🔴 2026-08-15 编排对齐（③ 监控过程视图）：工具/进度/文本按到达序
+          // 追加轨迹（cap 60），last-write-wins 快照升级为有过程的任务视图
+          const trace = Array.isArray(prior.trace) ? [...(prior.trace as string[])] : [];
+          let line = '';
+          if (data.eventType === 'subagent.tool') line = `🔧 ${data.toolName || ''}`;
+          else if (data.eventType === 'subagent.progress' && data.progressSummary) line = `📊 ${data.progressSummary}`;
+          else if (data.eventType === 'subagent.text' && data.toolPreview) line = `💬 ${String(data.toolPreview).slice(0, 120)}`;
+          if (line) {
+            trace.push(line);
+            if (trace.length > 60) trace.splice(0, trace.length - 60);
+          }
           tasks[data.subagentId!] = {
-            ...(tasks[data.subagentId!] as Record<string, unknown> || {}),
+            ...prior,
             id: data.subagentId,
             goal: data.goal,
             eventType: data.eventType,
@@ -1016,6 +1028,11 @@ export function useMessageStream({
             outputTail: data.outputTail,
             costUsd: data.costUsd,
             exitReason: data.exitReason,
+            thinkingText: data.thinkingText ?? prior.thinkingText,
+            lastText: data.eventType === 'subagent.text' && data.toolPreview
+              ? String(data.toolPreview)
+              : (prior.lastText as string | undefined),
+            trace,
           };
           return { ...prev, delegateTasks: tasks };
         });

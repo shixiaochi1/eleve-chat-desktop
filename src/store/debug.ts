@@ -38,6 +38,33 @@ export interface MonitorState {
   statusText?: string
 }
 
+/** 🔴 2026-08-15 编排对齐（③ 前端子 Agent 监控）：delegateTasks 条目结构 */
+export interface DelegateTask {
+  id: string
+  goal?: string
+  eventType?: string
+  status?: string
+  depth?: number
+  parentId?: string
+  model?: string
+  childSessionId?: string
+  toolName?: string
+  thinkingText?: string
+  progressSummary?: string
+  toolCount?: number
+  durationSeconds?: number
+  summary?: string
+  inputTokens?: number
+  outputTokens?: number
+  apiCalls?: number
+  exitReason?: string
+  /** 过程轨迹（工具名/进度/文本 delta，按到达序，cap 60） */
+  trace?: string[]
+  /** 最近一次文本 delta（子 Agent 输出过程） */
+  lastText?: string
+  [k: string]: unknown
+}
+
 // ── Internal state ──
 let debugEvents: DebugEvent[] = []
 let debugToolCalls: DebugToolCall[] = []
@@ -113,5 +140,15 @@ export function useMonitorSessionStartedAt(): number | null | undefined {
     subscribe,
     () => monitor.sessionStartedAt,
     () => monitor.sessionStartedAt
+  )
+}
+
+/** 🔴 2026-08-15 编排对齐（③ 前端子 Agent 监控）：delegateTasks 只写不读
+ * 的死状态修复——导出订阅 hook 供 SubagentMonitor 消费。 */
+export function useMonitorDelegateTasks(): Record<string, unknown> {
+  return useSyncExternalStore(
+    subscribe,
+    () => monitor.delegateTasks,
+    () => monitor.delegateTasks
   )
 }

@@ -44,6 +44,7 @@ import SettingsPanel from './components/SettingsPanel';
 import AboutPanel from './components/AboutPanel';
 import ModelPickerPanel from './components/ModelPickerPanel';
 import ToolStatusBar from './components/ToolStatusBar'
+import SubagentMonitor from './components/SubagentMonitor'
 import MessageContainer from './components/MessageContainer';
 import InputArea from './components/InputArea';
 import ContextBar from './components/ContextBar';
@@ -1467,6 +1468,8 @@ export default function App() {
               }}
             >
               <ToolStatusBar sessionId={sess.sessionId} isStreaming={isStreaming} onToggleViewMode={toggleViewMode} />
+              {/* 🔴 2026-08-15 编排对齐（③ 前端子 Agent 监控）：任务过程 + 对话注入 */}
+              <SubagentMonitor sessionId={sess.sessionId} />
               {!portReady && messageCount === 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', opacity: 0.6 }}>
                   <div className="spinner" style={{ width: 32, height: 32, border: '3px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
