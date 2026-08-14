@@ -152,6 +152,8 @@ export async function setDelegationPause(sessionId: string, paused: boolean): Pr
 /** 获取委托状态 */
 export interface ActiveSubagent {
   subagent_id: string;
+  /** 🔴 2026-08-15 双登记合并：父会话 id（后端 delegation.status 已按此过滤，仅同会话子可见） */
+  parent_session_id?: string | null;
   goal: string;
   depth: number;
   model: string | null;
