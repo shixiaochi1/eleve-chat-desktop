@@ -12,7 +12,8 @@
  * 仅在存在活跃/已完成委托任务时渲染。
  *
  * 🔴 2026-08-15 修复（遮挡主聊天窗口）：原由 App 无条件挂载、弹出后无法收起；
- * 现改由 ToolStatusBar 的"监控"按钮控制开合，本组件头部提供 X 收起按钮
+ * 现改由 ToolStatusBar 的监控触发按钮控制开合（对齐 DSH SubagentCatalogAction），
+ * 面板以抽屉形式从消息区顶部滑出覆盖；本组件头部提供 X 收起按钮
  * （onClose 可选，未提供则不渲染）。
  */
 import { useEffect, useMemo, useState, useCallback } from 'react';
@@ -347,7 +348,7 @@ export default function SubagentMonitor({ sessionId, onClose }: { sessionId?: st
   if (tasks.length === 0) return null;
 
   return (
-    <div className="subagent-monitor-in border-b border-border bg-background/40 px-3 py-2 space-y-2">
+    <div className="px-3 py-2 space-y-2">
       <div className="flex items-center justify-between">
         <div className="text-[11px] font-medium text-foreground/85">子 Agent 监控</div>
         <div className="flex items-center gap-2">

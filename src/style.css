@@ -1028,15 +1028,6 @@ canvas {
    聊天区域
    ================================================================ */
 
-/* ── 子 Agent 监控面板：从顶部下滑展开（仅 transform/opacity，GPU 合成）── */
-@keyframes subagent-monitor-in {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.subagent-monitor-in {
-  animation: subagent-monitor-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
 .chat-area {
   flex: 1;
   display: flex;
@@ -1045,6 +1036,51 @@ canvas {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  position: relative; /* 子 Agent 监控抽屉的定位锚点 */
+}
+
+/* ── StateDot 像素追逐动画（复刻 DSH ui-primitives StateDot ongoing 态）──
+   外圈 8 格阶梯亮度 hold（无补间，复古感），每格 -125ms 错相顺时针追逐。 */
+.state-dot-matrix {
+  color: var(--ui-blue);
+}
+.state-dot-cell {
+  fill: currentColor;
+  opacity: 0.15;
+  animation: state-dot-chase 1s infinite;
+}
+@keyframes state-dot-chase {
+  0%, 12.4% { opacity: 1; }
+  12.5%, 24.9% { opacity: 0.6; }
+  25%, 37.4% { opacity: 0.35; }
+  37.5%, 100% { opacity: 0.15; }
+}
+
+/* ── 子 Agent 监控抽屉：从消息区顶部（状态栏下方）向下滑出，覆盖消息区。
+   仅 transform/opacity 过渡（GPU 合成，零重绘），对齐项目动画惯例。 */
+.subagent-drawer {
+  position: absolute;
+  top: 40px; /* 状态栏高度 h-10，抽屉自其下缘滑出 */
+  left: 0;
+  right: 0;
+  z-index: 30;
+  transform: translateY(-104%); /* 收起：上滑藏入状态栏后方（chat-area overflow hidden 裁掉） */
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+}
+.subagent-drawer-open {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+.subagent-drawer-panel {
+  background: var(--ui-card-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--dt-border);
+  border-radius: 0 0 12px 12px;
+  box-shadow: var(--shadow-md);
 }
 
 /* ================================================================

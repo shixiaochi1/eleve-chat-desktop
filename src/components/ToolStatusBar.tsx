@@ -5,16 +5,19 @@
  * 对齐 Hermes delegation.pause / delegation.status / subagent.interrupt。
  * 仅在 streaming 或有活跃子 Agent 时显示控制按钮。
  *
- * 🔴 2026-08-15 子 Agent 监控开合（老大需求）：监控按钮放在本状态栏内，
- * 控制 SubagentMonitor 面板的展开/收起（原先 App 无条件挂载导致弹出后
- * 收不回去、遮挡主聊天窗口）。新任务到达（runningCount 0→>0）自动展开。
+ * 🔴 2026-08-15 子 Agent 监控开合（老大需求，对齐 DSH SubagentCatalogAction）：
+ * 状态栏内放监控触发按钮——DSH 同款 StateDot 像素追逐动画点（有子 Agent
+ * 运行时）+ 计数 + 旋转 chevron；点击后监控面板以抽屉形式从消息区顶部
+ * （状态栏下缘）向下滑出、覆盖消息区（position:absolute，不挤压布局）。
+ * 新任务到达（runningCount 0→>0）自动展开抽屉。
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { getDelegationStatus, setDelegationPause, interruptSubagent, type ActiveSubagent } from '../utils/api';
 import { notifyError, notifySuccess } from '../utils/notifications';
-import { Pause, Play, Square, Bot, X, Eye } from 'lucide-react';
+import { Pause, Play, Square, Bot, X, ChevronDown } from 'lucide-react';
 import SubagentMonitor, { useSubagentTasks } from './SubagentMonitor';
+import StateDot from './StateDot';
 
 interface ToolStatusBarProps {
   sessionId?: string | null;
@@ -38,6 +41,13 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
     if (runningCount > 0 && prevRunningRef.current === 0) setMonitorOpen(true);
     prevRunningRef.current = runningCount;
   }, [runningCount]);
+  // 对齐 DSH：抽屉打开时 Escape 关闭
+  useEffect(() => {
+    if (!monitorOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMonitorOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [monitorOpen]);
 
   const poll = useCallback(async () => {
     if (!sessionId) return;
@@ -122,23 +132,30 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
               : '就绪'}
         </span>
 
-        {/* 🔴 2026-08-15 子 Agent 监控开合按钮（老大需求：按钮放工具状态栏内） */}
+        {/* 🔴 2026-08-15 子 Agent 监控触发按钮（对齐 DSH SubagentCatalogAction trigger：
+            StateDot 像素追逐动画点 + 计数 + chevron；点击弹出顶部抽屉） */}
         {hasMonitorTasks && (
           <button
+            type="button"
             className={cn(
-              'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors',
-              monitorOpen
-                ? 'bg-primary/15 text-primary hover:bg-primary/25'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              'flex items-center gap-[3px] min-h-[28px] px-1 rounded-md bg-transparent text-[12px] leading-[18px] cursor-pointer transition-colors',
+              monitorOpen ? 'text-foreground' : 'text-muted-foreground/70 hover:text-foreground'
             )}
+            aria-haspopup="true"
+            aria-expanded={monitorOpen}
             onClick={() => setMonitorOpen((v) => !v)}
-            title={monitorOpen ? '收起子 Agent 监控面板' : '展开子 Agent 监控面板'}
+            title={monitorOpen ? '收起子 Agent 监控' : '展开子 Agent 监控'}
           >
-            <Eye size={11} />
-            监控
-            <span className={cn('px-1 rounded-full text-[9px] leading-[14px]', runningCount > 0 ? 'bg-primary/20 text-primary' : 'bg-accent text-muted-foreground')}>
-              {runningCount > 0 ? runningCount : monitorTasks.length}
+            <span className="inline-flex flex-none w-2.5 h-2.5">
+              <StateDot running={runningCount > 0} />
             </span>
+            <span className="mx-[5px]">
+              {runningCount > 0 ? `${runningCount} 运行中` : `共 ${monitorTasks.length}`}
+            </span>
+            <ChevronDown
+              size={14}
+              className={cn('transition-transform duration-150', monitorOpen && 'rotate-180')}
+            />
           </button>
         )}
 
@@ -192,8 +209,15 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
           </div>
         )}
       </div>
-      {/* 🔴 2026-08-15 监控面板：开合受状态栏"监控"按钮控制（原 App 无条件挂载已移除） */}
-      {monitorOpen && <SubagentMonitor sessionId={sessionId} onClose={() => setMonitorOpen(false)} />}
+      {/* 🔴 2026-08-15 监控抽屉：从状态栏下缘向下滑出、覆盖消息区（absolute 定位，
+          不挤压聊天布局）。chat-area 为定位锚点（style.css position:relative）。 */}
+      {hasMonitorTasks && (
+        <div className={cn('subagent-drawer', monitorOpen && 'subagent-drawer-open')}>
+          <div className="subagent-drawer-panel">
+            <SubagentMonitor sessionId={sessionId} onClose={() => setMonitorOpen(false)} />
+          </div>
+        </div>
+      )}
     </>
   );
 }
