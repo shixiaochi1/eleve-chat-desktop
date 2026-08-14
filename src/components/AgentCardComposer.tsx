@@ -17,7 +17,7 @@
  * 各自持有键盘编排，不强行合并成单一组件（避免 prop 爆炸）。
  */
 import { useState, useRef, useCallback, useLayoutEffect, forwardRef, useImperativeHandle } from 'react';
-import { SquarePen } from 'lucide-react';
+import { SquarePen, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { linkifyUrls, rewriteTypedUrl, formatRefValue } from '@/lib/url-refs';
 import AttachMenu from './AttachMenu';
@@ -59,6 +59,10 @@ interface AgentCardComposerProps {
   onQueueStep?: (direction: -1 | 1) => { text: string; done: boolean } | null;
   onQueueExit?: (action: 'save' | 'cancel') => string | null;
   onQueueLoadText?: (text: string) => void;
+  /** 🔴 2026-08-15 排队按钮开合（DSH QueueDock 对齐；弹层由父级 AgentChatCard 渲染锚定） */
+  queueCount?: number;
+  queueOpen?: boolean;
+  onToggleQueue?: () => void;
 }
 
 /** 命令式句柄（队列编辑时父级读/写草稿） */
@@ -88,6 +92,9 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
   onQueueStep,
   onQueueExit,
   onQueueLoadText,
+  queueCount,
+  queueOpen,
+  onToggleQueue,
 }, ref) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [value, setValue] = useState('');
@@ -452,6 +459,28 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
 
         {/* 附件 + 菜单（图片接通后端、链接插入光标） */}
         <AttachMenu onPickImage={handleFileSelect} onAddUrl={handleAddUrl} />
+
+        {/* 🔴 2026-08-15 排队消息按钮（DSH QueueDock 对齐，与单视图同交互）：
+            有排队条目时显示；点击开合 composer 上缘弹层（父级 AgentChatCard 渲染） */}
+        {(queueCount ?? 0) > 0 && (
+          <button
+            type="button"
+            data-queue-toggle
+            onClick={onToggleQueue}
+            className={cn(
+              'inline-flex size-7 shrink-0 items-center justify-center rounded-md transition-colors duration-150 cursor-pointer relative',
+              queueOpen ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+            )}
+            title={queueOpen ? '收起排队消息' : `排队消息（${queueCount}）`}
+            aria-label={`排队消息（${queueCount}）`}
+            aria-expanded={queueOpen}
+          >
+            <Layers size={14} />
+            <span className="absolute -top-1 -right-1 min-w-3.5 h-3.5 px-0.5 rounded-full bg-primary text-background text-[9px] leading-[14px] text-center">
+              {queueCount}
+            </span>
+          </button>
+        )}
 
         {/* 语音 — P4 解禁：按钮自身传达状态（录音红 / 转录脉冲），严守单行布局 */}
         <button

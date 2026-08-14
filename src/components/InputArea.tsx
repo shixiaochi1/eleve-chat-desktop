@@ -116,7 +116,10 @@ function InputArea({
   useEffect(() => {
     if (!queueOpen || queueEdit) return; // 编辑中不自动收起
     const onDocDown = (e: MouseEvent) => {
-      if (queuePopupRef.current && !queuePopupRef.current.contains(e.target as Node)) {
+      const t = e.target as HTMLElement;
+      // 排除开合按钮本身——toggle 负责开关，否则 mousedown 先关、click 再开，按钮关不掉面板
+      if (t.closest('[data-queue-toggle]')) return;
+      if (queuePopupRef.current && !queuePopupRef.current.contains(t)) {
         setQueueOpen(false);
       }
     };
@@ -707,6 +710,7 @@ function InputArea({
             {queueProfile && queueEntries.length > 0 && (
               <button
                 type="button"
+                data-queue-toggle
                 onClick={() => setQueueOpen((v) => !v)}
                 className={cn(
                   'inline-flex size-(--composer-control-size) shrink-0 items-center justify-center rounded-md transition-colors duration-150 relative',

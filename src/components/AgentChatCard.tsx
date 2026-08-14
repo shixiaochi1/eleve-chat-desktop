@@ -33,6 +33,7 @@ import ModelPill from './ModelPill';
 import CardContextGauge from './CardContextGauge';
 import SlashConfirmCard from './SlashConfirmCard';
 import QueuePanel from './QueuePanel';
+import GoalBar from './GoalBar';
 import { useImageAttachments } from '@/hooks/useImageAttachments';
 import { useFileAttachments } from '@/hooks/useFileAttachments';
 import { collectDroppedPaths, dragHasPaths } from '@/lib/paths-dnd';
@@ -170,6 +171,32 @@ export const AgentChatCard = memo(function AgentChatCard({
   // ── 排队编辑（对齐 Hermes use-composer-queue：per-agent queueEdit 状态）──
   const queueEntries = useQueue(name);
   const [queueEdit, setQueueEdit] = useState<{ entryId: string; draft: string } | null>(null);
+  // 🔴 2026-08-15 DSH QueueDock 对齐（宫格）：排队面板改弹层开合（同单视图 InputArea）
+  const [queueOpen, setQueueOpen] = useState(false);
+  const queuePopupRef = useRef<HTMLDivElement | null>(null);
+  const prevQueueCountRef = useRef(queueEntries.length);
+  useEffect(() => {
+    // 新条目入队 → 自动展开；清空 → 自动收起
+    if (queueEntries.length > 0 && prevQueueCountRef.current === 0) setQueueOpen(true);
+    if (queueEntries.length === 0) setQueueOpen(false);
+    prevQueueCountRef.current = queueEntries.length;
+  }, [queueEntries.length]);
+  useEffect(() => {
+    // 进入编辑态强制展开
+    if (queueEdit) setQueueOpen(true);
+  }, [queueEdit]);
+  // 点击弹层外关闭（编辑中不自动收起；排除开合按钮——toggle 负责开关，
+  // 否则 mousedown 先关、click 再开，按钮关不掉面板）
+  useEffect(() => {
+    if (!queueOpen || queueEdit) return;
+    const onDocDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest('[data-queue-toggle]')) return;
+      if (queuePopupRef.current && !queuePopupRef.current.contains(t)) setQueueOpen(false);
+    };
+    document.addEventListener('mousedown', onDocDown);
+    return () => document.removeEventListener('mousedown', onDocDown);
+  }, [queueOpen, queueEdit]);
 
   const beginQueueEdit = useCallback((entry: QueuedMessage, currentDraft: string) => {
     if (queueEdit) return;
@@ -564,15 +591,31 @@ export const AgentChatCard = memo(function AgentChatCard({
         </div>
       )}
 
-      {/* ── 排队面板（对齐 Hermes QueuePanel：官格每卡 composer 上方）── */}
-      <QueuePanel
-        entries={queueEntries}
-        busy={streaming}
-        editingId={queueEdit?.entryId ?? null}
-        onDelete={(id) => onQueueDelete(name, id)}
-        onEdit={(entry) => beginQueueEdit(entry, composerRef.current?.getValue() ?? '')}
-        onSendNow={(id) => onQueueSendNow(name, id)}
-      />
+      {/* 🔴 2026-08-15 DSH GoalBar 对齐（宫格）：进行中目标显示框。
+          普通文档流（对齐单视图 InputArea）：消息区 → 本框 → composer。 */}
+      <div className="px-2.5 pb-1 shrink-0">
+        <GoalBar sessionId={state.sessionId ?? undefined} />
+      </div>
+
+      {/* 🔴 2026-08-15 排队面板改弹层（DSH QueueDock 对齐，与单视图同交互）：
+          原常驻展开 QueuePanel 移除 → composer 按钮栏 Layers 按钮开合，
+          弹层锚定 composer 上缘向上弹出（覆盖消息区下部，max-h 防出卡）。 */}
+      <div className="relative">
+        {queueOpen && queueEntries.length > 0 && (
+          <div
+            ref={queuePopupRef}
+            className="absolute inset-x-0 bottom-full z-50 mb-1.5 max-h-56 overflow-y-auto"
+          >
+            <QueuePanel
+              entries={queueEntries}
+              busy={streaming}
+              editingId={queueEdit?.entryId ?? null}
+              onDelete={(id) => onQueueDelete(name, id)}
+              onEdit={(entry) => beginQueueEdit(entry, composerRef.current?.getValue() ?? '')}
+              onSendNow={(id) => onQueueSendNow(name, id)}
+            />
+          </div>
+        )}
 
       {/* ── 输入区 — 全功能紧凑 Composer（自动撑大 + slash 补全 + 新建/附件/语音/发送）── */}
       <AgentCardComposer
@@ -597,7 +640,11 @@ export const AgentChatCard = memo(function AgentChatCard({
         onQueueStep={(dir) => stepQueueEdit(dir, composerRef.current?.getValue() ?? '')}
         onQueueExit={(action) => exitQueueEdit(action, composerRef.current?.getValue() ?? '')}
         onQueueLoadText={(text) => composerRef.current?.setValue(text)}
+        queueCount={queueEntries.length}
+        queueOpen={queueOpen}
+        onToggleQueue={() => setQueueOpen((v) => !v)}
       />
+      </div>
     </div>
   );
 });
