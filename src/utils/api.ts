@@ -187,6 +187,37 @@ export async function steerSubagent(subagentId: string, instruction: string): Pr
   return call('subagent_steer', { subagent_id: subagentId, text: instruction });
 }
 
+/** 子会话历史消息（对齐 DSH subagent.history：parent 校验 + 分页游标） */
+export interface SubagentHistoryMessage {
+  role: string;
+  content: unknown;
+  tool_name?: string;
+  tool_call_id?: string;
+  message_id?: string;
+  display_kind?: string;
+  [k: string]: unknown;
+}
+
+/** 🔴 2026-08-15 前端普查待办①：回读子会话消息历史
+ * （子会话已落库但不在 SessionManager，走专用 RPC 按 child_session_id 读 DB）。
+ * limit/before_id 缺省 = 全量；传 limit 返回最新 N 条，has_more + oldest_id 上翻。 */
+export async function getSubagentHistory(
+  sessionId: string,
+  childSessionId: string,
+  limit?: number,
+  beforeId?: number,
+): Promise<{
+  child_session_id: string;
+  messages: SubagentHistoryMessage[];
+  has_more?: boolean;
+  oldest_id?: number | null;
+}> {
+  const params: Record<string, unknown> = { session_id: sessionId, child_session_id: childSessionId };
+  if (limit !== undefined) params.limit = limit;
+  if (beforeId !== undefined) params.before_id = beforeId;
+  return call('subagent_history', params);
+}
+
 // F3: 输入增强
 
 export interface CompletionItem {

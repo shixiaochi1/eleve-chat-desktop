@@ -176,6 +176,8 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   subagent_interrupt:     'subagent.interrupt',
   // 🔴 2026-08-15 编排对齐：向运行中子 Agent 下达指令（步边界注入）
   subagent_steer:         'subagent.steer',
+  // 🔴 2026-08-15 前端普查待办①：回读子会话消息历史（对齐 DSH subagent.history）
+  subagent_history:       'subagent.history',
   // F3: 输入增强（后端已就绪）
   complete_path:          'complete.path',
   // F4: 信息面板（后端已就绪）

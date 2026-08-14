@@ -11,11 +11,11 @@
  *
  * 仅在存在活跃/已完成委托任务时渲染（App 挂在 ToolStatusBar 下方）。
  */
-import { useMemo, useState, useCallback } from 'react';
-import { Bot, X, Send, ChevronDown, ChevronUp } from 'lucide-react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
+import { Bot, X, Send, ChevronDown, ChevronUp, History } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMonitorDelegateTasks, type DelegateTask } from '../store/debug';
-import { steerSubagent, interruptSubagent } from '../utils/api';
+import { steerSubagent, interruptSubagent, getSubagentHistory, type SubagentHistoryMessage } from '../utils/api';
 import { notifyError, notifySuccess } from '../utils/notifications';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -29,6 +29,43 @@ const STATUS_CLS: Record<string, string> = {
   completed: 'text-success',
   failed: 'text-destructive',
 };
+
+/** 历史消息角色标签（紧凑渲染用；未知角色回退原样显示） */
+const ROLE_LABEL: Record<string, string> = {
+  user: '用户',
+  assistant: '助手',
+  tool: '工具',
+  system: '系统',
+};
+
+const ROLE_CLS: Record<string, string> = {
+  user: 'text-primary/90',
+  assistant: 'text-foreground/90',
+  tool: 'text-muted-foreground/80',
+  system: 'text-muted-foreground/60',
+};
+
+/** 单页历史条数（对齐聊天软件式窗口加载） */
+const HISTORY_PAGE = 30;
+
+/** 提取消息文本（content 为字符串或多模态数组，对齐后端 conversation_row_to_value） */
+function messageText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((block) => {
+        if (block && typeof block === 'object') {
+          const b = block as Record<string, unknown>;
+          if (typeof b.text === 'string') return b.text as string;
+          if (b.type === 'image_url') return '[图片]';
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  return '';
+}
 
 function fmtDuration(sec?: number): string {
   if (sec === undefined || sec === null || Number.isNaN(sec)) return '';
@@ -47,8 +84,48 @@ function TaskCard({ task, sessionId }: TaskCardProps) {
   const [instruction, setInstruction] = useState('');
   const [sending, setSending] = useState(false);
   const [showTrace, setShowTrace] = useState(false);
+  // ── 对话历史（对齐 DSH subagent.history：child_session_id 回读 + 上翻分页）──
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<SubagentHistoryMessage[] | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyOldestId, setHistoryOldestId] = useState<number | null>(null);
   const status = task.status ?? (task.eventType === 'subagent.complete' ? 'completed' : 'running');
   const isDone = status !== 'running';
+  const canReadHistory = Boolean(sessionId && task.childSessionId);
+
+  const loadHistory = useCallback(
+    async (beforeId?: number) => {
+      if (!canReadHistory || historyLoading) return;
+      setHistoryLoading(true);
+      setHistoryError('');
+      try {
+        const res = await getSubagentHistory(sessionId!, task.childSessionId!, HISTORY_PAGE, beforeId);
+        setHistory((prev) => {
+          if (beforeId !== undefined && prev) {
+            // 上翻：更早消息插前（后端游标严格 before_id 过滤，页间不重叠）
+            return [...res.messages, ...prev];
+          }
+          return res.messages;
+        });
+        setHistoryHasMore(Boolean(res.has_more));
+        setHistoryOldestId(res.oldest_id ?? null);
+      } catch (e) {
+        setHistoryError(e instanceof Error ? e.message : '历史加载失败');
+      } finally {
+        setHistoryLoading(false);
+      }
+    },
+    [canReadHistory, historyLoading, sessionId, task.childSessionId],
+  );
+
+  // 首次展开时懒加载最新一页
+  useEffect(() => {
+    if (showHistory && history === null && !historyLoading && canReadHistory) {
+      void loadHistory();
+    }
+  }, [showHistory, history, historyLoading, canReadHistory, loadHistory]);
 
   const handleSteer = useCallback(async () => {
     const text = instruction.trim();
@@ -153,6 +230,55 @@ function TaskCard({ task, sessionId }: TaskCardProps) {
                   {line}
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 对话历史（折叠；child_session_id 回读，对齐 DSH subagent.history） */}
+      {canReadHistory && (
+        <div className="pl-5">
+          <button
+            className="text-[10px] text-muted-foreground/70 hover:text-foreground flex items-center gap-1"
+            onClick={() => setShowHistory((v) => !v)}
+            title="查看该子 Agent 的对话历史"
+          >
+            {showHistory ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+            <History size={11} />
+            对话历史{history ? `（${history.length} 条${historyHasMore ? '+' : ''}）` : ''}
+          </button>
+          {showHistory && (
+            <div className="mt-1 max-h-44 overflow-y-auto space-y-1 rounded bg-accent/40 p-1.5">
+              {historyLoading && history === null && (
+                <div className="text-[10px] text-muted-foreground/70">加载中…</div>
+              )}
+              {historyError && <div className="text-[10px] text-destructive/80 break-all">{historyError}</div>}
+              {history && history.length === 0 && !historyLoading && (
+                <div className="text-[10px] text-muted-foreground/70">无历史消息</div>
+              )}
+              {historyHasMore && (
+                <button
+                  className="w-full text-left text-[10px] text-primary/80 hover:text-primary disabled:opacity-50"
+                  onClick={() => void loadHistory(historyOldestId ?? undefined)}
+                  disabled={historyLoading}
+                >
+                  {historyLoading ? '加载中…' : '加载更早…'}
+                </button>
+              )}
+              {history?.map((m, i) => {
+                const text = messageText(m.content);
+                const fallback = m.role === 'tool' && m.tool_name ? `调用 ${m.tool_name}` : '';
+                const shown = text || fallback;
+                if (!shown) return null;
+                return (
+                  <div key={i} className="text-[10px] leading-tight break-all">
+                    <span className={ROLE_CLS[m.role] ?? 'text-muted-foreground'}>
+                      {ROLE_LABEL[m.role] ?? m.role}：
+                    </span>
+                    <span className="text-muted-foreground/90 whitespace-pre-wrap">{shown}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
