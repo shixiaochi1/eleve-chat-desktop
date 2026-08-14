@@ -178,6 +178,11 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   subagent_steer:         'subagent.steer',
   // 🔴 2026-08-15 前端普查待办①：回读子会话消息历史（对齐 DSH subagent.history）
   subagent_history:       'subagent.history',
+  // 🔴 2026-08-15 DSH GoalBar 对齐：会话目标查询/暂停/恢复/清除（goal.* WS RPC）
+  goal_status:            'goal.status',
+  goal_pause:             'goal.pause',
+  goal_resume:            'goal.resume',
+  goal_clear:             'goal.clear',
   // F3: 输入增强（后端已就绪）
   complete_path:          'complete.path',
   // F4: 信息面板（后端已就绪）

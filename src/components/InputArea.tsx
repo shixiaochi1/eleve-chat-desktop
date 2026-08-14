@@ -3,6 +3,7 @@ import { completePath } from '../utils/api';
 import CommandMenu from './CommandMenu';
 import ModelPill from './ModelPill';
 import AttachMenu from './AttachMenu';
+import GoalBar from './GoalBar';
 import VoiceActivityBar from './VoiceActivityBar';
 import ThinkingButton from './ThinkingButton';
 import FastModeButton from './FastModeButton';
@@ -11,6 +12,7 @@ import SlashCommandPopup from './SlashCommandPopup';
 import QueuePanel from './QueuePanel';
 import { SendIcon, MicIcon, LoadingIcon } from './Icons';
 import { WakeWordButton } from './WakeWordButton';
+import { Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useVoice } from '@/hooks/useVoice';
 import { getWsClient } from '@/services/ws-client';
@@ -93,6 +95,34 @@ function InputArea({
   // ── 排队编辑（对齐 Hermes use-composer-queue: beginQueuedEdit / stepQueuedEdit / exitQueuedEdit）──
   const queueEntries = useQueue(queueProfile ?? '');
   const [queueEdit, setQueueEdit] = useState<{ entryId: string; draft: string } | null>(null);
+  // 🔴 2026-08-15 DSH QueueDock 对齐：排队改为控制行按钮 + 容器内向上弹出面板
+  // （老大需求）。原常驻展开面板改为按需开合；有编辑/新排队时自动展开。
+  const [queueOpen, setQueueOpen] = useState(false);
+  const queueCount = queueEntries.length;
+  const prevQueueCountRef = useRef(queueCount);
+  useEffect(() => {
+    // 新条目入队 → 自动展开（DSH QueueDock：interaction 驱动）
+    if (queueCount > 0 && prevQueueCountRef.current === 0) setQueueOpen(true);
+    // 清空 → 自动收起
+    if (queueCount === 0) setQueueOpen(false);
+    prevQueueCountRef.current = queueCount;
+  }, [queueCount]);
+  useEffect(() => {
+    // 进入编辑态时确保面板展开（beginQueueEdit 从面板外触发也能看到条目）
+    if (queueEdit) setQueueOpen(true);
+  }, [queueEdit]);
+  // 排队弹层点击外部关闭（DSH QueueDock closeOutside 语义）
+  const queuePopupRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!queueOpen || queueEdit) return; // 编辑中不自动收起
+    const onDocDown = (e: MouseEvent) => {
+      if (queuePopupRef.current && !queuePopupRef.current.contains(e.target as Node)) {
+        setQueueOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocDown);
+    return () => document.removeEventListener('mousedown', onDocDown);
+  }, [queueOpen, queueEdit]);
 
   const syncHeight = useCallback(() => {
     const el = inputRef.current;
@@ -565,20 +595,31 @@ function InputArea({
 
   return (
     <div className="p-3">
-      {/* 排队面板（对齐 Hermes QueuePanel：InputArea 上方，空队列不渲染） */}
-      {queueProfile && (
-        <QueuePanel
-          entries={queueEntries}
-          busy={!!isStreaming}
-          editingId={queueEdit?.entryId ?? null}
-          onDelete={(id) => onQueueDelete?.(id)}
-          onEdit={beginQueueEdit}
-          onSendNow={(id) => onQueueSendNow?.(id)}
-        />
-      )}
+      {/* 🔴 2026-08-15 DSH GoalBar 对齐：进行中目标显示框（/goal 设定）。
+          普通文档流（非 overlay）：消息区 → 附件缩略图 → 本框 → 输入框，
+          天然不挡消息；附件缩略图在本框之上（App.tsx 附件条在 InputArea 之前渲染）。
+          排队面板改由下方控制行按钮开合（DSH QueueDock 对齐，老大需求）。 */}
+      <GoalBar sessionId={sessionId} />
 
       {/* Hermes 式容器表面 — 输入区在上，控制行在下 */}
       <div className="composer-surface relative rounded-2xl border">
+        {/* 🔴 2026-08-15 排队消息弹层（DSH QueueDock 对齐）：控制行按钮开合，
+            容器内向上弹出（与 @ 路径补全弹窗同锚定模式）。 */}
+        {queueProfile && queueOpen && queueEntries.length > 0 && (
+          <div
+            ref={queuePopupRef}
+            className="absolute inset-x-0 bottom-full z-50 mb-1.5"
+          >
+            <QueuePanel
+              entries={queueEntries}
+              busy={!!isStreaming}
+              editingId={queueEdit?.entryId ?? null}
+              onDelete={(id) => onQueueDelete?.(id)}
+              onEdit={beginQueueEdit}
+              onSendNow={(id) => onQueueSendNow?.(id)}
+            />
+          </div>
+        )}
         {/* `/` 命令补全弹窗 — 共享 SlashCommandPopup，锚定在容器表面上方 */}
         <div ref={popupRef}>
           {slash.showPopup && (
@@ -661,6 +702,27 @@ function InputArea({
             <CommandMenu commands={slash.commands} onCommand={handleCommandExec} />
             {/* 附件 "+" 菜单 — Hermes 式附件入口（图片接通后端、链接纯前端、文件/文件夹接通 Tauri 原生对话框） */}
             {onAddImage && <AttachMenu onPickImage={handleFileSelect} onPickImagePaths={handlePickImagePaths} onAttachFiles={handleAttachFiles} onAddUrl={handleAddUrl} onAddPaths={handleAddPaths} />}
+            {/* 🔴 2026-08-15 排队消息按钮（DSH QueueDock 对齐，老大需求：按钮放输入框上的按钮栏）
+                —— 有排队条目时显示；点击开合容器内向上弹出的排队面板 */}
+            {queueProfile && queueEntries.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setQueueOpen((v) => !v)}
+                className={cn(
+                  'inline-flex size-(--composer-control-size) shrink-0 items-center justify-center rounded-md transition-colors duration-150 relative',
+                  queueOpen ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                )}
+                title={queueOpen ? '收起排队消息' : `排队消息（${queueEntries.length}）`}
+                aria-label={`排队消息（${queueEntries.length}）`}
+                aria-expanded={queueOpen}
+              >
+                <Layers size={15} />
+                {/* 计数角标 */}
+                <span className="absolute -top-1 -right-1 min-w-3.5 h-3.5 px-0.5 rounded-full bg-primary text-background text-[9px] leading-[14px] text-center">
+                  {queueEntries.length}
+                </span>
+              </button>
+            )}
             {/* 麦克风 — P4 解禁：后端 voice.record 已真实接线（VAD 录音 + 静音自动停止 + 转录回推） */}
             <button
               type="button"
