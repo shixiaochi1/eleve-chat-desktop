@@ -27,6 +27,32 @@ import { completionErrorText } from '@/lib/completion-error';
 import type { ChatMessage } from '@/types';
 import type { Session } from '@/types';
 
+// ── 调试侧边栏刷屏修复（2026-08-15）──────────────────────────────
+// 子 Agent 每个文本 delta 都是一条 delegate.progress WS 帧；调试面板按帧
+// 记行且旧格式只显示 goal 前缀 → 同一子 Agent 信息重复刷屏。
+// subagent.text 按 subagentId 节流合并：800ms 一窗，只记一行（累计字数 +
+// 末段预览）；完整轨迹由 SubagentMonitor trace（cap 60）承载。
+const SUBAGENT_TEXT_COALESCE_MS = 800;
+const subagentTextCoalesce = new Map<string, { lastFlush: number; chars: number }>();
+
+/** 构造 delegate_progress 调试行（事件区分内容，替代统一 goal 前缀） */
+function buildDelegateProgressDebugLine(
+  eventType?: string,
+  payload?: { goal?: string; toolName?: string; toolPreview?: string; progressSummary?: string; summary?: string; status?: string },
+): string {
+  switch (eventType) {
+    case 'subagent.tool':
+      return `subagent.tool ${payload?.toolName || ''}`;
+    case 'subagent.progress':
+      return `subagent.progress ${payload?.progressSummary || ''}`;
+    case 'subagent.complete':
+      return `subagent.complete ${payload?.summary || payload?.status || ''}`.trim();
+    default:
+      return `${eventType || ''} ${payload?.goal?.slice(0, 40) || payload?.toolName || ''}`;
+  }
+}
+
+
 // ── Props type ──
 
 export interface SessionManagerHandle {
@@ -981,7 +1007,28 @@ export function useMessageStream({
       inputTokens?: number; outputTokens?: number; reasoningTokens?: number; apiCalls?: number
       filesRead?: string[]; filesWritten?: string[]; outputTail?: unknown[]; costUsd?: number; exitReason?: string
     }) => {
-      addDebugEvent('delegate_progress', `${data.eventType || ''} ${data.goal?.slice(0, 40) || data.toolName || ''}`);
+      // 🔴 2026-08-15 调试侧边栏刷屏修复：按事件区分内容 + subagent.text
+      // 节流合并（见模块顶部说明）——同一子 Agent 不再逐 delta 刷同前缀行。
+      if (data.eventType === 'subagent.text' && data.subagentId) {
+        const now = Date.now();
+        const st = subagentTextCoalesce.get(data.subagentId) || { lastFlush: 0, chars: 0 };
+        st.chars += String(data.toolPreview ?? '').length;
+        if (now - st.lastFlush >= SUBAGENT_TEXT_COALESCE_MS) {
+          addDebugEvent(
+            'delegate_progress',
+            `subagent.text +${st.chars}字 ${String(data.toolPreview ?? '').slice(-60)}`,
+          );
+          st.chars = 0;
+          st.lastFlush = now;
+        }
+        subagentTextCoalesce.set(data.subagentId, st);
+      } else {
+        if (data.subagentId && (data.eventType === 'subagent.complete' || data.status)) {
+          subagentTextCoalesce.delete(data.subagentId); // 终态清理节流状态
+        }
+        if (subagentTextCoalesce.size > 64) subagentTextCoalesce.clear(); // 防御性上限
+        addDebugEvent('delegate_progress', buildDelegateProgressDebugLine(data.eventType, data));
+      }
       // 更新 monitorState 显示子代理进度
       if (data.subagentId) {
         setMonitorState((prev) => {
