@@ -827,7 +827,6 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
   return (
     <main className="h-full overflow-hidden bg-background">
       <SettingsLayout
-        onClose={onBack}
         nav={
           <SettingsNav
             activeSection={activeSection}
@@ -837,7 +836,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
         footer={
           <div className="flex flex-col gap-0.5">
             <button
-              className="flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-sm text-left text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-sm text-left text-[var(--theme-muted-foreground)] transition-colors hover:bg-[var(--theme-accent)]/20 hover:text-[var(--theme-foreground)]"
               onClick={handleImportConfig}
               type="button"
             >
@@ -845,7 +844,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
               <span>导入配置</span>
             </button>
             <button
-              className="flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-sm text-left text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-sm text-left text-[var(--theme-muted-foreground)] transition-colors hover:bg-[var(--theme-accent)]/20 hover:text-[var(--theme-foreground)]"
               onClick={handleExportConfig}
               type="button"
             >

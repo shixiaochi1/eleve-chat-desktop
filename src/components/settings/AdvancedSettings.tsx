@@ -233,7 +233,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
         </p>
       </div>
 
-      <div className="border-t border-border my-4" />
+      <div className="my-4" />
 
       {/* ══════════ 工具输出设置 ══════════ */}
       <div className="text-xs font-semibold text-muted-foreground mb-2">
@@ -291,7 +291,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
         </p>
       </div>
 
-      <div className="border-t border-border my-4" />
+      <div className="my-4" />
 
       {/* ══════════ 检查点设置 ══════════ */}
       <div className="text-xs font-semibold text-muted-foreground mb-2">
@@ -315,7 +315,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
         </p>
       </div>
 
-      <div className="border-t border-border my-4" />
+      <div className="my-4" />
 
       {/* ══════════ 子 Agent 委派 ══════════ */}
       <div className="text-xs font-semibold text-muted-foreground mb-2">

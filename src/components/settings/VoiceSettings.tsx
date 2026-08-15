@@ -178,7 +178,7 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
         </p>
       </div>
 
-      <div className="border-t border-border my-4" />
+      <div className="my-4" />
 
       {/* ══════════ 文字转语音 (TTS) ══════════ */}
       <h3 className="text-sm font-medium mb-3">文字转语音 (TTS)</h3>
@@ -248,7 +248,7 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
         </p>
       </div>
 
-      <div className="border-t border-border my-4" />
+      <div className="my-4" />
 
       {/* ══════════ 语音控制 ══════════ */}
       <h3 className="text-sm font-medium mb-3">语音控制</h3>

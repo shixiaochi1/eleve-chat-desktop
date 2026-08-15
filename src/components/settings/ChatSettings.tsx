@@ -67,7 +67,7 @@ function SectionCard({
 }) {
   return (
     <div className="rounded-xl border border-border/60 bg-card overflow-hidden mb-4">
-      <div className="flex items-start gap-2.5 px-4 py-3 border-b border-border/60">
+      <div className="flex items-start gap-2.5 px-4 py-3">
         <Icon size={15} className="text-muted-foreground mt-0.5 shrink-0" strokeWidth={1.75} />
         <div>
           <h3 className="text-sm font-semibold text-foreground leading-tight">{title}</h3>

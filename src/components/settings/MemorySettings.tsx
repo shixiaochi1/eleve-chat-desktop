@@ -101,7 +101,7 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
       {/* 记忆数据 — 侧边栏记忆面板合并至此（当前 Agent 的记忆内容总览） */}
       <MemoryPanel currentProfile={currentProfile} />
 
-      <div className="border-t border-border my-4" />
+      <div className="my-4" />
 
       {/* 持久化记忆 */}
       <div className="flex items-center justify-between mb-3">
@@ -127,7 +127,7 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
         />
       </div>
 
-      <div className="border-t border-border my-4" />
+      <div className="my-4" />
 
       {/* 记忆预算 */}
       <div className="mb-3">
@@ -179,7 +179,7 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
         </p>
       </div>
 
-      <div className="border-t border-border my-4" />
+      <div className="my-4" />
 
       {/* 自动压缩 */}
       <div className="flex items-center justify-between mb-3">

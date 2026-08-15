@@ -165,7 +165,7 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
         </p>
       </div>
 
-      <div className="border-t border-border my-4" />
+      <div className="my-4" />
 
       {/* ══════════ 隐私与安全 ══════════ */}
       <h3 className="text-sm font-medium mb-3">隐私与安全</h3>
@@ -194,7 +194,7 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
         />
       </div>
 
-      <div className="border-t border-border my-4" />
+      <div className="my-4" />
 
       {/* ══════════ 浏览器安全 ══════════ */}
       <h3 className="text-sm font-medium mb-3">浏览器安全</h3>
@@ -223,7 +223,7 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
         />
       </div>
 
-      <div className="border-t border-border my-4" />
+      <div className="my-4" />
 
       {/* ══════════ 文件检查点 ══════════ */}
       <h3 className="text-sm font-medium mb-3">文件检查点</h3>

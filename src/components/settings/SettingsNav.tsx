@@ -28,10 +28,9 @@ export default function SettingsNav({ activeSection, onSectionChange }: { active
             key={s.id}
             className={cn(
               "flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-sm text-left transition-colors",
-              "hover:bg-accent hover:text-accent-foreground",
               isActive
-                ? "bg-accent text-accent-foreground font-medium"
-                : "text-muted-foreground"
+                ? "bg-[var(--theme-accent)] text-[var(--theme-accent-foreground)] font-medium"
+                : "text-[var(--theme-muted-foreground)] hover:bg-[var(--theme-accent)]/20 hover:text-[var(--theme-foreground)]"
             )}
             onClick={() => onSectionChange(s.id)}
             type="button"
