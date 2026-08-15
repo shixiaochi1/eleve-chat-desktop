@@ -1166,8 +1166,11 @@ function StatusMenuButton({ status, onMove }: { status: string; onMove: (s: stri
 function MoreMenuButton({ task, onAction }: { task: KanbanTask; onAction: (action: string, taskId: string) => void }) {
   const [open, setOpen] = useState(false);
 
-  const copy = (text: string) => {
+  const copy = (text: string, label: string) => {
     navigator.clipboard?.writeText(text).catch(() => {});
+    // 🔴 对齐 Hermes 复制后 notify（drawer.tsx host.notify，审查 d4-5）——
+    //   此前静默复制无反馈
+    notify({ kind: 'info', title: `已复制${label}`, message: text.slice(0, 80) });
     setOpen(false);
   };
 
@@ -1184,8 +1187,8 @@ function MoreMenuButton({ task, onAction }: { task: KanbanTask; onAction: (actio
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute top-full right-0 mt-1 min-w-[130px] py-1 rounded-md border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-bg-elevated)] shadow-lg z-50">
-            <button onClick={() => copy(task.id)} className="w-full text-left px-3 py-1.5 text-[0.75rem] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-bg-quinary)] transition-colors">复制任务 ID</button>
-            <button onClick={() => copy(task.title || task.id)} className="w-full text-left px-3 py-1.5 text-[0.75rem] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-bg-quinary)] transition-colors">复制标题</button>
+            <button onClick={() => copy(task.id, '任务 ID')} className="w-full text-left px-3 py-1.5 text-[0.75rem] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-bg-quinary)] transition-colors">复制任务 ID</button>
+            <button onClick={() => copy(task.title || task.id, '标题')} className="w-full text-left px-3 py-1.5 text-[0.75rem] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-bg-quinary)] transition-colors">复制标题</button>
             <div className="border-t border-[var(--ui-stroke-tertiary)] my-1" />
             <button onClick={() => { setOpen(false); onAction('archive', task.id); }} className="w-full text-left px-3 py-1.5 text-[0.75rem] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-bg-quinary)] transition-colors">归档</button>
             <button onClick={() => { setOpen(false); onAction('delete', task.id); }} className="w-full text-left px-3 py-1.5 text-[0.75rem] text-danger hover:bg-[color-mix(in_srgb,var(--ui-red)_12%,transparent)] transition-colors">删除</button>

@@ -582,27 +582,55 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     const ids = Array.from(checkedIds);
     setBulkConfirmAction(null);
     try {
+      // 🔴 对齐 Hermes SelectionBar（board.tsx L1014-1068）：批量移动到列 /
+      //   取消分配；部分失败 toast『N of M failed』且失败卡保持选中（审查 P1-9）
+      let results: Array<{ id: string; ok: boolean; error?: string }> | null = null;
       if (action === 'delete') {
         // 🔴 修复：后端 bulk 端点无 delete 语义——逐个删除（对齐 Hermes bulkDelete 扇出）
-        // 🔴 对齐 Hermes L968-979：部分失败 toast 报告（此前 allSettled 结果被丢弃，
-        //   批量失败静默）
-        const results = await Promise.allSettled(ids.map(id => deleteKanbanTask(id, currentBoard)));
-        const failed = results.filter(r => r.status === 'rejected').length;
-        if (failed > 0) {
-          alert(`批量删除完成：${ids.length - failed}/${ids.length} 成功，${failed} 个失败。`);
-        }
+        const settled = await Promise.allSettled(ids.map(id => deleteKanbanTask(id, currentBoard)));
+        results = ids.map((id, i) => ({
+          id,
+          ok: settled[i].status === 'fulfilled',
+          error: settled[i].status === 'rejected' ? String((settled[i] as PromiseRejectedResult).reason ?? '') : undefined,
+        }));
       } else if (action === 'complete') {
-        // 🔴 修复：后端 bulk_update_tasks 读顶层 status/archive/priority 等字段，
-        //   此前发送 { ids, data: { action } } 形状恒被忽略 → 批量操作静默失效
-        await bulkUpdateKanbanTasks(ids, { status: 'done' }, currentBoard);
+        const res = await bulkUpdateKanbanTasks(ids, { status: 'done' }, currentBoard);
+        results = res?.results || null;
       } else if (action === 'archive') {
-        await bulkUpdateKanbanTasks(ids, { archive: true }, currentBoard);
+        const res = await bulkUpdateKanbanTasks(ids, { archive: true }, currentBoard);
+        results = res?.results || null;
+      } else if (action === 'unassign') {
+        // 🔴 批量取消分配（对齐 Hermes SelectionBar Unassign）：空串 = 后端写 NULL
+        const res = await bulkUpdateKanbanTasks(ids, { assignee: '' }, currentBoard);
+        results = res?.results || null;
+      } else if (action.startsWith('move:')) {
+        // 🔴 批量移动到列（对齐 Hermes SelectionBar Move to，锁定列已在前端过滤）
+        const target = action.slice('move:'.length);
+        const res = await bulkUpdateKanbanTasks(ids, { status: target }, currentBoard);
+        results = res?.results || null;
       } else {
         await bulkUpdateKanbanTasks(ids, {}, currentBoard);
       }
-      setCheckedIds(new Set());
+
+      // 部分失败反馈（对齐 Hermes board.tsx L969-980）：失败卡保留在选中集
+      let failedIds: string[] = [];
+      if (results) {
+        failedIds = results.filter(r => !r.ok).map(r => r.id);
+        if (failedIds.length > 0) {
+          notify({
+            kind: 'warning',
+            title: '批量操作部分失败',
+            message: `${ids.length - failedIds.length}/${ids.length} 成功，${failedIds.length} 个失败（已保持选中，可重试）`,
+          });
+          setCheckedIds(new Set(failedIds));
+        } else {
+          setCheckedIds(new Set());
+        }
+      } else {
+        setCheckedIds(new Set());
+      }
       await loadBoard();
-      // 🔴 对齐 Hermes api.ts L168-188：批量完成/归档后 nudge——移入 done 立即
+      // 🔴 对齐 Hermes api.ts L168-188：批量完成后 nudge——移入 done 立即
       //   促进依赖子任务、归档释放容量，不等 60s tick（审查 P1-3）
       nudgeDispatch(currentBoard);
     } catch (err) {

@@ -98,7 +98,7 @@ import {
 // kanban 子模块（Tier 3 · 6-2 拆分）
 // ═══════════════════════════════════════════════════════════════
 import type { KanbanTask } from './kanban/types';
-import { COLUMNS, COLUMN_STATUS, updateStaleConfig } from './kanban/constants';
+import { COLUMNS, COLUMN_STATUS, LOCKED_DROP_COLUMNS, updateStaleConfig } from './kanban/constants';
 import { taskColumn, normalizeBoardData } from './kanban/helpers';
 import { KanbanColumn } from './kanban/KanbanColumn';
 import { TaskDrawer } from './kanban/TaskDrawer';
@@ -167,6 +167,8 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
   // 🔴 2026-08-13 Phase 2 拆分：状态与回调抽离到 useKanban（纯移动，无逻辑变更）。
   // 🔴 对齐 Hermes 列折叠：override map（手动切换持久于会话）+ 空列自动折叠
   const [collapsedLanes, setCollapsedLanes] = useState<Record<string, boolean>>({});
+  // 🔴 对齐 Hermes SelectionBar Move to 菜单（审查 P1-9）
+  const [showBulkMove, setShowBulkMove] = useState(false);
   const {
     apiTasks,
     setApiTasks,
@@ -699,6 +701,28 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
           <button onClick={() => handleBulkAction('delete')} className="text-[0.7rem] px-2 py-1 rounded border border-danger/25 text-danger hover:bg-danger/10 transition-colors">批量删除</button>
           <button onClick={() => { setShowBulkReassign(true); setBulkReassignProfile(''); }} className="text-[0.7rem] px-2 py-1 rounded border border-info/25 text-info hover:bg-info/10 transition-colors">批量重分配</button>
           <button onClick={() => { setShowBulkPriority(true); setBulkPriority(''); }} className="text-[0.7rem] px-2 py-1 rounded border border-warning/25 text-warning hover:bg-warning/10 transition-colors">批量改优先级</button>
+          {/* 🔴 对齐 Hermes SelectionBar Move to / Unassign（board.tsx L1014-1068，
+              审查 P1-9）：批量移动到列（排除锁定列）+ 批量取消分配 */}
+          <div className="relative">
+            <button onClick={() => setShowBulkMove(v => !v)} className="text-[0.7rem] px-2 py-1 rounded border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors">移动到 ▾</button>
+            {showBulkMove && (
+              <div className="absolute bottom-full left-0 mb-1 min-w-[120px] py-1 rounded-md border border-[var(--ui-stroke-tertiary)] bg-[var(--kanban-overlay)] shadow-lg z-50 backdrop-blur-sm">
+                {COLUMNS.filter(c => !LOCKED_DROP_COLUMNS.includes(c.key) && c.key !== 'archived' && c.key !== 'done').map(col => (
+                  <button key={col.key} onClick={() => { setShowBulkMove(false); void handleBulkAction(`move:${col.key}`); }}
+                    className="w-full text-left flex items-center gap-1.5 px-2.5 py-1 text-[0.7rem] text-[var(--ui-text-primary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_5%,transparent)] transition-colors">
+                    <span className="size-1.5 rounded-full shrink-0" style={{ backgroundColor: col.dotColor }} />
+                    移动到 {col.label}
+                  </button>
+                ))}
+                <div className="border-t border-[var(--ui-stroke-tertiary)] my-1" />
+                <button onClick={() => { setShowBulkMove(false); void handleBulkAction('move:done'); }}
+                  className="w-full text-left px-2.5 py-1 text-[0.7rem] text-success hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_5%,transparent)] transition-colors">
+                  移动到 已完成
+                </button>
+              </div>
+            )}
+          </div>
+          <button onClick={() => handleBulkAction('unassign')} className="text-[0.7rem] px-2 py-1 rounded border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors">取消分配</button>
           <button onClick={() => setCheckedIds(new Set())} className="ml-auto text-[0.7rem] text-[var(--ui-text-tertiary)] hover:text-[var(--ui-text-primary)] transition-colors">取消选择</button>
         </div>
       )}
