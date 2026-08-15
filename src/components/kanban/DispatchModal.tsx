@@ -22,7 +22,10 @@ interface DispatchModalProps {
 }
 
 export function DispatchModal({ open, board, onClose, onDispatched }: DispatchModalProps) {
-  const [dryRun, setDryRun] = useState(true);
+  // 🔴 2026-08-16 修复：dry_run 默认 false——原默认 true（预览模式）导致用户
+  //   点「执行调度」实际只是预览（结果面板标注 dry_run 但任务不动），
+  //   「派发功能是假的」的 UX 根因；预览改为显式勾选
+  const [dryRun, setDryRun] = useState(false);
   const [maxSpawn, setMaxSpawn] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<any>(null);

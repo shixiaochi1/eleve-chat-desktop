@@ -516,7 +516,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       // 让调用方（CreateTaskDrawer）能感知失败并展示错误
       throw err;
     }
-  }, [currentBoard, creatingIn, newTitle, newBody, newAssignee, newPriority, newSkills, newParent, newGoalMode, newGoalMaxTurns, newWorkspaceKind, newWorkspacePath, newModelOverride, loadBoard, orchestration, resolvedDefaultAssignee, nudgeDispatch]);
+  }, [currentBoard, creatingIn, newTitle, newBody, newAssignee, newPriority, newSkills, newParent, newGoalMode, newGoalMaxTurns, newWorkspaceKind, newWorkspacePath, newModelOverride, newProviderOverride, newReasoningEffort, loadBoard, orchestration, resolvedDefaultAssignee, nudgeDispatch]);
 
   // 🔴 2026-08-16（P1 遗留闭合）：提交评审（force=运行中显式覆盖，对齐 Hermes
   //   request_review force 语义）。浮层确认后调用；内聚完整闭环（notify + 清浮层
@@ -627,8 +627,34 @@ export function useKanban({ board = 'default' }: { board?: string }) {
         case 'archive': await updateKanbanTask(taskId, { status: 'archived' }, currentBoard); break;
         case 'delete': await deleteKanbanTask(taskId, currentBoard); break;
         // Phase 4.3: 分解/指定
-        case 'decompose': await decomposeKanbanTask(taskId, 'user', currentBoard); break;
-        case 'specify': await specifyKanbanTask(taskId, 'user', currentBoard); break;
+        // 🔴 2026-08-16 修复：此前静默吞掉 ok:false——分解 LLM 失败（如辅助
+        //   模型未配置）时任务不变且无任何提示（用户实测「分解没动静」）
+        case 'decompose': {
+          const r = await decomposeKanbanTask(taskId, 'user', currentBoard);
+          if (r?.ok === false) {
+            notify({
+              kind: 'warning',
+              title: '分解失败',
+              message: r.error || r.reason || '分解 LLM 调用失败（检查 auxiliary.kanban_decomposer 配置）',
+            });
+            break;
+          }
+          notify({ kind: 'success', title: '已分解', message: `任务 ${taskId} 已分解为子任务` });
+          break;
+        }
+        case 'specify': {
+          const r = await specifyKanbanTask(taskId, 'user', currentBoard);
+          if (r?.ok === false) {
+            notify({
+              kind: 'warning',
+              title: '细化失败',
+              message: r.error || r.reason || '细化 LLM 调用失败（检查 auxiliary.triage_specifier 配置）',
+            });
+            break;
+          }
+          notify({ kind: 'success', title: '已细化', message: `任务 ${taskId} 已细化` });
+          break;
+        }
         // Phase 4.6: 终止 run
         case 'terminate': await terminateKanbanRun(taskId, 'manual', currentBoard); break;
         // Phase 4.7: 订阅/取消订阅
