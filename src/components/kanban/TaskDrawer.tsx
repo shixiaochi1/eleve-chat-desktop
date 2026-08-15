@@ -52,7 +52,17 @@ function eventText(kind: string, payloadRaw: unknown): { detail?: string; label:
     case 'promoted': return { label: '提升为就绪' };
     case 'archived': return { label: '已归档' };
     case 'assigned': return { label: str('assignee') ? `分配给 ${str('assignee')}` : '重新分配' };
-    case 'status': return { label: `状态变更 → ${str('status') ?? '?'}` };
+    // 🔴 2026-08-16（d4-R3-07）：status 分支读 reason——父任务重开导致的后代
+    //   失效在活动流中可读（对齐 Hermes drawer.tsx L111-117
+    //   `reason === 'parent_reopened' → evtParentReopened`；后端已改发
+    //   'parent_reopened' 串）
+    case 'status': {
+      const st = str('status') ?? '?';
+      if (str('reason') === 'parent_reopened') {
+        return { label: `状态变更 → ${st}`, detail: `因父任务重开而失效${str('parent') ? `（父 ${str('parent')}）` : ''}` };
+      }
+      return { label: `状态变更 → ${st}`, detail: str('reason') ?? undefined };
+    }
     case 'claimed': return {
       label: '已被调度器认领',
       detail: [
@@ -62,7 +72,13 @@ function eventText(kind: string, payloadRaw: unknown): { detail?: string; label:
     };
     case 'reclaimed': return { label: '已回收', detail: str('reason') ?? undefined };
     // 🔴 对齐 Hermes eventText 专案（此前回退英文 kind 直出）
-    case 'spawned': return { label: 'worker 启动', detail: str('pid') ? `PID ${str('pid')}` : undefined };
+    // 🔴 2026-08-16（第三轮审查 d4-R3-11）：spawned 的 pid 后端写数字
+    //   （dispatch.rs 事件 payload {"pid": u32}），str() 只认字符串恒 null——
+    //   改宽松取值（对齐 Hermes drawer.tsx L132-133 `p.pid != null` 形状）。
+    case 'spawned': {
+      const pid = p.pid;
+      return { label: 'worker 启动', detail: pid != null ? `PID ${String(pid)}` : undefined };
+    }
     case 'reprioritized': return { label: '优先级变更', detail: str('priority') ?? undefined };
     case 'commented': return { label: '评论', detail: str('author') ?? undefined };
     case 'scheduled': return { label: '已排期', detail: str('reason') ?? undefined };

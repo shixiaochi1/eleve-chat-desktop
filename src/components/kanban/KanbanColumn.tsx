@@ -135,12 +135,13 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
             此前仅彩色竖条，色弱/灰阶下不可读（审查 P2-5） */}
         <div className="flex items-start gap-2">
           <div className="flex items-start gap-1.5 flex-1 min-w-0">
-            {priorityLevel !== null && ['0', '1', '2', '3'].includes(priorityLevel) && (
+            {// 🔴 2026-08-16（d1-R3-08）：仅 priority>0 显示徽标（对齐 Hermes
+                //   board.tsx L212-217）——'0' = 未设置，此前渲染红色 P0 制造
+                //   视觉噪声
+                priorityLevel !== null && ['1', '2', '3'].includes(priorityLevel) && (
               <span className={cn(
                 'inline-flex items-center gap-0.5 font-mono text-[0.62rem] px-1 py-px rounded-sm shrink-0 mt-0.5',
-                priorityLevel === '0'
-                  ? 'bg-[color-mix(in_srgb,var(--ui-red)_20%,transparent)] border border-[color-mix(in_srgb,var(--ui-red)_45%,transparent)] text-danger'
-                  : 'bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)]'
+                'bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)]'
               )} title={`优先级 P${priorityLevel}`}>
                 P{priorityLevel}
                 <ArrowUp size={9} strokeWidth={2} />
@@ -209,7 +210,10 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
               </span>
             )}
             <span className="font-mono text-[0.6rem] tracking-wide">
-              #{typeof task.id === 'string' ? task.id.slice(0, 6) : task.id}
+              {/* 🔴 2026-08-16（d1-R3-09）：短码剥 t_ 前缀再取 6 位（对齐 Hermes
+                  ui.tsx:55 `(id??'').replace(/^t_/,'').slice(0,6)`）——此前
+                  't_ab12cd' 只显示 4 位十六进制，可辨识度不足 */}
+              #{typeof task.id === 'string' ? task.id.replace(/^t_/, '').slice(0, 6) : task.id}
             </span>
           </div>
         </div>
