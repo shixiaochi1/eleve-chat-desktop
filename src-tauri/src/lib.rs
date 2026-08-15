@@ -595,7 +595,7 @@ async fn toggle_kanban_window(app: tauri::AppHandle) -> Result<String, String> {
         .min_inner_size(600.0, 400.0)
         .center()
         .resizable(true)
-        .decorations(true)
+        .decorations(false)
         .visible(false)
         .additional_browser_args(ELEVE_WEBVIEW_ARGS);
 

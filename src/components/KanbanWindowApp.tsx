@@ -1,26 +1,48 @@
 /**
- * KanbanWindowApp — 看板独立窗口的应用壳
+ * KanbanWindowApp — 看板独立窗口
  *
- * 独立窗口加载 ?panel=kanban 时的入口组件。
- * 只渲染 KanbanPanel + 端口发现，不加载侧栏/聊天等主界面组件。
- * 与主窗口共享同一个 eleved 后端。
+ * 1+8 布局：
+ * - 1 张背板 = body（var(--theme-background)）
+ * - 8 张列卡片放在背板上
+ * - 自绘标题栏（和主窗口同 .titlebar，transparent）
+ *
+ * 主题同步：
+ * - 启动时从后端 get_config 读取主题（单一真相源）
+ * - 监听 Tauri 事件 theme-changed（主窗口切换时 emit）
+ * - 直接 applyThemeCSS，不走 localStorage
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { listen } from '@tauri-apps/api/event';
 import KanbanPanel from './KanbanPanel';
-import { discoverPort } from '../utils/bridge';
-import { Loader } from 'lucide-react';
+import { discoverPort, call } from '../utils/bridge';
+import { deriveColors, type Appearance } from '../themes/derive';
+import { applyThemeCSS } from '../themes/context';
+import { Loader, Minus, Square, X } from 'lucide-react';
 
 export default function KanbanWindowApp() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [debug, setDebug] = useState<string[]>([]);
 
+  const win = getCurrentWindow();
+  const winMin = () => { win.minimize().catch(() => {}); };
+  const winMax = () => { win.toggleMaximize().catch(() => {}); };
+  const winClose = () => { win.close().catch(() => {}); };
+
   const log = (msg: string) => {
     console.log('[KanbanWindow]', msg);
     setDebug(prev => [...prev, `${new Date().toLocaleTimeString()} ${msg}`]);
   };
 
-  // 独立窗口也需要发现后端端口
+  // 应用主题到 CSS
+  const applyTheme = useCallback((accent: string, appearance: Appearance) => {
+    const isDark = appearance === 'dark' || (appearance === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const isGlass = appearance === 'glass';
+    const colors = deriveColors(accent, isDark);
+    applyThemeCSS(colors, isDark, isGlass, accent);
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
@@ -30,6 +52,35 @@ export default function KanbanWindowApp() {
         if (!ok) {
           throw new Error('discoverPort returned false');
         }
+
+        // 连 WS（get_config 走 WS）
+        const { getWsClient } = await import('../services/ws-client');
+        const ws = getWsClient();
+        if (ws.state === 'disconnected') {
+          log('connecting WS...');
+          ws.connect();
+        }
+        if (ws.state !== 'connected') {
+          log('waiting for WS connection...');
+          await new Promise<void>((resolve) => {
+            const unsub = ws.onStateChange((s) => {
+              if (s === 'connected') {
+                unsub();
+                resolve();
+              }
+            });
+            // 10s 超时
+            setTimeout(() => { unsub(); resolve(); }, 10000);
+          });
+        }
+
+        // 从后端读取主题配置
+        const cfg = await call('get_config', {}) as { display?: { accent?: string; appearance?: Appearance } } | null;
+        const accent = cfg?.display?.accent || '#6366f1';
+        const appearance = cfg?.display?.appearance || 'auto';
+        applyTheme(accent, appearance);
+        log(`theme loaded: accent=${accent}, appearance=${appearance}`);
+
         setReady(true);
         log('ready=true, rendering KanbanPanel');
       } catch (err) {
@@ -40,13 +91,36 @@ export default function KanbanWindowApp() {
     })();
   }, []);
 
-  // 渲染调试信息
+  // 监听主窗口主题切换事件
+  useEffect(() => {
+    const unlisten = listen<{ accent: string; appearance: Appearance }>('theme-changed', (event) => {
+      const { accent, appearance } = event.payload;
+      applyTheme(accent, appearance);
+      log(`theme-changed: accent=${accent}, appearance=${appearance}`);
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, []);
+
+  // 自绘标题栏（和主窗口同结构，transparent）
+  const titlebarEl = (
+    <div className="titlebar" data-tauri-drag-region onDoubleClick={winMax}>
+      <div className="titlebar-actions">
+        <button className="tb-btn" title="最小化" onClick={winMin}><Minus size={14} strokeWidth={1.5} /></button>
+        <button className="tb-btn" title="最大化" onClick={winMax}><Square size={12} strokeWidth={1.5} /></button>
+        <button className="tb-btn tb-btn-close" title="关闭" onClick={winClose}><X size={14} strokeWidth={1.5} /></button>
+      </div>
+    </div>
+  );
+
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen p-4" style={{ background: 'var(--ui-bg-chrome)' }}>
-        <p className="text-sm text-danger mb-4">{error}</p>
-        <div className="text-xs text-muted-foreground font-mono max-h-40 overflow-auto">
-          {debug.map((line, i) => <div key={i}>{line}</div>)}
+      <div className="flex flex-col h-screen">
+        {titlebarEl}
+        <div className="flex flex-col items-center justify-center flex-1 p-4">
+          <p className="text-sm text-danger mb-4">{error}</p>
+          <div className="text-xs text-muted-foreground font-mono max-h-40 overflow-auto">
+            {debug.map((line, i) => <div key={i}>{line}</div>)}
+          </div>
         </div>
       </div>
     );
@@ -54,18 +128,22 @@ export default function KanbanWindowApp() {
 
   if (!ready) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 h-screen" style={{ background: 'var(--ui-bg-chrome)' }}>
-        <Loader size={16} strokeWidth={1.5} className="animate-spin" style={{ color: 'var(--ui-text-tertiary)' }} />
-        <span className="text-sm" style={{ color: 'var(--ui-text-tertiary)' }}>连接后端...</span>
-        <div className="text-xs text-muted-foreground font-mono mt-2">
-          {debug.map((line, i) => <div key={i}>{line}</div>)}
+      <div className="flex flex-col h-screen">
+        {titlebarEl}
+        <div className="flex flex-col items-center justify-center gap-2 flex-1">
+          <Loader size={16} strokeWidth={1.5} className="animate-spin" style={{ color: 'var(--ui-text-tertiary)' }} />
+          <span className="text-sm" style={{ color: 'var(--ui-text-tertiary)' }}>连接后端...</span>
+          <div className="text-xs text-muted-foreground font-mono mt-2">
+            {debug.map((line, i) => <div key={i}>{line}</div>)}
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen overflow-hidden" style={{ background: 'var(--ui-bg-chrome)' }}>
+    <div className="flex flex-col h-screen">
+      {titlebarEl}
       <KanbanPanel />
     </div>
   );

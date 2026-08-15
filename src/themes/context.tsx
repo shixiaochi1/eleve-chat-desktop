@@ -19,6 +19,8 @@ import { deriveColors, ACCENT_COLORS, DEFAULT_ACCENT, DEFAULT_APPEARANCE, hexToR
 const ACCENT_KEY = 'eleve-accent-color'
 const APPEARANCE_KEY = 'eleve-appearance'
 
+import { emit } from '@tauri-apps/api/event';
+
 // ─── 工具函数 ───────────────────────────────────────────────────────────────
 
 function hexToRgb(hex: string): [number, number, number] | null {
@@ -69,7 +71,7 @@ function getSystemDarkMode(): boolean {
 
 // ─── CSS 注入 ───────────────────────────────────────────────────────────────
 
-function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean, rawAccent: string) {
+export function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean, rawAccent: string) {
   if (typeof document === 'undefined') return
 
   const root = document.documentElement
@@ -292,6 +294,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     saveAccent(color)
     call('update_config', { config: { display: { accent: color } } })
       .catch(() => console.warn('[Theme] 后端配置同步失败'))
+    // 通知其他窗口（看板等）
+    emit('theme-changed', { accent: color, appearance: loadAppearance() })
+      .catch(() => console.warn('[Theme] 事件发送失败'))
   }, [])
 
   const setAppearance = useCallback((newAppearance: Appearance) => {
@@ -302,6 +307,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // 通知 Rust 侧设置窗口毛玻璃效果（DWM 原生合成）
     call('set_window_effect', { appearance: newAppearance })
       .catch(() => console.warn('[Theme] 窗口效果设置失败'))
+    // 通知其他窗口（看板等）
+    emit('theme-changed', { accent: loadAccent(), appearance: newAppearance })
+      .catch(() => console.warn('[Theme] 事件发送失败'))
   }, [])
 
   // 启动时从后端同步（仅当本地无保存值时才使用后端值 —— 本地优先，防覆盖用户选择）

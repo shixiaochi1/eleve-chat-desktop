@@ -182,9 +182,9 @@ export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={cn(
-        'flex flex-col shrink-0 min-w-0 min-h-0 rounded-lg border transition-colors duration-150',
-        'border-[var(--kanban-col-border)] bg-[var(--kanban-col-bg)]',
-        dragOver && 'border-[var(--kanban-card-selected-bar)] border-dashed bg-[color-mix(in_srgb,var(--kanban-card-selected-bar)_5%,var(--kanban-col-bg))]',
+        'flex flex-col shrink-0 min-w-0 min-h-0 rounded-xl p-2 transition-colors duration-150',
+        'bg-[var(--ui-card-bg)] backdrop-blur-[20px]',
+        dragOver && 'bg-[color-mix(in_srgb,var(--ui-card-bg)_80%,var(--ui-accent))]',
       )}
       style={{ flex: '1 1 0%' }}
     >
