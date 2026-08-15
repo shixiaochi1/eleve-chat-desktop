@@ -97,8 +97,15 @@ export function CreateTaskDrawer({
   const [estimateError, setEstimateError] = useState<string | null>(null);
   // 每次打开重置内部状态（组件常驻，open 切换不卸载）
   useEffect(() => {
-    if (open) { setError(null); setSubmitting(false); }
+    if (open) { setError(null); setSubmitting(false); setEstimate(null); }
   }, [open]);
+  // 🔴 修复（渲染错误根因）：标题变更后旧估算失效——此 useEffect 原先写在
+  //   `if (!open) return null` 之后，open=false 时执行 6 个 hooks、open=true 时
+  //   执行 7 个，React 报 "Rendered more hooks than during the previous render"。
+  //   已移到 early return 之前（hook 数量恒定）
+  useEffect(() => {
+    if (open) setEstimate(null);
+  }, [open, title]);
   if (!open) return null;
 
   const isTriage = target === 'triage';
@@ -143,11 +150,6 @@ export function CreateTaskDrawer({
       setEstimating(false);
     }
   };
-
-  // 标题变更后旧估算失效（对齐 Hermes：重估按钮手动触发）
-  useEffect(() => {
-    if (open) setEstimate(null);
-  }, [open, title]);
 
   const form = (
     <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-3.5">

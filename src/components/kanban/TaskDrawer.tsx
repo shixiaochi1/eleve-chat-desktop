@@ -212,6 +212,10 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   const [estimating, setEstimating] = useState(false);
   const [estimateResult, setEstimateResult] = useState<{ estTokens: number; complexity: string; rationale: string } | null>(null);
   const [estimateError, setEstimateError] = useState<string | null>(null);
+  // 🔴 修复（渲染错误隐患）：requeueing 状态原先声明在 `if (!task) return null`
+  //   之后——task 为空时 hooks 少一个，React 报 "Rendered more hooks"。已移到
+  //   early return 之前（hook 数量恒定）
+  const [requeueing, setRequeueing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 🔴 修复：评论/运行历史/依赖统一来自 detail 端点（get_kanban_task 返回
@@ -377,7 +381,6 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   // 🔴 对齐 Hermes CommentComposer "Note & requeue"（drawer.tsx L345-353）：
   //   running 任务"附言重跑"= 评论 + reclaim 一键——worker 上下文带上注记
   //   重跑，替代 block→comment→unblock 三步舞
-  const [requeueing, setRequeueing] = useState(false);
   const handleRequeue = async () => {
     if (!commentInput.trim() || requeueing) return;
     setRequeueing(true);
