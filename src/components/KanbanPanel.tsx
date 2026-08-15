@@ -26,7 +26,7 @@ import {
   ArrowLeftFromLine,
   CheckCircle2,
   Plus,
-  Search,
+  Search, SearchX,
   Send,
   Paperclip,
   Edit3,
@@ -52,6 +52,7 @@ import {
 import { cn } from '@/lib/utils';
 import { readFileAsDataURL, base64FromDataURL } from '@/utils/file';
 import { getWsActiveProfile } from '@/services/ws-client';
+import { notify } from '@/utils/notifications';
 import {
   getKanbanBoard,
   getKanbanTask,
@@ -112,7 +113,7 @@ import { useKanban } from './kanban/useKanban';
 
 // ── Profile 描述编辑行（对齐 Hermes OrchestrationPanel ProfileDescriptionRow：
 //    描述编辑保存 + Auto 自动生成，decomposer 按描述路由）──
-function ProfileDescriptionRow({ profile }: { profile: any }) {
+function ProfileDescriptionRow({ profile, onChanged }: { profile: any; onChanged?: () => void }) {
   const [draft, setDraft] = useState<string>(profile?.description || '');
   const [saving, setSaving] = useState(false);
   const [autoing, setAutoing] = useState(false);
@@ -121,8 +122,13 @@ function ProfileDescriptionRow({ profile }: { profile: any }) {
     setSaving(true);
     try {
       await patchKanbanProfile(profile.name, draft.trim());
+      // 🔴 2026-08-16（第三轮审查 d2-R3-07）：保存成功后刷新 profiles——
+      //   描述/description_auto 变更反映到 roster/默认项（对齐 Hermes
+      //   invalidateQueries(PROFILES_KEY) orchestration.tsx:75）
+      onChanged?.();
     } catch (err) {
-      console.error('save profile description failed:', err);
+      // 🔴 d2-R3-06：保存失败进应用内通知（对齐 Hermes host.notify errText）
+      notify({ kind: 'error', title: '描述保存失败', message: String((err as any)?.message || err) });
     } finally {
       setSaving(false);
     }
@@ -133,8 +139,14 @@ function ProfileDescriptionRow({ profile }: { profile: any }) {
     try {
       const r = await autoDescribeKanbanProfile(profile.name);
       if (r?.description) setDraft(r.description);
+      // 🔴 2026-08-16（d2-R3-02/07）：ok:false + reason 进应用内通知
+      //   （对齐 Hermes auto.onSuccess !ok → host.notify warning）；成功后刷新
+      if (r && r.ok === false) {
+        notify({ kind: 'warning', title: '自动生成未应用', message: r.reason || '生成失败' });
+      }
+      onChanged?.();
     } catch (err) {
-      console.error('auto describe failed:', err);
+      notify({ kind: 'error', title: '自动生成失败', message: String((err as any)?.message || err) });
     } finally {
       setAutoing(false);
     }
@@ -345,8 +357,31 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     handleUpdateBoard,
     handleReassign,
   } = useKanban({ board });
+  // 🔴 2026-08-16（第三轮审查 d2-R3-07）：profiles 刷新回调——描述保存/Auto
+  //   后重拉（对齐 Hermes invalidateQueries(PROFILES_KEY) orchestration.tsx:75）
+  const refreshProfiles = useCallback(() => {
+    getKanbanProfiles().then(data => setProfiles(data?.profiles || data || [])).catch(() => {});
+  }, [setProfiles]);
   // 🔴 对齐 Hermes：有工作时空列自动折叠成 rail（boardHasWork 判定）
   const boardHasWork = Object.values(grouped).some((arr: KanbanTask[]) => arr.length > 0);
+
+  // 🔴 2026-08-16（第三轮审查 d1-R3-05）：折叠 override 相位翻转清理（对齐
+  //   Hermes board.tsx:1274-1308 lanePhase 签名翻转删 stale override）——
+  //   手动折叠的列一旦重新有任务即恢复 auto 展开（此前 override 永不清除，
+  //   列被永久折叠；auto 判定本身已基于过滤后 grouped ✓）
+  useEffect(() => {
+    const stale = Object.keys(collapsedLanes).filter(key => {
+      if (!collapsedLanes[key]) return false; // 只清理「手动折叠=true」的 override
+      return (grouped[key] || []).length > 0; // 列重新有任务 → 相位 empty→full
+    });
+    if (stale.length > 0) {
+      persistCollapsedLanes(prev => {
+        const next = { ...prev };
+        for (const k of stale) delete next[k];
+        return next;
+      });
+    }
+  }, [grouped, collapsedLanes, persistCollapsedLanes]);
 
   return (
     <div className="flex flex-col h-full">
@@ -616,7 +651,10 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
             title="刷新看板">
             <RefreshCw size={13} strokeWidth={1.5} className={cn(loading && 'animate-spin')} />
           </button>
-          <span className="text-[0.7rem] tabular-nums text-[var(--color-muted-foreground)]">{allTasks.length} 个任务</span>
+          {/* 🔴 2026-08-16（d1-R3-10）：统一为过滤后计数（对齐 Hermes 头部
+              total = 过滤后 reduce board.tsx:1186）——原恒显全量计数与顶栏
+              过滤徽标双计数并存造成歧义 */}
+          <span className="text-[0.7rem] tabular-nums text-[var(--color-muted-foreground)]">{filteredTasks.length} 个任务</span>
         </div>
       </div>
 
@@ -642,8 +680,10 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
                     const v = e.target.value;
                     try {
                       const r = await setKanbanOrchestration({ orchestrator_profile: v });
-                      setOrchestration(r?.config ? { config: r.config } : r);
-                    } catch (err) { console.error('save orchestrator_profile failed:', err); }
+                      // 🔴 2026-08-16（d2-R3-05/06）：保存后存完整响应（含
+                      //   resolved_*，原只存 config 丢 resolved）；失败 notify
+                      setOrchestration(r);
+                    } catch (err) { notify({ kind: 'error', title: '保存失败', message: String((err as any)?.message || err) }); }
                   }}
                   className="text-[0.75rem] px-2 py-1 rounded border border-warning/25 bg-transparent text-[var(--ui-text-primary)] focus:outline-none"
                 >
@@ -661,8 +701,8 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
                     const v = e.target.value;
                     try {
                       const r = await setKanbanOrchestration({ default_assignee: v });
-                      setOrchestration(r?.config ? { config: r.config } : r);
-                    } catch (err) { console.error('save default_assignee failed:', err); }
+                      setOrchestration(r);
+                    } catch (err) { notify({ kind: 'error', title: '保存失败', message: String((err as any)?.message || err) }); }
                   }}
                   className="text-[0.75rem] px-2 py-1 rounded border border-warning/25 bg-transparent text-[var(--ui-text-primary)] focus:outline-none"
                 >
@@ -678,8 +718,8 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
                     onChange={async (e) => {
                       try {
                         const r = await setKanbanOrchestration({ auto_decompose: e.target.checked });
-                        setOrchestration(r?.config ? { config: r.config } : r);
-                      } catch (err) { console.error('save auto_decompose failed:', err); }
+                        setOrchestration(r);
+                      } catch (err) { notify({ kind: 'error', title: '保存失败', message: String((err as any)?.message || err) }); }
                     }}
                     className="rounded border-warning/40" />
                   自动分解
@@ -689,8 +729,8 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
                     onChange={async (e) => {
                       try {
                         const r = await setKanbanOrchestration({ auto_promote_children: e.target.checked });
-                        setOrchestration(r?.config ? { config: r.config } : r);
-                      } catch (err) { console.error('save auto_promote_children failed:', err); }
+                        setOrchestration(r);
+                      } catch (err) { notify({ kind: 'error', title: '保存失败', message: String((err as any)?.message || err) }); }
                     }}
                     className="rounded border-warning/40" />
                   自动提升子任务
@@ -705,7 +745,7 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
               <div className="flex items-center gap-2 font-semibold text-warning mb-1"><UserCircle size={12} /> 可用 Agent ({profiles.length})</div>
               <div className="flex flex-col gap-1.5">
                 {profiles.map((p: any, i: number) => (
-                  <ProfileDescriptionRow key={`${p.name}-${i}`} profile={p} />
+                  <ProfileDescriptionRow key={`${p.name}-${i}`} profile={p} onChanged={refreshProfiles} />
                 ))}
               </div>
             </div>
@@ -797,6 +837,20 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
           <div className="flex items-center gap-2 text-[var(--ui-text-tertiary)]">
             <Loader size={16} strokeWidth={1.5} className="animate-spin" />
             <span className="text-[0.8rem]">加载看板…</span>
+          </div>
+        </div>
+      ) : filteredTasks.length === 0 && allTasks.length > 0 ? (
+        /* 🔴 2026-08-16（d1-R3-10）：noMatch 态（对齐 Hermes board.tsx
+            L1378-1388）——筛选/搜索把任务清空时提示『没有符合筛选条件的
+            任务』+ 清除筛选，此前照常渲染各列 emptyText，误以为板空了 */
+        <div className="flex flex-1 items-center justify-center min-h-0">
+          <div className="flex flex-col items-center gap-3 text-center px-6">
+            <SearchX size={24} strokeWidth={1.4} className="text-[var(--ui-text-quaternary)]" />
+            <p className="text-[0.85rem] text-[var(--ui-text-tertiary)]">没有符合筛选条件的任务</p>
+            <button onClick={() => { setSearchQuery(''); setTenantFilter(''); setAssigneeFilter(new Set()); setStatusFilter(new Set()); }}
+              className="px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] text-[0.75rem] text-[var(--ui-text-primary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors">
+              清除全部筛选
+            </button>
           </div>
         </div>
       ) : allTasks.length === 0 ? (
