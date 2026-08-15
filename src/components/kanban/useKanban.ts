@@ -134,11 +134,19 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   const [showBulkPriority, setShowBulkPriority] = useState(false); // Phase 3: 批量改优先级
   const [bulkPriority, setBulkPriority] = useState('');
 
+  // 🔴 对齐 Hermes FilterMenu「Show archived」开关（board.tsx L1086-1094，
+  //   审查 d1 P1-4）：默认隐藏归档；打开时后端 include_archived 返回归档任务。
+  //   声明在 loadBoard 之前（loadBoard 依赖它）
+  const [showArchived, setShowArchived] = useState<boolean>(false);
+  const toggleShowArchived = useCallback(() => {
+    setShowArchived(prev => !prev);
+  }, []);
+
   const loadBoard = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await getKanbanBoard(currentBoard);
+      const result = await getKanbanBoard(currentBoard, showArchived);
       const tasks = normalizeBoardData(result);
       setApiTasks(tasks);
       // 🔴 对齐 Hermes board.tsx L1131-1145：选中集自动修剪已离板/已删除的
@@ -155,7 +163,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     } finally {
       setLoading(false);
     }
-  }, [currentBoard]);
+  }, [currentBoard, showArchived]);
 
   useEffect(() => { loadBoard(); }, [loadBoard]);
 
@@ -957,6 +965,8 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     runningLanes,
     groupRunning,
     toggleGroupRunning,
+    showArchived,
+    toggleShowArchived,
     handleDrop,
     resetCreateForm,
     handleCreateSubmit,

@@ -318,7 +318,7 @@ interface KanbanMapping {
 
 const KANBAN_HTTP_MAP: Record<string, KanbanMapping> = {
   // Board
-  get_kanban_board:       { method: 'GET',  path: (a) => `/api/kanban/board?board=${encodeURIComponent(a.board || 'default')}` },
+  get_kanban_board:       { method: 'GET',  path: (a) => `/api/kanban/board?board=${encodeURIComponent(a.board || 'default')}&include_archived=${a.include_archived ? 'true' : 'false'}` },
   get_kanban_boards:      { method: 'GET',  path: '/api/kanban/boards' },
   create_kanban_board:    { method: 'POST', path: '/api/kanban/boards' },
   update_kanban_board:    { method: 'PATCH', path: (a) => `/api/kanban/boards/${a.slug}` },

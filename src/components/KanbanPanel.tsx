@@ -213,6 +213,8 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     setSearchQuery,
     groupRunning,
     toggleGroupRunning,
+    showArchived,
+    toggleShowArchived,
     checkedIds,
     setCheckedIds,
     currentBoard,
@@ -492,6 +494,17 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
             </svg>
             分组
           </button>
+          {/* 🔴 对齐 Hermes FilterMenu「Show archived」（board.tsx L1086-1094，
+              审查 d1 P1-4）：显示已归档开关（后端 include_archived 查询） */}
+          <button onClick={toggleShowArchived}
+            className={cn('flex items-center gap-1.5 px-2 py-1.5 rounded-md border text-[0.7rem] transition-colors shrink-0',
+              showArchived
+                ? 'border-[var(--kanban-hover-bg)] bg-[var(--kanban-hover-bg)] text-[var(--ui-text-primary)]'
+                : 'border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)]')}
+            title="显示已归档任务">
+            <Archive size={12} strokeWidth={1.5} />
+            已归档
+          </button>
         </div>
         <div className="flex items-center gap-2">
           {loading && <Loader size={12} strokeWidth={1.5} className="animate-spin text-[var(--color-muted-foreground)]" />}
@@ -762,7 +775,7 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
         </div>
       ) : (
       <div className="flex flex-1 items-stretch min-h-0 min-w-0 px-4 pb-4" style={{ gap: 'var(--kanban-col-gap)' }}>
-        {COLUMNS.map(col => (
+        {COLUMNS.filter(col => col.key !== 'archived' || showArchived).map(col => (
           <KanbanColumn key={col.key} column={col} tasks={col.key === 'running' ? grouped.running : grouped[col.key]}
             runningLanes={col.key === 'running' ? runningLanes : undefined}
             onSelect={setSelectedTask} selectedId={selectedTask?.id}

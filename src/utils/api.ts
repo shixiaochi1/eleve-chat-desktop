@@ -474,8 +474,9 @@ export async function fetchAnalyticsUsage(days = 30): Promise<any> {
 
 // ====== Kanban ======
 
-export async function getKanbanBoard(board = 'default'): Promise<any> {
-  return call('get_kanban_board', { board });
+// 🔴 对齐 Hermes fetchBoard(archived)（审查 d1 P1-4）：include_archived=true 显示归档
+export async function getKanbanBoard(board = 'default', includeArchived = false): Promise<any> {
+  return call('get_kanban_board', { board, include_archived: includeArchived });
 }
 
 export async function getKanbanTask(taskId: string, board = 'default'): Promise<any> {
