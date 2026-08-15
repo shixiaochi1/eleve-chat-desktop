@@ -577,8 +577,11 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   const doRequestChanges = useCallback(async (taskId: string, reason: string) => {
     setReviewBusy(true);
     try {
-      await requestKanbanChanges(taskId, reason.trim(), currentBoard);
-      notify({ kind: 'success', title: '已退回返工', message: `任务 ${taskId} 已退回实现者按理由重跑` });
+      // 🔴 2026-08-16（走查 D-P2-1）：响应透出 implementer（对齐 Hermes
+      //   (True, implementer)）——退回后明确告知任务回给谁
+      const res = await requestKanbanChanges(taskId, reason.trim(), currentBoard);
+      const implementer = (res as any)?.implementer;
+      notify({ kind: 'success', title: '已退回返工', message: `任务 ${taskId} 已退回实现者${implementer ? ` ${implementer}` : ''}按理由重跑` });
       setPendingChanges(null);
       await loadBoard();
       nudgeDispatch(currentBoard);
