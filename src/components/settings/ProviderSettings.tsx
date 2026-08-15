@@ -65,20 +65,21 @@ export default function ProviderSettings({
   onDisconnect: (id: string) => void;
 }) {
   return (
-    <div className="space-y-3">
-      {/* 顶部说明 + 统计（卡片墙头部） */}
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-xs text-muted-foreground/70 leading-relaxed">
-          API 服务商集中注册，后续区块只需选择厂商和模型即可。添加的模型可手动配置上下文大小。
-        </p>
-        <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
-          <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
-            {providers.length} 家服务商
+    <div className="space-y-4">
+      {/* 区块头部：标题 + 统计（对齐 Hermes SettingsCategoryHeading） */}
+      <div className="mb-1">
+        <div className="flex items-center gap-2.5">
+          <h2 className="text-base font-semibold text-[var(--theme-foreground)]">服务商</h2>
+          <span className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--theme-accent)]/15 text-[var(--theme-accent)] font-medium">
+            {providers.length} 家
           </span>
           <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
             {providers.reduce((n, p) => n + p.models.length, 0)} 个模型
           </span>
         </div>
+        <p className="mt-1.5 text-xs text-muted-foreground/70 leading-relaxed">
+          API 服务商集中注册，后续区块只需选择厂商和模型即可。
+        </p>
       </div>
 
       {/* 卡片墙：2 列网格，展开时跨全宽 */}
