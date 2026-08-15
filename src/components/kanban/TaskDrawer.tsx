@@ -430,10 +430,14 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
     const trimmed = value.trim();
     if (trimmed === (task.assignee || '')) return;
     try {
+      // 🔴 2026-08-16（第三轮审查 d4-R3-02）：空串 = 解除分配（对齐 Hermes
+      //   reassign_task(profile=None) 完全解除语义）——原 running 分支
+      //   `trimmed || 'default'` 把『未分配』错误分配给 default，非 running
+      //   分支 `trimmed || null` 被后端 as_str() 吞成 None 静默 no-op。
       if (liveStatus === 'running') {
-        await reassignKanbanTask(task.id, trimmed || 'default', true, 'drawer assignee change', board);
+        await reassignKanbanTask(task.id, trimmed, true, 'drawer assignee change', board);
       } else {
-        await updateKanbanTask(task.id, { assignee: trimmed || null }, board);
+        await updateKanbanTask(task.id, { assignee: trimmed }, board);
       }
       onRefresh?.();
     } catch (err) {

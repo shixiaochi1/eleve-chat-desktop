@@ -279,6 +279,9 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     setEditBoardDesc,
     editBoardColor,
     setEditBoardColor,
+    editBoardProject,
+    setEditBoardProject,
+    boardProjectList,
     savingBoard,
     setSavingBoard,
     showStats,
@@ -385,7 +388,7 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
                       )}
                     </button>
                     <div className="opacity-0 group-hover:opacity-100 flex items-center transition-all">
-                      <button onClick={e => { e.stopPropagation(); setShowBoardPicker(false); setEditBoardTarget({ slug, name, description: b.description || '', color: b.color || '' }); setEditBoardName(name); setEditBoardDesc(b.description || ''); setEditBoardColor(b.color || ''); }}
+                      <button onClick={e => { e.stopPropagation(); setShowBoardPicker(false); setEditBoardTarget({ slug, name, description: b.description || '', color: b.color || '', project_id: (b as any).project_id || '' }); setEditBoardName(name); setEditBoardDesc(b.description || ''); setEditBoardColor(b.color || ''); }}
                         className="px-1.5 py-1 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-accent)] rounded transition-colors"
                         title="编辑看板">
                         <Edit3 size={12} strokeWidth={1.5} />
@@ -1004,6 +1007,19 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
                     className="flex-1 text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none focus:border-[var(--kanban-hover-bg)]" />
                   {editBoardColor && <span className="w-5 h-5 rounded-full border border-[var(--ui-stroke-tertiary)]" style={{ backgroundColor: editBoardColor }} />}
                 </div>
+              </div>
+              {/* 🔴 2026-08-16（d1-R3-04）：看板级项目绑定（对齐 Hermes
+                  BoardSettingsDialog ProjectPicker）——任务未显式指定 project
+                  时继承看板项目；空 = 不绑定 */}
+              <div>
+                <label className="block text-[0.75rem] font-medium text-[var(--ui-text-tertiary)] mb-1">关联项目</label>
+                <input list="kanban-board-project-options" value={editBoardProject} onChange={e => setEditBoardProject(e.target.value)} placeholder="可选（任务默认继承此项目）"
+                  className="w-full text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none focus:border-[var(--kanban-hover-bg)]" />
+                <datalist id="kanban-board-project-options">
+                  {boardProjectList.map(p => (
+                    <option key={p.id} value={p.id}>{p.name && p.name !== p.id ? `${p.name} (${p.id})` : p.id}</option>
+                  ))}
+                </datalist>
               </div>
             </div>
             <div className="flex gap-2 justify-end pt-1">

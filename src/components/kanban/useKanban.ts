@@ -51,6 +51,7 @@ import {
 import type { KanbanTask, KanbanEvent } from './types';
 import { COLUMNS, COLUMN_STATUS, LOCKED_REASON, updateStaleConfig } from './constants';
 import { notify } from '../../utils/notifications';
+import { call } from '../../utils/bridge';
 import { taskColumn, normalizeBoardData } from './helpers';
 import { useKanbanSSE } from './useKanbanSSE';
 
@@ -101,10 +102,14 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   const [deleteBoardTarget, setDeleteBoardTarget] = useState<any>(null); // { slug, name }
   const [deletePermanently, setDeletePermanently] = useState(false);
   // Phase A3: 编辑看板
-  const [editBoardTarget, setEditBoardTarget] = useState<any>(null); // { slug, name, description, color }
+  const [editBoardTarget, setEditBoardTarget] = useState<any>(null); // { slug, name, description, color, project_id }
   const [editBoardName, setEditBoardName] = useState('');
   const [editBoardDesc, setEditBoardDesc] = useState('');
   const [editBoardColor, setEditBoardColor] = useState('');
+  // 🔴 2026-08-16（d1-R3-04）：看板级项目绑定（对齐 Hermes BoardSettingsDialog
+  //   ProjectPicker）——项目下拉数据源 projects_tree，保存随 updateBoard 发送
+  const [editBoardProject, setEditBoardProject] = useState('');
+  const [boardProjectList, setBoardProjectList] = useState<{ id: string; name?: string }[]>([]);
   const [savingBoard, setSavingBoard] = useState(false);
   // Phase B1: 统计面板
   const [showStats, setShowStats] = useState(false);
@@ -377,47 +382,29 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     }
 
     if (newStatus === 'done') {
-      // 🔴 review → done 免摘要（对齐 Hermes 2026-08：complete_task 门控含 review，
-      //   无摘要时后端合成 'Review approved without additional evidence.'）；
-      //   其余状态保持完成摘要流程
-      const isReview = task?.status === 'review';
-      if (!isReview) {
-        const summary = prompt('请输入完成摘要（必填）：');
-        if (summary === null) return; // 用户取消
-        if (!summary.trim()) {
-          alert('完成摘要不能为空，操作已取消。');
-          return;
-        }
-        // 乐观更新
-        setApiTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
-        try {
-          await updateKanbanTask(taskId, { status: newStatus, result: summary.trim(), summary: summary.trim() }, currentBoard);
-          // 🔴 对齐 Hermes api.ts L168-188：写操作后 nudge dispatcher——
-          //   移入 done 立即促进依赖子任务，不等 60s tick
-          nudgeDispatch(currentBoard);
-        } catch (err) {
-          console.error('[KanbanPanel] Drag drop failed, rolling back:', err);
-          await loadBoard();
-        }
-        return;
-      }
-      // review → done：直接 PATCH（无摘要，后端合成）
+      // 🔴 2026-08-16（第三轮审查 d1-R3-02 / d4-R3-01）：对齐 Hermes
+      //   board.tsx L1188-1248 —— 拖到 done 直接裸 PATCH {status:'done'}，
+      //   无摘要收集（后端 complete_task 已放宽：summary/result 均可省略，
+      //   review 缺摘要时后端合成 'Review approved without additional
+      //   evidence.'）。原实现用原生 prompt 强制收集摘要并后端必填门控，
+      //   用户取消即完成失败，且每完成一张卡都弹阻断式对话框。
       setApiTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
       try {
         await updateKanbanTask(taskId, { status: newStatus }, currentBoard);
+        // 🔴 对齐 Hermes api.ts L168-188：写操作后 nudge dispatcher——
+        //   移入 done 立即促进依赖子任务，不等 60s tick
         nudgeDispatch(currentBoard);
       } catch (err) {
-        console.error('[KanbanPanel] Review approve failed, rolling back:', err);
+        console.error('[KanbanPanel] Drag drop failed, rolling back:', err);
         await loadBoard();
       }
       return;
     }
 
-    if (newStatus === 'blocked') {
-      if (!confirm('确认将此任务标记为阻塞？')) return;
-    }
-    if (newStatus === 'archived') {
-      if (!confirm('确认归档此任务？')) return;
+    if (newStatus === 'blocked' || newStatus === 'archived') {
+      // 🔴 2026-08-16（第三轮审查 d1-R3-03）：对齐 Hermes 无原生弹窗纪律——
+      //   阻塞/归档直接执行（Hermes moveMut 全程无 confirm，失败走
+      //   host.notify 错误提示 + 回滚），删除阻断式 confirm。
     }
 
     // 乐观更新：立即移动卡片
@@ -514,25 +501,21 @@ export function useKanban({ board = 'default' }: { board?: string }) {
         // blocked/scheduled → ready（gateway 自动路由 unblock_task）
         case 'unblock': await updateKanbanTask(taskId, { status: 'ready' }, currentBoard); break;
         case 'complete': {
-          // 🔴 修复：complete_task 要求至少 summary/result 之一且源状态
-          //   门控 IN ('running','ready','blocked')——原实现裸发 {status:'done'}
-          //   恒 400（"at least one of summary or result must be provided"）。
-          //   与拖拽完成路径同语义：先收摘要再提交。
-          // 🔴 对齐 Hermes 2026-08：门控含 review——评审卡可人工直接通过，
-          //   无摘要时后端合成 'Review approved without additional evidence.'
+          // 🔴 2026-08-16（第三轮审查 d4-R3-01）：对齐 Hermes complete_task
+          //   （kanban_db.py L5352+）——summary/result 均可省略，裸 PATCH
+          //   {status:'done'} 直接完成（result 落 NULL）；仅 review 缺摘要
+          //   时后端合成 'Review approved without additional evidence.'。
+          //   原实现强制原生 prompt 收集摘要（后端必填门控逼出），已删除。
           const task = apiTasks.find(t => t.id === taskId);
           if (task && !['ready', 'running', 'blocked', 'review'].includes(task.status)) {
-            alert(`无法完成该任务：当前状态为「${task.status}」。只有 ready/running/blocked/review 状态的任务可直接完成（对齐 Hermes complete_task 门控）。`);
+            notify({
+              kind: 'warning',
+              title: '无法完成该任务',
+              message: `当前状态为「${task.status}」。只有 ready/running/blocked/review 状态的任务可直接完成（对齐 Hermes complete_task 门控）。`,
+            });
             break;
           }
-          if (task?.status === 'review') {
-            await updateKanbanTask(taskId, { status: 'done' }, currentBoard);
-            break;
-          }
-          const summary = prompt('请输入完成摘要（必填）：');
-          if (summary === null) break;
-          if (!summary.trim()) { alert('完成摘要不能为空，操作已取消。'); break; }
-          await updateKanbanTask(taskId, { status: 'done', result: summary.trim(), summary: summary.trim() }, currentBoard);
+          await updateKanbanTask(taskId, { status: 'done' }, currentBoard);
           break;
         }
         case 'block': await updateKanbanTask(taskId, { status: 'blocked' }, currentBoard); break;
@@ -790,6 +773,9 @@ export function useKanban({ board = 'default' }: { board?: string }) {
         name,
         description: editBoardDesc.trim() || undefined,
         color: editBoardColor.trim() || undefined,
+        // 🔴 2026-08-16（d1-R3-04）：项目绑定随保存下发（空串 = 解除绑定，
+        //   后端写 NULL；对齐 Hermes updateBoard {project_id}）
+        project_id: editBoardProject.trim() || undefined,
       });
       // 刷新看板列表
       const data = await getKanbanBoards();
@@ -799,13 +785,30 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       setEditBoardName('');
       setEditBoardDesc('');
       setEditBoardColor('');
+      setEditBoardProject('');
       setShowBoardPicker(false);
     } catch (err) {
       console.error('[KanbanPanel] Update board failed:', err);
     } finally {
       setSavingBoard(false);
     }
-  }, [editBoardTarget, editBoardName, editBoardDesc, editBoardColor]);
+  }, [editBoardTarget, editBoardName, editBoardDesc, editBoardColor, editBoardProject]);
+
+  // 🔴 2026-08-16（d1-R3-04）：打开编辑模态时加载项目列表（projects_tree 数据源）
+  useEffect(() => {
+    if (editBoardTarget) {
+      setEditBoardProject(editBoardTarget.project_id || '');
+      let cancelled = false;
+      call('projects_tree', { preview_limit: 0, include_discovered: true })
+        .then((res: any) => {
+          if (cancelled) return;
+          const projects = res?.projects || [];
+          setBoardProjectList(projects.map((p: any) => ({ id: p.id, name: p.name || p.id })));
+        })
+        .catch(() => { /* 项目列表不可用时项目选择留空（非关键路径） */ });
+      return () => { cancelled = true; };
+    }
+  }, [editBoardTarget]);
 
   // Phase B1: 加载统计
   useEffect(() => {
@@ -948,6 +951,9 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     setEditBoardDesc,
     editBoardColor,
     setEditBoardColor,
+    editBoardProject,
+    setEditBoardProject,
+    boardProjectList,
     savingBoard,
     setSavingBoard,
     showStats,
