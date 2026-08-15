@@ -22,7 +22,6 @@ import { isRemoteMode, loadConnection } from '@/lib/connection';
 import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
 
 import { useBackendQueue, type QueueEntry } from '@/hooks/useBackendQueue';
-import { call } from '../utils/bridge';
 import { onComposerInsertRequest, LINE_REF_MIME, fileLineRef } from '@/lib/composer-events';
 import { dragHasPaths, collectDroppedPaths } from '@/lib/paths-dnd';
 import { linkifyUrls, rewriteTypedUrl, formatRefValue } from '@/lib/url-refs';
@@ -38,8 +37,6 @@ interface InputAreaProps {
   onAddImage?: (file: File) => Promise<void>;
   /** 添加图片（Tauri 本地路径，image.attach 快路径 / remote attach_bytes） */
   onAddImageFromPath?: (path: string) => Promise<void>;
-  /** 队列键控 profile（对齐 Hermes activeQueueSessionKey） */
-  queueProfile?: string;
   /** 当前会话 ID — 附件 RPC 显式传参（禁止 fallback ws-client 全局，profile 切换瞬间全局可能是目标 Agent） */
   sessionId?: string | null;
   /** 🔴 W-6：会话 cwd（session.info 推送）— 透传给 complete.path 作补全基准目录 */
@@ -79,7 +76,6 @@ function InputArea({
   portVersion,
   onAddImage,
   onAddImageFromPath,
-  queueProfile,
   sessionId,
   sessionCwd,
 }: InputAreaProps) {

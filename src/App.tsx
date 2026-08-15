@@ -1626,7 +1626,6 @@ export default function App() {
                 sessionCwd={sessionCwd}
                 onAddImage={handleAddImage}
                 onAddImageFromPath={handleAddImageFromPath}
-                queueProfile={currentProfile}
                 sessionId={sess.sessionId}
               />
             </main>
