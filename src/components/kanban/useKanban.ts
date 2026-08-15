@@ -484,7 +484,13 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     try {
       if (action === 'delete') {
         // 🔴 修复：后端 bulk 端点无 delete 语义——逐个删除（对齐 Hermes bulkDelete 扇出）
-        await Promise.allSettled(ids.map(id => deleteKanbanTask(id, currentBoard)));
+        // 🔴 对齐 Hermes L968-979：部分失败 toast 报告（此前 allSettled 结果被丢弃，
+        //   批量失败静默）
+        const results = await Promise.allSettled(ids.map(id => deleteKanbanTask(id, currentBoard)));
+        const failed = results.filter(r => r.status === 'rejected').length;
+        if (failed > 0) {
+          alert(`批量删除完成：${ids.length - failed}/${ids.length} 成功，${failed} 个失败。`);
+        }
       } else if (action === 'complete') {
         // 🔴 修复：后端 bulk_update_tasks 读顶层 status/archive/priority 等字段，
         //   此前发送 { ids, data: { action } } 形状恒被忽略 → 批量操作静默失效
