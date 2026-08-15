@@ -183,6 +183,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   goal_pause:             'goal.pause',
   goal_resume:            'goal.resume',
   goal_clear:             'goal.clear',
+  todo_status:            'todo.status',
   // F3: 输入增强（后端已就绪）
   complete_path:          'complete.path',
   // F4: 信息面板（后端已就绪）

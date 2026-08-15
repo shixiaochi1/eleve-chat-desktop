@@ -34,6 +34,7 @@ import CardContextGauge from './CardContextGauge';
 import SlashConfirmCard from './SlashConfirmCard';
 import QueuePanel from './QueuePanel';
 import GoalBar from './GoalBar';
+import TodoPanel from './TodoPanel';
 import { useImageAttachments } from '@/hooks/useImageAttachments';
 import { useFileAttachments } from '@/hooks/useFileAttachments';
 import { collectDroppedPaths, dragHasPaths } from '@/lib/paths-dnd';
@@ -591,6 +592,10 @@ export const AgentChatCard = memo(function AgentChatCard({
         </div>
       )}
 
+      {/* 🔴 2026-08-16 DSH TodoPanel 对齐（宫格）：任务状态折叠条。 */}
+      <div className="shrink-0">
+        <TodoPanel sessionId={state.sessionId ?? undefined} />
+      </div>
       {/* 🔴 2026-08-15 DSH GoalBar 对齐（宫格）：进行中目标显示框。
           普通文档流（对齐单视图 InputArea）：消息区 → 本框 → composer。 */}
       <div className="px-2.5 pb-1 shrink-0">
