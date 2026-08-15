@@ -132,7 +132,7 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">STT 提供商</label>
         <select
-          className="flex h-8 w-full items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-full items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           value={config.stt_provider}
           onChange={e => update('stt_provider', e.target.value)}
         >
@@ -149,7 +149,7 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">本地 STT 模型</label>
         <select
-          className="flex h-8 w-full items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-full items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           value={config.stt_local_model}
           onChange={e => update('stt_local_model', e.target.value)}
         >
@@ -187,7 +187,7 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">TTS 提供商</label>
         <select
-          className="flex h-8 w-full items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-full items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           value={config.tts_provider}
           onChange={e => update('tts_provider', e.target.value)}
         >
@@ -218,7 +218,7 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">OpenAI TTS 语音</label>
         <select
-          className="flex h-8 w-full items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-full items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           value={config.tts_openai_voice}
           onChange={e => update('tts_openai_voice', e.target.value)}
         >

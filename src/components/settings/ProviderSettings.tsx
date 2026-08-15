@@ -170,7 +170,7 @@ export default function ProviderSettings({
           <div className="grid gap-1">
             <label className="text-xs text-muted-foreground">协议</label>
             <select
-              className="flex h-7.5 w-full items-center rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50"
+              className="flex h-7.5 w-full items-center rounded-md border border-input bg-transparent px-2 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50"
               value={newProvider.transport || 'auto'}
               onChange={e => setNewProvider({ ...newProvider, transport: e.target.value })}
             >

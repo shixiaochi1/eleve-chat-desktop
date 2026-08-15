@@ -138,7 +138,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">最大轮次</label>
         <input
-          className="flex h-8 w-28 items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-28 items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           type="number"
           min={1}
           max={500}
@@ -154,7 +154,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">API 重试次数</label>
         <input
-          className="flex h-8 w-28 items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-28 items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           type="number"
           min={0}
           max={20}
@@ -170,7 +170,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">工具执行强制</label>
         <select
-          className="flex h-8 w-full items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-full items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           value={config.tool_use_enforcement}
           onChange={e => update('tool_use_enforcement', e.target.value)}
         >
@@ -187,7 +187,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">终端后端</label>
         <select
-          className="flex h-8 w-full items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-full items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           value={config.terminal_backend}
           onChange={e => update('terminal_backend', e.target.value)}
         >
@@ -205,7 +205,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">终端超时（秒）</label>
         <input
-          className="flex h-8 w-28 items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-28 items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           type="number"
           min={5}
           max={3600}
@@ -244,7 +244,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">终端输出限制（字节）</label>
         <input
-          className="flex h-8 w-32 items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-32 items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           type="number"
           min={1000}
           max={500000}
@@ -261,7 +261,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">文件页限制（行）</label>
         <input
-          className="flex h-8 w-28 items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-28 items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           type="number"
           min={100}
           max={50000}
@@ -278,7 +278,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">行长度限制</label>
         <input
-          className="flex h-8 w-28 items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-28 items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           type="number"
           min={100}
           max={10000}
@@ -302,7 +302,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">检查点上限</label>
         <input
-          className="flex h-8 w-28 items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-28 items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           type="number"
           min={1}
           max={100}
@@ -326,7 +326,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">子 Agent 最大轮次</label>
         <input
-          className="flex h-8 w-28 items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-28 items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           type="number"
           min={1}
           max={500}
@@ -342,7 +342,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">子 Agent 并发数</label>
         <input
-          className="flex h-8 w-28 items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-28 items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           type="number"
           min={1}
           max={50}
@@ -358,7 +358,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">子 Agent 超时（秒）</label>
         <input
-          className="flex h-8 w-28 items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-28 items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           type="number"
           min={10}
           max={36000}
@@ -375,7 +375,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">子 Agent 推理深度</label>
         <select
-          className="flex h-8 w-full items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-full items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           value={config.reasoning_effort}
           onChange={e => update('reasoning_effort', e.target.value)}
         >
@@ -416,7 +416,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">闲置驱逐间隔（秒）</label>
         <input
-          className="flex h-8 w-28 items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-28 items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           type="number"
           min={0}
           step={60}
@@ -432,7 +432,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
       <div className="mb-3">
         <label className="block text-xs text-muted-foreground mb-1">常驻会话上限</label>
         <input
-          className="flex h-8 w-28 items-center rounded-md border border-input bg-background px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-28 items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           type="number"
           min={0}
           step={1}

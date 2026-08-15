@@ -570,7 +570,7 @@ export default function ModelSettings({
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className="flex items-center gap-1.5 h-9 w-56 rounded-lg border border-primary/30 bg-primary/5 px-2.5 text-xs font-medium text-foreground hover:bg-primary/10 transition-colors cursor-pointer"
+                      className="flex items-center gap-1.5 h-9 w-56 rounded-lg border border-primary/30 bg-transparent px-2.5 text-xs font-medium text-foreground hover:bg-primary/10 transition-colors cursor-pointer"
                     >
                       <GitMerge size={14} className="text-primary shrink-0" />
                       <span className="flex-1 text-left truncate">{currentMoaPresetName}</span>
@@ -667,7 +667,7 @@ export default function ModelSettings({
                       {/* below：下拉编辑区（对齐 Hermes ListRow below） */}
                       <div className="flex flex-wrap items-center gap-2 mt-2 pt-1">
                         <select
-                          className="flex h-8 flex-1 min-w-28 items-center rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground shadow-xs outline-none min-w-0"
+                          className="flex h-8 flex-1 min-w-28 items-center rounded-md border border-input bg-transparent px-2 py-1 text-xs text-foreground shadow-xs outline-none min-w-0"
                           value={slot.provider}
                           onChange={e => updateMoaPreset(prev => ({
                             ...prev,
@@ -680,7 +680,7 @@ export default function ModelSettings({
                           {moaSlotProviderOptions.map(op => <option key={op.value} value={op.value}>{op.label}</option>)}
                         </select>
                         <select
-                          className="flex h-8 flex-1 min-w-36 items-center rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground shadow-xs outline-none disabled:opacity-50 min-w-0"
+                          className="flex h-8 flex-1 min-w-36 items-center rounded-md border border-input bg-transparent px-2 py-1 text-xs text-foreground shadow-xs outline-none disabled:opacity-50 min-w-0"
                           value={slot.model}
                           disabled={!slot.provider}
                           onChange={e => updateMoaPreset(prev => ({
@@ -735,7 +735,7 @@ export default function ModelSettings({
                   </div>
                   <div className="flex flex-wrap items-center gap-2 mt-2 pt-1">
                     <select
-                      className="flex h-8 flex-1 min-w-28 items-center rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground shadow-xs outline-none min-w-0"
+                      className="flex h-8 flex-1 min-w-28 items-center rounded-md border border-input bg-transparent px-2 py-1 text-xs text-foreground shadow-xs outline-none min-w-0"
                       value={currentMoaPreset.aggregator.provider}
                       onChange={e => updateMoaPreset(prev => ({
                         ...prev,
@@ -746,7 +746,7 @@ export default function ModelSettings({
                       {moaSlotProviderOptions.map(op => <option key={op.value} value={op.value}>{op.label}</option>)}
                     </select>
                     <select
-                      className="flex h-8 flex-1 min-w-36 items-center rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground shadow-xs outline-none disabled:opacity-50 min-w-0"
+                      className="flex h-8 flex-1 min-w-36 items-center rounded-md border border-input bg-transparent px-2 py-1 text-xs text-foreground shadow-xs outline-none disabled:opacity-50 min-w-0"
                       value={currentMoaPreset.aggregator.model}
                       disabled={!currentMoaPreset.aggregator.provider}
                       onChange={e => updateMoaPreset(prev => ({
