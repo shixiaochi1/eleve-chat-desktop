@@ -9,20 +9,22 @@ interface SettingsLayoutProps {
 }
 
 /**
- * SettingsLayout — 中分双卡布局（老大 2026-08-15 定稿）
+ * SettingsLayout — 设置面板（老大 2026-08-15 定稿）
  *
- * 背板 = body（--theme-background，由 SettingsPanel main 提供）
- * 布局 = 左右两张竖向卡片，无标题栏/无遮罩/无分割线
- * 关闭 = 右上角唯一极简 X（图标无背景无边框）
+ * 形态：点击设置弹出的**一张干净卡片**（由外层 OverlayView panel 模式承载，居中弹窗）。
+ * 卡片内部 = 左侧导航 + 右侧内容，左右贴在一起（flex 无 gap、无 border 分隔），
+ * 整体一张圆角卡片：左卡淡主题色（--ui-bg-backboard）、右卡纯色（--ui-card-bg）。
+ * 无标题栏、无分割线、无背板缝隙——整个布局就只有左右两块的卡片。
+ * 关闭 = 右上角唯一极简 X（图标无背景无边框）。
  */
 export default function SettingsLayout({ nav, footer, children, onClose }: SettingsLayoutProps) {
   return (
-    <div className="relative h-full p-4 flex gap-4">
+    <div className="relative flex h-full w-full overflow-hidden rounded-xl bg-[var(--ui-card-bg)]">
       {/* 右上角唯一关闭按钮（极简：图标无背景无边框） */}
       {onClose && (
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-1 rounded-md text-[var(--theme-muted-foreground)] hover:text-[var(--theme-foreground)] hover:bg-[var(--theme-accent)]/15 transition-colors z-10"
+          className="absolute top-3 right-3 p-1 rounded-md text-[var(--theme-muted-foreground)] hover:text-[var(--theme-foreground)] hover:bg-[var(--theme-accent)]/15 transition-colors z-10"
           title="关闭"
           aria-label="关闭"
         >
@@ -30,8 +32,8 @@ export default function SettingsLayout({ nav, footer, children, onClose }: Setti
         </button>
       )}
 
-      {/* 左卡：导航（淡主题色） */}
-      <div className="w-48 shrink-0 rounded-xl bg-[var(--ui-bg-backboard)] flex flex-col overflow-hidden">
+      {/* 左卡：导航（淡主题色），与右卡贴紧无缝隙 */}
+      <div className="w-48 shrink-0 bg-[var(--ui-bg-backboard)] flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto">
           {nav}
         </div>
@@ -42,8 +44,8 @@ export default function SettingsLayout({ nav, footer, children, onClose }: Setti
         )}
       </div>
 
-      {/* 右卡：内容（纯色） */}
-      <div className="flex-1 rounded-xl bg-[var(--ui-card-bg)] overflow-hidden flex flex-col">
+      {/* 右卡：内容（纯色），与左卡贴紧无缝隙 */}
+      <div className="flex-1 min-w-0 bg-[var(--ui-card-bg)] flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto p-6">
           {children}
         </div>

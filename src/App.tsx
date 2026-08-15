@@ -1688,8 +1688,8 @@ export default function App() {
 
         {overlayPanel === 'settings' && (
           <ErrorBoundary>
-            {/* 🔴 2026-08-15 bare 模式：设置面板 = 背板 + 左右两卡，无遮罩/无标题栏/无框 */}
-            <OverlayView bare onClose={handleCloseOverlay}>
+            {/* 🔴 2026-08-15 panel 模式：设置 = 点击弹出的居中卡片（左导航+右内容贴紧），无标题栏 */}
+            <OverlayView panel onClose={handleCloseOverlay}>
               <SettingsPanel onBack={handleCloseOverlay} currentProfile={currentProfile} />
             </OverlayView>
           </ErrorBoundary>

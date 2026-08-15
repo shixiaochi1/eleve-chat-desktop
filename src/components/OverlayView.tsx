@@ -3,9 +3,9 @@
  * 用于 Settings、About 等需要更多空间的密集面板
  * 特性：ESC 关闭、点击 backdrop 关闭、入场滑入动画
  *
- * bare 模式（2026-08-15）：无遮罩/无 popover 框/无标题栏/无分割线，
- * 仅保留 ESC 关闭与滚动锁定——用于设置面板等"背板 + 卡片"布局，
- * 背板由子组件自身提供，本组件只做全屏容器。
+ * panel 模式（2026-08-15 老大定稿）：居中弹窗，无标题栏/无 popover 白框，
+ * 仅保留遮罩(半透明暗化)+ESC+点击遮罩关闭+滚动锁；children 自身就是一张
+ * 完整卡片（如设置面板 = 左导航+右内容贴在一起的一张卡），本组件透明容器只负责定位。
  */
 import { useEffect, useCallback, type ReactNode } from 'react';
 import { X } from 'lucide-react';
@@ -16,11 +16,11 @@ interface OverlayViewProps {
   onClose?: () => void;
   title?: string;
   wide?: boolean;
-  /** bare 模式：纯全屏容器（无框/无遮罩/无标题栏），背板由 children 提供 */
-  bare?: boolean;
+  /** panel 模式：居中弹窗（透明容器，children 自身即卡片）；与常规模式区别 = 无标题栏无边框 */
+  panel?: boolean;
 }
 
-export default function OverlayView({ children, onClose, title, wide = false, bare = false }: OverlayViewProps) {
+export default function OverlayView({ children, onClose, title, wide = false, panel = false }: OverlayViewProps) {
   // ESC 键关闭
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -39,11 +39,16 @@ export default function OverlayView({ children, onClose, title, wide = false, ba
     };
   }, [handleKeyDown]);
 
-  // ── bare 模式：纯全屏容器（设置面板等 1+N 布局用）──
-  if (bare) {
+  // ── panel 模式：居中弹窗，children 自身即完整卡片（设置面板用）──
+  if (panel) {
     return (
-      <div className="fixed inset-0 z-50">
-        <div className="h-full w-full">{children}</div>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/40 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => onClose?.()}>
+        <div
+          className={cn("rounded-xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200", wide ? "w-[1200px] max-w-[94vw] h-[88vh] max-h-[92vh]" : "w-[960px] max-w-[94vw] h-[86vh] max-h-[92vh]")}
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        >
+          {children}
+        </div>
       </div>
     );
   }
