@@ -14,6 +14,7 @@ import {
   ChevronDown,
   Loader,
   MoreHorizontal,
+  Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { KanbanTask, ColumnDef } from './kanban/types';
@@ -142,6 +143,7 @@ export default function SidebarKanbanBoard({
   onSwitchBoard,
   onShowCreateBoard,
   onRefresh,
+  onDispatch,
 }: {
   currentBoard: string;
   boards: Array<{ slug: string; name: string }>;
@@ -152,6 +154,8 @@ export default function SidebarKanbanBoard({
   onSwitchBoard: (slug: string) => void;
   onShowCreateBoard: () => void;
   onRefresh: () => void;
+  /** 手动调度（打开共享 DispatchModal） */
+  onDispatch: () => void;
 }) {
   const [showBoardPicker, setShowBoardPicker] = useState(false);
 
@@ -199,11 +203,18 @@ export default function SidebarKanbanBoard({
           )}
         </div>
 
-        {/* 右侧：主操作 + 更多（🔴 修复：原「派发」按钮在侧边栏包装组件里无对应
-            弹窗（setShowDispatch 无消费者），点了无任何反应——移除死按钮；
-            ELEVE 后端每次写操作后调度器 tick 自动兜底，无需手动派发入口） */}
+        {/* 右侧：派发 + 更多 + 主操作（新建）——派发打开共享 DispatchModal，
+            上轮因无弹窗移除，现补弹窗后恢复入口 */}
         <div className="flex items-center gap-1.5">
           {loading && <Loader size={12} strokeWidth={1.5} className="animate-spin text-[var(--ui-text-quaternary)]" />}
+          <button
+            onClick={onDispatch}
+            className="flex items-center gap-1 px-2 py-1.5 rounded-md text-[var(--ui-text-tertiary)] hover:bg-[var(--ui-bg-quinary)] hover:text-[var(--ui-text-secondary)] transition-colors text-[0.7rem]"
+            title="手动调度"
+          >
+            <Zap size={12} strokeWidth={1.5} />
+            派发
+          </button>
           <MoreMenu onRefresh={onRefresh} />
           <button
             onClick={() => onCreateTask('triage')}

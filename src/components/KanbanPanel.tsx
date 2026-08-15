@@ -75,7 +75,6 @@ import {
   updateKanbanBoard,
   getKanbanStats,
   getKanbanAssignees,
-  dispatchKanbanTasks,
   createKanbanLink,
   deleteKanbanLink,
   reassignKanbanTask,
@@ -103,6 +102,8 @@ import { taskColumn, normalizeBoardData } from './kanban/helpers';
 import { KanbanColumn } from './kanban/KanbanColumn';
 import { TaskDrawer } from './kanban/TaskDrawer';
 import { CreateBoardModal } from './kanban/CreateBoardModal';
+import { CreateTaskDrawer } from './kanban/CreateTaskDrawer';
+import { DispatchModal } from './kanban/DispatchModal';
 import { useKanbanSSE } from './kanban/useKanbanSSE';
 import { useKanban } from './kanban/useKanban';
 
@@ -143,6 +144,10 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     setNewGoalMode,
     newGoalMaxTurns,
     setNewGoalMaxTurns,
+    newWorkspaceKind,
+    setNewWorkspaceKind,
+    newWorkspacePath,
+    setNewWorkspacePath,
     searchQuery,
     setSearchQuery,
     checkedIds,
@@ -209,14 +214,6 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     setTenantFilter,
     showDispatch,
     setShowDispatch,
-    dispatchDryRun,
-    setDispatchDryRun,
-    dispatchMaxSpawn,
-    setDispatchMaxSpawn,
-    dispatching,
-    setDispatching,
-    dispatchResult,
-    setDispatchResult,
     showReassign,
     setShowReassign,
     reassignProfile,
@@ -261,7 +258,6 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     handleCreateBoard,
     handleDeleteBoard,
     handleUpdateBoard,
-    handleDispatch,
     handleReassign,
   } = useKanban({ board });
 
@@ -412,8 +408,14 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
         <div className="flex items-center gap-2">
           {loading && <Loader size={12} strokeWidth={1.5} className="animate-spin text-[var(--color-muted-foreground)]" />}
           {error && <span className="text-[0.7rem] text-danger">{error}</span>}
+          {/* 新建任务（主按钮，对齐 Hermes 顶栏 "+ 新建任务"；另可点列内 "+" 或按 N） */}
+          <button onClick={() => setCreatingIn('triage')} title="新建任务（N）"
+            className="inline-flex items-center gap-1.5 px-3 h-8 rounded-md bg-[var(--color-primary)] text-[var(--color-primary-foreground)] text-[0.8rem] font-medium hover:opacity-90 transition-opacity">
+            <Plus size={13} strokeWidth={2} />
+            新建任务
+          </button>
           {/* 调度按钮 */}
-          <button onClick={() => { setShowDispatch(true); setDispatchResult(null); }} title="手动调度"
+          <button onClick={() => setShowDispatch(true)} title="手动调度"
             className="inline-flex items-center p-1.5 rounded-md transition-colors border border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-accent)]">
             <Zap size={13} strokeWidth={1.5} />
           </button>
@@ -575,7 +577,7 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
             onDrop={handleDrop}
             creatingIn={creatingIn} onCreateStart={setCreatingIn} onCreateCancel={() => setCreatingIn(null)}
             checkedIds={checkedIds} onCheck={handleCheck} justCreatedIds={justCreatedIds} draggingTaskId={draggingTaskId}
-            onCreateSubmit={handleCreateSubmit} newTitle={newTitle} setNewTitle={setNewTitle} onDelete={handleDeleteTask} />
+            onCreateSubmit={() => { void handleCreateSubmit().catch(() => {}); }} newTitle={newTitle} setNewTitle={setNewTitle} onDelete={handleDeleteTask} />
         ))}
       </div>
 
@@ -585,97 +587,24 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
           onViewLog={handleViewLog} workerLog={workerLog} homeChannels={homeChannels} board={currentBoard} />
       )}
 
-      {/* 创建任务抽屉 */}
-      {creatingIn && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-overlay/40" onClick={() => { setCreatingIn(null); resetCreateForm(); }} style={{ animation: 'fadeIn 150ms ease-out' }}>
-        <div className="fixed inset-y-0 right-0 w-[420px] max-w-full z-50 flex flex-col border-l border-[var(--color-border)] bg-[var(--color-background)] shadow-2xl animate-in slide-in-from-right duration-200" onClick={(e) => e.stopPropagation()}>
-          {/* 头部 */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
-            <h3 className="text-[0.95rem] font-semibold text-[var(--color-foreground)]">新建任务 → {COLUMNS.find(c => c.key === creatingIn)?.label || creatingIn}</h3>
-            <button onClick={() => { setCreatingIn(null); resetCreateForm(); }} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] transition-colors">
-              <X size={18} strokeWidth={1.5} />
-            </button>
-          </div>
-          {/* 表单 */}
-          <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4">
-            {/* Title */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">标题 *</label>
-              <textarea autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCreateSubmit(); } if (e.key === 'Escape') { setCreatingIn(null); resetCreateForm(); } }}
-                placeholder={creatingIn === 'triage' ? '粗略想法 — AI 将细化...' : '任务标题'}
-                rows={2}
-                className="w-full text-[0.85rem] px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] resize-y focus:outline-none focus:border-[var(--color-ring)] min-h-[3rem]" />
-            </div>
-            {/* Body */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">详细描述</label>
-              <textarea value={newBody} onChange={(e) => setNewBody(e.target.value)}
-                placeholder="描述任务的目标、范围、验收标准..."
-                rows={5}
-                className="w-full text-[0.85rem] px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] resize-y focus:outline-none focus:border-[var(--color-ring)]" />
-            </div>
-            {/* Assignee + Priority */}
-            <div className="flex gap-4">
-              <div className="flex-1 flex flex-col gap-1.5">
-                <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">{creatingIn === 'triage' ? 'Specifier' : 'Assignee'}</label>
-                <input value={newAssignee} onChange={(e) => setNewAssignee(e.target.value)} placeholder="留空自动分配"
-                  className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
-              </div>
-              <div className="w-24 flex flex-col gap-1.5">
-                <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">优先级</label>
-                <input type="number" value={newPriority} onChange={(e) => setNewPriority(e.target.value)} placeholder="0"
-                  className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
-              </div>
-            </div>
-            {/* Skills */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">Skills</label>
-              <input value={newSkills} onChange={(e) => setNewSkills(e.target.value)} placeholder="逗号分隔，如 rust, python, devops"
-                className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
-            </div>
-            {/* Goal Mode */}
-            <div className="flex flex-col gap-1.5">
-              <label className="flex items-center gap-2 text-[0.85rem] text-[var(--color-foreground)] cursor-pointer">
-                <input type="checkbox" checked={newGoalMode} onChange={(e) => setNewGoalMode(e.target.checked)} className="rounded border-[var(--color-border)] w-4 h-4" />
-                Goal Mode（循环执行直到判定完成）
-              </label>
-              {newGoalMode && (
-                <div className="flex items-center gap-2 ml-6">
-                  <span className="text-[0.75rem] text-[var(--color-muted-foreground)]">最大轮次</span>
-                  <input type="number" value={newGoalMaxTurns} onChange={(e) => setNewGoalMaxTurns(e.target.value)}
-                    className="w-20 text-[0.85rem] h-8 px-2 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] focus:outline-none focus:border-[var(--color-ring)] text-center" />
-                </div>
-              )}
-            </div>
-            {/* Parent */}
-            {allTasks.filter(t => t.id && t.status !== 'running').length > 0 && (
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">父任务</label>
-                <select value={newParent} onChange={(e) => setNewParent(e.target.value)}
-                  className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] focus:outline-none focus:border-[var(--color-ring)]">
-                  <option value="">无</option>
-                  {allTasks.filter(t => t.id && t.status !== 'running').slice(0, 30).map(t => (
-                    <option key={t.id} value={t.id}>{t.title?.slice(0, 40) || t.id}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-          {/* 底部按钮 */}
-          <div className="px-5 py-4 border-t border-[var(--color-border)] flex gap-3">
-            <button onClick={handleCreateSubmit} disabled={!newTitle.trim()}
-              className="flex-1 h-10 rounded-md bg-[var(--color-primary)] text-[var(--color-primary-foreground)] text-[0.85rem] font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">
-              创建任务
-            </button>
-            <button onClick={() => { setCreatingIn(null); resetCreateForm(); }}
-              className="h-10 px-4 rounded-md border border-[var(--color-border)] text-[0.85rem] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] transition-colors">
-              取消
-            </button>
-          </div>
-        </div>
-        </div>
-      )}
+      {/* 创建任务抽屉 — 共享 CreateTaskDrawer（对齐 HERMES NewTaskDialog 字段集，
+          主看板右侧滑出；侧边栏以 overlay 变体复用） */}
+      <CreateTaskDrawer
+        open={Boolean(creatingIn)} target={creatingIn || 'triage'} variant="drawer"
+        title={newTitle} body={newBody} assignee={newAssignee} priority={newPriority}
+        skills={newSkills} parent={newParent} goalMode={newGoalMode} goalMaxTurns={newGoalMaxTurns}
+        workspaceKind={newWorkspaceKind} workspacePath={newWorkspacePath}
+        parentOptions={allTasks.filter(t => t.id && t.status !== 'running').slice(0, 30).map(t => ({ id: t.id, title: t.title }))}
+        onTitleChange={setNewTitle} onBodyChange={setNewBody} onAssigneeChange={setNewAssignee}
+        onPriorityChange={setNewPriority} onSkillsChange={setNewSkills} onParentChange={setNewParent}
+        onGoalModeChange={setNewGoalMode} onGoalMaxTurnsChange={setNewGoalMaxTurns}
+        onWorkspaceKindChange={setNewWorkspaceKind} onWorkspacePathChange={setNewWorkspacePath}
+        onSubmit={() => handleCreateSubmit()}
+        onClose={() => { setCreatingIn(null); resetCreateForm(); }}
+      />
+
+      {/* 手动调度 — 共享 DispatchModal（完整 DispatchResult 展示） */}
+      <DispatchModal open={showDispatch} board={currentBoard} onClose={() => setShowDispatch(false)} onDispatched={loadBoard} />
 
       {/* Phase 3: 批量重分配弹窗 */}
       {showBulkReassign && (
@@ -832,62 +761,7 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
         </div>
       )}
 
-      {/* Phase B3: 手动调度模态 */}
-      {showDispatch && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay/30 backdrop-blur-[2px]" onClick={() => setShowDispatch(false)}>
-          <div className="w-[380px] rounded-xl border border-[var(--kanban-col-border)] bg-[var(--kanban-card-bg)] shadow-xl p-5 space-y-4"
-            onClick={e => e.stopPropagation()}
-            style={{ animation: 'scaleIn 0.15s ease-out' }}>
-            <div className="flex items-center justify-between">
-              <span className="text-[0.95rem] font-semibold text-[var(--ui-text-primary)]">手动调度</span>
-              <button onClick={() => setShowDispatch(false)} className="p-1 rounded-md hover:bg-[var(--color-accent)] text-[var(--ui-text-tertiary)]"><X size={15} strokeWidth={1.5} /></button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[0.75rem] font-medium text-[var(--ui-text-tertiary)] mb-1">最大并发数</label>
-                <input value={dispatchMaxSpawn} onChange={e => setDispatchMaxSpawn(e.target.value.replace(/\D/g, ''))} placeholder="默认不限" type="number" min="1"
-                  className="w-full text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--kanban-col-border)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none focus:border-[var(--kanban-card-selected-bar)]" />
-              </div>
-              <label className="flex items-center gap-2 text-[0.8rem] text-[var(--ui-text-primary)]">
-                <input type="checkbox" checked={dispatchDryRun} onChange={e => setDispatchDryRun(e.target.checked)}
-                  className="rounded border-[var(--kanban-col-border)] accent-[var(--kanban-card-selected-bar)]" />
-                预览模式（dry_run，不实际执行）
-              </label>
-            </div>
-            <div className="flex gap-2 justify-end pt-1">
-              <button onClick={() => setShowDispatch(false)}
-                className="text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--kanban-col-border)] text-[var(--ui-text-tertiary)] hover:bg-[var(--color-accent)] transition-colors">关闭</button>
-              <button onClick={handleDispatch} disabled={dispatching}
-                className="text-[0.8rem] px-4 py-1.5 rounded-md bg-[var(--kanban-card-selected-bar)] text-[var(--color-primary-foreground)] hover:opacity-90 transition-opacity flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
-                {dispatching && <Loader size={12} strokeWidth={1.5} className="animate-spin" />}
-                {dispatchDryRun ? '预览调度' : '执行调度'}
-              </button>
-            </div>
-            {dispatchResult && (
-              <div className={cn('rounded-md border p-3 space-y-1.5 text-[0.75rem]',
-                dispatchResult.error
-                  ? 'border-danger/20 bg-danger/5'
-                  : 'border-[var(--kanban-col-border)] bg-[color-mix(in_srgb,var(--ui-base)_4%,transparent)]'
-              )}>
-                {dispatchResult.error ? (
-                  <span className="text-danger">{dispatchResult.error}</span>
-                ) : (
-                  <>
-                    <div className="font-medium text-[var(--ui-text-primary)]">{dispatchResult.message || '调度完成'}</div>
-                    {dispatchResult.result && (
-                      <div className="space-y-0.5 text-[var(--ui-text-tertiary)]">
-                        {dispatchResult.result.claimed?.length > 0 && <div>已认领: {dispatchResult.result.claimed.join(', ')}</div>}
-                        <div>回收: {dispatchResult.result.reclaimed ?? 0} · 陈旧: {dispatchResult.result.stale?.length ?? 0} · 超时: {dispatchResult.result.timed_out?.length ?? 0} · 提升: {dispatchResult.result.promoted ?? 0}</div>
-                        {dispatchResult.result.dry_run && <div className="text-warning italic">* 预览模式，未实际执行</div>}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Phase B3: 手动调度模态 — 收敛到共享 DispatchModal（见创建抽屉上方） */}
 
       {/* Phase B5: 重分配模态 */}
       {showReassign && selectedTask && (

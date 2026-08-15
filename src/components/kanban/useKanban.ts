@@ -5,7 +5,7 @@
  *   从 KanbanPanel.tsx 纯移动抽取（diff 无逻辑变更）。只拆组织，不动状态归属——
  *   看板状态单一权威源仍在本 hook，组件经返回值消费。
  */
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   getKanbanBoard,
   getKanbanTask,
@@ -67,6 +67,9 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   const [newParent, setNewParent] = useState('');
   const [newGoalMode, setNewGoalMode] = useState(false);
   const [newGoalMaxTurns, setNewGoalMaxTurns] = useState('20');
+  // 工作区类型/路径（对齐 HERMES NewTaskDialog：scratch/worktree/dir + 可选覆盖路径）
+  const [newWorkspaceKind, setNewWorkspaceKind] = useState('scratch');
+  const [newWorkspacePath, setNewWorkspacePath] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [checkedIds, setCheckedIds] = useState<Set<any>>(new Set());
   // Phase 4 状态
@@ -107,12 +110,8 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   const [showStatusFilter, setShowStatusFilter] = useState(false);
   const [statusFilter, setStatusFilter] = useState<Set<any>>(new Set());
   const [tenantFilter, setTenantFilter] = useState('');
-  // Phase B3: 手动调度
+  // Phase B3: 手动调度（弹窗状态在此，调度参数/结果由共享 DispatchModal 自管）
   const [showDispatch, setShowDispatch] = useState(false);
-  const [dispatchDryRun, setDispatchDryRun] = useState(true);
-  const [dispatchMaxSpawn, setDispatchMaxSpawn] = useState('');
-  const [dispatching, setDispatching] = useState(false);
-  const [dispatchResult, setDispatchResult] = useState<any>(null);
   // Phase B5: 重分配
   const [showReassign, setShowReassign] = useState(false);
   const [reassignProfile, setReassignProfile] = useState('');
@@ -316,6 +315,18 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   const resetCreateForm = useCallback(() => {
     setNewTitle(''); setNewBody(''); setNewAssignee(''); setNewPriority('');
     setNewSkills(''); setNewParent(''); setNewGoalMode(false); setNewGoalMaxTurns('20');
+    setNewWorkspaceKind('scratch'); setNewWorkspacePath('');
+  }, []);
+
+  // 创建 ready 任务后 400ms 防抖立即触发一次调度（对齐 Hermes nudgeDispatcher）：
+  // 任务不等后端 30s tick 就被 claim+spawn；fire-and-forget，失败由 tick 兜底。
+  const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nudgeDispatch = useCallback((board: string) => {
+    if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
+    nudgeTimerRef.current = setTimeout(() => {
+      nudgeTimerRef.current = null;
+      dispatchKanbanTasks({ board, dry_run: false }).catch(() => { /* tick 兜底 */ });
+    }, 400);
   }, []);
 
   const handleCreateSubmit = useCallback(async () => {
@@ -336,6 +347,12 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       if (newSkills.trim()) payload.skills = newSkills.trim();
       if (newParent) payload.parents = [newParent];
       if (newGoalMode) { payload.goal_mode = true; payload.goal_max_turns = Number(newGoalMaxTurns) || 20; }
+      // 工作区类型/路径（后端 create_task 校验 workspace_kind ∈ scratch/dir/worktree；
+      // 路径仅 dir/worktree 生效，scratch 忽略）
+      payload.workspace_kind = newWorkspaceKind || 'scratch';
+      if (newWorkspaceKind !== 'scratch' && newWorkspacePath.trim()) {
+        payload.workspace_path = newWorkspacePath.trim();
+      }
       if (creatingIn === 'triage') payload.triage = true;
       const result = await createKanbanTask(payload);
       setCreatingIn(null);
@@ -356,10 +373,14 @@ export function useKanban({ board = 'default' }: { board?: string }) {
         try { await updateKanbanTask(newId, { status: creatingIn }, currentBoard); } catch { /* 门控拒绝则留在后端落位状态 */ }
       }
       await loadBoard();
+      // 创建成功即 nudge：新卡落 ready（或 todo→父完成→ready）立即被调度
+      nudgeDispatch(currentBoard);
     } catch (err) {
       console.error('[KanbanPanel] Create task failed:', err);
+      // 让调用方（CreateTaskDrawer）能感知失败并展示错误
+      throw err;
     }
-  }, [currentBoard, creatingIn, newTitle, newBody, newAssignee, newPriority, newSkills, newParent, newGoalMode, newGoalMaxTurns, loadBoard, orchestration]);
+  }, [currentBoard, creatingIn, newTitle, newBody, newAssignee, newPriority, newSkills, newParent, newGoalMode, newGoalMaxTurns, newWorkspaceKind, newWorkspacePath, loadBoard, orchestration, nudgeDispatch]);
 
   // 操作
   const handleAction = useCallback(async (action: string, taskId: string) => {
@@ -615,24 +636,6 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     }
   }, [showAssigneeFilter, currentBoard]);
 
-  // Phase B3: 手动调度
-  const handleDispatch = useCallback(async () => {
-    setDispatching(true);
-    setDispatchResult(null);
-    try {
-      const params: Record<string, any> = { board: currentBoard, dry_run: dispatchDryRun };
-      if (dispatchMaxSpawn.trim()) params.max_spawn = parseInt(dispatchMaxSpawn, 10);
-      const data = await dispatchKanbanTasks(params);
-      setDispatchResult(data);
-      // 如果不是 dry_run，调度后刷新看板
-      if (!dispatchDryRun) loadBoard();
-    } catch (err) {
-      setDispatchResult({ error: (err as Error).message || '调度失败' });
-    } finally {
-      setDispatching(false);
-    }
-  }, [currentBoard, dispatchDryRun, dispatchMaxSpawn, loadBoard]);
-
   // Phase B5: 重分配
   const handleReassign = useCallback(async () => {
     if (!selectedTask?.id || !reassignProfile.trim()) return;
@@ -758,14 +761,6 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     setTenantFilter,
     showDispatch,
     setShowDispatch,
-    dispatchDryRun,
-    setDispatchDryRun,
-    dispatchMaxSpawn,
-    setDispatchMaxSpawn,
-    dispatching,
-    setDispatching,
-    dispatchResult,
-    setDispatchResult,
     showReassign,
     setShowReassign,
     reassignProfile,
@@ -810,7 +805,10 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     handleCreateBoard,
     handleDeleteBoard,
     handleUpdateBoard,
-    handleDispatch,
+    newWorkspaceKind,
+    setNewWorkspaceKind,
+    newWorkspacePath,
+    setNewWorkspacePath,
     handleReassign,
   };
 
