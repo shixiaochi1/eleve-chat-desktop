@@ -10,6 +10,9 @@ import {
   UsageIcon, ChannelsIcon, KanbanIcon, AgentIcon,
 } from './Icons';
 import { FolderGit, BookOpen } from 'lucide-react';
+// 🔴 2026-08-16（平台受限项 d1 P0-5 闭合）：看板在飞计数（对齐 Hermes
+//   KanbanCount）——IconBar kanban 图标右上角 running+ready 角标
+import { useKanbanActiveCount } from '../hooks/useKanbanActiveCount';
 
 interface NavItem {
   id: string;
@@ -19,6 +22,8 @@ interface NavItem {
   isOverlay?: boolean;
   /** 自定义点击（如文件浏览器走 onToggleFiles，不参与 panel 切换） */
   onClick?: () => void;
+  /** 右上角计数角标（>0 才显示；对齐 Hermes 无在飞任务时隐藏） */
+  badge?: number;
 }
 
 interface IconBarProps {
@@ -30,12 +35,15 @@ interface IconBarProps {
 }
 
 export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gatewayOnline, onToggleFiles }: IconBarProps) {
+  // 🔴 2026-08-16（d1 P0-5 闭合）：在飞计数——gateway 在线才轮询；
+  //   计数仅作角标展示，点击行为仍走 kanban 项既有切换逻辑
+  const { running, ready, active } = useKanbanActiveCount(Boolean(gatewayOnline));
   const navItems: NavItem[] = [
     { id: 'agents',   icon: AgentIcon,   label: 'Agent' },
     // 🔴 2026-08-12 老大指示：取消"项目"按钮（项目功能已合并进 Agent 面板）；
     //   文件浏览器图标换成原项目图标（FolderGit），行为不变（开右侧文件抽屉）
     { id: 'files',    icon: FolderGit,  label: '文件浏览器', onClick: onToggleFiles },
-    { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true },
+    { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true, badge: active },
     { id: 'cron',     icon: CronIcon,     label: '定时任务' },
     { id: 'tools',    icon: ToolIcon,     label: '工具' },
     { id: 'learning', icon: BookOpen,    label: '学习' },
@@ -62,13 +70,18 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
   const renderButton = (item: NavItem) => {
     const isActive = activePanel === item.id;
     const Icon = item.icon;
+    // 🔴 2026-08-16（d1 P0-5 闭合）：有在飞任务时 tooltip 细分 running/ready
+    //   （对齐 Hermes countTip(running, ready)）
+    const title = item.id === 'kanban' && active > 0
+      ? `${item.label} · ${running} 运行中 · ${ready} 就绪`
+      : item.label;
     return (
       <button
         key={item.id}
         role="tab"
         aria-selected={isActive}
         className={cn(navBtnBase, isActive && navBtnActive)}
-        title={item.label}
+        title={title}
         aria-label={item.label}
         onClick={() => {
           if (item.onClick) {
@@ -85,6 +98,16 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
       >
         <Icon className={cn('w-5 h-5 transition-transform duration-150', isActive ? 'scale-105' : 'group-hover:scale-105')} />
         {isActive && <span className={indicator} />}
+        {/* 🔴 2026-08-16（d1 P0-5 闭合）：在飞计数角标——>0 才显示，
+            无在飞任务时隐藏（对齐 Hermes KanbanCount active===0 → null） */}
+        {item.badge != null && item.badge > 0 && (
+          <span
+            className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-danger text-white text-[0.6rem] font-bold flex items-center justify-center leading-none shadow-[0_1px_3px_rgba(0,0,0,0.35)] border border-white/20 pointer-events-none"
+            style={{ animation: 'scaleIn 150ms ease-out' }}
+          >
+            {item.badge > 99 ? '99+' : item.badge}
+          </span>
+        )}
       </button>
     );
   };
