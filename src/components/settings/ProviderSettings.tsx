@@ -66,23 +66,17 @@ export default function ProviderSettings({
 }) {
   return (
     <div className="space-y-4">
-      {/* 区块头部：标题 + 统计（对齐 Hermes SettingsCategoryHeading） */}
-      <div className="mb-1">
-        <div className="flex items-center gap-2.5">
-          <h2 className="text-base font-semibold text-[var(--theme-foreground)]">服务商</h2>
-          <span className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--theme-accent)]/15 text-[var(--theme-accent)] font-medium">
-            {providers.length} 家
-          </span>
-          <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
-            {providers.reduce((n, p) => n + p.models.length, 0)} 个模型
-          </span>
-        </div>
-        <p className="mt-1.5 text-xs text-muted-foreground/70 leading-relaxed">
-          API 服务商集中注册，后续区块只需选择厂商和模型即可。
-        </p>
+      {/* 轻量头部：统计 + 说明（弱化，不设标题——左侧已有「设置」） */}
+      <div className="flex items-center gap-2.5">
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--theme-accent)]/15 text-[var(--theme-accent)] font-medium">
+          {providers.length} 家服务商
+        </span>
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+          {providers.reduce((n, p) => n + p.models.length, 0)} 个模型
+        </span>
       </div>
 
-      {/* 卡片墙：2 列网格，展开时跨全宽 */}
+      {/* 卡片墙：2 列网格，展开时跨全宽（主内容） */}
       <div className="grid gap-2.5 sm:grid-cols-2 items-start">
         {providers.map((p) => (
           <ProviderCard
