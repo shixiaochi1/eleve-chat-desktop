@@ -2,11 +2,15 @@
  * DispatchModal — 手动调度任务（主看板与侧边栏看板共享）
  *
  * 从 KanbanPanel 调度模态抽取并扩展：
- * - dry_run 预览（默认开，安全）+ max_spawn 限制（空 = 读后端 config）
+ * - max_spawn 限制（空 = 读后端 config）
  * - 结果面板完整展示后端 DispatchResult：claimed / claimed_ready /
  *   spawned_count / reclaimed / stale / timed_out / promoted / crashed /
  *   rate_limited / skipped_*（含原因）/ auto_*
- * - 非 dry_run 执行成功后回调 onDispatched（包装组件刷新看板）
+ * - 执行成功后回调 onDispatched（包装组件刷新看板）
+ *
+ * 🔴 2026-08-16：dry_run 已移除——预览模式归位 CLI（`eleve kanban dispatch
+ *   --dry-run`，对齐 Hermes CLI 显式标志语义），桌面端只留真实执行；
+ *   结果面板的 skipped_* 诊断（未分配/并发上限/自动阻塞等）执行后同样可见。
  */
 import { useEffect, useState } from 'react';
 import { X, Loader, Zap } from 'lucide-react';
@@ -17,15 +21,11 @@ interface DispatchModalProps {
   open: boolean;
   board: string;
   onClose: () => void;
-  /** 非 dry_run 执行成功后触发（刷新看板） */
+  /** 执行成功后触发（刷新看板） */
   onDispatched?: () => void;
 }
 
 export function DispatchModal({ open, board, onClose, onDispatched }: DispatchModalProps) {
-  // 🔴 2026-08-16 修复：dry_run 默认 false——原默认 true（预览模式）导致用户
-  //   点「执行调度」实际只是预览（结果面板标注 dry_run 但任务不动），
-  //   「派发功能是假的」的 UX 根因；预览改为显式勾选
-  const [dryRun, setDryRun] = useState(false);
   const [maxSpawn, setMaxSpawn] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -41,11 +41,11 @@ export function DispatchModal({ open, board, onClose, onDispatched }: DispatchMo
     setBusy(true);
     setResult(null);
     try {
-      const params: Record<string, any> = { board, dry_run: dryRun };
+      const params: Record<string, any> = { board, dry_run: false };
       if (maxSpawn.trim()) params.max_spawn = parseInt(maxSpawn, 10);
       const data = await dispatchKanbanTasks(params);
       setResult(data);
-      if (!dryRun) onDispatched?.();
+      onDispatched?.();
     } catch (err) {
       setResult({ error: (err as Error).message || '调度失败' });
     } finally {
@@ -81,11 +81,10 @@ export function DispatchModal({ open, board, onClose, onDispatched }: DispatchMo
             <input value={maxSpawn} onChange={e => setMaxSpawn(e.target.value.replace(/\D/g, ''))} placeholder="默认不限" type="number" min="1"
               className="w-full text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--kanban-col-border)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none focus:border-[var(--kanban-card-selected-bar)]" />
           </div>
-          <label className="flex items-center gap-2 text-[0.8rem] text-[var(--ui-text-primary)] cursor-pointer">
-            <input type="checkbox" checked={dryRun} onChange={e => setDryRun(e.target.checked)}
-              className="rounded border-[var(--kanban-col-border)] accent-[var(--kanban-card-selected-bar)]" />
-            预览模式（dry_run，不实际执行）
-          </label>
+          <p className="text-[0.72rem] text-[var(--ui-text-quaternary)] leading-relaxed">
+            执行即真实派发（claim + spawn worker）。如需无副作用预览，请用 CLI：
+            <code className="mx-1 px-1 py-0.5 rounded bg-[var(--ui-base)] font-mono text-[0.65rem]">eleve kanban dispatch --dry-run</code>
+          </p>
         </div>
 
         <div className="flex gap-2 justify-end pt-1">
@@ -94,7 +93,7 @@ export function DispatchModal({ open, board, onClose, onDispatched }: DispatchMo
           <button onClick={() => void run()} disabled={busy}
             className="text-[0.8rem] px-4 py-1.5 rounded-md bg-[var(--kanban-card-selected-bar)] text-[var(--color-primary-foreground)] hover:opacity-90 transition-opacity flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
             {busy && <Loader size={12} strokeWidth={1.5} className="animate-spin" />}
-            {dryRun ? '预览调度' : '执行调度'}
+            执行调度
           </button>
         </div>
 
@@ -135,7 +134,6 @@ export function DispatchModal({ open, board, onClose, onDispatched }: DispatchMo
                         {r.auto_assigned_default?.length > 0 && row('自动分配 default', list(r.auto_assigned_default))}
                       </div>
                     )}
-                    {r.dry_run && <div className="text-warning italic pt-0.5">* 预览模式，未实际执行</div>}
                   </div>
                 )}
               </>
