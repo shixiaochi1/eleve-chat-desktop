@@ -7,7 +7,7 @@ import {
   X, ChevronDown, Edit3, Save, GitBranch, Paperclip, Download, Trash2,
   FileText, Radio, BellOff, Bell, Send, Play, Ban, Clock, CheckCircle2,
   ArrowLeftFromLine, Archive, Zap, Loader, Plus, AlertTriangle, Eye, Gauge,
-  MoreHorizontal, Check,
+  MoreHorizontal, Check, Undo2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { readFileAsDataURL, base64FromDataURL } from '@/utils/file';
@@ -1221,10 +1221,12 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
           {/* review — 🔴 对齐 Hermes 2026-08 一等评审生命周期：
               complete_task 门控含 review（人工可直接『通过』，免摘要后端合成）；
               恢复 = reopen（review→ready/todo，回实现者重跑）。
-              评审退回返工（request_changes）由评审 run 的评论区操作。 */}
+              退回 = request_changes（评审 worker 运行时把不合格工作退回实现者，
+              走 KanbanReviewDialogs 理由浮层；无活动评审 run 时后端拒绝并提示） */}
           {review && (
             <>
               <ActionButton icon={CheckCircle2} label="通过" color="green" onClick={() => onAction('complete', task.id)} busy={busy} />
+              <ActionButton icon={Undo2} label="退回" color="amber" onClick={() => onAction('requestChanges', task.id)} busy={busy} />
               <ActionButton icon={ArrowLeftFromLine} label="恢复" color="muted" onClick={() => onAction('promote', task.id)} busy={busy} />
             </>
           )}
