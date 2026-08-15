@@ -49,6 +49,10 @@ interface CreateTaskDrawerProps {
   reasoningEffort: string;
   /** 负责人下拉选项（profiles roster，对齐 Hermes fetchProfiles） */
   assigneeOptions: Array<{ name: string }>;
+  /** 🔴 对齐 Hermes ModelCatalogMenu 数据源（审查 d3-2/d2-14）：profiles 的
+   *  model/provider 去重目录，配合 datalist 下拉+手输 */
+  modelOptions: string[];
+  providerOptions: string[];
   parentOptions: Array<{ id: string; title: string }>;
   onTitleChange: (v: string) => void;
   onBodyChange: (v: string) => void;
@@ -70,7 +74,7 @@ interface CreateTaskDrawerProps {
 export function CreateTaskDrawer({
   open, target, variant = 'drawer',
   title, body, assignee, priority, skills, parent, goalMode, goalMaxTurns, workspaceKind, workspacePath, modelOverride,
-  providerOverride, reasoningEffort, assigneeOptions,
+  providerOverride, reasoningEffort, assigneeOptions, modelOptions, providerOptions,
   parentOptions,
   onTitleChange, onBodyChange, onAssigneeChange, onPriorityChange, onSkillsChange, onParentChange,
   onGoalModeChange, onGoalMaxTurnsChange, onWorkspaceKindChange, onWorkspacePathChange, onModelOverrideChange,
@@ -218,19 +222,32 @@ export function CreateTaskDrawer({
         )}
       </div>
       {/* 模型覆盖（对齐 HERMES TaskModelOverride 三元组：model + provider +
-          reasoning effort；全留空继承 profile 模型） */}
+          reasoning effort；全留空继承 profile 模型）
+          🔴 对齐 Hermes ModelCatalogMenu（审查 d3-2/d2-14）：模型/provider
+          从 profiles 目录去重下拉（可手输）+ 推理深度白名单下拉——此前裸
+          文本框易拼错模型 id 静默进任务 */}
       <div className="flex flex-col gap-1.5">
         <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">模型覆盖（可选）</label>
-        <input value={modelOverride} onChange={e => onModelOverrideChange(e.target.value)}
+        <input value={modelOverride} onChange={e => onModelOverrideChange(e.target.value)} list="eleve-kanban-model-catalog"
           placeholder="留空继承 assigned profile 的模型"
           className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
+        <datalist id="eleve-kanban-model-catalog">
+          {modelOptions.map(m => <option key={m} value={m} />)}
+        </datalist>
         <div className="grid grid-cols-2 gap-2">
-          <input value={providerOverride} onChange={e => onProviderOverrideChange(e.target.value)}
+          <input value={providerOverride} onChange={e => onProviderOverrideChange(e.target.value)} list="eleve-kanban-provider-catalog"
             placeholder="Provider（如 openrouter）"
             className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
-          <input value={reasoningEffort} onChange={e => onReasoningEffortChange(e.target.value)}
-            placeholder="推理深度（如 high）"
-            className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
+          <datalist id="eleve-kanban-provider-catalog">
+            {providerOptions.map(p => <option key={p} value={p} />)}
+          </datalist>
+          <select value={reasoningEffort} onChange={e => onReasoningEffortChange(e.target.value)}
+            className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] focus:outline-none focus:border-[var(--color-ring)] cursor-pointer">
+            <option value="">推理深度（继承）</option>
+            {['none', 'minimal', 'low', 'medium', 'high', 'xhigh'].map(v => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
         </div>
         <span className="text-[0.65rem] text-[var(--color-muted-foreground)]">Provider 需配合模型填写；推理深度取值 none/minimal/low/medium/high/xhigh</span>
       </div>
