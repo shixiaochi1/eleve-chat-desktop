@@ -853,7 +853,9 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
         boardDefaultKind={boardMeta?.default_workspace_kind}
         boardDefaultDir={boardMeta?.default_workdir}
         defaultAssignee={resolvedDefaultAssignee}
-        parentOptions={allTasks.filter(t => t.id && t.status !== 'running').slice(0, 30).map(t => ({ id: t.id, title: t.title }))}
+        // 🔴 对齐 Hermes 父任务候选 = 全板任务（board.tsx L1165-1168，审查 d3-21）：
+        //   去掉 30 条截断——大看板上父任务不可选；运行中父排除保留（保守 UX）
+        parentOptions={allTasks.filter(t => t.id && t.status !== 'running').map(t => ({ id: t.id, title: t.title }))}
         onTitleChange={setNewTitle} onBodyChange={setNewBody} onAssigneeChange={setNewAssignee}
         onPriorityChange={setNewPriority} onSkillsChange={setNewSkills} onParentChange={setNewParent}
         onGoalModeChange={setNewGoalMode} onGoalMaxTurnsChange={setNewGoalMaxTurns}
