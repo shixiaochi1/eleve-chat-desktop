@@ -20,6 +20,7 @@ import { undoSessionTurn, compressSession, branchSession, getSessionUsage } from
 import { deleteSessionAction, renameSessionAction, toggleArchiveSession, exportSessionAction, copySessionId } from '../lib/session-actions';
 import { sessionMatchesSearch, searchSessions, searchResultToSession } from '../lib/session-search';
 import { SessionStatusDot } from './SessionStatusDot';
+import { ConfirmDialog } from './ui/confirm-dialog';
 import { markSessionRead, useSessionStatus } from '../store/session-status';
 import { Input } from './ui/input';
 import * as storage from '../utils/storage';
@@ -233,6 +234,8 @@ export default function SessionsPanel({
   const listRef = useRef<HTMLDivElement | null>(null);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // 🔴 2026-08-16（P1 延伸统一）：批量删除确认——原生 window.confirm 改应用内浮层
+  const [pendingBatchDelete, setPendingBatchDelete] = useState(false);
 
   // ── 置顶/归档状态 ──
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => loadSet(PINNED_KEY));
@@ -411,9 +414,15 @@ export default function SessionsPanel({
     setSelectedIds(new Set());
   };
 
-  const handleBatchDelete = async () => {
+  const handleBatchDelete = () => {
     if (selectedIds.size === 0) return;
-    if (!window.confirm(`确认删除 ${selectedIds.size} 个会话？此操作不可撤销。`)) return;
+    // 🔴 2026-08-16（P1 延伸统一）：确认改应用内浮层（ConfirmDialog），
+    //   实际删除在 confirmBatchDelete（浮层确认后）执行
+    setPendingBatchDelete(true);
+  };
+
+  const confirmBatchDelete = async () => {
+    setPendingBatchDelete(false);
     for (const id of selectedIds) {
       await deleteSessionAction(id, (deletedId) => onDeleteSession?.(deletedId));
     }
@@ -750,6 +759,17 @@ export default function SessionsPanel({
         />,
         document.body
       )}
+
+      {/* 🔴 2026-08-16（P1 延伸统一）：批量删除确认浮层（取代 window.confirm，
+          组件内部 createPortal 到 body） */}
+      <ConfirmDialog
+        open={pendingBatchDelete}
+        title="批量删除会话"
+        message={`确认删除 ${selectedIds.size} 个会话？此操作不可撤销。`}
+        confirmLabel="确认删除"
+        onConfirm={confirmBatchDelete}
+        onCancel={() => setPendingBatchDelete(false)}
+      />
     </div>
   );
 }

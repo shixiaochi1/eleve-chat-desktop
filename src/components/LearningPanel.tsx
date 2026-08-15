@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { getLearningFrames, getLearningDetail, deleteLearning } from '../utils/api';
 import { notifyError, notifySuccess } from '../utils/notifications';
 import { getWsClient } from '../services/ws-client';
+import { ConfirmDialog } from './ui/confirm-dialog';
 import { BookOpen, RefreshCw, Trash2, X } from 'lucide-react';
 
 interface LearningNode {
@@ -43,6 +44,8 @@ export default function LearningPanel(_props: LearningPanelProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  // 🔴 2026-08-16（P1 延伸统一）：删除确认——原生 window.confirm 改应用内浮层
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -81,8 +84,16 @@ export default function LearningPanel(_props: LearningPanelProps) {
     }
   }, []);
 
-  const handleDelete = useCallback(async (id: string) => {
-    if (!window.confirm(`确认删除学习节点 "${id}"？`)) return;
+  const handleDelete = useCallback((id: string) => {
+    // 🔴 2026-08-16（P1 延伸统一）：确认改应用内浮层（ConfirmDialog），
+    //   实际删除在 confirmDelete（浮层确认后）执行
+    setPendingDeleteId(id);
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDeleteId) return;
+    const id = pendingDeleteId;
+    setPendingDeleteId(null);
     try {
       await deleteLearning(id);
       notifySuccess(`已删除 ${id}`);
@@ -92,7 +103,7 @@ export default function LearningPanel(_props: LearningPanelProps) {
     } catch (e) {
       notifyError(e, '删除失败');
     }
-  }, [refresh]);
+  }, [pendingDeleteId, refresh]);
 
   return (
     <div className="flex flex-col h-full p-3 gap-2">
@@ -159,6 +170,15 @@ export default function LearningPanel(_props: LearningPanelProps) {
           )}
         </div>
       )}
+
+      {/* 🔴 2026-08-16（P1 延伸统一）：删除确认浮层（取代 window.confirm） */}
+      <ConfirmDialog
+        open={!!pendingDeleteId}
+        title="删除学习节点"
+        message={`确认删除学习节点 "${pendingDeleteId}"？`}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

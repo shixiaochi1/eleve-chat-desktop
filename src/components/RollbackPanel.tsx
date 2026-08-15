@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { listCheckpoints, getCheckpointDiff, restoreCheckpoint } from '../utils/api';
 import { notifyError, notifySuccess } from '../utils/notifications';
 import { getWsClient } from '../services/ws-client';
+import { ConfirmDialog } from './ui/confirm-dialog';
 import { History, RefreshCw, Eye, Undo2 } from 'lucide-react';
 
 interface CheckpointEntry {
@@ -35,6 +36,8 @@ export default function RollbackPanel({ sessionId }: RollbackPanelProps) {
   const [diff, setDiff] = useState<string | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  // 🔴 2026-08-16（P1 延伸统一）：恢复确认——原生 window.confirm 改应用内浮层
+  const [pendingRestore, setPendingRestore] = useState<CheckpointEntry | null>(null);
 
   const refresh = useCallback(async () => {
     if (!sessionId) return;
@@ -81,10 +84,18 @@ export default function RollbackPanel({ sessionId }: RollbackPanelProps) {
     }
   }, [sessionId]);
 
-  const handleRestore = useCallback(async (entry: CheckpointEntry) => {
+  const handleRestore = useCallback((entry: CheckpointEntry) => {
     if (!sessionId || restoring) return;
+    // 🔴 2026-08-16（P1 延伸统一）：确认改应用内浮层（ConfirmDialog），
+    //   实际恢复在 confirmRestore（浮层确认后）执行
+    setPendingRestore(entry);
+  }, [sessionId, restoring]);
+
+  const confirmRestore = useCallback(async () => {
+    if (!sessionId || !pendingRestore || restoring) return;
+    const entry = pendingRestore;
+    setPendingRestore(null);
     const label = entry.short_hash || entry.hash.slice(0, 7);
-    if (!window.confirm(`恢复到快照 ${label}（${entry.message}）？\n工作目录文件将回退，对话也会回退到那一轮。`)) return;
     setRestoring(true);
     try {
       const res = await restoreCheckpoint(sessionId, entry.hash);
@@ -101,7 +112,7 @@ export default function RollbackPanel({ sessionId }: RollbackPanelProps) {
     } finally {
       setRestoring(false);
     }
-  }, [sessionId, restoring, refresh]);
+  }, [sessionId, pendingRestore, restoring, refresh]);
 
   return (
     <div className="flex flex-col h-full p-3 gap-2">
@@ -193,6 +204,21 @@ export default function RollbackPanel({ sessionId }: RollbackPanelProps) {
           )}
         </div>
       )}
+
+      {/* 🔴 2026-08-16（P1 延伸统一）：恢复确认浮层（取代 window.confirm——
+          工作目录+对话双回退，warning 色调；busy 复用 restoring 防重复提交） */}
+      <ConfirmDialog
+        open={!!pendingRestore}
+        title="恢复快照"
+        message={pendingRestore
+          ? `恢复到快照 ${pendingRestore.short_hash || pendingRestore.hash.slice(0, 7)}（${pendingRestore.message}）？\n工作目录文件将回退，对话也会回退到那一轮。`
+          : ''}
+        confirmLabel="确认恢复"
+        tone="warning"
+        busy={restoring}
+        onConfirm={confirmRestore}
+        onCancel={() => setPendingRestore(null)}
+      />
     </div>
   );
 }
