@@ -18,6 +18,7 @@ export function useKanbanSSE(
   currentBoard: string,
   setApiTasks: Dispatch<SetStateAction<KanbanTask[]>>,
   loadBoard: () => void,
+  onEvents?: (events: KanbanEvent[]) => void,
 ) {
   useEffect(() => {
     let eventSource: EventSource | null = null;
@@ -38,6 +39,9 @@ export function useKanbanSSE(
       const needsReload = events.some(evt => !KANBAN_PATCH_KINDS.includes(evt.kind));
       setApiTasks(prev => events.reduce((acc, evt) => applyKanbanEvent(acc, evt), prev));
       if (needsReload) setTimeout(() => loadBoard(), 100);
+      // 🔴 对齐 Hermes socket 事件帧精确失效（drawer.tsx L556-561）：把事件透传
+      //   给打开中的详情抽屉——评论/回收/状态变更秒级反映，不等 30s 轮询
+      onEvents?.(events);
     };
 
     // 降级轮询：SSE 断连时每 5s 用 pollKanbanEvents 拉取
@@ -75,5 +79,5 @@ export function useKanbanSSE(
     };
     connectSSE();
     return () => { eventSource?.close(); if (reconnectTimer) clearTimeout(reconnectTimer); stopPolling(); };
-  }, [currentBoard, setApiTasks, loadBoard]);
+  }, [currentBoard, setApiTasks, loadBoard, onEvents]);
 }

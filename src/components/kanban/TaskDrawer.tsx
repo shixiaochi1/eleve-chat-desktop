@@ -16,11 +16,12 @@ import {
   getKanbanRun, getKanbanTask, getKanbanAttachments, addKanbanComment,
   updateKanbanTask, uploadKanbanAttachment, deleteKanbanAttachment,
   deleteKanbanLink, createKanbanLink, getKanbanTaskLog, getKanbanDiagnostics,
-  getApiBase,
+  getApiBase, getKanbanProfiles, reassignKanbanTask,
 } from '@/utils/api';
 import type { KanbanTask, CommentRecord, AttachmentRecord, RunRecord, KanbanEvent } from './types';
 import { isBlocked, isDone, fmtAge, fmtDuration } from './helpers';
 import { COLUMNS, LOCKED_DROP_COLUMNS } from './constants';
+import { notify } from '../../utils/notifications';
 
 // ═══════════════════════════════════════════════════════════════
 // 子组件
@@ -166,9 +167,12 @@ interface TaskDrawerProps {
   /** 状态下拉移动（对齐 Hermes StatusMenu；传 null/undefined 则头部仅静态色点）。
    *  调用方通常传 useKanban.handleDrop（含锁定/门控/摘要/确认/乐观更新） */
   onMoveStatus?: (status: string) => void;
+  /** 🔴 SSE 事件 tick（对齐 Hermes socket 帧失效）：任一事件到达时递增，
+   *   抽屉秒级重拉 detail——评论/回收/状态变更不等 30s 轮询（审查 d4-1） */
+  detailRefreshTick?: number;
 }
 
-export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, homeChannels, board = 'default', onOpenTask, variant = 'drawer', onMoveStatus }: TaskDrawerProps) {
+export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, homeChannels, board = 'default', onOpenTask, variant = 'drawer', onMoveStatus, detailRefreshTick }: TaskDrawerProps) {
   const busy = loadingId === task?.id;
   const [detail, setDetail] = useState<any>(null);
   const [commentInput, setCommentInput] = useState('');
@@ -188,6 +192,10 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   const [providerDraft, setProviderDraft] = useState('');
   const [effortDraft, setEffortDraft] = useState('');
   const [assigneeDraft, setAssigneeDraft] = useState('');
+  // 🔴 对齐 Hermes AssigneeMenu（drawer.tsx L236-275）：负责人改为 roster 下拉
+  //   （profiles），运行中重分配 reclaim_first: true——此前自由文本 + 无 reclaim，
+  //   运行卡改负责人后 worker 继续跑旧任务直至超时（审查 d4-9）
+  const [profileRoster, setProfileRoster] = useState<Array<{ name: string }>>([]);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null); // Phase B7: Run 详情展开
   const [expandedRunData, setExpandedRunData] = useState<RunRecord | null>(null);
@@ -225,22 +233,48 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   // 加载详情（评论/事件/运行/链接）+ 附件
   // 🔴 对齐 Hermes drawer refetchInterval 30s：此前一次性拉取，抽屉打开期间
   //   事件/评论/运行/依赖/附件恒旧；改为 30s 轮询自动刷新
+  const fetchDetail = useCallback(() => {
+    if (!task?.id) return;
+    getKanbanTask(task.id, board).then(data => setDetail(data)).catch(() => setDetail(null));
+    getKanbanAttachments(task.id, board).then(data => {
+      setAttachments(data?.attachments || data || []);
+    }).catch(() => {});
+  }, [task?.id, board]);
+
   useEffect(() => {
     if (!task?.id) { setDetail(null); setAttachments([]); return; }
     let alive = true;
-    const fetchDetail = () => {
+    const fetchDetailAlive = () => {
       getKanbanTask(task.id, board).then(data => { if (alive) setDetail(data); }).catch(() => { if (alive) setDetail(null); });
       getKanbanAttachments(task.id, board).then(data => {
         if (alive) setAttachments(data?.attachments || data || []);
       }).catch(() => {});
     };
-    fetchDetail();
-    const interval = window.setInterval(fetchDetail, 30000);
+    fetchDetailAlive();
+    const interval = window.setInterval(fetchDetailAlive, 30000);
     // 切换任务时重置 Run 展开态（避免上一个任务的展开残留）
     setExpandedRunId(null);
     setExpandedRunData(null);
     return () => { alive = false; window.clearInterval(interval); };
   }, [task?.id, board]);
+
+  // 🔴 对齐 Hermes socket 帧失效（drawer.tsx L556-561）：SSE 事件到达即重拉
+  //   detail——评论/回收/状态变更秒级反映（审查 d4-1）
+  const lastTickRef = useRef(detailRefreshTick ?? 0);
+  useEffect(() => {
+    if ((detailRefreshTick ?? 0) === lastTickRef.current) return;
+    lastTickRef.current = detailRefreshTick ?? 0;
+    if (task?.id) fetchDetail();
+  }, [detailRefreshTick, task?.id, fetchDetail]);
+
+  // 🔴 对齐 Hermes AssigneeMenu roster 数据源：profiles 挂载即加载
+  useEffect(() => {
+    let alive = true;
+    getKanbanProfiles().then(data => {
+      if (alive) setProfileRoster(data?.profiles || data || []);
+    }).catch(() => { if (alive) setProfileRoster([]); });
+    return () => { alive = false; };
+  }, []);
 
   // 🔴 对齐 Hermes 抽屉诊断区：board 级 /diagnostics 按 task_id 过滤展示
   useEffect(() => {
@@ -343,16 +377,26 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   };
 
   // 保存 Assignee → 行内编辑
-  const handleSaveAssignee = async () => {
-    setEditingAssignee(false);
-    const trimmed = assigneeDraft.trim();
+  // 🔴 对齐 Hermes AssigneeMenu：roster 下拉选择；运行中重分配恒 reclaim_first:true
+  //   （回收旧 worker 立即生效）——此前自由文本 PATCH 无 reclaim，运行卡改负责人
+  //   后 worker 继续跑旧任务直至超时（审查 d4-9）
+  const saveAssigneeTo = async (value: string) => {
+    const trimmed = value.trim();
     if (trimmed === (task.assignee || '')) return;
     try {
-      await updateKanbanTask(task.id, { assignee: trimmed || null }, board);
+      if (task.status === 'running') {
+        await reassignKanbanTask(task.id, trimmed || 'default', true, 'drawer assignee change', board);
+      } else {
+        await updateKanbanTask(task.id, { assignee: trimmed || null }, board);
+      }
       onRefresh?.();
     } catch (err) {
       console.error('[KanbanPanel] Save assignee failed:', err);
     }
+  };
+  const handleSaveAssignee = async () => {
+    setEditingAssignee(false);
+    await saveAssigneeTo(assigneeDraft);
   };
 
   // 保存模型覆盖三元组（对齐 Hermes ModelOverrideField：model/provider/effort；
@@ -482,15 +526,21 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                       </span>
                     )}
                   </div>
-                  {/* 负责人 — 行内可编辑 */}
+                  {/* 负责人 — 行内可编辑（roster 下拉，对齐 Hermes AssigneeMenu） */}
                   <div className="flex gap-3">
                     <span className="w-16 shrink-0 text-[var(--ui-text-tertiary)]">负责人</span>
                     {editingAssignee ? (
-                      <input value={assigneeDraft} onChange={(e) => setAssigneeDraft(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleSaveAssignee(); if (e.key === 'Escape') setEditingAssignee(false); }}
-                        onBlur={handleSaveAssignee} autoFocus
-                        placeholder="留空自动分配"
-                        className="flex-1 text-[0.8rem] px-1 py-0.5 -my-0.5 rounded border border-[var(--kanban-hover-bg)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none" />
+                      <select value={assigneeDraft}
+                        onChange={(e) => { const v = e.target.value; setAssigneeDraft(v); void saveAssigneeTo(v); }}
+                        onBlur={() => setEditingAssignee(false)}
+                        autoFocus
+                        className="flex-1 text-[0.8rem] px-1 py-0.5 -my-0.5 rounded border border-[var(--kanban-hover-bg)] bg-transparent text-[var(--ui-text-primary)] focus:outline-none cursor-pointer"
+                        title="运行中任务重分配将立即回收旧 worker（reclaim_first）">
+                        <option value="">未分配</option>
+                        {profileRoster.map(p => (
+                          <option key={p.name} value={p.name}>{p.name}{p.name === task.assignee ? '（当前）' : ''}</option>
+                        ))}
+                      </select>
                     ) : (
                       <span onClick={() => { setEditingAssignee(true); setAssigneeDraft(task.assignee || ''); }}
                         className="text-[var(--ui-text-primary)] cursor-pointer rounded px-1 -mx-1 py-0.5 hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors break-words"
@@ -637,14 +687,38 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                           <div className="flex flex-wrap gap-1.5">
                             {(d.actions || []).map((a, ai) => {
                               const isAction = a.kind === 'reclaim' || a.kind === 'unblock' || a.kind === 'reassign';
+                              // 🔴 对齐 Hermes 诊断动作（drawer.tsx L184-231）：cli_hint
+                              //   渲染为可点复制按钮（payload.command ?? label），notify
+                              //   提示——此前禁用无复制，恢复命令不可执行（审查 d4-8）；
+                              //   suggested 动作用 secondary 变体强调
+                              const isCliHint = a.kind === 'cli_hint';
+                              const cmd = isCliHint
+                                ? String(a.payload?.command ?? a.label ?? '')
+                                : null;
+                              const handleClick = () => {
+                                if (isCliHint && cmd) {
+                                  void navigator.clipboard?.writeText(cmd);
+                                  notify({ kind: 'info', title: '命令已复制', message: cmd });
+                                  return;
+                                }
+                                if (!isAction) return;
+                                onAction(a.kind, task.id);
+                              };
                               return (
-                                <button key={ai} onClick={() => { if (!isAction) return; onAction(a.kind, task.id); }}
-                                  disabled={!isAction}
+                                <button key={ai} onClick={handleClick}
                                   className={cn('self-start text-[0.7rem] px-2 py-1 rounded border transition-colors',
-                                    isAction ? 'hover:brightness-110' : 'opacity-60 cursor-not-allowed')}
+                                    isCliHint || isAction
+                                      ? (a.suggested ? 'font-semibold hover:brightness-110' : 'hover:brightness-110')
+                                      : 'opacity-60 cursor-not-allowed')}
                                   style={{ borderColor: `color-mix(in srgb, ${tone} 40%, transparent)`, color: tone }}
-                                  title={isAction ? a.label : `${a.label}（当前无对应操作入口）`}>
-                                  {a.label}
+                                  title={
+                                    isCliHint && cmd
+                                      ? `点击复制: ${cmd}`
+                                      : isAction
+                                        ? a.label
+                                        : `${a.label}（当前无对应操作入口）`
+                                  }>
+                                  {a.suggested && '★ '}{a.label}
                                 </button>
                               );
                             })}

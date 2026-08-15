@@ -48,7 +48,7 @@ import {
   setKanbanOrchestration,
   getKanbanProfiles,
 } from '@/utils/api';
-import type { KanbanTask } from './types';
+import type { KanbanTask, KanbanEvent } from './types';
 import { COLUMNS, COLUMN_STATUS, LOCKED_REASON, updateStaleConfig } from './constants';
 import { notify } from '../../utils/notifications';
 import { taskColumn, normalizeBoardData } from './helpers';
@@ -158,7 +158,16 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   }, [currentBoard]);
 
   useEffect(() => { loadBoard(); }, [loadBoard]);
-  useKanbanSSE(currentBoard, setApiTasks, loadBoard);
+
+  // 🔴 对齐 Hermes socket 事件帧精确失效（drawer.tsx L556-561）：SSE 事件
+  //   到达时递增 tick，打开中的详情抽屉监听并秒级重拉——此前抽屉 detail
+  //   只靠 30s 轮询，评论/回收/状态变更最长滞后 30s（审查 d4-1）
+  const [detailRefreshTick, setDetailRefreshTick] = useState(0);
+  const onSseEventsRef = useRef<(events: KanbanEvent[]) => void>(() => {});
+  onSseEventsRef.current = (events: KanbanEvent[]) => {
+    if (events.length > 0) setDetailRefreshTick(t => t + 1);
+  };
+  useKanbanSSE(currentBoard, setApiTasks, loadBoard, (events) => onSseEventsRef.current(events));
 
   // Phase 4: 加载看板列表
   useEffect(() => {
@@ -256,9 +265,27 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   }, [filteredTasks]);
 
   // Running 列按 assignee 分 Lane（Phase 4.2）
+  // 🔴 对齐 Hermes $lanesByProfile（board.tsx L366-383）：Running 分组可选开关，
+  //   默认关=平铺，开=按 assignee 分 lane；localStorage 持久化（审查 P1-5）——
+  //   此前恒分组，小规模看板下视觉层级冗余
+  const [groupRunning, setGroupRunning] = useState<boolean>(() => {
+    try { return localStorage.getItem('eleve.kanban.groupRunning') === '1'; } catch { return false; }
+  });
+  const toggleGroupRunning = useCallback(() => {
+    setGroupRunning(prev => {
+      const next = !prev;
+      try { localStorage.setItem('eleve.kanban.groupRunning', next ? '1' : '0'); } catch {}
+      return next;
+    });
+  }, []);
+
   const runningLanes = useMemo(() => {
     const runningTasks = grouped.running || [];
     if (runningTasks.length === 0) return [];
+    if (!groupRunning) {
+      // 平铺：单 lane（对齐 Hermes 默认不分组）
+      return [['全部', runningTasks] as [string, KanbanTask[]]];
+    }
     const laneMap = new Map();
     for (const t of runningTasks) {
       const key = t.assignee || '未分配';
@@ -266,7 +293,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       laneMap.get(key).push(t);
     }
     return Array.from(laneMap.entries());
-  }, [grouped.running]);
+  }, [grouped.running, groupRunning]);
 
   // 创建 ready 任务后 400ms 防抖立即触发一次调度（对齐 Hermes nudgeDispatcher）：
   // 任务不等后端 30s tick 就被 claim+spawn；fire-and-forget，失败由 tick 兜底。
@@ -769,6 +796,8 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   return {
     apiTasks,
     setApiTasks,
+    // 🔴 SSE 事件 tick：详情抽屉监听后秒级重拉（对齐 Hermes socket 失效）
+    detailRefreshTick,
     loading,
     setLoading,
     error,
@@ -888,6 +917,8 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     filteredTasks,
     grouped,
     runningLanes,
+    groupRunning,
+    toggleGroupRunning,
     handleDrop,
     resetCreateForm,
     handleCreateSubmit,

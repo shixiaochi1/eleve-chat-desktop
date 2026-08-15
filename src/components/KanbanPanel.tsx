@@ -178,6 +178,7 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     setLoadingId,
     selectedTask,
     setSelectedTask,
+    detailRefreshTick,
     creatingIn,
     setCreatingIn,
     newTitle,
@@ -208,6 +209,8 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     setNewReasoningEffort,
     searchQuery,
     setSearchQuery,
+    groupRunning,
+    toggleGroupRunning,
     checkedIds,
     setCheckedIds,
     currentBoard,
@@ -465,6 +468,20 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
               </div>
             )}
           </div>
+          {/* 🔴 对齐 Hermes $lanesByProfile（board.tsx FilterMenu L936-939）：
+              Running 分组开关，默认关=平铺（审查 P1-5） */}
+          <button onClick={toggleGroupRunning}
+            className={cn('flex items-center gap-1.5 px-2 py-1.5 rounded-md border text-[0.7rem] transition-colors shrink-0',
+              groupRunning
+                ? 'border-[var(--kanban-hover-bg)] bg-[var(--kanban-hover-bg)] text-[var(--ui-text-primary)]'
+                : 'border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)]')}
+            title="按负责人分组 Running 列（持久化）">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+            </svg>
+            分组
+          </button>
         </div>
         <div className="flex items-center gap-2">
           {loading && <Loader size={12} strokeWidth={1.5} className="animate-spin text-[var(--color-muted-foreground)]" />}
@@ -678,7 +695,40 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
         </div>
       )}
 
-      {/* 8列看板 — 列等高 stretch，min-h-0 确保高度受父级约束 */}
+      {/* 8列看板 — 列等高 stretch，min-h-0 确保高度受父级约束
+          🔴 对齐 Hermes 整页态（board.tsx L1370-1388）：首载 Loader /
+          错误 ErrorState+重试 / 空板 CTA（审查 P1-6）——
+          刷新中（已有数据）不闪屏，仅整页级状态才替换板体 */}
+      {error && allTasks.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center min-h-0">
+          <div className="flex flex-col items-center gap-3 text-center px-6">
+            <AlertTriangle size={28} strokeWidth={1.2} className="text-danger" />
+            <p className="text-[0.85rem] text-[var(--ui-text-secondary)]">{error}</p>
+            <button onClick={() => void loadBoard()}
+              className="px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] text-[0.75rem] text-[var(--ui-text-primary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors">
+              重试
+            </button>
+          </div>
+        </div>
+      ) : loading && allTasks.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center min-h-0">
+          <div className="flex items-center gap-2 text-[var(--ui-text-tertiary)]">
+            <Loader size={16} strokeWidth={1.5} className="animate-spin" />
+            <span className="text-[0.8rem]">加载看板…</span>
+          </div>
+        </div>
+      ) : allTasks.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center min-h-0">
+          <div className="flex flex-col items-center gap-3 text-center px-6">
+            <p className="text-[0.85rem] text-[var(--ui-text-tertiary)]">看板空空如也——你的 Agent 们正等着开工</p>
+            <button onClick={() => setCreatingIn('triage')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[var(--color-primary)] text-[var(--color-primary-foreground)] text-[0.8rem] font-medium hover:opacity-90 transition-opacity">
+              <Plus size={13} strokeWidth={2} />
+              新建任务
+            </button>
+          </div>
+        </div>
+      ) : (
       <div className="flex flex-1 items-stretch min-h-0 min-w-0 px-4 pb-4" style={{ gap: 'var(--kanban-col-gap)' }}>
         {COLUMNS.map(col => (
           <KanbanColumn key={col.key} column={col} tasks={col.key === 'running' ? grouped.running : grouped[col.key]}
@@ -699,11 +749,13 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
             }} />
         ))}
       </div>
+      )}
 
       {/* 详情抽屉（头部 StatusMenu 走 handleDrop 门控/摘要/乐观更新） */}
       {selectedTask && (
         <TaskDrawer task={selectedTask} onClose={() => setSelectedTask(null)} onAction={handleAction} loadingId={loadingId} onRefresh={loadBoard}
           homeChannels={homeChannels} board={currentBoard}
+          detailRefreshTick={detailRefreshTick}
           onMoveStatus={(s) => handleDrop(s, selectedTask.id)}
           onOpenTask={(id) => { const t = allTasks.find(x => x.id === id); if (t) setSelectedTask(t); }} />
       )}
