@@ -2,14 +2,14 @@
  * 看板列 + 任务卡片 — 从 KanbanPanel.tsx 拆分（Tier 3 · 6-2）
  */
 import { memo, useState } from 'react';
-import { Plus, CheckCircle2, X, Trash2, AlertTriangle, Clock, Eye, Loader, MessageSquare, GitBranch } from 'lucide-react';
+import { Plus, CheckCircle2, X, Trash2, AlertTriangle, Clock, Eye, Loader, MessageSquare, GitBranch, ChevronLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { KanbanTask, ColumnDef } from './types';
-import { isBlocked, isDone, getStaleness, fmtAge } from './helpers';
-import { LOCKED_DROP_COLUMNS } from './constants';
+import { isBlocked, isDone, getStaleness, fmtAge, fmtDuration } from './helpers';
+import { COLUMNS, LOCKED_DROP_COLUMNS } from './constants';
 
-// ── 任务卡片（Trail 极简风格 + 删除按钮）──
-const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, justCreated, isDragging, onDelete, defaultAssignee }: { task: KanbanTask; onSelect: (task: KanbanTask) => void; isSelected: boolean; onDragStart: (id: string) => void; checked: boolean; onCheck: (id: string) => void; justCreated: boolean; isDragging: boolean; onDelete?: (id: string) => void; defaultAssignee?: string }) {
+// ── 任务卡片（Trail 极简风格 + 删除按钮 + 右键菜单）──
+const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, justCreated, isDragging, onDelete, defaultAssignee, onMoveTo }: { task: KanbanTask; onSelect: (task: KanbanTask) => void; isSelected: boolean; onDragStart: (id: string) => void; checked: boolean; onCheck: (id: string) => void; justCreated: boolean; isDragging: boolean; onDelete?: (id: string) => void; defaultAssignee?: string; onMoveTo?: (status: string) => void }) {
   const blocked = isBlocked(task);
   const done = isDone(task);
   const running = task.status === 'running';
@@ -26,17 +26,27 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
   const links = task.link_counts ? task.link_counts.parents + task.link_counts.children : 0;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [hovered, setHovered] = useState(false);
+  // 🔴 对齐 Hermes ContextMenu：右键菜单（打开/选择/移动到/删除）
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
   const priorityLevel = task.priority ? String(task.priority).replace(/^p/i, '') : null;
   const showBar = isSelected || (priorityLevel !== null && ['0', '1', '2', '3'].includes(priorityLevel));
 
+  // 🔴 对齐 Hermes board.tsx L276：⌘/Ctrl-点击切换选中（此前用 shift 勾选，
+  //   与批量选择交互不一致）
   const handleClick = (e: React.MouseEvent) => {
-    if (e.shiftKey) {
+    if (e.metaKey || e.ctrlKey) {
       e.stopPropagation();
       onCheck?.(task.id);
     } else {
       onSelect(task);
     }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ x: e.clientX, y: e.clientY });
   };
 
   const handleDeleteClick = (e: React.MouseEvent) => {
@@ -59,6 +69,7 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
   };
 
   return (
+    <>
     <div
       draggable
       onDragStart={(e) => {
@@ -67,6 +78,7 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
         onDragStart?.(task.id);
       }}
       onClick={handleClick}
+      onContextMenu={handleContextMenu}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); setConfirmDelete(false); }}
       style={showBar ? {
@@ -144,6 +156,11 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
         <div className="flex items-center gap-2 text-[0.7rem] text-[var(--ui-text-tertiary)] min-w-0">
           {task.assignee && <span className="font-medium truncate max-w-[100px]">{task.assignee}</span>}
           {running && <Loader size={10} strokeWidth={1.5} className="animate-spin text-success shrink-0" />}
+          {running && (task.startedAt || task.startTs) && (
+            <span className="text-[0.65rem] tabular-nums text-success/90" title="已运行时长">
+              {fmtDuration(Date.now() - (task.startedAt || task.startTs)!)}
+            </span>
+          )}
           {task.updated_at && <span className="tabular-nums whitespace-nowrap">{fmtAge(task.updated_at)}</span>}
           {/* 🔴 对齐 Hermes footer meta：评论数 / 依赖链接数 / 诊断警告数 */}
           <div className="ml-auto flex items-center gap-1.5 shrink-0 text-[var(--ui-text-quaternary)]">
@@ -184,6 +201,38 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
         )}
       </div>
     </div>
+
+      {/* 🔴 对齐 Hermes ContextMenu：打开/选择/移动到/删除 */}
+      {menu && (
+        <>
+          <div className="fixed inset-0 z-50" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
+          <div className="fixed z-50 min-w-[150px] py-1 rounded-md border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-bg-elevated)] shadow-lg"
+            style={{ left: Math.min(menu.x, window.innerWidth - 170), top: Math.min(menu.y, window.innerHeight - 220) }}>
+            <button onClick={() => { setMenu(null); onSelect(task); }}
+              className="w-full text-left px-3 py-1.5 text-[0.75rem] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-bg-quinary)] transition-colors">
+              打开
+            </button>
+            <button onClick={() => { setMenu(null); onCheck?.(task.id); }}
+              className="w-full text-left px-3 py-1.5 text-[0.75rem] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-bg-quinary)] transition-colors">
+              {checked ? '取消选择' : '选择'}
+            </button>
+            <div className="border-t border-[var(--ui-stroke-tertiary)] my-1" />
+            {COLUMNS.filter(c => c.key !== task.status && !LOCKED_DROP_COLUMNS.includes(c.key)).map(c => (
+              <button key={c.key} onClick={() => { setMenu(null); onMoveTo?.(c.key); }}
+                className="w-full flex items-center gap-1.5 px-3 py-1.5 text-[0.75rem] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-bg-quinary)] transition-colors">
+                <span className="size-2 rounded-full" style={{ backgroundColor: c.dotColor }} />
+                移动到 {c.label}
+              </button>
+            ))}
+            <div className="border-t border-[var(--ui-stroke-tertiary)] my-1" />
+            <button onClick={() => { setMenu(null); onDelete?.(task.id); }}
+              className="w-full text-left px-3 py-1.5 text-[0.75rem] text-danger hover:bg-[color-mix(in_srgb,var(--ui-red)_12%,transparent)] transition-colors">
+              删除
+            </button>
+          </div>
+        </>
+      )}
+    </>
   );
 });
 
@@ -209,9 +258,12 @@ interface KanbanColumnProps {
   onDelete: (taskId: string) => void;
   /** 默认负责人（orchestration.config.default_assignee），用于 won't-run 判断 */
   defaultAssignee?: string;
+  /** 🔴 对齐 Hermes：列折叠（空列自动折叠成竖轨 rail） */
+  collapsed?: boolean;
+  onToggle?: () => void;
 }
 
-export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart, onDrop, creatingIn, onCreateStart, onCreateCancel, checkedIds, onCheck, runningLanes, justCreatedIds, draggingTaskId, onCreateSubmit, newTitle, setNewTitle, onDelete, defaultAssignee }: KanbanColumnProps) {
+export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart, onDrop, creatingIn, onCreateStart, onCreateCancel, checkedIds, onCheck, runningLanes, justCreatedIds, draggingTaskId, onCreateSubmit, newTitle, setNewTitle, onDelete, defaultAssignee, collapsed = false, onToggle }: KanbanColumnProps) {
   const [dragOver, setDragOver] = useState(false);
   // 🔴 修复（对齐 Hermes LOCKED_COLUMNS）：running（调度器 claim 独占）与
   //   scheduled（需定时唤醒时间）列拒绝拖入——不 preventDefault → 操作系统
@@ -229,13 +281,41 @@ export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect
     const taskId = e.dataTransfer.getData('text/plain'); if (taskId) onDrop(column.key, taskId);
   };
 
+  // 🔴 对齐 Hermes rail：折叠态 = 窄竖轨（色点 + 竖排标签 + 计数），
+  //   仍是活拖放目标（直接拖到 rail 上），点击展开
+  if (collapsed) {
+    return (
+      <button
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onClick={onToggle}
+        title={`展开「${column.label}」`}
+        className={cn(
+          'flex flex-col items-center gap-1.5 rounded-xl p-2 transition-colors shrink-0',
+          'bg-[var(--ui-card-bg)] backdrop-blur-[20px]',
+          dragOver && 'bg-[color-mix(in_srgb,var(--ui-card-bg)_80%,var(--ui-accent))]',
+        )}
+        style={{ width: 44 }}
+      >
+        <span className="shrink-0 rounded-full" style={{ width: 6, height: 6, backgroundColor: column.dotColor }} />
+        <span className="text-[0.65rem] font-medium uppercase tracking-wide text-[var(--ui-text-tertiary)] [writing-mode:vertical-rl]">
+          {column.label}
+        </span>
+        {tasks.length > 0 && (
+          <span className="text-[0.6rem] tabular-nums text-[var(--ui-text-quaternary)]">{tasks.length}</span>
+        )}
+      </button>
+    );
+  }
+
   return (
     <div
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={cn(
-        'flex flex-col shrink-0 min-w-0 min-h-0 rounded-xl p-2 transition-colors duration-150',
+        'group/col flex flex-col shrink-0 min-w-0 min-h-0 rounded-xl p-2 transition-colors duration-150',
         'bg-[var(--ui-card-bg)] backdrop-blur-[20px]',
         dragOver && 'bg-[color-mix(in_srgb,var(--ui-card-bg)_80%,var(--ui-accent))]',
       )}
@@ -244,8 +324,12 @@ export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect
       {/* 列头 — 状态小色条 + 标题 + 计数 */}
       <div className="flex items-center gap-2 px-3 pt-2.5 pb-2">
         <span className="shrink-0 rounded-[var(--kanban-col-header-bar-radius)]" style={{ width: 24, height: 3, backgroundColor: column.dotColor, borderRadius: 'var(--kanban-col-header-bar-radius)' }} />
-        <span className="text-[0.85rem] font-semibold text-[var(--ui-text-primary)] flex-1 tracking-[0.01em]">{column.label}</span>
+        <span className="text-[0.85rem] font-semibold text-[var(--ui-text-primary)] flex-1 tracking-[0.01em] cursor-help" title={column.emptyText}>{column.label}</span>
         <span className="text-[0.75rem] tabular-nums text-[var(--ui-text-tertiary)] font-medium">{tasks.length}</span>
+        <button onClick={onToggle} title="折叠该列"
+          className="grid size-5 place-items-center rounded text-[var(--ui-text-tertiary)] opacity-0 transition-opacity hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] group-hover/col:opacity-100">
+          <ChevronLeft size={13} strokeWidth={1.5} />
+        </button>
       </div>
 
       <div className="mx-3 border-t border-[color-mix(in_srgb,var(--ui-stroke-tertiary)_60%,transparent)]" />
@@ -269,7 +353,8 @@ export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect
               <div className="flex flex-col gap-2 mt-1">
                 {(laneTasks).map((task: KanbanTask) => (
                   <TaskCard key={task.id} task={task} onSelect={onSelect} isSelected={selectedId === task.id} onDragStart={onDragStart}
-                    checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} onDelete={onDelete} defaultAssignee={defaultAssignee} />
+                    checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} onDelete={onDelete} defaultAssignee={defaultAssignee}
+                      onMoveTo={(status) => onDrop(status, task.id)} />
                 ))}
               </div>
             </div>);
@@ -277,7 +362,8 @@ export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect
         ) : (
           tasks.map((task: KanbanTask) => (
             <TaskCard key={task.id} task={task} onSelect={onSelect} isSelected={selectedId === task.id} onDragStart={onDragStart}
-              checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} onDelete={onDelete} defaultAssignee={defaultAssignee} />
+              checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} onDelete={onDelete} defaultAssignee={defaultAssignee}
+                      onMoveTo={(status) => onDrop(status, task.id)} />
           ))
         )}
       </div>

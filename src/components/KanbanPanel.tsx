@@ -165,6 +165,8 @@ function ProfileDescriptionRow({ profile }: { profile: any }) {
 
 export default function KanbanPanel({ board = 'default' }: { board?: string }) {
   // 🔴 2026-08-13 Phase 2 拆分：状态与回调抽离到 useKanban（纯移动，无逻辑变更）。
+  // 🔴 对齐 Hermes 列折叠：override map（手动切换持久于会话）+ 空列自动折叠
+  const [collapsedLanes, setCollapsedLanes] = useState<Record<string, boolean>>({});
   const {
     apiTasks,
     setApiTasks,
@@ -313,6 +315,8 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     handleUpdateBoard,
     handleReassign,
   } = useKanban({ board });
+  // 🔴 对齐 Hermes：有工作时空列自动折叠成 rail（boardHasWork 判定）
+  const boardHasWork = Object.values(grouped).some((arr: KanbanTask[]) => arr.length > 0);
 
   return (
     <div className="flex flex-col h-full">
@@ -323,6 +327,10 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
           <button onClick={() => setShowBoardPicker(v => !v)}
             className="inline-flex items-center gap-1.5 text-[0.85rem] font-semibold text-[var(--ui-text-primary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] px-2 py-1 rounded-md transition-colors">
             看板{currentBoard !== 'default' ? `: ${currentBoard}` : ''}
+            {/* 🔴 对齐 Hermes：total 徽标 = 过滤后计数（P2-6 修复计数失真） */}
+            <span className="rounded-full bg-[var(--ui-bg-quinary)] px-1.5 py-px text-[0.65rem] tabular-nums text-[var(--ui-text-tertiary)]">
+              {filteredTasks.length}
+            </span>
             <ChevronDown size={14} strokeWidth={1.5} className={cn('transition-transform', showBoardPicker && 'rotate-180')} />
           </button>
           {showBoardPicker && (
@@ -681,7 +689,14 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
             creatingIn={creatingIn} onCreateStart={setCreatingIn} onCreateCancel={() => setCreatingIn(null)}
             checkedIds={checkedIds} onCheck={handleCheck} justCreatedIds={justCreatedIds} draggingTaskId={draggingTaskId}
             onCreateSubmit={() => { void handleCreateSubmit().catch(() => {}); }} newTitle={newTitle} setNewTitle={setNewTitle} onDelete={handleDeleteTask}
-            defaultAssignee={orchestration?.config?.default_assignee || ''} />
+            defaultAssignee={orchestration?.config?.default_assignee || ''}
+            collapsed={collapsedLanes[col.key] ?? (boardHasWork && (grouped[col.key] || []).length === 0)}
+            onToggle={() => {
+              const tasks = grouped[col.key] || [];
+              const auto = boardHasWork && tasks.length === 0;
+              const next = !(collapsedLanes[col.key] ?? auto);
+              setCollapsedLanes(prev => ({ ...prev, [col.key]: next }));
+            }} />
         ))}
       </div>
 

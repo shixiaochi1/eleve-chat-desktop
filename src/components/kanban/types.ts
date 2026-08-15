@@ -68,6 +68,8 @@ export interface KanbanTask {
   assignee: string;
   status: string;
   startTs: number | null;
+  /** 最近一次运行开始时间（ms，后端 started_at 秒×1000；running 时长用） */
+  startedAt?: number | null;
   duration: number | null;
   summary: string;
   blocked: boolean;

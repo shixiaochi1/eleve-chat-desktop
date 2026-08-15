@@ -105,6 +105,7 @@ export function normalizeTask(raw: Record<string, unknown>): KanbanTask {
     assignee: isKanban ? s(raw.assignee) : s(raw.model),
     status: s(raw.status, 'ready'),
     startTs: isKanban ? (typeof raw.created_at === 'number' ? raw.created_at * 1000 : null) : n(raw.startTs),
+    startedAt: isKanban ? (typeof raw.started_at === 'number' ? raw.started_at * 1000 : null) : undefined,
     duration: n(raw.duration),
     // 🔴 修复：后端 board 接口在任务顶层注入 latest_summary（运行摘要，200 字符截断，
     //   对齐 Hermes `latest_summary || body`），此前只看 raw.summary（任务自身字段）恒为空。
