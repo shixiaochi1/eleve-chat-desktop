@@ -46,7 +46,7 @@ export default function SettingsLayout({ nav, footer, children, onClose }: Setti
 
       {/* 右卡：内容（纯色），与左卡贴紧无缝隙 */}
       <div className="flex-1 min-w-0 bg-[var(--ui-card-bg)] flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto pt-8 px-6 pb-6">
           {children}
         </div>
       </div>

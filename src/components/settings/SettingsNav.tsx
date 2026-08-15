@@ -19,7 +19,7 @@ const SETTINGS_SECTIONS: Array<{ id: string; label: string; icon: LucideIcon }> 
 
 export default function SettingsNav({ activeSection, onSectionChange }: { activeSection: string; onSectionChange: (id: string) => void }) {
   return (
-    <nav className="flex flex-col gap-0.5 p-2">
+    <nav className="flex flex-col gap-0.5 px-2.5 pt-6 pb-3">
       {SETTINGS_SECTIONS.map(s => {
         const Icon = s.icon;
         const isActive = activeSection === s.id;
