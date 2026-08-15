@@ -26,13 +26,13 @@ const NAV_ITEMS: NavItem[] = [
 
 export default function SettingsNav({ activeSection, onSectionChange }: { activeSection: string; onSectionChange: (id: string) => void }) {
   return (
-    <nav className="flex flex-col px-2.5 pt-5 pb-3">
+    <nav className="flex flex-col px-2.5 pt-9 pb-3">
       {/* 面板标题 */}
-      <div className="px-3 pb-3 text-base font-semibold text-[var(--theme-foreground)]">
+      <div className="px-3 pb-4 text-base font-semibold text-[var(--theme-foreground)]">
         设置
       </div>
 
-      <div className="flex flex-col gap-0.5">
+      <div className="flex flex-col gap-1.5">
         {NAV_ITEMS.map(item => {
           const Icon = item.icon;
           const isActive = activeSection === item.id;
