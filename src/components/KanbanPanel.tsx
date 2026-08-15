@@ -90,6 +90,8 @@ import {
   getKanbanOrchestration,
   setKanbanOrchestration,
   getKanbanProfiles,
+  patchKanbanProfile,
+  autoDescribeKanbanProfile,
 } from '@/utils/api';
 
 // ═══════════════════════════════════════════════════════════════
@@ -107,6 +109,55 @@ import { useKanbanSSE } from './kanban/useKanbanSSE';
 import { useKanban } from './kanban/useKanban';
 
 // ═══════════════════════════════════════════════════════════════
+
+// ── Profile 描述编辑行（对齐 Hermes OrchestrationPanel ProfileDescriptionRow：
+//    描述编辑保存 + Auto 自动生成，decomposer 按描述路由）──
+function ProfileDescriptionRow({ profile }: { profile: any }) {
+  const [draft, setDraft] = useState<string>(profile?.description || '');
+  const [saving, setSaving] = useState(false);
+  const [autoing, setAutoing] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await patchKanbanProfile(profile.name, draft.trim());
+    } catch (err) {
+      console.error('save profile description failed:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const auto = async () => {
+    setAutoing(true);
+    try {
+      const r = await autoDescribeKanbanProfile(profile.name);
+      if (r?.description) setDraft(r.description);
+    } catch (err) {
+      console.error('auto describe failed:', err);
+    } finally {
+      setAutoing(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="w-20 shrink-0 truncate text-[0.7rem] font-medium text-[var(--ui-text-secondary)]">
+        {profile.name}{profile.is_default ? '（默认）' : ''}
+      </span>
+      <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="该 Agent 擅长…（分解路由依据）"
+        className="flex-1 min-w-0 text-[0.7rem] px-1.5 py-0.5 rounded border border-warning/20 bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none focus:border-warning/50" />
+      <button onClick={save} disabled={saving || draft.trim() === (profile?.description || '')}
+        className="shrink-0 text-[0.65rem] px-1.5 py-0.5 rounded border border-warning/25 text-warning/80 hover:bg-warning/10 transition-colors disabled:opacity-40">
+        {saving ? '保存中…' : '保存'}
+      </button>
+      <button onClick={auto} disabled={autoing}
+        className="shrink-0 text-[0.65rem] px-1.5 py-0.5 rounded border border-warning/25 text-warning/80 hover:bg-warning/10 transition-colors disabled:opacity-40">
+        {autoing ? '生成中…' : 'Auto'}
+      </button>
+    </div>
+  );
+}
 
 // ═══════════════════════════════════════════════════════════════
 // 看板面板主组件
@@ -506,34 +557,84 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
           {diagnostics.blocked_over_24h > 0 && <div className="text-danger">⚠ {diagnostics.blocked_over_24h} 个任务阻塞超24h</div>}
           {diagnostics.orphaned_tasks > 0 && <div className="text-warning">⚠ {diagnostics.orphaned_tasks} 个孤立任务</div>}
           {(!diagnostics.stale_claims && !diagnostics.blocked_over_24h && !diagnostics.orphaned_tasks) && <div className="text-success">✓ 一切正常</div>}
-          {/* C1: 编排配置 — 🔴 修复：get_kanban_orchestration 返回 { ok, config }，
-              键为 orchestrator_profile/default_assignee/auto_decompose/
-              auto_promote_children/auto_decompose_per_tick（此前读不存在的
-              max_concurrent/claim_ttl_seconds/default_profile 恒显示 '-'） */}
+          {/* C1: 编排配置 — 🔴 对齐 Hermes OrchestrationPanel：只读展示改为
+               可编辑（orchestrator_profile/default_assignee 下拉 + auto 开关，
+               保存即写 config.yaml——后端配置源已统一） */}
           {orchestration && (
-            <div className="mt-1.5 pt-1.5 border-t border-warning/15">
-              <div className="flex items-center gap-2 font-semibold text-warning mb-1"><Settings2 size={12} /> 编排配置</div>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[0.75rem]">
-                <span className="text-[var(--ui-text-tertiary)]">orchestrator_profile</span>
-                <span className="font-mono">{orchestration.config?.orchestrator_profile ?? '-'}</span>
-                <span className="text-[var(--ui-text-tertiary)]">default_assignee</span>
-                <span className="font-mono">{orchestration.config?.default_assignee ?? '-'}</span>
-                <span className="text-[var(--ui-text-tertiary)]">auto_decompose</span>
-                <span className="font-mono">{orchestration.config?.auto_decompose ? '✓' : '✗'}</span>
-                <span className="text-[var(--ui-text-tertiary)]">auto_promote_children</span>
-                <span className="font-mono">{orchestration.config?.auto_promote_children ? '✓' : '✗'}</span>
+            <div className="mt-1.5 pt-1.5 border-t border-warning/15 flex flex-col gap-2">
+              <div className="flex items-center gap-2 font-semibold text-warning"><Settings2 size={12} /> 编排设置</div>
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[0.68rem] text-[var(--ui-text-tertiary)]">orchestrator_profile</span>
+                <select
+                  value={orchestration.config?.orchestrator_profile || ''}
+                  onChange={async (e) => {
+                    const v = e.target.value;
+                    try {
+                      const r = await setKanbanOrchestration({ orchestrator_profile: v });
+                      setOrchestration(r?.config ? { config: r.config } : r);
+                    } catch (err) { console.error('save orchestrator_profile failed:', err); }
+                  }}
+                  className="text-[0.75rem] px-2 py-1 rounded border border-warning/25 bg-transparent text-[var(--ui-text-primary)] focus:outline-none"
+                >
+                  <option value="">默认（继承）</option>
+                  {(profiles || []).map((p: any) => (
+                    <option key={p.name} value={p.name}>{p.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[0.68rem] text-[var(--ui-text-tertiary)]">default_assignee</span>
+                <select
+                  value={orchestration.config?.default_assignee || ''}
+                  onChange={async (e) => {
+                    const v = e.target.value;
+                    try {
+                      const r = await setKanbanOrchestration({ default_assignee: v });
+                      setOrchestration(r?.config ? { config: r.config } : r);
+                    } catch (err) { console.error('save default_assignee failed:', err); }
+                  }}
+                  className="text-[0.75rem] px-2 py-1 rounded border border-warning/25 bg-transparent text-[var(--ui-text-primary)] focus:outline-none"
+                >
+                  <option value="">默认（继承）</option>
+                  {(profiles || []).map((p: any) => (
+                    <option key={p.name} value={p.name}>{p.name}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-1.5 text-[0.75rem] text-[var(--ui-text-secondary)] cursor-pointer">
+                  <input type="checkbox" checked={Boolean(orchestration.config?.auto_decompose)}
+                    onChange={async (e) => {
+                      try {
+                        const r = await setKanbanOrchestration({ auto_decompose: e.target.checked });
+                        setOrchestration(r?.config ? { config: r.config } : r);
+                      } catch (err) { console.error('save auto_decompose failed:', err); }
+                    }}
+                    className="rounded border-warning/40" />
+                  自动分解
+                </label>
+                <label className="flex items-center gap-1.5 text-[0.75rem] text-[var(--ui-text-secondary)] cursor-pointer">
+                  <input type="checkbox" checked={Boolean(orchestration.config?.auto_promote_children)}
+                    onChange={async (e) => {
+                      try {
+                        const r = await setKanbanOrchestration({ auto_promote_children: e.target.checked });
+                        setOrchestration(r?.config ? { config: r.config } : r);
+                      } catch (err) { console.error('save auto_promote_children failed:', err); }
+                    }}
+                    className="rounded border-warning/40" />
+                  自动提升子任务
+                </label>
               </div>
             </div>
           )}
-          {/* C1: Profile 列表 */}
+          {/* C1: Profile 列表 + 描述编辑（对齐 Hermes OrchestrationPanel
+              ProfileDescriptionRow：描述编辑保存 + Auto 自动生成） */}
           {profiles.length > 0 && (
             <div className="mt-1.5 pt-1.5 border-t border-warning/15">
               <div className="flex items-center gap-2 font-semibold text-warning mb-1"><UserCircle size={12} /> 可用 Agent ({profiles.length})</div>
-              <div className="flex flex-wrap gap-1.5">
-                {profiles.map((p, i) => (
-                  <span key={i} className="px-1.5 py-0.5 rounded text-[0.7rem] font-mono bg-warning/10 text-warning border border-warning/15">
-                    {typeof p === 'string' ? p : p.name || p.profile || JSON.stringify(p)}
-                  </span>
+              <div className="flex flex-col gap-1.5">
+                {profiles.map((p: any, i: number) => (
+                  <ProfileDescriptionRow key={`${p.name}-${i}`} profile={p} />
                 ))}
               </div>
             </div>
