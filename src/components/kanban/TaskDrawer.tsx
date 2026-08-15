@@ -349,11 +349,17 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
 
   if (!task) return null;
 
-  const blocked = isBlocked(task);
-  const done = isDone(task);
-  const running = task.status === 'running';
-  const scheduled = (task.status || '').toLowerCase() === 'scheduled';
-  const review = (task.status || '').toLowerCase() === 'review';
+  // 🔴 对齐 Hermes 抽屉实时性（审查 d4-21）：头部状态/操作区读 detail 的
+  //   最新 task（30s 轮询 + SSE 帧失效重拉）——此前读 selectedTask prop 快照，
+  //   SSE 更新板面后抽屉内状态/操作区恒陈旧
+  const liveStatus = (detail?.task?.status as string | undefined) || task.status;
+  const liveAssignee = (detail?.task?.assignee as string | undefined | null) ?? task.assignee;
+
+  const blocked = liveStatus === 'blocked';
+  const done = ['completed', 'done', 'success', 'finished', 'ok'].includes(liveStatus.toLowerCase());
+  const running = liveStatus === 'running';
+  const scheduled = (liveStatus || '').toLowerCase() === 'scheduled';
+  const review = (liveStatus || '').toLowerCase() === 'review';
 
   // 发送评论 → 调 addKanbanComment → 刷新详情
   const handleSendComment = async () => {
@@ -421,7 +427,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
     const trimmed = value.trim();
     if (trimmed === (task.assignee || '')) return;
     try {
-      if (task.status === 'running') {
+      if (liveStatus === 'running') {
         await reassignKanbanTask(task.id, trimmed || 'default', true, 'drawer assignee change', board);
       } else {
         await updateKanbanTask(task.id, { assignee: trimmed || null }, board);
@@ -499,9 +505,9 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
         <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ui-stroke-tertiary)]">
           <div className="flex items-center gap-2">
             {onMoveStatus ? (
-              <StatusMenuButton status={task.status} onMove={onMoveStatus} />
+              <StatusMenuButton status={liveStatus} onMove={onMoveStatus} />
             ) : (
-              <StatusDot status={task.status} size={10} />
+              <StatusDot status={liveStatus} size={10} />
             )}
             <span className="font-mono text-[0.8rem] text-[var(--ui-text-quaternary)]">#{typeof task.id === 'string' ? task.id.slice(0, 8) : task.id}</span>
           </div>
@@ -513,7 +519,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
 
         {/* 🔴 对齐 Hermes ready 未分配 Callout（drawer.tsx L789-793，审查 d4-11）：
             就绪但无负责人 → 不会被调度器运行，提示分配 profile */}
-        {task.status === 'ready' && !task.assignee && (
+        {liveStatus === 'ready' && !liveAssignee && (
           <div className="mx-5 mb-2 px-3 py-2 rounded-md border border-warning/25 bg-warning/5 text-[0.72rem] text-warning flex items-center gap-1.5">
             <AlertTriangle size={12} strokeWidth={1.5} className="shrink-0" />
             任务已就绪但未分配负责人——分配 profile 后调度器才会运行它
@@ -549,7 +555,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
             {!collapsedSections.details && (
               <div className="py-3 flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5 px-3 py-2.5 rounded-md border border-[var(--ui-stroke-tertiary)] bg-[color-mix(in_srgb,var(--ui-text-primary)_4%,transparent)] text-[0.8rem]">
-                  <MetaRow label="状态" value={task.status} />
+                  <MetaRow label="状态" value={liveStatus} />
                   {/* 优先级 — 行内可编辑 */}
                   <div className="flex gap-3">
                     <span className="w-16 shrink-0 text-[var(--ui-text-tertiary)]">优先级</span>
@@ -677,6 +683,16 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                   <div className="flex flex-col gap-1.5">
                     <span className="text-[0.72rem] font-semibold tracking-wide text-[var(--ui-text-tertiary)]">概要</span>
                     <p className="text-[0.82rem] text-[var(--ui-text-primary)] leading-relaxed whitespace-pre-wrap">{task.summary}</p>
+                  </div>
+                )}
+
+                {/* 🔴 对齐 Hermes 独立 Result 区（drawer.tsx L805-809，审查 d4-10）：
+                    result 与 summary 是不同字段（worker 完整产出 vs 摘要）——
+                    ELEVE complete 时同值写入，但 result 更完整时不应被概要吞掉 */}
+                {task.result && task.result !== task.summary && (
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[0.72rem] font-semibold tracking-wide text-[var(--ui-text-tertiary)]">结果</span>
+                    <p className="text-[0.82rem] font-mono text-[var(--ui-text-primary)] leading-relaxed whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto">{task.result}</p>
                   </div>
                 )}
 
@@ -1117,7 +1133,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
             <ActionButton icon={CheckCircle2} label="完成" color="green" onClick={() => onAction('complete', task.id)} busy={busy} />
           )}
           {/* ready → 可完成/阻塞/滞留 */}
-          {!running && !done && !blocked && !scheduled && !review && task.status === 'ready' && (
+          {!running && !done && !blocked && !scheduled && !review && liveStatus === 'ready' && (
             <>
               <ActionButton icon={CheckCircle2} label="完成" color="green" onClick={() => onAction('complete', task.id)} busy={busy} />
               <ActionButton icon={Ban} label="阻塞" color="amber" onClick={() => onAction('block', task.id)} busy={busy} />

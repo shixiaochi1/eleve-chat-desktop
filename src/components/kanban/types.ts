@@ -75,6 +75,8 @@ export interface KanbanTask {
   last_heartbeat_at?: string | number | null;
   duration: number | null;
   summary: string;
+  /** 🔴 对齐 Hermes Task.result（审查 d4-10）：worker 完整产出（≠summary 摘要） */
+  result?: string | null;
   blocked: boolean;
   block_reason: string;
   body: string;

@@ -127,6 +127,7 @@ export function normalizeTask(raw: Record<string, unknown>): KanbanTask {
     // 🔴 修复：后端 board 接口在任务顶层注入 latest_summary（运行摘要，200 字符截断，
     //   对齐 Hermes `latest_summary || body`），此前只看 raw.summary（任务自身字段）恒为空。
     summary: s(raw.summary) || s(raw.latest_summary),
+    result: raw.result ? String(raw.result) : null,
     blocked: b(raw.blocked),
     block_reason: s(raw.block_reason),
     body: s(raw.body),
