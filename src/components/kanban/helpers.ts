@@ -61,6 +61,22 @@ export function priorityStyle(p: string | number | null | undefined): Record<str
 
 // 陈旧度计算：返回 'amber' | 'red' | null
 export function getStaleness(task: KanbanTask): string | null {
+  // 🔴 对齐 Hermes 心跳语义（board.tsx L191-202，审查 d1 P2-3）：running 卡按
+  //   last_heartbeat_at 判定——worker 假死 120s 即琥珀（此前按 updated_at，
+  //   running 阈值 10m 才 amber，假死 2 分钟内仍显示正常进行中）
+  const isRunning = task.status === 'running';
+  if (isRunning) {
+    const hb = task.last_heartbeat_at;
+    if (hb) {
+      const ts = typeof hb === 'number' && hb < 1e12 ? hb * 1000 : hb;
+      const d = new Date(ts);
+      if (!isNaN(d.getTime())) {
+        const elapsedSec = (Date.now() - d.getTime()) / 1000;
+        if (elapsedSec >= 120) return 'amber';
+      }
+    }
+    return null;
+  }
   const col = taskColumn(task) as keyof StaleThresholds;
   const thresholds = staleConfig[col];
   if (!thresholds) return null;
@@ -106,6 +122,7 @@ export function normalizeTask(raw: Record<string, unknown>): KanbanTask {
     status: s(raw.status, 'ready'),
     startTs: isKanban ? (typeof raw.created_at === 'number' ? raw.created_at * 1000 : null) : n(raw.startTs),
     startedAt: isKanban ? (typeof raw.started_at === 'number' ? raw.started_at * 1000 : null) : undefined,
+    last_heartbeat_at: (raw.last_heartbeat_at ?? null) as string | number | null,
     duration: n(raw.duration),
     // 🔴 修复：后端 board 接口在任务顶层注入 latest_summary（运行摘要，200 字符截断，
     //   对齐 Hermes `latest_summary || body`），此前只看 raw.summary（任务自身字段）恒为空。

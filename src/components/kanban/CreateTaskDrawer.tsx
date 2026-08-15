@@ -49,6 +49,9 @@ interface CreateTaskDrawerProps {
   reasoningEffort: string;
   /** 负责人下拉选项（profiles roster，对齐 Hermes fetchProfiles） */
   assigneeOptions: Array<{ name: string }>;
+  /** 🔴 对齐 Hermes k.defaultOption(resolvedDefault)（board.tsx L741-748，审查
+   *   d3-18）：实际解析出的默认负责人——默认项显示真实值、roster 排除去重 */
+  defaultAssignee?: string;
   /** 🔴 对齐 Hermes ModelCatalogMenu 数据源（审查 d3-2/d2-14）：profiles 的
    *  model/provider 去重目录，配合 datalist 下拉+手输 */
   modelOptions: string[];
@@ -79,7 +82,7 @@ export function CreateTaskDrawer({
   open, target, variant = 'drawer',
   title, body, assignee, priority, skills, parent, goalMode, goalMaxTurns, workspaceKind, workspacePath, modelOverride,
   providerOverride, reasoningEffort, assigneeOptions, modelOptions, providerOptions,
-  boardDefaultKind, boardDefaultDir,
+  boardDefaultKind, boardDefaultDir, defaultAssignee,
   parentOptions,
   onTitleChange, onBodyChange, onAssigneeChange, onPriorityChange, onSkillsChange, onParentChange,
   onGoalModeChange, onGoalMaxTurnsChange, onWorkspaceKindChange, onWorkspacePathChange, onModelOverrideChange,
@@ -192,8 +195,8 @@ export function CreateTaskDrawer({
               静默成死卡（dispatcher 不认），且无法显式创建未分配任务 */}
           <select value={assignee} onChange={e => onAssigneeChange(e.target.value)}
             className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] focus:outline-none focus:border-[var(--color-ring)]">
-            <option value="">默认（继承看板 default_assignee）</option>
-            {assigneeOptions.map(p => (
+            <option value="">{defaultAssignee ? `默认（${defaultAssignee}）` : '默认（继承看板 default_assignee）'}</option>
+            {assigneeOptions.filter(p => p.name !== defaultAssignee).map(p => (
               <option key={p.name} value={p.name}>{p.name}</option>
             ))}
             <option value="__parked__">停放（不分配，不会自动运行）</option>

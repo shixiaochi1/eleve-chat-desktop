@@ -43,7 +43,9 @@ function eventText(kind: string, payloadRaw: unknown): { detail?: string; label:
     return typeof v === 'string' && v ? v : null;
   };
   switch (kind) {
-    case 'created': return { label: `创建任务${str('status') ? `（状态 ${str('status')}）` : ''}` };
+    case 'created': return {
+      label: `创建任务${str('status') ? `（状态 ${str('status')}）` : ''}${str('assignee') ? ` · 分配给 ${str('assignee')}` : ''}`,
+    };
     case 'completed': return { label: '任务完成' };
     case 'blocked': return { label: '阻塞', detail: str('reason') ?? undefined };
     case 'unblocked': return { label: '解除阻塞' };
@@ -51,7 +53,13 @@ function eventText(kind: string, payloadRaw: unknown): { detail?: string; label:
     case 'archived': return { label: '已归档' };
     case 'assigned': return { label: str('assignee') ? `分配给 ${str('assignee')}` : '重新分配' };
     case 'status': return { label: `状态变更 → ${str('status') ?? '?'}` };
-    case 'claimed': return { label: '已被调度器认领' };
+    case 'claimed': return {
+      label: '已被调度器认领',
+      detail: [
+        str('claimer') ? `worker ${str('claimer')}` : null,
+        str('source_status') ? `源 ${str('source_status')}` : null,
+      ].filter(Boolean).join(' · ') || undefined,
+    };
     case 'reclaimed': return { label: '已回收', detail: str('reason') ?? undefined };
     // 🔴 对齐 Hermes eventText 专案（此前回退英文 kind 直出）
     case 'spawned': return { label: 'worker 启动', detail: str('pid') ? `PID ${str('pid')}` : undefined };

@@ -20,6 +20,7 @@ export default function KanbanPanelForSidebar() {
     grouped,
     loading,
     boardMeta,
+    resolvedDefaultAssignee,
     selectedTask,
     setSelectedTask,
     creatingIn,
@@ -116,6 +117,7 @@ export default function KanbanPanelForSidebar() {
         providerOptions={Array.from(new Set((profiles || []).map((p: any) => p.provider).filter(Boolean)))}
         boardDefaultKind={boardMeta?.default_workspace_kind}
         boardDefaultDir={boardMeta?.default_workdir}
+        defaultAssignee={resolvedDefaultAssignee}
         parentOptions={allTasks.filter(t => t.id && t.status !== 'running').slice(0, 30).map(t => ({ id: t.id, title: t.title }))}
         onTitleChange={setNewTitle} onBodyChange={setNewBody} onAssigneeChange={setNewAssignee}
         onPriorityChange={setNewPriority} onSkillsChange={setNewSkills} onParentChange={setNewParent}

@@ -183,6 +183,10 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
   }, []);
   // 🔴 对齐 Hermes SelectionBar Move to 菜单（审查 P1-9）
   const [showBulkMove, setShowBulkMove] = useState(false);
+  // 🔴 对齐 Hermes $introDismissed（审查 d1 P2-8）：一次性引导，持久化
+  const [showIntro, setShowIntro] = useState<boolean>(() => {
+    try { return localStorage.getItem('eleve.kanban.introDismissed') !== '1'; } catch { return true; }
+  });
   const {
     apiTasks,
     setApiTasks,
@@ -230,6 +234,7 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     showArchived,
     toggleShowArchived,
     boardMeta,
+    resolvedDefaultAssignee,
     checkedIds,
     setCheckedIds,
     currentBoard,
@@ -720,6 +725,20 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
         </div>
       )}
 
+      {/* 🔴 对齐 Hermes Intro 一次性引导（board.tsx L844-863，审查 d1 P2-8）：
+          核心心智模型——看板是调度队列而非待办清单；localStorage 持久化 */}
+      {showIntro && (
+        <div className="mx-4 mt-3 px-3 py-2.5 rounded-md border border-[color-mix(in_srgb,var(--kanban-hover-bg)_35%,var(--ui-stroke-tertiary))] bg-[color-mix(in_srgb,var(--kanban-hover-bg)_8%,var(--kanban-overlay))] flex items-start gap-2">
+          <span className="text-[0.72rem] text-[var(--ui-text-secondary)] flex-1 leading-relaxed">
+            看板是<b>调度队列</b>——卡片不归你拖动，Agent 们按状态自动运行：就绪任务由调度器派发，评审由评审 worker 接手，失败自动重试/熔断。
+          </span>
+          <button onClick={() => { setShowIntro(false); try { localStorage.setItem('eleve.kanban.introDismissed', '1'); } catch {} }}
+            className="text-[0.65rem] text-[var(--ui-text-tertiary)] hover:text-[var(--ui-text-primary)] transition-colors shrink-0">
+            知道了
+          </button>
+        </div>
+      )}
+
       {/* 批量操作栏 */}
       {checkedIds.size > 0 && (
         <div className="flex items-center gap-2 mx-4 px-3 py-2 rounded-md bg-[color-mix(in_srgb,var(--kanban-hover-bg)_10%,var(--kanban-overlay))] border border-[color-mix(in_srgb,var(--kanban-hover-bg)_40%,var(--ui-stroke-tertiary))]">
@@ -833,6 +852,7 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
         providerOptions={Array.from(new Set((profiles || []).map((p: any) => p.provider).filter(Boolean)))}
         boardDefaultKind={boardMeta?.default_workspace_kind}
         boardDefaultDir={boardMeta?.default_workdir}
+        defaultAssignee={resolvedDefaultAssignee}
         parentOptions={allTasks.filter(t => t.id && t.status !== 'running').slice(0, 30).map(t => ({ id: t.id, title: t.title }))}
         onTitleChange={setNewTitle} onBodyChange={setNewBody} onAssigneeChange={setNewAssignee}
         onPriorityChange={setNewPriority} onSkillsChange={setNewSkills} onParentChange={setNewParent}

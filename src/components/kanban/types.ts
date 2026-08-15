@@ -70,6 +70,9 @@ export interface KanbanTask {
   startTs: number | null;
   /** 最近一次运行开始时间（ms，后端 started_at 秒×1000；running 时长用） */
   startedAt?: number | null;
+  /** 🔴 对齐 Hermes last_heartbeat_at（审查 d1 P2-3）：worker 心跳时间（epoch 秒，
+   *   running 卡 120s 无心跳 → 琥珀提示） */
+  last_heartbeat_at?: string | number | null;
   duration: number | null;
   summary: string;
   blocked: boolean;

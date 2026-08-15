@@ -845,6 +845,13 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // 🔴 对齐 Hermes GET /orchestration resolved_default_assignee（审查 d3-18）：
+  //   新建表单默认项显示实际解析出的默认负责人（此前通用文案无实际值）
+  const resolvedDefaultAssignee = useMemo(() => {
+    const o = orchestration as Record<string, unknown> | null;
+    return (o?.resolved_default_assignee as string | undefined) || undefined;
+  }, [orchestration]);
+
   return {
     apiTasks,
     setApiTasks,
@@ -897,6 +904,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     showWorkers,
     setShowWorkers,
     orchestration,
+    resolvedDefaultAssignee,
     setOrchestration,
     profiles,
     setProfiles,
