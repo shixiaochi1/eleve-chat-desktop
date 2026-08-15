@@ -81,8 +81,11 @@ export function updateStaleConfig(patch: Record<string, [number, number]>): void
 
 // ── 事件 kind 分类（对齐后端 kanban event 语义）──
 /** 直接 patch 任务状态的事件（本地应用，无需整板刷新；其余 kind 一律触发 loadBoard 自愈） */
+// 🔴 2026-08-16（审计领域5 P0-3）：补 rate_limited/protocol_violation——
+//   后端 worker 退出分类事件（timed_out/crashed/spawn_failed 已有）；
+//   删 recomputed_ready（后端不发，promoted 带落点替代——死代码）
 export const KANBAN_PATCH_KINDS: string[] = [
   'completed','blocked','claimed','unblocked','archived',
-  'spawn_failed','gave_up','crashed','timed_out','promoted',
-  'promoted_manual','recomputed_ready','scheduled',
+  'spawn_failed','gave_up','crashed','timed_out','rate_limited',
+  'protocol_violation','promoted','promoted_manual','scheduled',
 ];

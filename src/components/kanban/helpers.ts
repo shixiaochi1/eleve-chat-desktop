@@ -198,7 +198,6 @@ export function applyKanbanEvent(tasks: KanbanTask[], evt: KanbanEvent): KanbanT
       case 'claimed': task.status = 'running'; return task;
       case 'unblocked': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
       case 'promoted': case 'promoted_manual': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
-      case 'recomputed_ready': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
       case 'scheduled': task.status = 'scheduled'; task.blocked = false; task.block_reason = ''; return task;
       case 'status': {
         // set_status_direct 写的事件：payload.status 即新状态（对齐 Hermes status event）
@@ -214,7 +213,8 @@ export function applyKanbanEvent(tasks: KanbanTask[], evt: KanbanEvent): KanbanT
       //   列）——此前返回 null 直接移除：『显示已归档』打开时卡片也从板面消失
       //   （不落入归档列），要等 60s 轮询才可能恢复。
       case 'archived': task.status = 'archived'; task.blocked = false; task.block_reason = ''; return task;
-      case 'spawn_failed': case 'gave_up': case 'crashed': case 'timed_out': task.status = 'ready'; return task;
+      case 'spawn_failed': case 'gave_up': case 'crashed': case 'timed_out':
+      case 'rate_limited': case 'protocol_violation': task.status = 'ready'; return task;
       default: return task;
     }
   }).filter((t): t is KanbanTask => t !== null);

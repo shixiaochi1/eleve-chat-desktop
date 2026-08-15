@@ -49,7 +49,7 @@ import {
   getKanbanProfiles,
 } from '@/utils/api';
 import type { KanbanTask, KanbanEvent } from './types';
-import { COLUMNS, COLUMN_STATUS, LOCKED_REASON, updateStaleConfig } from './constants';
+import { COLUMNS, COLUMN_STATUS, LOCKED_REASON, LOCKED_DROP_COLUMNS, updateStaleConfig } from './constants';
 import { notify } from '../../utils/notifications';
 import { call } from '../../utils/bridge';
 import { taskColumn, normalizeBoardData } from './helpers';
@@ -520,11 +520,13 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       // create_task 无 parents 默认落 'ready'（triage 标志落 'triage'），在
       // todo 列内联创建会落错列——transition_status 对这些列直通
       // set_status_direct（合法），创建成功后补一次 patch 到目标列。
-      // 🔴 review 已移出 canCreate（对齐 Hermes 锁定列语义），白名单同步收敛；
-      //   triage 由后端直接落位无需补丁
+      // 🔴 2026-08-16（审计领域4 P2-1）：落位补丁扩展到任意非锁定列（对齐
+      //   Hermes board.tsx L649-651 任意目标列都补）——原白名单 ['todo','ready']
+      //   导致创建到 blocked/done 等列时卡片落错位；review/running/scheduled
+      //   锁定列由后端门控拒绝（留在后端落位状态）；triage 由后端直接落位
       const createdStatus = result?.task?.status || result?.status;
       if (newId && creatingIn && createdStatus && createdStatus !== creatingIn
-        && ['todo', 'ready'].includes(creatingIn)) {
+        && !LOCKED_DROP_COLUMNS.includes(creatingIn) && creatingIn !== 'triage') {
         try { await updateKanbanTask(newId, { status: creatingIn }, currentBoard); } catch { /* 门控拒绝则留在后端落位状态 */ }
       }
       await loadBoard();
