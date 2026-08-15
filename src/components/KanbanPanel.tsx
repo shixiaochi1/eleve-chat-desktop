@@ -149,6 +149,10 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     setNewWorkspacePath,
     newModelOverride,
     setNewModelOverride,
+    newProviderOverride,
+    setNewProviderOverride,
+    newReasoningEffort,
+    setNewReasoningEffort,
     searchQuery,
     setSearchQuery,
     checkedIds,
@@ -580,10 +584,11 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
         ))}
       </div>
 
-      {/* 详情抽屉 */}
+      {/* 详情抽屉（头部 StatusMenu 走 handleDrop 门控/摘要/乐观更新） */}
       {selectedTask && (
         <TaskDrawer task={selectedTask} onClose={() => setSelectedTask(null)} onAction={handleAction} loadingId={loadingId} onRefresh={loadBoard}
           homeChannels={homeChannels} board={currentBoard}
+          onMoveStatus={(s) => handleDrop(s, selectedTask.id)}
           onOpenTask={(id) => { const t = allTasks.find(x => x.id === id); if (t) setSelectedTask(t); }} />
       )}
 
@@ -594,11 +599,13 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
         title={newTitle} body={newBody} assignee={newAssignee} priority={newPriority}
         skills={newSkills} parent={newParent} goalMode={newGoalMode} goalMaxTurns={newGoalMaxTurns}
         workspaceKind={newWorkspaceKind} workspacePath={newWorkspacePath} modelOverride={newModelOverride}
+        providerOverride={newProviderOverride} reasoningEffort={newReasoningEffort}
         parentOptions={allTasks.filter(t => t.id && t.status !== 'running').slice(0, 30).map(t => ({ id: t.id, title: t.title }))}
         onTitleChange={setNewTitle} onBodyChange={setNewBody} onAssigneeChange={setNewAssignee}
         onPriorityChange={setNewPriority} onSkillsChange={setNewSkills} onParentChange={setNewParent}
         onGoalModeChange={setNewGoalMode} onGoalMaxTurnsChange={setNewGoalMaxTurns}
         onWorkspaceKindChange={setNewWorkspaceKind} onWorkspacePathChange={setNewWorkspacePath} onModelOverrideChange={setNewModelOverride}
+        onProviderOverrideChange={setNewProviderOverride} onReasoningEffortChange={setNewReasoningEffort}
         onSubmit={() => handleCreateSubmit()}
         onClose={() => { setCreatingIn(null); resetCreateForm(); }}
       />

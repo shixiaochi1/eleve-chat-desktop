@@ -131,6 +131,8 @@ export function normalizeTask(raw: Record<string, unknown>): KanbanTask {
     })(),
     diagnostics: Array.isArray(raw.diagnostics) ? (raw.diagnostics as string[]) : undefined,
     model_override: s(raw.model_override),
+    provider_override: s(raw.provider_override),
+    reasoning_effort: s(raw.reasoning_effort),
     runs: arr(raw.runs) as RunRecord[],
     comments: arr(raw.comments) as CommentRecord[],
     child_done: childDone,

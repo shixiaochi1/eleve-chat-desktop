@@ -71,6 +71,9 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   const [newWorkspacePath, setNewWorkspacePath] = useState('');
   // 🔴 模型覆盖（对齐 HERMES TaskModelOverride）：'' = 继承 profile 的模型
   const [newModelOverride, setNewModelOverride] = useState('');
+  // 对齐 Hermes：三元组 {model, provider, reasoning effort}
+  const [newProviderOverride, setNewProviderOverride] = useState('');
+  const [newReasoningEffort, setNewReasoningEffort] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [checkedIds, setCheckedIds] = useState<Set<any>>(new Set());
   // Phase 4 状态
@@ -318,6 +321,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     setNewTitle(''); setNewBody(''); setNewAssignee(''); setNewPriority('');
     setNewSkills(''); setNewParent(''); setNewGoalMode(false); setNewGoalMaxTurns('20');
     setNewWorkspaceKind('scratch'); setNewWorkspacePath(''); setNewModelOverride('');
+    setNewProviderOverride(''); setNewReasoningEffort('');
   }, []);
 
   // 创建 ready 任务后 400ms 防抖立即触发一次调度（对齐 Hermes nudgeDispatcher）：
@@ -355,8 +359,11 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       if (newWorkspaceKind !== 'scratch' && newWorkspacePath.trim()) {
         payload.workspace_path = newWorkspacePath.trim();
       }
-      // 模型覆盖（后端 create handler 读 model_override，'' 不发送 = 继承 profile）
+      // 模型覆盖（对齐 Hermes 三元组：model_override + provider_override +
+      // reasoning_effort；'' 不发送 = 继承 profile）
       if (newModelOverride.trim()) payload.model_override = newModelOverride.trim();
+      if (newModelOverride.trim() && newProviderOverride.trim()) payload.provider_override = newProviderOverride.trim();
+      if (newReasoningEffort.trim()) payload.reasoning_effort = newReasoningEffort.trim();
       if (creatingIn === 'triage') payload.triage = true;
       const result = await createKanbanTask(payload);
       setCreatingIn(null);
@@ -802,6 +809,10 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     setNewWorkspacePath,
     newModelOverride,
     setNewModelOverride,
+    newProviderOverride,
+    setNewProviderOverride,
+    newReasoningEffort,
+    setNewReasoningEffort,
     handleReassign,
   };
 

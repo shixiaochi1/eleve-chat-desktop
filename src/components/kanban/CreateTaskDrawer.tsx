@@ -35,6 +35,10 @@ interface CreateTaskDrawerProps {
   workspaceKind: string;
   workspacePath: string;
   modelOverride: string;
+  /** 对齐 Hermes 三元组：provider 覆盖（须与 model 成对） */
+  providerOverride: string;
+  /** 对齐 Hermes 三元组：推理深度覆盖（none/minimal/low/medium/high/xhigh） */
+  reasoningEffort: string;
   parentOptions: Array<{ id: string; title: string }>;
   onTitleChange: (v: string) => void;
   onBodyChange: (v: string) => void;
@@ -47,6 +51,8 @@ interface CreateTaskDrawerProps {
   onWorkspaceKindChange: (v: string) => void;
   onWorkspacePathChange: (v: string) => void;
   onModelOverrideChange: (v: string) => void;
+  onProviderOverrideChange: (v: string) => void;
+  onReasoningEffortChange: (v: string) => void;
   onSubmit: () => Promise<void>;
   onClose: () => void;
 }
@@ -54,9 +60,11 @@ interface CreateTaskDrawerProps {
 export function CreateTaskDrawer({
   open, target, variant = 'drawer',
   title, body, assignee, priority, skills, parent, goalMode, goalMaxTurns, workspaceKind, workspacePath, modelOverride,
+  providerOverride, reasoningEffort,
   parentOptions,
   onTitleChange, onBodyChange, onAssigneeChange, onPriorityChange, onSkillsChange, onParentChange,
   onGoalModeChange, onGoalMaxTurnsChange, onWorkspaceKindChange, onWorkspacePathChange, onModelOverrideChange,
+  onProviderOverrideChange, onReasoningEffortChange,
   onSubmit, onClose,
 }: CreateTaskDrawerProps) {
   const [submitting, setSubmitting] = useState(false);
@@ -138,12 +146,22 @@ export function CreateTaskDrawer({
             className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
         )}
       </div>
-      {/* 模型覆盖（对齐 HERMES TaskModelOverride：留空继承 profile 模型） */}
+      {/* 模型覆盖（对齐 HERMES TaskModelOverride 三元组：model + provider +
+          reasoning effort；全留空继承 profile 模型） */}
       <div className="flex flex-col gap-1.5">
         <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">模型覆盖（可选）</label>
         <input value={modelOverride} onChange={e => onModelOverrideChange(e.target.value)}
           placeholder="留空继承 assigned profile 的模型"
           className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
+        <div className="grid grid-cols-2 gap-2">
+          <input value={providerOverride} onChange={e => onProviderOverrideChange(e.target.value)}
+            placeholder="Provider（如 openrouter）"
+            className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
+          <input value={reasoningEffort} onChange={e => onReasoningEffortChange(e.target.value)}
+            placeholder="推理深度（如 high）"
+            className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
+        </div>
+        <span className="text-[0.65rem] text-[var(--color-muted-foreground)]">Provider 需配合模型填写；推理深度取值 none/minimal/low/medium/high/xhigh</span>
       </div>
       {/* Goal Mode */}
       <div className="flex flex-col gap-1.5">

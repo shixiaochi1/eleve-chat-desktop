@@ -7,6 +7,7 @@ import {
   X, ChevronDown, Edit3, Save, GitBranch, Paperclip, Download, Trash2,
   FileText, Radio, BellOff, Bell, Send, Play, Ban, Clock, CheckCircle2,
   ArrowLeftFromLine, Archive, Zap, Loader, Plus, AlertTriangle,
+  MoreHorizontal, Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { readFileAsDataURL, base64FromDataURL } from '@/utils/file';
@@ -19,6 +20,7 @@ import {
 } from '@/utils/api';
 import type { KanbanTask, CommentRecord, AttachmentRecord, RunRecord, KanbanEvent } from './types';
 import { isBlocked, isDone, fmtAge, fmtDuration } from './helpers';
+import { COLUMNS, LOCKED_DROP_COLUMNS } from './constants';
 
 // ═══════════════════════════════════════════════════════════════
 // 子组件
@@ -143,9 +145,12 @@ interface TaskDrawerProps {
   /** 外壳变体：'drawer'（默认，全屏遮罩 + 右侧滑出，主看板用）/
    *  'overlay'（容器内覆盖层圆角卡片，侧边栏用，与 CreateTaskDrawer overlay 一致） */
   variant?: 'drawer' | 'overlay';
+  /** 状态下拉移动（对齐 Hermes StatusMenu；传 null/undefined 则头部仅静态色点）。
+   *  调用方通常传 useKanban.handleDrop（含锁定/门控/摘要/确认/乐观更新） */
+  onMoveStatus?: (status: string) => void;
 }
 
-export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, homeChannels, board = 'default', onOpenTask, variant = 'drawer' }: TaskDrawerProps) {
+export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, homeChannels, board = 'default', onOpenTask, variant = 'drawer', onMoveStatus }: TaskDrawerProps) {
   const busy = loadingId === task?.id;
   const [detail, setDetail] = useState<any>(null);
   const [commentInput, setCommentInput] = useState('');
@@ -158,6 +163,10 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   const [titleDraft, setTitleDraft] = useState('');
   const [editingPriority, setEditingPriority] = useState(false);
   const [editingAssignee, setEditingAssignee] = useState(false);
+  const [editingModel, setEditingModel] = useState(false);
+  const [modelDraft, setModelDraft] = useState('');
+  const [providerDraft, setProviderDraft] = useState('');
+  const [effortDraft, setEffortDraft] = useState('');
   const [assigneeDraft, setAssigneeDraft] = useState('');
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null); // Phase B7: Run 详情展开
@@ -194,15 +203,23 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   }, [expandedRunId, board]);
 
   // 加载详情（评论/事件/运行/链接）+ 附件
+  // 🔴 对齐 Hermes drawer refetchInterval 30s：此前一次性拉取，抽屉打开期间
+  //   事件/评论/运行/依赖/附件恒旧；改为 30s 轮询自动刷新
   useEffect(() => {
     if (!task?.id) { setDetail(null); setAttachments([]); return; }
-    getKanbanTask(task.id, board).then(data => setDetail(data)).catch(() => setDetail(null));
-    getKanbanAttachments(task.id, board).then(data => {
-      setAttachments(data?.attachments || data || []);
-    }).catch(() => {});
+    let alive = true;
+    const fetchDetail = () => {
+      getKanbanTask(task.id, board).then(data => { if (alive) setDetail(data); }).catch(() => { if (alive) setDetail(null); });
+      getKanbanAttachments(task.id, board).then(data => {
+        if (alive) setAttachments(data?.attachments || data || []);
+      }).catch(() => {});
+    };
+    fetchDetail();
+    const interval = window.setInterval(fetchDetail, 30000);
     // 切换任务时重置 Run 展开态（避免上一个任务的展开残留）
     setExpandedRunId(null);
     setExpandedRunData(null);
+    return () => { alive = false; window.clearInterval(interval); };
   }, [task?.id, board]);
 
   // 🔴 对齐 Hermes 抽屉诊断区：board 级 /diagnostics 按 task_id 过滤展示
@@ -300,6 +317,26 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
     }
   };
 
+  // 保存模型覆盖三元组（对齐 Hermes ModelOverrideField：model/provider/effort；
+  //   空串 = 清除该项覆盖，回退继承 profile）
+  const handleSaveModel = async () => {
+    setEditingModel(false);
+    const m = modelDraft.trim();
+    const p = providerDraft.trim();
+    const r = effortDraft.trim();
+    if (m === (task.model_override || '') && p === (task.provider_override || '') && r === (task.reasoning_effort || '')) return;
+    try {
+      await updateKanbanTask(task.id, {
+        model_override: m || null,
+        provider_override: m && p ? p : null,
+        reasoning_effort: r || null,
+      }, board);
+      onRefresh?.();
+    } catch (err) {
+      console.error('[KanbanPanel] Save model override failed:', err);
+    }
+  };
+
   // 保存描述 → 调 updateKanbanTask → 刷新
   const handleSaveBody = async () => {
     try {
@@ -337,13 +374,20 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
 
   const panel = (
     <>
-        {/* 抽屉头 */}
+        {/* 抽屉头 — 状态菜单（对齐 Hermes StatusMenu）+ ID + ⋯菜单 + 关闭 */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ui-stroke-tertiary)]">
           <div className="flex items-center gap-2">
-            <StatusDot status={task.status} size={10} />
+            {onMoveStatus ? (
+              <StatusMenuButton status={task.status} onMove={onMoveStatus} />
+            ) : (
+              <StatusDot status={task.status} size={10} />
+            )}
             <span className="font-mono text-[0.8rem] text-[var(--ui-text-quaternary)]">#{typeof task.id === 'string' ? task.id.slice(0, 8) : task.id}</span>
           </div>
-          <button onClick={onClose} className="text-[var(--ui-text-tertiary)] hover:text-[var(--ui-text-primary)] transition-colors p-1"><X size={18} strokeWidth={1.5} /></button>
+          <div className="flex items-center gap-0.5">
+            <MoreMenuButton task={task} onAction={onAction} />
+            <button onClick={onClose} className="text-[var(--ui-text-tertiary)] hover:text-[var(--ui-text-primary)] transition-colors p-1"><X size={18} strokeWidth={1.5} /></button>
+          </div>
         </div>
 
         {/* 标题 — 行内可编辑 */}
@@ -416,7 +460,37 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                     )}
                   </div>
                   <MetaRow label="创建时间" value={task.startTs ? fmtAge(task.startTs) : '—'} />
-                  {task.model_override && <MetaRow label="模型覆盖" value={task.model_override} />}
+                  {/* 模型覆盖三元组 — 行内可编辑（对齐 Hermes ModelOverrideField） */}
+                  <div className="flex gap-3 items-start">
+                    <span className="w-16 shrink-0 text-[var(--ui-text-tertiary)]">模型</span>
+                    {editingModel ? (
+                      <div className="flex-1 flex flex-col gap-1 min-w-0">
+                        <input value={modelDraft} onChange={(e) => setModelDraft(e.target.value)}
+                          placeholder="模型（留空继承）"
+                          className="w-full text-[0.8rem] px-1 py-0.5 rounded border border-[var(--kanban-hover-bg)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none" />
+                        <div className="flex gap-1">
+                          <input value={providerDraft} onChange={(e) => setProviderDraft(e.target.value)}
+                            placeholder="Provider"
+                            className="flex-1 text-[0.8rem] px-1 py-0.5 rounded border border-[var(--kanban-hover-bg)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none" />
+                          <input value={effortDraft} onChange={(e) => setEffortDraft(e.target.value)}
+                            placeholder="推理深度"
+                            className="flex-1 text-[0.8rem] px-1 py-0.5 rounded border border-[var(--kanban-hover-bg)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none" />
+                        </div>
+                        <div className="flex gap-2 text-[0.68rem]">
+                          <button onClick={handleSaveModel} className="text-[var(--kanban-hover-bg)] hover:underline">保存</button>
+                          <button onClick={() => setEditingModel(false)} className="text-[var(--ui-text-tertiary)] hover:underline">取消</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <span onClick={() => { setEditingModel(true); setModelDraft(task.model_override || ''); setProviderDraft(task.provider_override || ''); setEffortDraft(task.reasoning_effort || ''); }}
+                        className="text-[var(--ui-text-primary)] cursor-pointer rounded px-1 -mx-1 py-0.5 hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors break-words"
+                        title="点击编辑模型覆盖">
+                        {task.model_override
+                          ? `${task.model_override}${task.provider_override ? ` @ ${task.provider_override}` : ''}${task.reasoning_effort ? ` · ${task.reasoning_effort}` : ''}`
+                          : '继承 profile'}
+                      </span>
+                    )}
+                  </div>
                   {blocked && task.block_reason && <MetaRow label="阻塞原因" value={task.block_reason} />}
                 </div>
 
@@ -806,9 +880,16 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
           {(blocked || scheduled) && (
             <ActionButton icon={Play} label="恢复" color="accent" onClick={() => onAction('unblock', task.id)} busy={busy} />
           )}
-          {/* ready → 可阻塞/滞留 */}
+          {/* 🔴 对齐 Hermes StatusMenu：ready/blocked 也可直接完成（后端
+              complete_task 门控 IN ('running','ready','blocked')，此前只给
+              running 渲染完成按钮，抽屉入口与后端门控不一致） */}
+          {blocked && (
+            <ActionButton icon={CheckCircle2} label="完成" color="green" onClick={() => onAction('complete', task.id)} busy={busy} />
+          )}
+          {/* ready → 可完成/阻塞/滞留 */}
           {!running && !done && !blocked && !scheduled && !review && task.status === 'ready' && (
             <>
+              <ActionButton icon={CheckCircle2} label="完成" color="green" onClick={() => onAction('complete', task.id)} busy={busy} />
               <ActionButton icon={Ban} label="阻塞" color="amber" onClick={() => onAction('block', task.id)} busy={busy} />
               <ActionButton icon={Clock} label="滞留" color="muted" onClick={() => onAction('schedule', task.id)} busy={busy} />
             </>
@@ -874,6 +955,82 @@ function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
     <div className="flex gap-3">
       <span className="w-16 shrink-0 text-[var(--ui-text-tertiary)]">{label}</span>
       <span className="text-[var(--ui-text-primary)] break-words">{value}</span>
+    </div>
+  );
+}
+
+// ── 状态菜单按钮（对齐 Hermes StatusMenu）：头部彩色状态按钮 + 下拉切换状态。
+//    锁定列（running/scheduled）不出现在菜单中；点击当前状态项 = 关闭。 ──
+function StatusMenuButton({ status, onMove }: { status: string; onMove: (s: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const col = COLUMNS.find(c => c.key === status);
+  const tone = col?.dotColor || 'var(--ui-text-tertiary)';
+  const label = col?.label || status;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.7rem] font-semibold uppercase tracking-wide transition-colors hover:bg-[var(--ui-bg-quinary)]"
+        style={{ color: tone }}
+        title="切换任务状态"
+      >
+        <span className="size-1.5 rounded-full" style={{ backgroundColor: tone }} />
+        {label}
+        <ChevronDown size={11} strokeWidth={2} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute top-full left-0 mt-1 min-w-[130px] py-1 rounded-md border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-bg-elevated)] shadow-lg z-50">
+            {COLUMNS.filter(c => c.key === status || !LOCKED_DROP_COLUMNS.includes(c.key)).map(c => (
+              <button
+                key={c.key}
+                onClick={() => { setOpen(false); onMove(c.key); }}
+                className="w-full flex items-center gap-1.5 px-3 py-1.5 text-[0.75rem] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-bg-quinary)] transition-colors"
+              >
+                <span className="size-2 rounded-full" style={{ backgroundColor: c.dotColor }} />
+                {c.label}
+                {c.key === status && <Check size={12} strokeWidth={2} className="ml-auto text-[var(--ui-accent)]" />}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── 头部 ⋯ 菜单（对齐 Hermes drawer）：复制任务 ID / 复制标题 / 归档 / 删除 ──
+function MoreMenuButton({ task, onAction }: { task: KanbanTask; onAction: (action: string, taskId: string) => void }) {
+  const [open, setOpen] = useState(false);
+
+  const copy = (text: string) => {
+    navigator.clipboard?.writeText(text).catch(() => {});
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="p-1 rounded-md text-[var(--ui-text-tertiary)] hover:bg-[var(--ui-bg-quinary)] hover:text-[var(--ui-text-primary)] transition-colors"
+        title="任务操作"
+      >
+        <MoreHorizontal size={16} strokeWidth={1.5} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute top-full right-0 mt-1 min-w-[130px] py-1 rounded-md border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-bg-elevated)] shadow-lg z-50">
+            <button onClick={() => copy(task.id)} className="w-full text-left px-3 py-1.5 text-[0.75rem] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-bg-quinary)] transition-colors">复制任务 ID</button>
+            <button onClick={() => copy(task.title || task.id)} className="w-full text-left px-3 py-1.5 text-[0.75rem] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-bg-quinary)] transition-colors">复制标题</button>
+            <div className="border-t border-[var(--ui-stroke-tertiary)] my-1" />
+            <button onClick={() => { setOpen(false); onAction('archive', task.id); }} className="w-full text-left px-3 py-1.5 text-[0.75rem] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-bg-quinary)] transition-colors">归档</button>
+            <button onClick={() => { setOpen(false); onAction('delete', task.id); }} className="w-full text-left px-3 py-1.5 text-[0.75rem] text-danger hover:bg-[color-mix(in_srgb,var(--ui-red)_12%,transparent)] transition-colors">删除</button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

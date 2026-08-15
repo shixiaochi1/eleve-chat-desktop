@@ -88,6 +88,10 @@ export interface KanbanTask {
   diagnostics?: string[];
   /** 任务级模型覆盖（后端 Task.model_override，'' = 继承 profile） */
   model_override?: string;
+  /** 任务级 provider 覆盖（后端 Task.provider_override，与 model_override 成对） */
+  provider_override?: string;
+  /** 任务级推理深度覆盖（后端 Task.reasoning_effort） */
+  reasoning_effort?: string;
   runs: RunRecord[];
   comments: CommentRecord[];
   child_done: number | null;
