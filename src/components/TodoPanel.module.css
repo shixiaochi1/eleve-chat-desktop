@@ -1,0 +1,125 @@
+/* TodoPanel — 输入框上方任务状态折叠条（DSH TodoPanel.module.css 完整复刻）
+   基准：packages/client/ui-conversation/src/client/skeleton/TodoPanel.module.css
+   视觉规格：12px 圆角 / 36px 折叠行 / 6px 12px body padding / 14px glyph /
+   13px 文本 / 8px 列表 gap / 展开最大 180px 滚动。变量映射 ELEVE 主题。 */
+
+.root {
+  box-sizing: border-box;
+  flex: none;
+  overflow: hidden;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--dt-muted) 30%, transparent);
+  /* 与 DSH specific-tip 表面同阶梯：卡片内滚动条沿用全局 */
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 12px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lead {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--muted-foreground);
+}
+
+.title {
+  flex: none;
+  font-size: 13px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.progress {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--muted-foreground);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: color-mix(in srgb, var(--foreground) 80%, transparent);
+}
+
+.glyph {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+}
+
+/* 3 色状态 glyph（DSH：success 绿 / caption 灰 / business 蓝旋转渐变环） */
+.glyphCompleted {
+  color: var(--success);
+}
+
+.glyphPending {
+  color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
+}
+
+.glyphProgress {
+  color: var(--primary);
+  animation: todo-progress-spin 1s linear infinite;
+}
+
+@keyframes todo-progress-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 单行截断，无内联展开（DSH Figma 规格） */
+.content {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
