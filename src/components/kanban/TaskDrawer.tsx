@@ -503,6 +503,15 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
           </div>
         </div>
 
+        {/* 🔴 对齐 Hermes ready 未分配 Callout（drawer.tsx L789-793，审查 d4-11）：
+            就绪但无负责人 → 不会被调度器运行，提示分配 profile */}
+        {task.status === 'ready' && !task.assignee && (
+          <div className="mx-5 mb-2 px-3 py-2 rounded-md border border-warning/25 bg-warning/5 text-[0.72rem] text-warning flex items-center gap-1.5">
+            <AlertTriangle size={12} strokeWidth={1.5} className="shrink-0" />
+            任务已就绪但未分配负责人——分配 profile 后调度器才会运行它
+          </div>
+        )}
+
         {/* 标题 — 行内可编辑 */}
         <div className="px-5 pt-4 pb-2">
           {editingTitle ? (
@@ -1066,7 +1075,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
             Hermes CommentComposer Note & requeue） */}
         {!collapsedSections.comments && (
           <div className="flex gap-2 px-5 py-3 border-t border-[var(--ui-stroke-tertiary)]">
-            <input value={commentInput} onChange={(e) => setCommentInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); running ? handleRequeue() : handleSendComment(); } }}
+            <input value={commentInput} onChange={(e) => setCommentInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendComment(); } }}
               placeholder={running ? '给 worker 的注记…（可附言重跑）' : '输入评论...'} className="flex-1 text-[0.8rem] px-3 py-1.5 rounded border border-[var(--ui-stroke-tertiary)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none focus:border-[var(--kanban-hover-bg)]" />
             <button onClick={handleSendComment} disabled={!commentInput.trim()} title="发表评论"
               className={cn('p-2 rounded-md transition-colors', commentInput.trim() ? 'text-[var(--kanban-hover-bg)] hover:bg-[var(--kanban-hover-bg)]' : 'text-[var(--ui-text-quaternary)] pointer-events-none')}>

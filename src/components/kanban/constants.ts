@@ -17,15 +17,24 @@ import type { ColumnDef } from './types';
 // 🔴 review 移出 canCreate（对齐 Hermes LOCKED_COLUMNS 含 review：
 //   review 由 request_review/调度器独占，不直建）。
 export const COLUMNS: ColumnDef[] = [
-  { key: 'triage',    label: '分类',    dotColor: 'var(--ui-purple)', emptyText: '暂无待甄别任务', canCreate: true },
-  { key: 'todo',      label: '待办',    dotColor: 'var(--ui-text-tertiary)', emptyText: '暂无待办任务', canCreate: true },
-  { key: 'scheduled', label: '已排期',  dotColor: 'var(--ui-cyan)', emptyText: '暂无定时等待任务', canCreate: false },
-  { key: 'ready',     label: '就绪',    dotColor: 'var(--ui-yellow)', emptyText: '暂无就绪任务', canCreate: true },
-  { key: 'running',   label: '进行中',  dotColor: 'var(--ui-green)', emptyText: '暂无运行中任务', canCreate: false },
-  { key: 'blocked',   label: '阻塞',    dotColor: 'var(--ui-red)', emptyText: '暂无阻塞任务', canCreate: false },
-  { key: 'review',    label: '评审',    dotColor: 'var(--ui-orange)', emptyText: '暂无待审任务', canCreate: false },
-  { key: 'done',      label: '已完成',  dotColor: 'var(--ui-blue)', emptyText: '暂无已完成任务', canCreate: false },
-  { key: 'archived',  label: '已归档',  dotColor: 'var(--ui-text-quaternary)', emptyText: '暂无已归档任务', canCreate: false },
+  { key: 'triage',    label: '分类',    dotColor: 'var(--ui-purple)', emptyText: '暂无待甄别任务', canCreate: true,
+    help: '粗略想法先进这里，AI 将细化为可执行规格（指定/提升后进入队列）' },
+  { key: 'todo',      label: '待办',    dotColor: 'var(--ui-text-tertiary)', emptyText: '暂无待办任务', canCreate: true,
+    help: '依赖未满足的任务在此等待——父任务全部完成后自动提升为就绪' },
+  { key: 'scheduled', label: '已排期',  dotColor: 'var(--ui-cyan)', emptyText: '暂无定时等待任务', canCreate: false,
+    help: '定时唤醒任务：到 scheduled_at 自动回到队列（需「滞留」操作附唤醒时间）' },
+  { key: 'ready',     label: '就绪',    dotColor: 'var(--ui-yellow)', emptyText: '暂无就绪任务', canCreate: true,
+    help: '依赖已满足、等待分配负责人——分配 profile 后调度器自动运行' },
+  { key: 'running',   label: '进行中',  dotColor: 'var(--ui-green)', emptyText: '暂无运行中任务', canCreate: false,
+    help: '调度器独占：worker 正在执行（claim 启动），不能直接拖入' },
+  { key: 'blocked',   label: '阻塞',    dotColor: 'var(--ui-red)', emptyText: '暂无阻塞任务', canCreate: false,
+    help: '失败超限或人工标记：恢复（unblock）后回到就绪队列' },
+  { key: 'review',    label: '评审',    dotColor: 'var(--ui-orange)', emptyText: '暂无待审任务', canCreate: false,
+    help: '评审交接：实现完成后由调度器派评审 worker；可通过/恢复/退回返工' },
+  { key: 'done',      label: '已完成',  dotColor: 'var(--ui-blue)', emptyText: '暂无已完成任务', canCreate: false,
+    help: '任务完成（含摘要/结果/产物），可归档' },
+  { key: 'archived',  label: '已归档',  dotColor: 'var(--ui-text-quaternary)', emptyText: '暂无已归档任务', canCreate: false,
+    help: '归档任务（顶栏「已归档」开关控制显示）' },
 ];
 
 // 列 key → 合法 status 映射

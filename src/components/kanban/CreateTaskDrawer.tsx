@@ -53,6 +53,10 @@ interface CreateTaskDrawerProps {
    *  model/provider 去重目录，配合 datalist 下拉+手输 */
   modelOptions: string[];
   providerOptions: string[];
+  /** 🔴 看板默认工作区/目录（审查 d3-20/d3-14）：kind 下拉标注「(看板默认)」+
+   *   路径继承提示行（对齐 Hermes board default 后缀/workspaceInheritDir） */
+  boardDefaultKind?: string;
+  boardDefaultDir?: string;
   parentOptions: Array<{ id: string; title: string }>;
   onTitleChange: (v: string) => void;
   onBodyChange: (v: string) => void;
@@ -75,6 +79,7 @@ export function CreateTaskDrawer({
   open, target, variant = 'drawer',
   title, body, assignee, priority, skills, parent, goalMode, goalMaxTurns, workspaceKind, workspacePath, modelOverride,
   providerOverride, reasoningEffort, assigneeOptions, modelOptions, providerOptions,
+  boardDefaultKind, boardDefaultDir,
   parentOptions,
   onTitleChange, onBodyChange, onAssigneeChange, onPriorityChange, onSkillsChange, onParentChange,
   onGoalModeChange, onGoalMaxTurnsChange, onWorkspaceKindChange, onWorkspacePathChange, onModelOverrideChange,
@@ -207,18 +212,33 @@ export function CreateTaskDrawer({
           className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
       </div>
       {/* 工作区类型（对齐 HERMES NewTaskDialog：'' = 继承看板 default_workspace_kind；
-          后端 create_task 校验 kind 并兜底） */}
+          后端 create_task 校验 kind 并兜底）
+          🔴 对齐 Hermes board default 后缀（board.tsx L711-716，审查 d3-20）：
+          当前看板默认 kind 在下拉对应项标注「(看板默认)」 */}
       <div className="flex flex-col gap-1.5">
         <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">工作区类型</label>
         <select value={workspaceKind} onChange={e => onWorkspaceKindChange(e.target.value)}
           className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] focus:outline-none focus:border-[var(--color-ring)]">
-          <option value="">默认（继承看板配置）</option>
-          {WORKSPACE_KINDS.map(w => <option key={w.key} value={w.key}>{w.label}</option>)}
+          <option value="">默认{boardDefaultKind ? `（看板默认: ${boardDefaultKind}）` : '（继承看板配置）'}</option>
+          {WORKSPACE_KINDS.map(w => (
+            <option key={w.key} value={w.key}>
+              {w.label}{boardDefaultKind === w.key ? '（看板默认）' : ''}
+            </option>
+          ))}
         </select>
         {workspaceKind && workspaceKind !== 'scratch' && (
-          <input value={workspacePath} onChange={e => onWorkspacePathChange(e.target.value)}
-            placeholder="工作区路径（留空继承看板默认目录）"
-            className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
+          <>
+            <input value={workspacePath} onChange={e => onWorkspacePathChange(e.target.value)}
+              placeholder="工作区路径（留空继承看板默认目录）"
+              className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
+            {/* 🔴 对齐 Hermes 继承提示行（board.tsx L722-733，审查 d3-14）：
+                显示看板实际默认目录值 */}
+            {!workspacePath.trim() && boardDefaultDir && (
+              <span className="text-[0.65rem] text-[var(--color-muted-foreground)]">
+                留空继承看板默认目录：<code className="font-mono">{boardDefaultDir}</code>
+              </span>
+            )}
+          </>
         )}
       </div>
       {/* 模型覆盖（对齐 HERMES TaskModelOverride 三元组：model + provider +

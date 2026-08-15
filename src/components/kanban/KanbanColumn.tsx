@@ -2,7 +2,7 @@
  * 看板列 + 任务卡片 — 从 KanbanPanel.tsx 拆分（Tier 3 · 6-2）
  */
 import { memo, useState } from 'react';
-import { Plus, CheckCircle2, X, Trash2, AlertTriangle, Clock, Eye, Loader, MessageSquare, GitBranch, ChevronLeft } from 'lucide-react';
+import { Plus, CheckCircle2, X, Trash2, AlertTriangle, Clock, Eye, Loader, MessageSquare, GitBranch, ChevronLeft, ArrowUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { KanbanTask, ColumnDef } from './types';
 import { isBlocked, isDone, getStaleness, fmtAge, fmtDuration } from './helpers';
@@ -130,10 +130,25 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
         </div>
       )}
       <div className="flex flex-col gap-1.5 px-3 py-2.5">
-        {/* Row 1: 标题 + 进度药丸 + 阻塞警告 */}
+        {/* Row 1: 标题 + 优先级数值 + 进度药丸 + 阻塞警告
+            🔴 对齐 Hermes 优先级显示（board.tsx L212-217）：数字+↑ 图标——
+            此前仅彩色竖条，色弱/灰阶下不可读（审查 P2-5） */}
         <div className="flex items-start gap-2">
-          <div className="text-[0.85rem] font-medium leading-snug text-[var(--ui-text-primary)] break-words line-clamp-2 flex-1 min-w-0" title={task.title}>
-            {task.title || '(无描述)'}
+          <div className="flex items-start gap-1.5 flex-1 min-w-0">
+            {priorityLevel !== null && ['0', '1', '2', '3'].includes(priorityLevel) && (
+              <span className={cn(
+                'inline-flex items-center gap-0.5 font-mono text-[0.62rem] px-1 py-px rounded-sm shrink-0 mt-0.5',
+                priorityLevel === '0'
+                  ? 'bg-[color-mix(in_srgb,var(--ui-red)_20%,transparent)] border border-[color-mix(in_srgb,var(--ui-red)_45%,transparent)] text-danger'
+                  : 'bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)]'
+              )} title={`优先级 P${priorityLevel}`}>
+                P{priorityLevel}
+                <ArrowUp size={9} strokeWidth={2} />
+              </span>
+            )}
+            <div className="text-[0.85rem] font-medium leading-snug text-[var(--ui-text-primary)] break-words line-clamp-2 min-w-0" title={task.title}>
+              {task.title || '(无描述)'}
+            </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
             {blocked && <AlertTriangle size={12} strokeWidth={1.5} className="text-warning" />}
@@ -152,16 +167,30 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
           </div>
         </div>
 
-        {/* Row 2: 负责人 + 时间 + ID */}
+        {/* Row 2: 负责人（Avatar）+ 时间 + ID
+            🔴 对齐 Hermes Avatar（ui.tsx L166-186）：负责人首字母圆标——
+            多 Agent 并排时辨识度（审查 P2-2）；卡片时间改为未分配非 ready
+            才显示 created_at（对齐 Hermes board.tsx L231-233，审查 P2-4） */}
         <div className="flex items-center gap-2 text-[0.7rem] text-[var(--ui-text-tertiary)] min-w-0">
-          {task.assignee && <span className="font-medium truncate max-w-[100px]">{task.assignee}</span>}
+          {task.assignee && (
+            <span className="flex items-center gap-1.5 font-medium truncate max-w-[100px]">
+              <span className="grid size-4 shrink-0 place-items-center rounded-full text-[0.55rem] font-semibold text-[var(--ui-text-primary)]"
+                style={{ backgroundColor: `color-mix(in srgb, var(--priority-${priorityLevel ?? '1'}) 45%, transparent)` }}
+                title={task.assignee}>
+                {task.assignee.trim().charAt(0).toUpperCase()}
+              </span>
+              {task.assignee}
+            </span>
+          )}
           {running && <Loader size={10} strokeWidth={1.5} className="animate-spin text-success shrink-0" />}
           {running && (task.startedAt || task.startTs) && (
             <span className="text-[0.65rem] tabular-nums text-success/90" title="已运行时长">
               {fmtDuration(Date.now() - (task.startedAt || task.startTs)!)}
             </span>
           )}
-          {task.updated_at && <span className="tabular-nums whitespace-nowrap">{fmtAge(task.updated_at)}</span>}
+          {!running && !task.assignee && task.status !== 'ready' && task.created_at && (
+            <span className="tabular-nums whitespace-nowrap" title="创建时间">{fmtAge(task.created_at)}</span>
+          )}
           {/* 🔴 对齐 Hermes footer meta：评论数 / 依赖链接数 / 诊断警告数 */}
           <div className="ml-auto flex items-center gap-1.5 shrink-0 text-[var(--ui-text-quaternary)]">
             {Boolean(task.comment_count) && (
@@ -214,7 +243,7 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
             </button>
             <button onClick={() => { setMenu(null); onCheck?.(task.id); }}
               className="w-full text-left px-3 py-1.5 text-[0.75rem] text-[var(--ui-text-secondary)] hover:bg-[var(--ui-bg-quinary)] transition-colors">
-              {checked ? '取消选择' : '选择'}
+              {checked ? '取消选择' : '选择'}<span className="text-[var(--ui-text-quaternary)]">（⌘/Ctrl-点击）</span>
             </button>
             <div className="border-t border-[var(--ui-stroke-tertiary)] my-1" />
             {COLUMNS.filter(c => c.key !== task.status && !LOCKED_DROP_COLUMNS.includes(c.key)).map(c => (
@@ -324,7 +353,7 @@ export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect
       {/* 列头 — 状态小色条 + 标题 + 计数 */}
       <div className="flex items-center gap-2 px-3 pt-2.5 pb-2">
         <span className="shrink-0 rounded-[var(--kanban-col-header-bar-radius)]" style={{ width: 24, height: 3, backgroundColor: column.dotColor, borderRadius: 'var(--kanban-col-header-bar-radius)' }} />
-        <span className="text-[0.85rem] font-semibold text-[var(--ui-text-primary)] flex-1 tracking-[0.01em] cursor-help" title={column.emptyText}>{column.label}</span>
+        <span className="text-[0.85rem] font-semibold text-[var(--ui-text-primary)] flex-1 tracking-[0.01em] cursor-help" title={column.help || column.emptyText}>{column.label}</span>
         <span className="text-[0.75rem] tabular-nums text-[var(--ui-text-tertiary)] font-medium">{tasks.length}</span>
         <button onClick={onToggle} title="折叠该列"
           className="grid size-5 place-items-center rounded text-[var(--ui-text-tertiary)] opacity-0 transition-opacity hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] group-hover/col:opacity-100">

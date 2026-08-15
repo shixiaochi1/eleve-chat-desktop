@@ -115,6 +115,7 @@ export function normalizeTask(raw: Record<string, unknown>): KanbanTask {
     body: s(raw.body),
     priority: String(raw.priority ?? ''),
     updated_at: updatedAt,
+    created_at: (raw.created_at ?? null) as string | number | null,
     parents: arr(raw.parents) as string[],
     children: arr(raw.children) as string[],
     tags: arr(raw.tags) as string[],

@@ -138,6 +138,9 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   //   审查 d1 P1-4）：默认隐藏归档；打开时后端 include_archived 返回归档任务。
   //   声明在 loadBoard 之前（loadBoard 依赖它）
   const [showArchived, setShowArchived] = useState<boolean>(false);
+  // 🔴 对齐 Hermes board default_workspace_kind/default_workdir（审查 d3-20/d3-14）：
+  //   新建表单标注看板默认工作区与继承目录
+  const [boardMeta, setBoardMeta] = useState<{ default_workspace_kind?: string; default_workdir?: string } | null>(null);
   const toggleShowArchived = useCallback(() => {
     setShowArchived(prev => !prev);
   }, []);
@@ -149,6 +152,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       const result = await getKanbanBoard(currentBoard, showArchived);
       const tasks = normalizeBoardData(result);
       setApiTasks(tasks);
+      setBoardMeta(result?.board_meta || null);
       // 🔴 对齐 Hermes board.tsx L1131-1145：选中集自动修剪已离板/已删除的
       //   id——否则批量操作可能命中死 id（部分失败/误操作）
       setCheckedIds(prev => {
@@ -434,7 +438,9 @@ export function useKanban({ board = 'default' }: { board?: string }) {
         payload.assignee = newAssignee.trim();
       }
       // 空 → 不发送 assignee，后端 default_assignee 兜底
-      if (Number(newPriority)) payload.priority = Number(newPriority);
+      // 🔴 对齐 Hermes `priority: Number(priority) || 0` 恒发送（board.tsx L639，
+      //   审查 d3-11）：显式输入 0 也被吞（Number('0')=0 为 falsy）——改为恒发送
+      payload.priority = Number(newPriority) || 0;
       if (newSkills.trim()) payload.skills = newSkills.trim();
       if (newParent) payload.parents = [newParent];
       if (newGoalMode) { payload.goal_mode = true; payload.goal_max_turns = Number(newGoalMaxTurns) || 20; }
@@ -967,6 +973,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     toggleGroupRunning,
     showArchived,
     toggleShowArchived,
+    boardMeta,
     handleDrop,
     resetCreateForm,
     handleCreateSubmit,

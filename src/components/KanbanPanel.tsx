@@ -165,8 +165,22 @@ function ProfileDescriptionRow({ profile }: { profile: any }) {
 
 export default function KanbanPanel({ board = 'default' }: { board?: string }) {
   // 🔴 2026-08-13 Phase 2 拆分：状态与回调抽离到 useKanban（纯移动，无逻辑变更）。
-  // 🔴 对齐 Hermes 列折叠：override map（手动切换持久于会话）+ 空列自动折叠
-  const [collapsedLanes, setCollapsedLanes] = useState<Record<string, boolean>>({});
+  // 🔴 对齐 Hermes 列折叠：override map（手动切换持久于会话）+ 空列自动折叠。
+  //   🔴 对齐 Hermes $collapsedLanes 持久化 override（api.ts L44,95，审查 d1 P0-2）：
+  //   手动折叠状态 localStorage 持久化——此前 useState 重启即丢
+  const [collapsedLanes, setCollapsedLanes] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem('eleve.kanban.collapsedLanes');
+      return raw ? JSON.parse(raw) as Record<string, boolean> : {};
+    } catch { return {}; }
+  });
+  const persistCollapsedLanes = useCallback((updater: (prev: Record<string, boolean>) => Record<string, boolean>) => {
+    setCollapsedLanes(prev => {
+      const next = updater(prev);
+      try { localStorage.setItem('eleve.kanban.collapsedLanes', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
   // 🔴 对齐 Hermes SelectionBar Move to 菜单（审查 P1-9）
   const [showBulkMove, setShowBulkMove] = useState(false);
   const {
@@ -215,6 +229,7 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     toggleGroupRunning,
     showArchived,
     toggleShowArchived,
+    boardMeta,
     checkedIds,
     setCheckedIds,
     currentBoard,
@@ -790,7 +805,7 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
               const tasks = grouped[col.key] || [];
               const auto = boardHasWork && tasks.length === 0;
               const next = !(collapsedLanes[col.key] ?? auto);
-              setCollapsedLanes(prev => ({ ...prev, [col.key]: next }));
+              persistCollapsedLanes(prev => ({ ...prev, [col.key]: next }));
             }} />
         ))}
       </div>
@@ -816,6 +831,8 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
         assigneeOptions={(profiles || []).map((p: any) => ({ name: p.name }))}
         modelOptions={Array.from(new Set((profiles || []).map((p: any) => p.model).filter(Boolean)))}
         providerOptions={Array.from(new Set((profiles || []).map((p: any) => p.provider).filter(Boolean)))}
+        boardDefaultKind={boardMeta?.default_workspace_kind}
+        boardDefaultDir={boardMeta?.default_workdir}
         parentOptions={allTasks.filter(t => t.id && t.status !== 'running').slice(0, 30).map(t => ({ id: t.id, title: t.title }))}
         onTitleChange={setNewTitle} onBodyChange={setNewBody} onAssigneeChange={setNewAssignee}
         onPriorityChange={setNewPriority} onSkillsChange={setNewSkills} onParentChange={setNewParent}

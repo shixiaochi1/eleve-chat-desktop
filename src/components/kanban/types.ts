@@ -77,6 +77,8 @@ export interface KanbanTask {
   body: string;
   priority: string | number;
   updated_at: string | number | null;
+  /** 创建时间（epoch 秒，对齐 Hermes ago(created_at)——卡片时间条件显示用） */
+  created_at?: string | number | null;
   parents: string[];
   children: string[];
   tags: string[];
@@ -106,6 +108,8 @@ export interface ColumnDef {
   dotColor: string;
   emptyText: string;
   canCreate: boolean;
+  /** 🔴 对齐 Hermes columnHelp（board.tsx L449-453）：列语义说明，列头 tooltip 用 */
+  help?: string;
 }
 
 export interface StaleThresholds {
