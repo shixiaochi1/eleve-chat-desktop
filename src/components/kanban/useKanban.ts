@@ -152,7 +152,13 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       const result = await getKanbanBoard(currentBoard, showArchived);
       const tasks = normalizeBoardData(result);
       setApiTasks(tasks);
-      setBoardMeta(result?.board_meta || null);
+      // 🔴 内容比较：board_meta 每次都是新对象字面量——直接 set 会强制重渲染
+      //   （即使值相同）。SSE 事件触发 loadBoard 时若每次都重渲染会放大风暴
+      setBoardMeta(prev => {
+        const next = result?.board_meta || null;
+        if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
+        return next;
+      });
       // 🔴 对齐 Hermes board.tsx L1131-1145：选中集自动修剪已离板/已删除的
       //   id——否则批量操作可能命中死 id（部分失败/误操作）
       setCheckedIds(prev => {
@@ -175,11 +181,23 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   //   到达时递增 tick，打开中的详情抽屉监听并秒级重拉——此前抽屉 detail
   //   只靠 30s 轮询，评论/回收/状态变更最长滞后 30s（审查 d4-1）
   const [detailRefreshTick, setDetailRefreshTick] = useState(0);
+  // 🔴 只对当前打开任务的事件递增 tick——无关任务的事件（其他卡在动）不触发
+  //   抽屉重拉，避免事件风暴时详情被持续轮询放大
+  const selectedTaskRef = useRef(selectedTask);
+  selectedTaskRef.current = selectedTask;
   const onSseEventsRef = useRef<(events: KanbanEvent[]) => void>(() => {});
   onSseEventsRef.current = (events: KanbanEvent[]) => {
-    if (events.length > 0) setDetailRefreshTick(t => t + 1);
+    const sel = selectedTaskRef.current;
+    if (sel && events.some(evt => evt.task_id === sel.id)) {
+      setDetailRefreshTick(t => t + 1);
+    }
   };
-  useKanbanSSE(currentBoard, setApiTasks, loadBoard, (events) => onSseEventsRef.current(events));
+  // 🔴 稳定引用：useKanbanSSE 内部已用 ref 兜底，这里再包一层 useCallback
+  //   双保险——内联箭头函数每次渲染新引用曾导致 SSE effect 反复重连的死循环
+  const handleSseEvents = useCallback((events: KanbanEvent[]) => {
+    onSseEventsRef.current(events);
+  }, []);
+  useKanbanSSE(currentBoard, setApiTasks, loadBoard, handleSseEvents);
 
   // Phase 4: 加载看板列表
   useEffect(() => {
