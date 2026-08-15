@@ -39,6 +39,8 @@ interface CreateTaskDrawerProps {
   providerOverride: string;
   /** 对齐 Hermes 三元组：推理深度覆盖（none/minimal/low/medium/high/xhigh） */
   reasoningEffort: string;
+  /** 负责人下拉选项（profiles roster，对齐 Hermes fetchProfiles） */
+  assigneeOptions: Array<{ name: string }>;
   parentOptions: Array<{ id: string; title: string }>;
   onTitleChange: (v: string) => void;
   onBodyChange: (v: string) => void;
@@ -60,7 +62,7 @@ interface CreateTaskDrawerProps {
 export function CreateTaskDrawer({
   open, target, variant = 'drawer',
   title, body, assignee, priority, skills, parent, goalMode, goalMaxTurns, workspaceKind, workspacePath, modelOverride,
-  providerOverride, reasoningEffort,
+  providerOverride, reasoningEffort, assigneeOptions,
   parentOptions,
   onTitleChange, onBodyChange, onAssigneeChange, onPriorityChange, onSkillsChange, onParentChange,
   onGoalModeChange, onGoalMaxTurnsChange, onWorkspaceKindChange, onWorkspacePathChange, onModelOverrideChange,
@@ -118,8 +120,17 @@ export function CreateTaskDrawer({
       <div className="flex gap-4">
         <div className="flex-1 flex flex-col gap-1.5">
           <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">{isTriage ? 'Specifier' : 'Assignee'}</label>
-          <input value={assignee} onChange={e => onAssigneeChange(e.target.value)} placeholder="留空自动分配"
-            className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
+          {/* 🔴 对齐 Hermes NewTaskDialog：负责人从自由文本改为 roster 下拉
+              （默认继承 + 各 profile + 显式停放 PARKED）——自由文本错名会
+              静默成死卡（dispatcher 不认），且无法显式创建未分配任务 */}
+          <select value={assignee} onChange={e => onAssigneeChange(e.target.value)}
+            className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] focus:outline-none focus:border-[var(--color-ring)]">
+            <option value="">默认（继承看板 default_assignee）</option>
+            {assigneeOptions.map(p => (
+              <option key={p.name} value={p.name}>{p.name}</option>
+            ))}
+            <option value="__parked__">停放（不分配，不会自动运行）</option>
+          </select>
         </div>
         <div className="w-24 flex flex-col gap-1.5">
           <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">优先级</label>
@@ -133,14 +144,16 @@ export function CreateTaskDrawer({
         <input value={skills} onChange={e => onSkillsChange(e.target.value)} placeholder="逗号分隔，如 rust, python, devops"
           className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
       </div>
-      {/* 工作区类型（对齐 HERMES NewTaskDialog；后端 create_task 校验 kind） */}
+      {/* 工作区类型（对齐 HERMES NewTaskDialog：'' = 继承看板 default_workspace_kind；
+          后端 create_task 校验 kind 并兜底） */}
       <div className="flex flex-col gap-1.5">
         <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">工作区类型</label>
         <select value={workspaceKind} onChange={e => onWorkspaceKindChange(e.target.value)}
           className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] focus:outline-none focus:border-[var(--color-ring)]">
+          <option value="">默认（继承看板配置）</option>
           {WORKSPACE_KINDS.map(w => <option key={w.key} value={w.key}>{w.label}</option>)}
         </select>
-        {workspaceKind !== 'scratch' && (
+        {workspaceKind && workspaceKind !== 'scratch' && (
           <input value={workspacePath} onChange={e => onWorkspacePathChange(e.target.value)}
             placeholder="工作区路径（留空继承看板默认目录）"
             className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />

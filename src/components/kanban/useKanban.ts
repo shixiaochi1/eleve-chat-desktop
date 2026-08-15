@@ -67,7 +67,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   const [newGoalMode, setNewGoalMode] = useState(false);
   const [newGoalMaxTurns, setNewGoalMaxTurns] = useState('20');
   // 工作区类型/路径（对齐 HERMES NewTaskDialog：scratch/worktree/dir + 可选覆盖路径）
-  const [newWorkspaceKind, setNewWorkspaceKind] = useState('scratch');
+  const [newWorkspaceKind, setNewWorkspaceKind] = useState('');
   const [newWorkspacePath, setNewWorkspacePath] = useState('');
   // 🔴 模型覆盖（对齐 HERMES TaskModelOverride）：'' = 继承 profile 的模型
   const [newModelOverride, setNewModelOverride] = useState('');
@@ -165,12 +165,18 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     }).catch(() => {});
   }, []);
 
+  // 🔴 对齐 Hermes useOrchestration/useDefaultAssignee：profiles + 编排配置
+  //   挂载即加载（此前仅诊断面板打开时加载一次——负责人下拉/默认负责人
+  //   路由依赖"面板打开史"，行为不确定）
+  useEffect(() => {
+    getKanbanProfiles().then(data => setProfiles(data?.profiles || data || [])).catch(() => setProfiles([]));
+    getKanbanOrchestration().then(data => setOrchestration(data?.orchestration || data || null)).catch(() => setOrchestration(null));
+  }, []);
+
   // Phase 4: 加载诊断 & Worker & 编排 & Profile
   useEffect(() => {
     if (showDiagnostics) {
       getKanbanDiagnostics(currentBoard).then(data => setDiagnostics(data)).catch(() => setDiagnostics(null));
-      getKanbanOrchestration().then(data => setOrchestration(data?.orchestration || data || null)).catch(() => setOrchestration(null));
-      getKanbanProfiles().then(data => setProfiles(data?.profiles || data || [])).catch(() => setProfiles([]));
     }
     if (showWorkers) {
       getKanbanActiveWorkers(currentBoard).then(data => setActiveWorkers(data?.workers || data || [])).catch(() => setActiveWorkers([]));
@@ -250,6 +256,18 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     return Array.from(laneMap.entries());
   }, [grouped.running]);
 
+  // 创建 ready 任务后 400ms 防抖立即触发一次调度（对齐 Hermes nudgeDispatcher）：
+  // 任务不等后端 30s tick 就被 claim+spawn；fire-and-forget，失败由 tick 兜底。
+  // （前置声明：handleDrop/handleDeleteTask 写操作后也调用）
+  const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nudgeDispatch = useCallback((board: string) => {
+    if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
+    nudgeTimerRef.current = setTimeout(() => {
+      nudgeTimerRef.current = null;
+      dispatchKanbanTasks({ board, dry_run: false }).catch(() => { /* tick 兜底 */ });
+    }, 400);
+  }, []);
+
   // 拖拽 drop 处理 — 对齐 Eleve: 破坏性确认 + completion summary + 状态门控
   // 🔴 修复（对齐 Hermes LOCKED_COLUMNS + 后端 transition_status 各路径 WHERE 门控）：
   // - running：调度器 claim 独占，transition_status 显式拒绝任何直设，拖入即 400
@@ -292,6 +310,9 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       setApiTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
       try {
         await updateKanbanTask(taskId, { status: newStatus, result: summary.trim(), summary: summary.trim() }, currentBoard);
+        // 🔴 对齐 Hermes api.ts L168-188：写操作后 nudge dispatcher——
+        //   移入 done 立即促进依赖子任务，不等 60s tick
+        nudgeDispatch(currentBoard);
       } catch (err) {
         console.error('[KanbanPanel] Drag drop failed, rolling back:', err);
         await loadBoard();
@@ -310,29 +331,20 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     setApiTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
     try {
       await updateKanbanTask(taskId, { status: newStatus }, currentBoard);
+      // 🔴 对齐 Hermes：拖拽换状态后 nudge（ready 任务立即被 claim+spawn）
+      nudgeDispatch(currentBoard);
     } catch (err) {
       console.error('[KanbanPanel] Drag drop failed, rolling back:', err);
       await loadBoard(); // 回滚：重新加载真实数据
     }
-  }, [loadBoard, apiTasks, currentBoard]);
+  }, [loadBoard, apiTasks, currentBoard, nudgeDispatch]);
 
   // 创建任务 → 从创建抽屉提交
   const resetCreateForm = useCallback(() => {
     setNewTitle(''); setNewBody(''); setNewAssignee(''); setNewPriority('');
     setNewSkills(''); setNewParent(''); setNewGoalMode(false); setNewGoalMaxTurns('20');
-    setNewWorkspaceKind('scratch'); setNewWorkspacePath(''); setNewModelOverride('');
+    setNewWorkspaceKind(''); setNewWorkspacePath(''); setNewModelOverride('');
     setNewProviderOverride(''); setNewReasoningEffort('');
-  }, []);
-
-  // 创建 ready 任务后 400ms 防抖立即触发一次调度（对齐 Hermes nudgeDispatcher）：
-  // 任务不等后端 30s tick 就被 claim+spawn；fire-and-forget，失败由 tick 兜底。
-  const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const nudgeDispatch = useCallback((board: string) => {
-    if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
-    nudgeTimerRef.current = setTimeout(() => {
-      nudgeTimerRef.current = null;
-      dispatchKanbanTasks({ board, dry_run: false }).catch(() => { /* tick 兜底 */ });
-    }, 400);
   }, []);
 
   const handleCreateSubmit = useCallback(async () => {
@@ -341,22 +353,24 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       // Eleve 仪表盘对齐：不发送 status 字段，只发 triage 标志，让后端决定状态
       const payload: Record<string, unknown> = { title: newTitle.trim(), board: currentBoard };
       if (newBody.trim()) payload.body = newBody.trim();
-      // assignee: 用户指定 > default_assignee > 'default'
-      // 🔴 修复：get_kanban_orchestration 返回 { ok, config }，default 键是
-      //   config.default_assignee（此前读 orchestration.default_profile 恒 undefined，
-      //   创建任务永远落 'default'）
-      const effectiveAssignee = newAssignee.trim()
-        || orchestration?.config?.default_assignee
-        || 'default';
-      payload.assignee = effectiveAssignee;
+      // assignee（对齐 Hermes NewTaskDialog）：PARKED 显式停放（parked=true，
+      //   后端不兜底、dispatcher 不 spawn）；用户指定 > 后端 default_assignee 兜底
+      //   （不发送 assignee 时后端 config 兜底，对齐 Hermes resolved_default_assignee）
+      const PARKED = '__parked__';
+      if (newAssignee.trim() === PARKED) {
+        payload.parked = true;
+      } else if (newAssignee.trim()) {
+        payload.assignee = newAssignee.trim();
+      }
+      // 空 → 不发送 assignee，后端 default_assignee 兜底
       if (Number(newPriority)) payload.priority = Number(newPriority);
       if (newSkills.trim()) payload.skills = newSkills.trim();
       if (newParent) payload.parents = [newParent];
       if (newGoalMode) { payload.goal_mode = true; payload.goal_max_turns = Number(newGoalMaxTurns) || 20; }
-      // 工作区类型/路径（后端 create_task 校验 workspace_kind ∈ scratch/dir/worktree；
-      // 路径仅 dir/worktree 生效，scratch 忽略）
-      payload.workspace_kind = newWorkspaceKind || 'scratch';
-      if (newWorkspaceKind !== 'scratch' && newWorkspacePath.trim()) {
+      // 工作区类型/路径（对齐 Hermes：'' = 继承看板 default_workspace_kind，
+      // 后端 create_task 兜底；路径仅 dir/worktree 生效，scratch 忽略）
+      if (newWorkspaceKind) payload.workspace_kind = newWorkspaceKind;
+      if (newWorkspaceKind && newWorkspaceKind !== 'scratch' && newWorkspacePath.trim()) {
         payload.workspace_path = newWorkspacePath.trim();
       }
       // 模型覆盖（对齐 Hermes 三元组：model_override + provider_override +
@@ -526,10 +540,12 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       await deleteKanbanTask(taskId, currentBoard);
       setSelectedTask(null);
       loadBoard();
+      // 🔴 对齐 Hermes：删除后 nudge（删除可能解除依赖门控，立即促进）
+      nudgeDispatch(currentBoard);
     } catch (err) {
       console.error('[KanbanPanel] Delete task failed:', err);
     }
-  }, [currentBoard, loadBoard]);
+  }, [currentBoard, loadBoard, nudgeDispatch]);
 
   // Phase 4.1: 切换看板
   const handleSwitchBoard = useCallback(async (slug: string) => {

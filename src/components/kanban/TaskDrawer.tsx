@@ -52,6 +52,10 @@ function eventText(kind: string, payloadRaw: unknown): { detail?: string; label:
     case 'status': return { label: `状态变更 → ${str('status') ?? '?'}` };
     case 'claimed': return { label: '已被调度器认领' };
     case 'reclaimed': return { label: '已回收', detail: str('reason') ?? undefined };
+    // 🔴 对齐 Hermes eventText 专案（此前回退英文 kind 直出）
+    case 'spawned': return { label: 'worker 启动', detail: str('pid') ? `PID ${str('pid')}` : undefined };
+    case 'reprioritized': return { label: '优先级变更', detail: str('priority') ?? undefined };
+    case 'commented': return { label: '评论', detail: str('author') ?? undefined };
     case 'scheduled': return { label: '已排期', detail: str('reason') ?? undefined };
     case 'edited': return { label: '字段已编辑' };
     case 'heartbeat': return { label: 'worker 心跳' };
@@ -156,6 +160,8 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   const [commentInput, setCommentInput] = useState('');
   const [attachments, setAttachments] = useState<AttachmentRecord[]>([]);
   const [workerLog, setWorkerLog] = useState<string | Record<string, unknown> | null>(null);
+  // 🔴 对齐 Hermes：日志截断标识（tail 扩大至 400 行 + truncated 提示）
+  const [logTruncated, setLogTruncated] = useState(false);
   const [diags, setDiags] = useState<TaskDiag[]>([]);
   const [editingBody, setEditingBody] = useState(false);
   const [bodyDraft, setBodyDraft] = useState('');
@@ -240,8 +246,8 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
     if (!task?.id) { setWorkerLog(null); return; }
     let alive = true;
     const fetchLog = () => {
-      getKanbanTaskLog(task.id, 50, board).then(data => {
-        if (alive) setWorkerLog(data?.log || data || '无日志');
+      getKanbanTaskLog(task.id, 400, board).then(data => {
+        if (alive) { setWorkerLog(data?.log || data || '无日志'); setLogTruncated(Boolean(data?.truncated)); }
       }).catch(() => { if (alive) setWorkerLog('加载日志失败'); });
     };
     fetchLog();
@@ -274,6 +280,24 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
       setDetail(data);
     } catch (err) {
       console.error('[KanbanPanel] Comment failed:', err);
+    }
+  };
+
+  // 🔴 对齐 Hermes CommentComposer "Note & requeue"（drawer.tsx L345-353）：
+  //   running 任务"附言重跑"= 评论 + reclaim 一键——worker 上下文带上注记
+  //   重跑，替代 block→comment→unblock 三步舞
+  const [requeueing, setRequeueing] = useState(false);
+  const handleRequeue = async () => {
+    if (!commentInput.trim() || requeueing) return;
+    setRequeueing(true);
+    try {
+      await addKanbanComment(task.id, commentInput.trim(), 'user', board);
+      setCommentInput('');
+      onAction('reclaim', task.id);
+    } catch (err) {
+      console.error('[KanbanPanel] Requeue failed:', err);
+    } finally {
+      setRequeueing(false);
     }
   };
 
@@ -460,6 +484,17 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                     )}
                   </div>
                   <MetaRow label="创建时间" value={task.startTs ? fmtAge(task.startTs) : '—'} />
+                  {/* 🔴 对齐 Hermes drawer L759-787：补元信息行 tenant/工作区/
+                      创建者/worker PID（detail 为原始后端数据，含未 normalize 字段） */}
+                  {task.tenant && <MetaRow label="租户" value={task.tenant} />}
+                  {(detail?.task?.workspace_kind || detail?.task?.workspace_path) && (
+                    <MetaRow label="工作区"
+                      value={`${detail?.task?.workspace_kind || ''}${detail?.task?.workspace_path ? `: ${detail?.task?.workspace_path}` : ''}`} />
+                  )}
+                  {detail?.task?.created_by && <MetaRow label="创建者" value={String(detail.task.created_by)} />}
+                  {running && detail?.task?.worker_pid != null && (
+                    <MetaRow label="Worker PID" value={String(detail.task.worker_pid)} />
+                  )}
                   {/* 模型覆盖三元组 — 行内可编辑（对齐 Hermes ModelOverrideField） */}
                   <div className="flex gap-3 items-start">
                     <span className="w-16 shrink-0 text-[var(--ui-text-tertiary)]">模型</span>
@@ -572,7 +607,6 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                 <div className="py-3 flex flex-col gap-2">
                   {diags.map(d => {
                     const tone = d.severity === 'warning' ? '#fbbf24' : 'var(--ui-red)';
-                    const action = (d.actions || []).find(a => a.kind === 'reclaim' || a.kind === 'unblock');
                     return (
                       <div key={`${d.task_id}-${d.title}`} className="flex flex-col gap-1.5 rounded-md p-2.5 text-[0.75rem]"
                         style={{ backgroundColor: `color-mix(in srgb, ${tone} 7%, transparent)`, borderLeft: `2px solid ${tone}` }}>
@@ -581,12 +615,24 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                           {d.title}{d.count && d.count > 1 ? ` ×${d.count}` : ''}
                         </div>
                         {d.detail && <p className="leading-relaxed text-[var(--ui-text-secondary)]">{d.detail}</p>}
-                        {action && (
-                          <button onClick={() => onAction(action.kind === 'reclaim' ? 'reclaim' : 'unblock', task.id)}
-                            className="self-start text-[0.7rem] px-2 py-1 rounded border transition-colors"
-                            style={{ borderColor: `color-mix(in srgb, ${tone} 40%, transparent)`, color: tone }}>
-                            {action.label}
-                          </button>
+                        {/* 🔴 对齐 Hermes Diagnostics：渲染全部动作（此前只取首个
+                            reclaim|unblock，comment/reassign 等恢复动作不可达） */}
+                        {(d.actions || []).length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {(d.actions || []).map((a, ai) => {
+                              const isAction = a.kind === 'reclaim' || a.kind === 'unblock' || a.kind === 'reassign';
+                              return (
+                                <button key={ai} onClick={() => { if (!isAction) return; onAction(a.kind, task.id); }}
+                                  disabled={!isAction}
+                                  className={cn('self-start text-[0.7rem] px-2 py-1 rounded border transition-colors',
+                                    isAction ? 'hover:brightness-110' : 'opacity-60 cursor-not-allowed')}
+                                  style={{ borderColor: `color-mix(in srgb, ${tone} 40%, transparent)`, color: tone }}
+                                  title={isAction ? a.label : `${a.label}（当前无对应操作入口）`}>
+                                  {a.label}
+                                </button>
+                              );
+                            })}
+                          </div>
                         )}
                       </div>
                     );
@@ -813,12 +859,16 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
             {!collapsedSections.log && (
               <div className="py-3 flex flex-col gap-2">
                 <button onClick={() => {
-                  getKanbanTaskLog(task.id, 50, board).then(data => {
+                  getKanbanTaskLog(task.id, 400, board).then(data => {
                     setWorkerLog(data?.log || data || '无日志');
+                    setLogTruncated(Boolean(data?.truncated));
                   }).catch(() => setWorkerLog('加载日志失败'));
                 }} className="inline-flex items-center gap-1.5 text-[0.7rem] px-2.5 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)] hover:text-[var(--ui-text-primary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors self-start">
-                  <FileText size={11} /> 刷新日志
+                  <FileText size={11} /> 立即刷新
                 </button>
+                {logTruncated && (
+                  <span className="text-[0.65rem] text-[var(--ui-text-quaternary)]">日志过长，仅显示末尾 400 行</span>
+                )}
                 {workerLog ? (
                   <pre className="text-[0.7rem] font-mono leading-relaxed p-3 rounded-md bg-[color-mix(in_srgb,var(--ui-text-primary)_4%,transparent)] border border-[var(--ui-stroke-tertiary)] overflow-x-auto whitespace-pre-wrap max-h-[300px] overflow-y-auto text-[var(--ui-text-primary)]">
                     {typeof workerLog === 'string' ? workerLog : JSON.stringify(workerLog, null, 2)}
@@ -859,14 +909,24 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
           </div>
         </div>
 
-        {/* 评论输入框（评论区展开时显示） */}
+        {/* 评论输入框（评论区展开时显示）——running 时提供"附言重跑"（对齐
+            Hermes CommentComposer Note & requeue） */}
         {!collapsedSections.comments && (
           <div className="flex gap-2 px-5 py-3 border-t border-[var(--ui-stroke-tertiary)]">
-            <input value={commentInput} onChange={(e) => setCommentInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendComment(); } }}
-              placeholder="输入评论..." className="flex-1 text-[0.8rem] px-3 py-1.5 rounded border border-[var(--ui-stroke-tertiary)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none focus:border-[var(--kanban-hover-bg)]" />
-            <button onClick={handleSendComment} disabled={!commentInput.trim()} className={cn('p-2 rounded-md transition-colors', commentInput.trim() ? 'text-[var(--kanban-hover-bg)] hover:bg-[var(--kanban-hover-bg)]' : 'text-[var(--ui-text-quaternary)] pointer-events-none')}>
+            <input value={commentInput} onChange={(e) => setCommentInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); running ? handleRequeue() : handleSendComment(); } }}
+              placeholder={running ? '给 worker 的注记…（可附言重跑）' : '输入评论...'} className="flex-1 text-[0.8rem] px-3 py-1.5 rounded border border-[var(--ui-stroke-tertiary)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none focus:border-[var(--kanban-hover-bg)]" />
+            <button onClick={handleSendComment} disabled={!commentInput.trim()} title="发表评论"
+              className={cn('p-2 rounded-md transition-colors', commentInput.trim() ? 'text-[var(--kanban-hover-bg)] hover:bg-[var(--kanban-hover-bg)]' : 'text-[var(--ui-text-quaternary)] pointer-events-none')}>
               <Send size={14} strokeWidth={1.5} />
             </button>
+            {running && (
+              <button onClick={handleRequeue} disabled={!commentInput.trim() || requeueing} title="附言重跑：评论 + 回收重新调度"
+                className={cn('flex items-center gap-1 text-[0.7rem] px-2.5 py-1.5 rounded-md border transition-colors shrink-0',
+                  commentInput.trim() && !requeueing ? 'border-[var(--kanban-hover-bg)] text-[var(--kanban-hover-bg)] hover:bg-[var(--kanban-hover-bg)]' : 'border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-quaternary)] pointer-events-none')}>
+                {requeueing ? <Loader size={11} strokeWidth={1.5} className="animate-spin" /> : <ArrowLeftFromLine size={11} strokeWidth={1.5} />}
+                附言重跑
+              </button>
+            )}
           </div>
         )}
 
@@ -900,6 +960,11 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
               <ActionButton icon={Ban} label="阻塞" color="amber" onClick={() => onAction('block', task.id)} busy={busy} />
               <ActionButton icon={Clock} label="滞留" color="muted" onClick={() => onAction('schedule', task.id)} busy={busy} />
               <ActionButton icon={ArrowLeftFromLine} label="回收" color="muted" onClick={() => onAction('reclaim', task.id)} busy={busy} />
+              {/* 🔴 修复死代码：handleAction 有 terminate 分支但无 UI 入口——
+                  补终止按钮（参数为 run_id，对齐 Worker 面板既有用法） */}
+              {detail?.task?.run_id != null && (
+                <ActionButton icon={X} label="终止" color="red" onClick={() => onAction('terminate', String(detail?.task?.run_id))} busy={busy} />
+              )}
             </>
           )}
           {/* review — 🔴 修复：后端 complete_task 门控 IN ('running','ready','blocked')、

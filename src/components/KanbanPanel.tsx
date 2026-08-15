@@ -600,6 +600,7 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
         skills={newSkills} parent={newParent} goalMode={newGoalMode} goalMaxTurns={newGoalMaxTurns}
         workspaceKind={newWorkspaceKind} workspacePath={newWorkspacePath} modelOverride={newModelOverride}
         providerOverride={newProviderOverride} reasoningEffort={newReasoningEffort}
+        assigneeOptions={(profiles || []).map((p: any) => ({ name: p.name }))}
         parentOptions={allTasks.filter(t => t.id && t.status !== 'running').slice(0, 30).map(t => ({ id: t.id, title: t.title }))}
         onTitleChange={setNewTitle} onBodyChange={setNewBody} onAssigneeChange={setNewAssignee}
         onPriorityChange={setNewPriority} onSkillsChange={setNewSkills} onParentChange={setNewParent}
