@@ -106,6 +106,7 @@ import { TaskDrawer } from './kanban/TaskDrawer';
 import { CreateBoardModal } from './kanban/CreateBoardModal';
 import { CreateTaskDrawer } from './kanban/CreateTaskDrawer';
 import { DispatchModal } from './kanban/DispatchModal';
+import { KanbanReviewDialogs } from './kanban/KanbanReviewDialogs';
 import { useKanbanSSE } from './kanban/useKanbanSSE';
 import { useKanban } from './kanban/useKanban';
 
@@ -328,6 +329,13 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     setDraggingTaskId,
     bulkConfirmAction,
     setBulkConfirmAction,
+    pendingForceReview,
+    pendingChanges,
+    reviewBusy,
+    confirmForceReview,
+    cancelForceReview,
+    submitChanges,
+    cancelChanges,
     showBulkReassign,
     setShowBulkReassign,
     bulkReassignProfile,
@@ -995,6 +1003,18 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
           </div>
         </div>
       )}
+
+      {/* 🔴 2026-08-16（P1 遗留闭合）：提交评审 force 确认 / 退回理由——
+          应用内浮层（取代原生 confirm/prompt/alert） */}
+      <KanbanReviewDialogs
+        pendingForceReview={pendingForceReview}
+        pendingChanges={pendingChanges}
+        reviewBusy={reviewBusy}
+        onConfirmForceReview={confirmForceReview}
+        onCancelForceReview={cancelForceReview}
+        onSubmitChanges={submitChanges}
+        onCancelChanges={cancelChanges}
+      />
 
       {/* Phase A1: 新建看板模态 — 🔴 收敛到共享组件 CreateBoardModal（侧边栏复用） */}
       <CreateBoardModal open={showCreateBoard} name={newBoardName} desc={newBoardDesc} color={newBoardColor}

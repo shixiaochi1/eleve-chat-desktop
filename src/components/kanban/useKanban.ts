@@ -150,6 +150,11 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   const [justCreatedIds, setJustCreatedIds] = useState<Set<any>>(new Set()); // Phase 4.10: 新创建卡片高亮
   const [draggingTaskId, setDraggingTaskId] = useState<any>(null); // Phase 3: 拖拽源标识
   const [bulkConfirmAction, setBulkConfirmAction] = useState<any>(null); // Phase 4.10: 批量确认弹窗
+  // 🔴 2026-08-16（P1 遗留闭合）：提交评审 force 覆盖确认 / 退回理由输入——
+  //   原生 confirm/prompt/alert 改应用内浮层（KanbanReviewDialogs 渲染）
+  const [pendingForceReview, setPendingForceReview] = useState<KanbanTask | null>(null);
+  const [pendingChanges, setPendingChanges] = useState<KanbanTask | null>(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
   const [showBulkReassign, setShowBulkReassign] = useState(false); // Phase 3: 批量重分配
   const [bulkReassignProfile, setBulkReassignProfile] = useState('');
   const [showBulkPriority, setShowBulkPriority] = useState(false); // Phase 3: 批量改优先级
@@ -513,6 +518,55 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     }
   }, [currentBoard, creatingIn, newTitle, newBody, newAssignee, newPriority, newSkills, newParent, newGoalMode, newGoalMaxTurns, newWorkspaceKind, newWorkspacePath, newModelOverride, loadBoard, orchestration, resolvedDefaultAssignee, nudgeDispatch]);
 
+  // 🔴 2026-08-16（P1 遗留闭合）：提交评审（force=运行中显式覆盖，对齐 Hermes
+  //   request_review force 语义）。浮层确认后调用；内聚完整闭环（notify + 清浮层
+  //   + loadBoard + nudge），handleAction 直接路径 return 跳过尾部重复拉取
+  const doRequestReview = useCallback(async (taskId: string, force: boolean) => {
+    setReviewBusy(true);
+    try {
+      await requestKanbanReview(taskId, { force }, currentBoard);
+      notify({ kind: 'success', title: '已提交评审', message: `任务 ${taskId} 已进入评审列` });
+      setPendingForceReview(null);
+      await loadBoard();
+      nudgeDispatch(currentBoard);
+    } catch (err) {
+      console.error('[KanbanPanel] requestReview failed:', err);
+      notify({ kind: 'error', title: '提交评审失败', message: String(err) });
+    } finally {
+      setReviewBusy(false);
+    }
+  }, [currentBoard, loadBoard, nudgeDispatch]);
+
+  // 🔴 2026-08-16（P1 遗留闭合）：评审退回返工（活动 review run →
+  //   changes_requested，理由必填由浮层校验）。浮层提交后调用，闭环同上
+  const doRequestChanges = useCallback(async (taskId: string, reason: string) => {
+    setReviewBusy(true);
+    try {
+      await requestKanbanChanges(taskId, reason.trim(), currentBoard);
+      notify({ kind: 'success', title: '已退回返工', message: `任务 ${taskId} 已退回实现者按理由重跑` });
+      setPendingChanges(null);
+      await loadBoard();
+      nudgeDispatch(currentBoard);
+    } catch (err) {
+      console.error('[KanbanPanel] requestChanges failed:', err);
+      notify({ kind: 'error', title: '退回失败', message: String(err) });
+    } finally {
+      setReviewBusy(false);
+    }
+  }, [currentBoard, loadBoard, nudgeDispatch]);
+
+  // 浮层回调（供 KanbanReviewDialogs 消费）
+  const confirmForceReview = useCallback(() => {
+    if (!pendingForceReview) return;
+    void doRequestReview(pendingForceReview.id, true);
+  }, [pendingForceReview, doRequestReview]);
+  const cancelForceReview = useCallback(() => setPendingForceReview(null), []);
+  const submitChanges = useCallback((reason: string) => {
+    if (!pendingChanges) return;
+    void doRequestChanges(pendingChanges.id, reason);
+  }, [pendingChanges, doRequestChanges]);
+  const cancelChanges = useCallback(() => setPendingChanges(null), []);
+
   // 操作
   const handleAction = useCallback(async (action: string, taskId: string) => {
     setLoadingId(taskId);
@@ -553,18 +607,18 @@ export function useKanban({ board = 'default' }: { board?: string }) {
             });
             break;
           }
-          const running = task?.status === 'running';
-          if (running && !confirm('任务正在运行中，提交评审将清空 worker 的 claim（需显式覆盖，对齐 Hermes force 语义）。确认继续？')) break;
-          await requestKanbanReview(taskId, { force: running }, currentBoard);
-          notify({ kind: 'success', title: '已提交评审', message: `任务 ${taskId} 已进入评审列` });
-          break;
+          // 🔴 P1 遗留闭合：运行中提交评审需 force 显式覆盖——原生 confirm
+          //   改应用内浮层（KanbanReviewDialogs），确认后经 doRequestReview 执行
+          if (task?.status === 'running') { setPendingForceReview(task); break; }
+          await doRequestReview(taskId, false);
+          // doRequestReview 已含 loadBoard + nudgeDispatch，跳过尾部重复拉取
+          return;
         }
         // 评审退回返工（活动 review run → changes_requested）
         case 'requestChanges': {
-          const reason = prompt('请输入退回理由（必填）：');
-          if (reason === null) break;
-          if (!reason.trim()) { alert('退回理由不能为空，操作已取消。'); break; }
-          await requestKanbanChanges(taskId, reason.trim(), currentBoard);
+          // 🔴 P1 遗留闭合：退回理由必填——原生 prompt/alert 改应用内输入
+          //   浮层（KanbanReviewDialogs），理由校验在浮层完成
+          setPendingChanges(apiTasks.find(t => t.id === taskId) ?? null);
           break;
         }
         // 滞留：running/ready → scheduled（gateway 走 schedule_task 关 run 清 claim）
@@ -593,7 +647,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     } finally {
       setLoadingId(null);
     }
-  }, [loadBoard, apiTasks, currentBoard, nudgeDispatch]);
+  }, [loadBoard, apiTasks, currentBoard, nudgeDispatch, doRequestReview, doRequestChanges]);
 
   // checkbox 切换
   const handleCheck = useCallback((taskId: string) => {
@@ -1005,6 +1059,13 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     setDraggingTaskId,
     bulkConfirmAction,
     setBulkConfirmAction,
+    pendingForceReview,
+    pendingChanges,
+    reviewBusy,
+    confirmForceReview,
+    cancelForceReview,
+    submitChanges,
+    cancelChanges,
     showBulkReassign,
     setShowBulkReassign,
     bulkReassignProfile,

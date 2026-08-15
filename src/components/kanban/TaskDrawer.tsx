@@ -1208,8 +1208,8 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
               <ActionButton icon={Ban} label="阻塞" color="amber" onClick={() => onAction('block', task.id)} busy={busy} />
               <ActionButton icon={Clock} label="滞留" color="muted" onClick={() => onAction('schedule', task.id)} busy={busy} />
               <ActionButton icon={ArrowLeftFromLine} label="回收" color="muted" onClick={() => onAction('reclaim', task.id)} busy={busy} />
-              {/* 🔴 对齐 Hermes request_review：运行中提交评审（需 force 覆盖确认，
-                  防清活 worker claim） */}
+              {/* 🔴 对齐 Hermes request_review：运行中提交评审（force 覆盖确认
+                  走应用内浮层 KanbanReviewDialogs，防清活 worker claim） */}
               <ActionButton icon={Eye} label="提交评审" color="accent" onClick={() => onAction('requestReview', task.id)} busy={busy} />
               {/* 🔴 修复死代码：handleAction 有 terminate 分支但无 UI 入口——
                   补终止按钮（参数为 run_id，对齐 Worker 面板既有用法） */}

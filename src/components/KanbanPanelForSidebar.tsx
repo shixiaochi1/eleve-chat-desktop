@@ -12,6 +12,7 @@ import { TaskDrawer } from './kanban/TaskDrawer';
 import { CreateBoardModal } from './kanban/CreateBoardModal';
 import { CreateTaskDrawer } from './kanban/CreateTaskDrawer';
 import { DispatchModal } from './kanban/DispatchModal';
+import { KanbanReviewDialogs } from './kanban/KanbanReviewDialogs';
 
 export default function KanbanPanelForSidebar() {
   const {
@@ -76,6 +77,13 @@ export default function KanbanPanelForSidebar() {
     setDraggingTaskId,
     justCreatedIds,
     profiles,
+    pendingForceReview,
+    pendingChanges,
+    reviewBusy,
+    confirmForceReview,
+    cancelForceReview,
+    submitChanges,
+    cancelChanges,
   } = useKanban({ board: 'default' });
 
   const handleSelectTask = (task: KanbanTask) => {
@@ -146,6 +154,18 @@ export default function KanbanPanelForSidebar() {
       <CreateBoardModal open={showCreateBoard} name={newBoardName} desc={newBoardDesc} color={newBoardColor}
         busy={creatingBoard} onClose={() => setShowCreateBoard(false)} onCreate={handleCreateBoard}
         onNameChange={setNewBoardName} onDescChange={setNewBoardDesc} onColorChange={setNewBoardColor} />
+
+      {/* 🔴 2026-08-16（P1 遗留闭合）：提交评审 force 确认 / 退回理由——
+          应用内浮层（与主面板共享，取代原生 confirm/prompt/alert） */}
+      <KanbanReviewDialogs
+        pendingForceReview={pendingForceReview}
+        pendingChanges={pendingChanges}
+        reviewBusy={reviewBusy}
+        onConfirmForceReview={confirmForceReview}
+        onCancelForceReview={cancelForceReview}
+        onSubmitChanges={submitChanges}
+        onCancelChanges={cancelChanges}
+      />
     </div>
   );
 }
