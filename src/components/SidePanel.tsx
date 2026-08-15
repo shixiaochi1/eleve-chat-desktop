@@ -15,11 +15,11 @@ import ProcessPanel from './ProcessPanel';
 import RollbackPanel from './RollbackPanel';
 import LearningPanel from './LearningPanel';
 import ChannelsPanel from './ChannelsPanel';
-// kanban 移至 OverlayView 弹出（需要更大空间展示5列看板）
+import KanbanPanelForSidebar from './KanbanPanelForSidebar';
 import {
   CronIcon,
   DebugIcon, ToolIcon,
-  UsageIcon, ChannelsIcon, AgentIcon,
+  UsageIcon, ChannelsIcon, AgentIcon, KanbanIcon,
 } from './Icons';
 import { Radio, Activity, GitCommit, BookOpen } from 'lucide-react';
 
@@ -81,6 +81,7 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
 
   const panels: Record<string, { title: string; Icon: React.ComponentType<any>; component: React.ComponentType<any> }> = {
     agents:   { title: 'Agent', Icon: AgentIcon,   component: AgentsPanel },
+    kanban:   { title: '看板', Icon: KanbanIcon,   component: KanbanPanelForSidebar },
     gateway:  { title: '网关状态',   Icon: Radio,       component: GatewayPanel },
     // 🔴 2026-08-12：projects 面板已合并进 Agent 面板（AgentsPanel 内嵌项目区），
     //   IconBar 无入口，此配置为死项已删除
@@ -102,8 +103,8 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
 
   return (
     <aside role="tabpanel" aria-label={cfg.title} className="h-full flex flex-col overflow-hidden flex-1 min-w-0">
-      {/* 面板头部 — gateway/agents/tools 面板自带标题或 Tab 栏，隐藏 */}
-      {activePanel !== 'gateway' && activePanel !== 'agents' && activePanel !== 'tools' && (
+      {/* 面板头部 — gateway/agents/tools/kanban 面板自带标题或 Tab 栏，隐藏 */}
+      {activePanel !== 'gateway' && activePanel !== 'agents' && activePanel !== 'tools' && activePanel !== 'kanban' && (
         <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0">
           <HeaderIcon size={16} strokeWidth={1.5} className="text-muted-foreground" />
           <span className="text-sm font-medium text-foreground">{cfg.title}</span>

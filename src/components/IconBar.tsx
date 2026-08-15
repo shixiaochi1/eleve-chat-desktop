@@ -10,7 +10,6 @@ import {
   UsageIcon, ChannelsIcon, KanbanIcon, AgentIcon,
 } from './Icons';
 import { FolderGit, BookOpen } from 'lucide-react';
-import { openKanbanWindow } from '../utils/kanban-window';
 
 interface NavItem {
   id: string;
@@ -77,7 +76,8 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
           } else if (item.isOverlay) {
             onOpenOverlay?.(item.id);
           } else if (item.isWindow) {
-            openKanbanWindow();
+            // 看板：切换到侧边栏面板
+            onPanelChange?.(isActive ? null : item.id);
           } else {
             onPanelChange?.(isActive ? null : item.id);
           }

@@ -11,7 +11,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { getApiBase, pollKanbanEvents } from '@/utils/api';
 import { getWsActiveProfile } from '@/services/ws-client';
 import type { KanbanTask, KanbanEvent } from './types';
-import { KANBAN_PATCH_KINDS, KANBAN_REFRESH_KINDS } from './constants';
+import { KANBAN_PATCH_KINDS } from './constants';
 import { applyKanbanEvent } from './helpers';
 
 export function useKanbanSSE(
@@ -27,16 +27,17 @@ export function useKanbanSSE(
     let sseAlive = false;
 
     // 处理事件（SSE 与轮询共用；结构性事件触发整板刷新）
+    // 🔴 修复：原实现在 setApiTasks(prev => …) 更新器内部调用
+    //   setTimeout(loadBoard) —— 更新器必须保持纯函数（React 可能双调用），
+    //   副作用外提到更新器之后；刷新判定也简化为一刀切：patch 类事件本地
+    //   应用（快路径），其余事件（status/assigned/specified/created…）一律
+    //   触发整板重载自愈（loadBoard 幂等且廉价，消除原「default 删卡 +
+    //   非 refresh 事件不重载 → 卡片消失到 60s 轮询」的窗口）。
     const handleEvents = (events: KanbanEvent[]) => {
       if (!events?.length) return;
-      for (const evt of events) {
-        setApiTasks(prev => {
-          const updated = applyKanbanEvent(prev, evt);
-          if (prev.some(t => t.id === evt.task_id) && !KANBAN_PATCH_KINDS.includes(evt.kind)) setTimeout(() => loadBoard(), 100);
-          return updated;
-        });
-        if (KANBAN_REFRESH_KINDS.includes(evt.kind)) setTimeout(() => loadBoard(), 100);
-      }
+      const needsReload = events.some(evt => !KANBAN_PATCH_KINDS.includes(evt.kind));
+      setApiTasks(prev => events.reduce((acc, evt) => applyKanbanEvent(acc, evt), prev));
+      if (needsReload) setTimeout(() => loadBoard(), 100);
     };
 
     // 降级轮询：SSE 断连时每 5s 用 pollKanbanEvents 拉取

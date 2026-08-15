@@ -7,22 +7,40 @@ import type { ColumnDef } from './types';
 // 常量配置
 // ═══════════════════════════════════════════════════════════════
 
+// 🔴 修复（对齐 Hermes + 后端 create_task 语义）：
+// canCreate 只保留 triage/todo/ready/review —— 后端 create_task 无 parents 时
+// 默认落 'ready'（triage 标志落 'triage'），其余列只能经创建后 patch 落位，
+// 而 patch 直接可设的目标仅 triage/todo/review/ready（transition_status 直通
+// set_status_direct）；scheduled/blocked/done/archived 需结构化参数（定时时间/
+// 阻塞原因/完成摘要），列内快速创建无法满足 → 不提供添加按钮（对齐 Hermes
+// 锁定列不渲染 add 按钮的纪律）。
 export const COLUMNS: ColumnDef[] = [
-  { key: 'triage',    label: 'Triage',    dotColor: 'var(--ui-purple)', emptyText: '暂无待甄别任务', canCreate: true },
-  { key: 'todo',      label: 'Todo',      dotColor: 'var(--ui-text-tertiary)', emptyText: '暂无待办任务', canCreate: false },
-  { key: 'scheduled', label: 'Scheduled', dotColor: 'var(--ui-cyan)', emptyText: '暂无定时等待任务', canCreate: false },
-  { key: 'ready',     label: 'Ready',     dotColor: 'var(--ui-yellow)', emptyText: '暂无就绪任务', canCreate: false },
-  { key: 'running',   label: 'Running',   dotColor: 'var(--ui-green)', emptyText: '暂无运行中任务', canCreate: false },
-  { key: 'blocked',   label: 'Blocked',   dotColor: 'var(--ui-red)', emptyText: '暂无阻塞任务', canCreate: false },
-  { key: 'review',    label: 'Review',    dotColor: 'var(--ui-orange)', emptyText: '暂无待审任务', canCreate: false },
-  { key: 'done',      label: 'Done',      dotColor: 'var(--ui-blue)', emptyText: '暂无已完成任务', canCreate: false },
+  { key: 'triage',    label: '分诊',    dotColor: 'var(--ui-purple)', emptyText: '暂无待甄别任务', canCreate: true },
+  { key: 'todo',      label: '待办',    dotColor: 'var(--ui-text-tertiary)', emptyText: '暂无待办任务', canCreate: true },
+  { key: 'scheduled', label: '已排期',  dotColor: 'var(--ui-cyan)', emptyText: '暂无定时等待任务', canCreate: false },
+  { key: 'ready',     label: '就绪',    dotColor: 'var(--ui-yellow)', emptyText: '暂无就绪任务', canCreate: true },
+  { key: 'running',   label: '进行中',  dotColor: 'var(--ui-green)', emptyText: '暂无运行中任务', canCreate: false },
+  { key: 'blocked',   label: '阻塞',    dotColor: 'var(--ui-red)', emptyText: '暂无阻塞任务', canCreate: false },
+  { key: 'review',    label: '评审',    dotColor: 'var(--ui-orange)', emptyText: '暂无待审任务', canCreate: true },
+  { key: 'done',      label: '已完成',  dotColor: 'var(--ui-blue)', emptyText: '暂无已完成任务', canCreate: false },
+  { key: 'archived',  label: '已归档',  dotColor: 'var(--ui-text-quaternary)', emptyText: '暂无已归档任务', canCreate: false },
 ];
 
 // 列 key → 合法 status 映射
 export const COLUMN_STATUS: Record<string, string> = {
   triage: 'triage', todo: 'todo', scheduled: 'scheduled', ready: 'ready',
   running: 'running', blocked: 'blocked', review: 'review', done: 'done',
+  archived: 'archived',
 };
+
+// ── 锁定拖入列（对齐 Hermes LOCKED_COLUMNS）──
+// running：调度器 claim 独占，transition_status 显式拒绝任何直设
+//   （"running (must use dispatcher/claim path)"），列级拒绝拖入。
+// scheduled：需要定时唤醒时间（仅 agent/CLI 能附），裸 status 拖入
+//   语义残缺（scheduled_at=0 悬挂），同样列级拒绝；需「滞留」操作显式执行。
+// review 不在锁定内：ELEVE 后端 review 可 set_status_direct 直设（与 Hermes
+//   的 dispatcher 独占语义不同，保留为合法拖入目标）。
+export const LOCKED_DROP_COLUMNS: string[] = ['running', 'scheduled'];
 
 // ── 陈旧度阈值（秒）— [amber, red]，可被 getKanbanConfig 覆盖 ──
 export let staleConfig: Record<string, [number, number]> = {
@@ -42,14 +60,9 @@ export function updateStaleConfig(patch: Record<string, [number, number]>): void
 }
 
 // ── 事件 kind 分类（对齐后端 kanban event 语义）──
-/** 直接 patch 任务状态的事件（无需整板刷新） */
+/** 直接 patch 任务状态的事件（本地应用，无需整板刷新；其余 kind 一律触发 loadBoard 自愈） */
 export const KANBAN_PATCH_KINDS: string[] = [
   'completed','blocked','claimed','unblocked','archived',
   'spawn_failed','gave_up','crashed','timed_out','promoted',
   'promoted_manual','recomputed_ready','scheduled',
-];
-
-/** 需要触发 loadBoard 全量刷新的结构性事件 */
-export const KANBAN_REFRESH_KINDS: string[] = [
-  'specified','assigned','reclaimed','decomposed','created','linked','unlinked',
 ];

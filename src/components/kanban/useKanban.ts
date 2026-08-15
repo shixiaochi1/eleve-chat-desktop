@@ -210,10 +210,14 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     if (statusFilter.size > 0) {
       result = result.filter(t => statusFilter.has(taskColumn(t)));
     }
-    // 租户筛选
+    // 租户筛选 — 🔴 修复：后端字段是 task.tenant（此前 normalizeTask 丢弃 tenant、
+    //   只在恒空的 tags 上匹配，筛选永不生效）
     if (tenantFilter.trim()) {
       const tenantQ = tenantFilter.toLowerCase();
-      result = result.filter(t => (t.tags || []).some((tag: string) => String(tag).toLowerCase().includes(tenantQ)));
+      result = result.filter(t =>
+        (t.tenant || '').toLowerCase().includes(tenantQ) ||
+        (t.tags || []).some((tag: string) => String(tag).toLowerCase().includes(tenantQ))
+      );
     }
     return result;
   }, [allTasks, searchQuery, assigneeFilter, statusFilter, tenantFilter]);
@@ -243,18 +247,37 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   }, [grouped.running]);
 
   // 拖拽 drop 处理 — 对齐 Eleve: 破坏性确认 + completion summary + 状态门控
+  // 🔴 修复（对齐 Hermes LOCKED_COLUMNS + 后端 transition_status 各路径 WHERE 门控）：
+  // - running：调度器 claim 独占，transition_status 显式拒绝任何直设，拖入即 400
+  // - scheduled：需定时唤醒时间，裸 status 拖入产生 scheduled_at=0 的悬挂卡
+  // - done：仅 ready/running/blocked 可完成（complete_task 门控），且必须带完成摘要
+  // - blocked：仅 running/ready 可阻塞（block_task 门控）
   const handleDrop = useCallback(async (columnKey: string, taskId: string) => {
     const newStatus = COLUMN_STATUS[columnKey];
     if (!newStatus) return;
 
-    // 对齐 Hermes: done/blocked/scheduled/archived 为破坏性操作，需确认
+    const task = apiTasks.find(t => t.id === taskId);
+    const from = task?.status || '';
+
+    // 锁定列：running/scheduled 列级已拒绝（dropEffect none），此处兜底防穿透
+    if (newStatus === 'running' || newStatus === 'scheduled') {
+      alert(newStatus === 'running'
+        ? '不能直接拖入「进行中」：running 由调度器 claim 启动（对齐 Hermes：只能 promote 到 ready）。'
+        : '不能直接拖入「已排期」：scheduled 需要定时唤醒时间，请使用抽屉/操作栏的「滞留」显式执行。');
+      return;
+    }
+
+    // 源状态门控（对齐后端 complete_task/block_task 的 WHERE 子句）
+    const ALLOWED_FROM: Record<string, string[]> = {
+      done: ['ready', 'running', 'blocked'],
+      blocked: ['running', 'ready'],
+    };
+    if (ALLOWED_FROM[newStatus] && task && !ALLOWED_FROM[newStatus].includes(from)) {
+      alert(`无法移动到「${newStatus}」：当前状态「${from}」不允许该转换（后端门控，对齐 Hermes）。`);
+      return;
+    }
+
     if (newStatus === 'done') {
-      // 状态门控：只有 ready/running/blocked/review 可完成（对齐 Hermes complete_task WHERE 条件）
-      const task = apiTasks.find(t => t.id === taskId);
-      if (task && !['ready', 'running', 'blocked', 'review'].includes(task.status)) {
-        alert(`无法完成该任务：当前状态为「${task.status}」，必须先提升到 ready/running/blocked/review。\n${task.status === 'todo' ? '提示：该任务有未完成的父任务，请先完成父任务。' : task.status === 'triage' ? '提示：该任务需要先进行细化（specify/decompose）。' : task.status === 'scheduled' ? '提示：该任务处于定时等待中，请先恢复。' : ''}`);
-        return;
-      }
       const summary = prompt('请输入完成摘要（必填）：');
       if (summary === null) return; // 用户取消
       if (!summary.trim()) {
@@ -264,7 +287,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       // 乐观更新
       setApiTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
       try {
-        await updateKanbanTask(taskId, { status: newStatus, result: summary.trim(), summary: summary.trim() });
+        await updateKanbanTask(taskId, { status: newStatus, result: summary.trim(), summary: summary.trim() }, currentBoard);
       } catch (err) {
         console.error('[KanbanPanel] Drag drop failed, rolling back:', err);
         await loadBoard();
@@ -275,9 +298,6 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     if (newStatus === 'blocked') {
       if (!confirm('确认将此任务标记为阻塞？')) return;
     }
-    if (newStatus === 'scheduled') {
-      if (!confirm('确认将此任务设为定时等待（滞留）？')) return;
-    }
     if (newStatus === 'archived') {
       if (!confirm('确认归档此任务？')) return;
     }
@@ -285,12 +305,12 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     // 乐观更新：立即移动卡片
     setApiTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
     try {
-      await updateKanbanTask(taskId, { status: newStatus });
+      await updateKanbanTask(taskId, { status: newStatus }, currentBoard);
     } catch (err) {
       console.error('[KanbanPanel] Drag drop failed, rolling back:', err);
       await loadBoard(); // 回滚：重新加载真实数据
     }
-  }, [loadBoard, apiTasks]);
+  }, [loadBoard, apiTasks, currentBoard]);
 
   // 创建任务 → 从创建抽屉提交
   const resetCreateForm = useCallback(() => {
@@ -304,9 +324,12 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       // Eleve 仪表盘对齐：不发送 status 字段，只发 triage 标志，让后端决定状态
       const payload: Record<string, unknown> = { title: newTitle.trim(), board: currentBoard };
       if (newBody.trim()) payload.body = newBody.trim();
-      // assignee: 用户指定 > default_profile > 'default'（对齐 Eleve kanban_create assignee 必填）
+      // assignee: 用户指定 > default_assignee > 'default'
+      // 🔴 修复：get_kanban_orchestration 返回 { ok, config }，default 键是
+      //   config.default_assignee（此前读 orchestration.default_profile 恒 undefined，
+      //   创建任务永远落 'default'）
       const effectiveAssignee = newAssignee.trim()
-        || orchestration?.default_profile
+        || orchestration?.config?.default_assignee
         || 'default';
       payload.assignee = effectiveAssignee;
       if (Number(newPriority)) payload.priority = Number(newPriority);
@@ -323,6 +346,15 @@ export function useKanban({ board = 'default' }: { board?: string }) {
         setJustCreatedIds(prev => new Set([...prev, newId]));
         setTimeout(() => setJustCreatedIds(prev => { const next = new Set(prev); next.delete(newId); return next; }), 3000);
       }
+      // 🔴 修复（对齐 Hermes NewTaskDialog：create 后 status 与目标列不一致时 patch 落位）：
+      // create_task 无 parents 默认落 'ready'（triage 标志落 'triage'），在
+      // todo/review 列内联创建会落错列——transition_status 对这些列直通
+      // set_status_direct（合法），创建成功后补一次 patch 到目标列。
+      const createdStatus = result?.task?.status || result?.status;
+      if (newId && creatingIn && createdStatus && createdStatus !== creatingIn
+        && ['todo', 'ready', 'review'].includes(creatingIn)) {
+        try { await updateKanbanTask(newId, { status: creatingIn }, currentBoard); } catch { /* 门控拒绝则留在后端落位状态 */ }
+      }
       await loadBoard();
     } catch (err) {
       console.error('[KanbanPanel] Create task failed:', err);
@@ -335,24 +367,39 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     try {
       switch (action) {
         // 对齐 Hermes：不能直接设 running，只能 promote 到 ready 由 dispatcher claim
-        case 'promote': await updateKanbanTask(taskId, { status: 'ready' }); break;
+        case 'promote': await updateKanbanTask(taskId, { status: 'ready' }, currentBoard); break;
         // blocked/scheduled → ready（gateway 自动路由 unblock_task）
-        case 'unblock': await updateKanbanTask(taskId, { status: 'ready' }); break;
-        case 'complete': await updateKanbanTask(taskId, { status: 'done' }); break;
-        case 'block': await updateKanbanTask(taskId, { status: 'blocked' }); break;
+        case 'unblock': await updateKanbanTask(taskId, { status: 'ready' }, currentBoard); break;
+        case 'complete': {
+          // 🔴 修复：complete_task 要求至少 summary/result 之一且源状态
+          //   门控 IN ('running','ready','blocked')——原实现裸发 {status:'done'}
+          //   恒 400（"at least one of summary or result must be provided"）。
+          //   与拖拽完成路径同语义：先收摘要再提交。
+          const task = apiTasks.find(t => t.id === taskId);
+          if (task && !['ready', 'running', 'blocked'].includes(task.status)) {
+            alert(`无法完成该任务：当前状态为「${task.status}」。只有 ready/running/blocked 状态的任务可直接完成（对齐 Hermes complete_task 门控）。`);
+            break;
+          }
+          const summary = prompt('请输入完成摘要（必填）：');
+          if (summary === null) break;
+          if (!summary.trim()) { alert('完成摘要不能为空，操作已取消。'); break; }
+          await updateKanbanTask(taskId, { status: 'done', result: summary.trim(), summary: summary.trim() }, currentBoard);
+          break;
+        }
+        case 'block': await updateKanbanTask(taskId, { status: 'blocked' }, currentBoard); break;
         // 滞留：running/ready → scheduled（gateway 走 schedule_task 关 run 清 claim）
-        case 'schedule': await updateKanbanTask(taskId, { status: 'scheduled' }); break;
-        case 'reclaim': await reclaimKanbanTask(taskId, 'manual reclaim'); break;
-        case 'archive': await updateKanbanTask(taskId, { status: 'archived' }); break;
-        case 'delete': await deleteKanbanTask(taskId); break;
+        case 'schedule': await updateKanbanTask(taskId, { status: 'scheduled' }, currentBoard); break;
+        case 'reclaim': await reclaimKanbanTask(taskId, 'manual reclaim', currentBoard); break;
+        case 'archive': await updateKanbanTask(taskId, { status: 'archived' }, currentBoard); break;
+        case 'delete': await deleteKanbanTask(taskId, currentBoard); break;
         // Phase 4.3: 分解/指定
-        case 'decompose': await decomposeKanbanTask(taskId, 'user'); break;
-        case 'specify': await specifyKanbanTask(taskId, 'user'); break;
+        case 'decompose': await decomposeKanbanTask(taskId, 'user', currentBoard); break;
+        case 'specify': await specifyKanbanTask(taskId, 'user', currentBoard); break;
         // Phase 4.6: 终止 run
-        case 'terminate': await terminateKanbanRun(taskId, 'manual'); break;
+        case 'terminate': await terminateKanbanRun(taskId, 'manual', currentBoard); break;
         // Phase 4.7: 订阅/取消订阅
-        case 'subscribe': await subscribeKanbanHome(taskId, 'weixin'); break;
-        case 'unsubscribe': await unsubscribeKanbanHome(taskId, 'weixin'); break;
+        case 'subscribe': await subscribeKanbanHome(taskId, 'weixin', currentBoard); break;
+        case 'unsubscribe': await unsubscribeKanbanHome(taskId, 'weixin', currentBoard); break;
         // Phase B5: 重分配
         case 'reassign': setShowReassign(true); setReassignProfile(''); setReassignReclaim(false); break;
       }
@@ -363,7 +410,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     } finally {
       setLoadingId(null);
     }
-  }, [loadBoard]);
+  }, [loadBoard, apiTasks, currentBoard]);
 
   // checkbox 切换
   const handleCheck = useCallback((taskId: string) => {
@@ -389,13 +436,24 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     const ids = Array.from(checkedIds);
     setBulkConfirmAction(null);
     try {
-      await bulkUpdateKanbanTasks(ids, { action });
+      if (action === 'delete') {
+        // 🔴 修复：后端 bulk 端点无 delete 语义——逐个删除（对齐 Hermes bulkDelete 扇出）
+        await Promise.allSettled(ids.map(id => deleteKanbanTask(id, currentBoard)));
+      } else if (action === 'complete') {
+        // 🔴 修复：后端 bulk_update_tasks 读顶层 status/archive/priority 等字段，
+        //   此前发送 { ids, data: { action } } 形状恒被忽略 → 批量操作静默失效
+        await bulkUpdateKanbanTasks(ids, { status: 'done' }, currentBoard);
+      } else if (action === 'archive') {
+        await bulkUpdateKanbanTasks(ids, { archive: true }, currentBoard);
+      } else {
+        await bulkUpdateKanbanTasks(ids, {}, currentBoard);
+      }
       setCheckedIds(new Set());
       await loadBoard();
     } catch (err) {
       console.error('[KanbanPanel] Bulk action failed:', err);
     }
-  }, [checkedIds, loadBoard]);
+  }, [checkedIds, currentBoard, loadBoard]);
 
   // Phase 3: 批量重分配
   const handleBulkReassign = useCallback(async () => {
@@ -419,7 +477,8 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     if (!bulkPriority || checkedIds.size === 0) return;
     const ids = Array.from(checkedIds);
     try {
-      await bulkUpdateKanbanTasks(ids, { action: 'priority', priority: Number(bulkPriority) });
+      // 🔴 修复：后端 bulk_update_tasks 读顶层 priority（此前塞进 data.action 恒被忽略）
+      await bulkUpdateKanbanTasks(ids, { priority: Number(bulkPriority) }, currentBoard);
       setCheckedIds(new Set());
       setShowBulkPriority(false);
       setBulkPriority('');
@@ -427,7 +486,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     } catch (err) {
       console.error('[KanbanPanel] Bulk priority failed:', err);
     }
-  }, [checkedIds, bulkPriority, loadBoard]);
+  }, [checkedIds, bulkPriority, currentBoard, loadBoard]);
 
   // Phase 4.4: Worker 日志查看
   const handleViewLog = useCallback(async (taskId: string) => {

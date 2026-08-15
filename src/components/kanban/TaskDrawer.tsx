@@ -74,11 +74,13 @@ interface TaskDrawerProps {
   onViewLog: (taskId: string) => void;
   workerLog: string | Record<string, unknown> | null;
   homeChannels: Array<{ platform?: string } | string>;
+  /** 当前看板 slug（🔴 修复：详情/评论/附件/链接 API 均需按板路由，缺省恒 default 错板） */
+  board?: string;
 }
 
-export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onViewLog, workerLog, homeChannels }: TaskDrawerProps) {
+export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onViewLog, workerLog, homeChannels, board = 'default' }: TaskDrawerProps) {
   const busy = loadingId === task?.id;
-  const [comments, setComments] = useState<CommentRecord[]>([]);
+  const [detail, setDetail] = useState<any>(null);
   const [commentInput, setCommentInput] = useState('');
   const [attachments, setAttachments] = useState<AttachmentRecord[]>([]);
   const [editingBody, setEditingBody] = useState(false);
@@ -94,6 +96,14 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
   const [expandedRunLoading, setExpandedRunLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 🔴 修复：评论/运行历史/依赖统一来自 detail 端点（get_kanban_task 返回
+  //   { task, comments, events, runs, links }）——board 列表的任务对象不含
+  //   runs/parents/children（它们在关联表），此前「运行」与「依赖」区恒为空。
+  //   顺带修正非 default 看板下 getKanbanTask 缺省 board 参数导致的错板读取。
+  const comments: CommentRecord[] = detail?.comments || [];
+  const runs: RunRecord[] = detail?.runs || [];
+  const links: { parents: string[]; children: string[] } = detail?.links || { parents: [], children: [] };
+
   // Phase B7: 展开/收起 Run 详情
   const handleToggleRunDetail = useCallback(async (runId: string) => {
     if (expandedRunId === runId) {
@@ -105,29 +115,25 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
     setExpandedRunLoading(true);
     setExpandedRunData(null);
     try {
-      const data = await getKanbanRun(runId);
+      const data = await getKanbanRun(runId, board);
       setExpandedRunData(data?.run || data || null);
     } catch {
       setExpandedRunData(null);
     }
     setExpandedRunLoading(false);
-  }, [expandedRunId]);
+  }, [expandedRunId, board]);
 
-  // 加载评论
+  // 加载详情（评论/事件/运行/链接）+ 附件
   useEffect(() => {
-    if (!task?.id) return;
-    getKanbanTask(task.id).then(data => {
-      setComments(data?.comments || []);
-    }).catch(() => {});
-  }, [task?.id]);
-
-  // 加载附件
-  useEffect(() => {
-    if (!task?.id) return;
-    getKanbanAttachments(task.id).then(data => {
+    if (!task?.id) { setDetail(null); setAttachments([]); return; }
+    getKanbanTask(task.id, board).then(data => setDetail(data)).catch(() => setDetail(null));
+    getKanbanAttachments(task.id, board).then(data => {
       setAttachments(data?.attachments || data || []);
     }).catch(() => {});
-  }, [task?.id]);
+    // 切换任务时重置 Run 展开态（避免上一个任务的展开残留）
+    setExpandedRunId(null);
+    setExpandedRunData(null);
+  }, [task?.id, board]);
 
   const handleShadeClick = (e: React.MouseEvent) => { if (e.target === e.currentTarget) onClose(); };
   useEffect(() => {
@@ -144,14 +150,14 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
   const scheduled = (task.status || '').toLowerCase() === 'scheduled';
   const review = (task.status || '').toLowerCase() === 'review';
 
-  // 发送评论 → 调 addKanbanComment → 刷新评论列表
+  // 发送评论 → 调 addKanbanComment → 刷新详情
   const handleSendComment = async () => {
     if (!commentInput.trim()) return;
     try {
-      await addKanbanComment(task.id, commentInput.trim(), 'user');
+      await addKanbanComment(task.id, commentInput.trim(), 'user', board);
       setCommentInput('');
-      const data = await getKanbanTask(task.id);
-      setComments(data?.comments || []);
+      const data = await getKanbanTask(task.id, board);
+      setDetail(data);
     } catch (err) {
       console.error('[KanbanPanel] Comment failed:', err);
     }
@@ -163,7 +169,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
     if (!trimmed) { setEditingTitle(false); return; }
     if (trimmed === (task.title || '')) { setEditingTitle(false); return; }
     try {
-      await updateKanbanTask(task.id, { title: trimmed });
+      await updateKanbanTask(task.id, { title: trimmed }, board);
       setEditingTitle(false);
       onRefresh?.();
     } catch (err) {
@@ -177,7 +183,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
     const current = task.priority ? String(task.priority).replace(/^p/i, '') : '';
     if (newPriority === current) return;
     try {
-      await updateKanbanTask(task.id, { priority: newPriority ? Number(newPriority) : null });
+      await updateKanbanTask(task.id, { priority: newPriority ? Number(newPriority) : null }, board);
       onRefresh?.();
     } catch (err) {
       console.error('[KanbanPanel] Save priority failed:', err);
@@ -190,7 +196,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
     const trimmed = assigneeDraft.trim();
     if (trimmed === (task.assignee || '')) return;
     try {
-      await updateKanbanTask(task.id, { assignee: trimmed || null });
+      await updateKanbanTask(task.id, { assignee: trimmed || null }, board);
       onRefresh?.();
     } catch (err) {
       console.error('[KanbanPanel] Save assignee failed:', err);
@@ -200,7 +206,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
   // 保存描述 → 调 updateKanbanTask → 刷新
   const handleSaveBody = async () => {
     try {
-      await updateKanbanTask(task.id, { body: bodyDraft });
+      await updateKanbanTask(task.id, { body: bodyDraft }, board);
       setEditingBody(false);
       onRefresh?.();
     } catch (err) {
@@ -215,8 +221,8 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
     try {
       const dataUrl = await readFileAsDataURL(file);
       const base64 = base64FromDataURL(dataUrl);
-      await uploadKanbanAttachment(task.id, file.name, base64);
-      const data = await getKanbanAttachments(task.id);
+      await uploadKanbanAttachment(task.id, file.name, base64, board);
+      const data = await getKanbanAttachments(task.id, board);
       setAttachments(data?.attachments || data || []);
     } catch (err) {
       console.error('[KanbanPanel] Upload failed:', err);
@@ -314,7 +320,6 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
                     )}
                   </div>
                   <MetaRow label="创建时间" value={task.startTs ? fmtAge(task.startTs) : '—'} />
-                  <MetaRow label="耗时" value={task.duration ? fmtDuration(task.duration) : '—'} />
                   {blocked && task.block_reason && <MetaRow label="阻塞原因" value={task.block_reason} />}
                 </div>
 
@@ -357,13 +362,13 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
                   </div>
                 )}
 
-                {/* 依赖 */}
-                {(task.parents?.length > 0 || task.children?.length > 0) && (
+                {/* 依赖（🔴 修复：来自 detail.links，board 任务对象无 parents/children） */}
+                {(links.parents?.length > 0 || links.children?.length > 0) && (
                   <div className="flex flex-col gap-1.5">
                     <span className="text-[0.72rem] font-semibold tracking-wide text-[var(--ui-text-tertiary)]">依赖关系</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {task.parents.map((p: string) => <span key={p} className="font-mono text-[0.68rem] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--ui-text-primary)_6%,transparent)] border border-[var(--ui-stroke-tertiary)]">↑ {typeof p === 'string' ? p.slice(0, 6) : p}</span>)}
-                      {task.children.map((c: string) => <span key={c} className="font-mono text-[0.68rem] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--ui-text-primary)_6%,transparent)] border border-[var(--ui-stroke-tertiary)]">↓ {typeof c === 'string' ? c.slice(0, 6) : c}</span>)}
+                      {links.parents.map((p: string) => <span key={p} className="font-mono text-[0.68rem] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--ui-text-primary)_6%,transparent)] border border-[var(--ui-stroke-tertiary)]">↑ {typeof p === 'string' ? p.slice(0, 6) : p}</span>)}
+                      {links.children.map((c: string) => <span key={c} className="font-mono text-[0.68rem] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--ui-text-primary)_6%,transparent)] border border-[var(--ui-stroke-tertiary)]">↓ {typeof c === 'string' ? c.slice(0, 6) : c}</span>)}
                     </div>
                   </div>
                 )}
@@ -408,16 +413,21 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
             </button>
             {!collapsedSections.runs && (
               <div className="py-3 flex flex-col gap-2">
-                {(!task.runs || task.runs.length === 0) ? (
+                {runs.length === 0 ? (
                   <p className="text-[0.8rem] text-[var(--ui-text-tertiary)] text-center py-6">暂无运行记录</p>
                 ) : (
-                  task.runs.map((run: RunRecord, i: number) => (
+                  runs.map((run: RunRecord, i: number) => (
                     <div key={i} className="border-l-2 pl-3 py-1.5 rounded-r-md bg-[color-mix(in_srgb,var(--ui-text-primary)_3%,transparent)]"
                       style={{ borderLeftColor: runBorderColor(run.outcome || run.status) }}>
                       <div className="flex items-center gap-3 text-[0.7rem]">
                         <span className="font-mono font-semibold tracking-wide text-[var(--ui-text-primary)]">{run.outcome || run.status || '—'}</span>
                         {run.profile && <span className="text-[var(--ui-text-tertiary)]">{run.profile}</span>}
-                        {run.elapsed_seconds != null && <span className="tabular-nums text-[var(--ui-text-tertiary)]">{fmtDuration(run.elapsed_seconds * 1000)}</span>}
+                        {/* 🔴 修复：后端 Run 结构无 elapsed_seconds 字段（有
+                            started_at/ended_at epoch 秒），原字段恒缺失 → 时长
+                            永不显示，改为按起止时间计算 */}
+                        {run.ended_at != null && run.started_at != null && (Number(run.ended_at) - Number(run.started_at)) > 0 && (
+                          <span className="tabular-nums text-[var(--ui-text-tertiary)]">{fmtDuration((Number(run.ended_at) - Number(run.started_at)) * 1000)}</span>
+                        )}
                         {run.ended_at && <span className="ml-auto text-[var(--ui-text-tertiary)]">{fmtAge(run.ended_at)}</span>}
                         {run.id && <button onClick={() => handleToggleRunDetail(run.id!)}
                           className="text-[var(--kanban-hover-bg)] hover:text-[var(--kanban-hover-bg)] transition-colors ml-1"
@@ -460,17 +470,17 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
             </button>
             {!collapsedSections.links && (
               <div className="py-3 flex flex-col gap-3">
-                {/* 上游依赖 (parents) */}
+                {/* 上游依赖 (parents) — 🔴 修复：来自 detail.links，且删除/添加按 board 路由 */}
                 <div>
                   <span className="text-[0.72rem] font-semibold tracking-wide text-[var(--ui-text-tertiary)]">上游依赖（父任务）</span>
-                  {(!task.parents || task.parents.length === 0) && <p className="text-[0.7rem] text-[var(--ui-text-quaternary)] mt-1">无</p>}
-                  {task.parents?.length > 0 && (
+                  {links.parents.length === 0 && <p className="text-[0.7rem] text-[var(--ui-text-quaternary)] mt-1">无</p>}
+                  {links.parents.length > 0 && (
                     <div className="flex flex-col gap-1 mt-1.5">
-                      {task.parents.map((p: string) => (
+                      {links.parents.map((p: string) => (
                         <div key={p} className="flex items-center gap-2 text-[0.75rem]">
                           <GitBranch size={11} strokeWidth={1.5} className="text-[var(--ui-text-quaternary)] shrink-0" />
                           <span className="font-mono text-[var(--ui-text-primary)]">{typeof p === 'string' ? p.slice(0, 8) : p}</span>
-                          <button onClick={async () => { try { await deleteKanbanLink(p, task.id); onRefresh(); } catch {} }}
+                          <button onClick={async () => { try { await deleteKanbanLink(p, task.id, board); onRefresh(); } catch {} }}
                             className="ml-auto text-[var(--ui-text-quaternary)] hover:text-danger transition-colors"><X size={11} strokeWidth={1.5} /></button>
                         </div>
                       ))}
@@ -480,14 +490,14 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
                 {/* 下游依赖 (children) */}
                 <div>
                   <span className="text-[0.72rem] font-semibold tracking-wide text-[var(--ui-text-tertiary)]">下游依赖（子任务）</span>
-                  {(!task.children || task.children.length === 0) && <p className="text-[0.7rem] text-[var(--ui-text-quaternary)] mt-1">无</p>}
-                  {task.children?.length > 0 && (
+                  {links.children.length === 0 && <p className="text-[0.7rem] text-[var(--ui-text-quaternary)] mt-1">无</p>}
+                  {links.children.length > 0 && (
                     <div className="flex flex-col gap-1 mt-1.5">
-                      {task.children.map((c: string) => (
+                      {links.children.map((c: string) => (
                         <div key={c} className="flex items-center gap-2 text-[0.75rem]">
                           <GitBranch size={11} strokeWidth={1.5} className="text-[var(--ui-text-quaternary)] shrink-0" />
                           <span className="font-mono text-[var(--ui-text-primary)]">{typeof c === 'string' ? c.slice(0, 8) : c}</span>
-                          <button onClick={async () => { try { await deleteKanbanLink(task.id, c); onRefresh(); } catch {} }}
+                          <button onClick={async () => { try { await deleteKanbanLink(task.id, c, board); onRefresh(); } catch {} }}
                             className="ml-auto text-[var(--ui-text-quaternary)] hover:text-danger transition-colors"><X size={11} strokeWidth={1.5} /></button>
                         </div>
                       ))}
@@ -496,8 +506,8 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
                 </div>
                 {/* 添加依赖 */}
                 <div className="border-t border-[var(--ui-stroke-tertiary)] pt-2.5">
-                  <AddLinkForm taskId={task.id} direction="parent" onSubmit={async (otherId: string) => { await createKanbanLink(otherId, task.id); onRefresh(); }} />
-                  <AddLinkForm taskId={task.id} direction="child" onSubmit={async (otherId: string) => { await createKanbanLink(task.id, otherId); onRefresh(); }} />
+                  <AddLinkForm taskId={task.id} direction="parent" onSubmit={async (otherId: string) => { await createKanbanLink(otherId, task.id, board); onRefresh(); }} />
+                  <AddLinkForm taskId={task.id} direction="child" onSubmit={async (otherId: string) => { await createKanbanLink(task.id, otherId, board); onRefresh(); }} />
                 </div>
               </div>
             )}
@@ -525,9 +535,9 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
                       <Paperclip size={12} className="shrink-0 text-[var(--ui-text-tertiary)]" />
                       <span className="truncate text-[var(--ui-text-primary)]">{a.filename || a.name || `附件 ${i + 1}`}</span>
                       {a.size && <span className="text-[0.65rem] text-[var(--ui-text-quaternary)] ml-auto">{(a.size / 1024).toFixed(1)}KB</span>}
-                      <button onClick={() => { const base = getApiBase(); const p = getWsActiveProfile(); const prefix = p ? `/p/${p}` : ''; window.open(`${base}${prefix}/api/kanban/attachments/${a.id}?board=default`, '_blank'); }} title="下载附件"
+                      <button onClick={() => { const base = getApiBase(); const p = getWsActiveProfile(); const prefix = p ? `/p/${p}` : ''; window.open(`${base}${prefix}/api/kanban/attachments/${a.id}?board=${encodeURIComponent(board)}`, '_blank'); }} title="下载附件"
                         className="text-[var(--kanban-hover-bg)] hover:text-[var(--kanban-hover-bg)] transition-colors ml-1"><Download size={11} strokeWidth={1.5} /></button>
-                      <button onClick={async () => { try { await deleteKanbanAttachment(a.id!); const data = await getKanbanAttachments(task.id); setAttachments(data?.attachments || data || []); } catch {} }} title="删除附件"
+                      <button onClick={async () => { try { await deleteKanbanAttachment(a.id!, board); const data = await getKanbanAttachments(task.id, board); setAttachments(data?.attachments || data || []); } catch {} }} title="删除附件"
                         className="text-danger/70 hover:text-danger transition-colors ml-1"><Trash2 size={11} /></button>
                     </div>
                   ))
@@ -623,12 +633,12 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
               <ActionButton icon={ArrowLeftFromLine} label="回收" color="muted" onClick={() => onAction('reclaim', task.id)} busy={busy} />
             </>
           )}
-          {/* review → 通过(done) / 阻塞 */}
+          {/* review — 🔴 修复：后端 complete_task 门控 IN ('running','ready','blocked')、
+              block_task 门控 IN ('running','ready')，review 卡「通过/阻塞」恒 400。
+              保留合法路径：恢复（review→ready 直通 set_status_direct）+ 分解/指定/重分配；
+              评审通过由评审 worker claim 后走 running→done。 */}
           {review && (
-            <>
-              <ActionButton icon={CheckCircle2} label="通过" color="green" onClick={() => onAction('complete', task.id)} busy={busy} />
-              <ActionButton icon={Ban} label="阻塞" color="amber" onClick={() => onAction('block', task.id)} busy={busy} />
-            </>
+            <ActionButton icon={ArrowLeftFromLine} label="恢复" color="muted" onClick={() => onAction('promote', task.id)} busy={busy} />
           )}
           {done && (
             <>

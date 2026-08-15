@@ -827,6 +827,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
   return (
     <main className="h-full overflow-hidden bg-background">
       <SettingsLayout
+        onClose={onBack}
         nav={
           <SettingsNav
             activeSection={activeSection}

@@ -99,9 +99,10 @@ import {
 // ═══════════════════════════════════════════════════════════════
 import type { KanbanTask } from './kanban/types';
 import { COLUMNS, COLUMN_STATUS, updateStaleConfig } from './kanban/constants';
-import { taskColumn, normalizeBoardData, mergeTasks } from './kanban/helpers';
+import { taskColumn, normalizeBoardData } from './kanban/helpers';
 import { KanbanColumn } from './kanban/KanbanColumn';
 import { TaskDrawer } from './kanban/TaskDrawer';
+import { CreateBoardModal } from './kanban/CreateBoardModal';
 import { useKanbanSSE } from './kanban/useKanbanSSE';
 import { useKanban } from './kanban/useKanban';
 
@@ -501,19 +502,22 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
           {diagnostics.blocked_over_24h > 0 && <div className="text-danger">⚠ {diagnostics.blocked_over_24h} 个任务阻塞超24h</div>}
           {diagnostics.orphaned_tasks > 0 && <div className="text-warning">⚠ {diagnostics.orphaned_tasks} 个孤立任务</div>}
           {(!diagnostics.stale_claims && !diagnostics.blocked_over_24h && !diagnostics.orphaned_tasks) && <div className="text-success">✓ 一切正常</div>}
-          {/* C1: 编排配置 */}
+          {/* C1: 编排配置 — 🔴 修复：get_kanban_orchestration 返回 { ok, config }，
+              键为 orchestrator_profile/default_assignee/auto_decompose/
+              auto_promote_children/auto_decompose_per_tick（此前读不存在的
+              max_concurrent/claim_ttl_seconds/default_profile 恒显示 '-'） */}
           {orchestration && (
             <div className="mt-1.5 pt-1.5 border-t border-warning/15">
               <div className="flex items-center gap-2 font-semibold text-warning mb-1"><Settings2 size={12} /> 编排配置</div>
               <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[0.75rem]">
-                <span className="text-[var(--ui-text-tertiary)]">max_concurrent</span>
-                <span className="font-mono">{orchestration.max_concurrent ?? '-'}</span>
+                <span className="text-[var(--ui-text-tertiary)]">orchestrator_profile</span>
+                <span className="font-mono">{orchestration.config?.orchestrator_profile ?? '-'}</span>
+                <span className="text-[var(--ui-text-tertiary)]">default_assignee</span>
+                <span className="font-mono">{orchestration.config?.default_assignee ?? '-'}</span>
                 <span className="text-[var(--ui-text-tertiary)]">auto_decompose</span>
-                <span className="font-mono">{orchestration.auto_decompose ? '✓' : '✗'}</span>
-                <span className="text-[var(--ui-text-tertiary)]">claim_ttl_seconds</span>
-                <span className="font-mono">{orchestration.claim_ttl_seconds ?? '-'}</span>
-                <span className="text-[var(--ui-text-tertiary)]">default_profile</span>
-                <span className="font-mono">{orchestration.default_profile ?? '-'}</span>
+                <span className="font-mono">{orchestration.config?.auto_decompose ? '✓' : '✗'}</span>
+                <span className="text-[var(--ui-text-tertiary)]">auto_promote_children</span>
+                <span className="font-mono">{orchestration.config?.auto_promote_children ? '✓' : '✗'}</span>
               </div>
             </div>
           )}
@@ -578,7 +582,7 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
       {/* 详情抽屉 */}
       {selectedTask && (
         <TaskDrawer task={selectedTask} onClose={() => setSelectedTask(null)} onAction={handleAction} loadingId={loadingId} onRefresh={loadBoard}
-          onViewLog={handleViewLog} workerLog={workerLog} homeChannels={homeChannels} />
+          onViewLog={handleViewLog} workerLog={workerLog} homeChannels={homeChannels} board={currentBoard} />
       )}
 
       {/* 创建任务抽屉 */}
@@ -741,53 +745,10 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
         </div>
       )}
 
-      {/* Phase A1: 新建看板模态 */}
-      {showCreateBoard && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay/30 backdrop-blur-[2px]" onClick={() => setShowCreateBoard(false)}>
-          <div className="w-[360px] rounded-xl border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-bg-card)] shadow-xl p-5 space-y-4"
-            onClick={e => e.stopPropagation()}
-            style={{ animation: 'scaleIn 0.15s ease-out' }}>
-            <div className="flex items-center justify-between">
-              <span className="text-[0.95rem] font-semibold text-[var(--ui-text-primary)]">新建看板</span>
-              <button onClick={() => setShowCreateBoard(false)} className="p-1 rounded-md hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] text-[var(--ui-text-tertiary)]"><X size={15} strokeWidth={1.5} /></button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[0.75rem] font-medium text-[var(--ui-text-tertiary)] mb-1">名称 *</label>
-                <input value={newBoardName} onChange={e => setNewBoardName(e.target.value)} placeholder="例如：设计冲刺" autoFocus
-                  className="w-full text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none focus:border-[var(--kanban-hover-bg)]" />
-                <p className="mt-1 text-[0.7rem] text-[var(--ui-text-tertiary)]">slug 将自动生成</p>
-              </div>
-              <div>
-                <label className="block text-[0.75rem] font-medium text-[var(--ui-text-tertiary)] mb-1">描述</label>
-                <input value={newBoardDesc} onChange={e => setNewBoardDesc(e.target.value)} placeholder="可选"
-                  className="w-full text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none focus:border-[var(--kanban-hover-bg)]" />
-              </div>
-              <div>
-                <label className="block text-[0.75rem] font-medium text-[var(--ui-text-tertiary)] mb-1">颜色</label>
-                <div className="flex items-center gap-2">
-                  <input value={newBoardColor} onChange={e => setNewBoardColor(e.target.value)} placeholder="#6490C8"
-                    className="flex-1 text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none focus:border-[var(--kanban-hover-bg)]" />
-                  {newBoardColor && <span className="w-5 h-5 rounded-full border border-[var(--ui-stroke-tertiary)]" style={{ backgroundColor: newBoardColor }} />}
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-2 justify-end pt-1">
-              <button onClick={() => setShowCreateBoard(false)} disabled={creatingBoard}
-                className="text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors">取消</button>
-              <button onClick={handleCreateBoard} disabled={creatingBoard || !newBoardName.trim()}
-                className={cn('text-[0.8rem] px-4 py-1.5 rounded-md border transition-colors flex items-center gap-1.5',
-                  newBoardName.trim() && !creatingBoard
-                    ? 'border-[var(--kanban-hover-bg)] bg-[var(--kanban-hover-bg)] text-[var(--kanban-hover-bg)] hover:bg-[var(--kanban-hover-bg)]'
-                    : 'border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-quaternary)] cursor-not-allowed'
-                )}>
-                {creatingBoard && <Loader size={12} strokeWidth={1.5} className="animate-spin" />}
-                创建并切换
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Phase A1: 新建看板模态 — 🔴 收敛到共享组件 CreateBoardModal（侧边栏复用） */}
+      <CreateBoardModal open={showCreateBoard} name={newBoardName} desc={newBoardDesc} color={newBoardColor}
+        busy={creatingBoard} onClose={() => setShowCreateBoard(false)} onCreate={handleCreateBoard}
+        onNameChange={setNewBoardName} onDescChange={setNewBoardDesc} onColorChange={setNewBoardColor} />
 
       {/* Phase A2: 删除看板确认 */}
       {deleteBoardTarget && (

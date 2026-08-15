@@ -6,6 +6,7 @@ import { Plus, CheckCircle2, X, Trash2, AlertTriangle, Clock, Eye, Loader } from
 import { cn } from '@/lib/utils';
 import type { KanbanTask, ColumnDef } from './types';
 import { isBlocked, isDone, getStaleness, fmtAge } from './helpers';
+import { LOCKED_DROP_COLUMNS } from './constants';
 
 // ── 任务卡片（Trail 极简风格 + 删除按钮）──
 const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, justCreated, isDragging, onDelete }: { task: KanbanTask; onSelect: (task: KanbanTask) => void; isSelected: boolean; onDragStart: (id: string) => void; checked: boolean; onCheck: (id: string) => void; justCreated: boolean; isDragging: boolean; onDelete?: (id: string) => void }) {
@@ -171,10 +172,21 @@ interface KanbanColumnProps {
 
 export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart, onDrop, creatingIn, onCreateStart, onCreateCancel, checkedIds, onCheck, runningLanes, justCreatedIds, draggingTaskId, onCreateSubmit, newTitle, setNewTitle, onDelete }: KanbanColumnProps) {
   const [dragOver, setDragOver] = useState(false);
+  // 🔴 修复（对齐 Hermes LOCKED_COLUMNS）：running（调度器 claim 独占）与
+  //   scheduled（需定时唤醒时间）列拒绝拖入——不 preventDefault → 操作系统
+  //   显示 no-drop 光标，drop 事件永不触发，列诚实告知自身。
+  const locked = LOCKED_DROP_COLUMNS.includes(column.key);
 
-  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true); };
+  const handleDragOver = (e: React.DragEvent) => {
+    if (locked) { e.dataTransfer.dropEffect = 'none'; return; }
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true);
+  };
   const handleDragLeave = () => setDragOver(false);
-  const handleDrop = (e: React.DragEvent) => { e.preventDefault(); setDragOver(false); const taskId = e.dataTransfer.getData('text/plain'); if (taskId) onDrop(column.key, taskId); };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragOver(false);
+    if (locked) return;
+    const taskId = e.dataTransfer.getData('text/plain'); if (taskId) onDrop(column.key, taskId);
+  };
 
   return (
     <div

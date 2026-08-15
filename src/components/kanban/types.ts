@@ -78,6 +78,8 @@ export interface KanbanTask {
   parents: string[];
   children: string[];
   tags: string[];
+  /** 租户（后端 Task.tenant）— 顶栏租户筛选的匹配字段（对齐 Hermes task.tenant） */
+  tenant: string;
   runs: RunRecord[];
   comments: CommentRecord[];
   child_done: number | null;

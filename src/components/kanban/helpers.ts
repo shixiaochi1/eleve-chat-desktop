@@ -17,6 +17,8 @@ export function taskColumn(task: KanbanTask): string {
   if (s === 'blocked') return 'blocked';
   if (s === 'review') return 'review';
   if (['completed', 'done', 'success', 'finished', 'ok'].includes(s)) return 'done';
+  // 🔴 修复：archived 此前落入 default → 'todo'，归档卡片会跳进「待办」列
+  if (s === 'archived') return 'archived';
   return 'todo';
 }
 
@@ -80,6 +82,23 @@ export function normalizeTask(raw: Record<string, unknown>): KanbanTask {
   const n = (v: unknown): number | null => typeof v === 'number' ? v : null;
   const b = (v: unknown, fallback = false): boolean => typeof v === 'boolean' ? v : fallback;
   const arr = (v: unknown) => Array.isArray(v) ? v : [];
+  // 🔴 修复：后端 updated_at/created_at 是 epoch 秒（f64 数字）。此前 String()
+  //   强转成字符串后 fmtAge/getStaleness 的 `ts < 1e12 ? ts*1000 : ts` 秒→毫秒
+  //   判断失效（new Date("1723…") 非法），卡片时间与陈旧度永不显示。
+  //   保留原始类型，由消费方（fmtAge/getStaleness）按秒/毫秒启发式换算。
+  const updatedAt = (raw.updated_at ?? raw.created_at ?? null) as string | number | null;
+  // 🔴 修复：progress 解析 — 后端 board 接口把 batch_progress 格式化成
+  //   "3/5 children completed" 字符串（对齐 Hermes progress rollup），
+  //   并非 child_done/child_total 数字，此前进度药丸恒不显示。
+  let childDone = n(raw.child_done) ?? n(raw.children_done);
+  let childTotal = n(raw.child_total) ?? n(raw.children_total);
+  if (childDone == null && typeof raw.progress === 'string') {
+    const m = /(\d+)\s*\/\s*(\d+)/.exec(raw.progress);
+    if (m) {
+      childDone = Number(m[1]);
+      childTotal = Number(m[2]);
+    }
+  }
   return {
     id: s(raw.id),
     title: isKanban ? s(raw.title) : s(raw.goal),
@@ -87,19 +106,22 @@ export function normalizeTask(raw: Record<string, unknown>): KanbanTask {
     status: s(raw.status, 'ready'),
     startTs: isKanban ? (typeof raw.created_at === 'number' ? raw.created_at * 1000 : null) : n(raw.startTs),
     duration: n(raw.duration),
-    summary: s(raw.summary),
+    // 🔴 修复：后端 board 接口在任务顶层注入 latest_summary（运行摘要，200 字符截断，
+    //   对齐 Hermes `latest_summary || body`），此前只看 raw.summary（任务自身字段）恒为空。
+    summary: s(raw.summary) || s(raw.latest_summary),
     blocked: b(raw.blocked),
     block_reason: s(raw.block_reason),
     body: s(raw.body),
     priority: String(raw.priority ?? ''),
-    updated_at: String(raw.updated_at ?? raw.created_at ?? ''),
+    updated_at: updatedAt,
     parents: arr(raw.parents) as string[],
     children: arr(raw.children) as string[],
     tags: arr(raw.tags) as string[],
+    tenant: s(raw.tenant),
     runs: arr(raw.runs) as RunRecord[],
     comments: arr(raw.comments) as CommentRecord[],
-    child_done: n(raw.child_done) ?? n(raw.children_done),
-    child_total: n(raw.child_total) ?? n(raw.children_total),
+    child_done: childDone,
+    child_total: childTotal,
   };
 }
 
@@ -114,24 +136,12 @@ export function normalizeBoardData(boardResult: Record<string, unknown> | null |
   return tasks;
 }
 
-export function mergeTasks(apiTasks: KanbanTask[], sseTasks: Record<string, unknown>): KanbanTask[] {
-  if (!sseTasks || Object.keys(sseTasks).length === 0) return apiTasks;
-  const apiMap = new Map(apiTasks.map(t => [t.id, t]));
-  for (const [id, sseTask] of Object.entries(sseTasks)) {
-    const n = normalizeTask(sseTask as Record<string, unknown>);
-    if (apiMap.has(id)) {
-      const ex = apiMap.get(id)!;
-      apiMap.set(id, { ...ex, status: n.status || ex.status, summary: n.summary || ex.summary, duration: n.duration ?? ex.duration });
-    } else if (n.status !== 'archived') {
-      apiMap.set(id, n);
-    }
-  }
-  return Array.from(apiMap.values()).filter(t => t.status !== 'archived');
-}
-
 /**
  * 应用单个 kanban 事件到任务列表（SSE 与轮询共用，收敛重复逻辑）。
- * 返回新数组；归档/不匹配事件的任务条目被过滤。
+ * 返回新数组；仅「archived」事件移除条目（对齐后端语义），
+ * 其余未识别的 kind 保持任务原样返回（🔴 修复：原先 default 分支返回 null
+ * 会把任务删掉——'status'/'edited'/'assigned' 等非 patch 事件不在
+ * KANBAN_PATCH_KINDS 里且不触发重载时，卡片会凭空消失直到 60s 轮询兜底）。
  */
 export function applyKanbanEvent(tasks: KanbanTask[], evt: KanbanEvent): KanbanTask[] {
   return tasks.map(t => {
@@ -145,9 +155,18 @@ export function applyKanbanEvent(tasks: KanbanTask[], evt: KanbanEvent): KanbanT
       case 'promoted': case 'promoted_manual': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
       case 'recomputed_ready': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
       case 'scheduled': task.status = 'scheduled'; task.blocked = false; task.block_reason = ''; return task;
+      case 'status': {
+        // set_status_direct 写的事件：payload.status 即新状态（对齐 Hermes status event）
+        const st = (evt.payload as { status?: string } | undefined)?.status;
+        if (st && typeof st === 'string') {
+          task.status = st;
+          if (st === 'ready' || st === 'todo' || st === 'scheduled') { task.blocked = false; task.block_reason = ''; }
+        }
+        return task;
+      }
       case 'archived': return null;
       case 'spawn_failed': case 'gave_up': case 'crashed': case 'timed_out': task.status = 'ready'; return task;
-      default: return null;
+      default: return task;
     }
   }).filter((t): t is KanbanTask => t !== null);
 }

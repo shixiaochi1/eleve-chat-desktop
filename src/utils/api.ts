@@ -486,8 +486,13 @@ export async function createKanbanTask(data: Record<string, any>): Promise<any> 
   return call('create_kanban_task', data);
 }
 
-export async function updateKanbanTask(taskId: string, data: Record<string, any>): Promise<any> {
-  return call('update_kanban_task', { task_id: taskId, ...data });
+/**
+ * 更新任务字段/状态。🔴 修复：后端 update handler 从 body 读 board（缺省
+ * 'default'），此前不传 board → 非 default 看板上的拖拽/动作/抽屉保存全部
+ * 落到 default 板（任务不存在 → 400 或 0 行影响，功能静默失效）。
+ */
+export async function updateKanbanTask(taskId: string, data: Record<string, any>, board = 'default'): Promise<any> {
+  return call('update_kanban_task', { task_id: taskId, board, ...data });
 }
 
 export async function deleteKanbanTask(taskId: string, board = 'default'): Promise<any> {
@@ -524,8 +529,15 @@ export async function deleteKanbanLink(parentId: string, childId: string, board 
   return call('delete_kanban_link', { parent_id: parentId, child_id: childId, board });
 }
 
-export async function bulkUpdateKanbanTasks(ids: string[], data: Record<string, any>): Promise<any> {
-  return call('bulk_update_kanban_tasks', { ids, data });
+/**
+ * 批量更新任务。🔴 修复①：后端 bulk_update_tasks 读顶层字段
+ * （status/assignee/priority/archive/reclaim_first/result/summary/metadata），
+ * 此前发送 { ids, data: {...} } 形状恒被忽略 → 批量操作静默失效。
+ * 现展开为 { ids, ...fields }，与网关契约对齐。
+ * 🔴 修复②：后端从 body 读 board（缺省 'default'），批量操作需按当前板路由。
+ */
+export async function bulkUpdateKanbanTasks(ids: string[], fields: Record<string, any>, board = 'default'): Promise<any> {
+  return call('bulk_update_kanban_tasks', { ids, board, ...fields });
 }
 
 export async function reassignKanbanTask(taskId: string, profile: string, reclaimFirst: boolean, reason: string, board = 'default'): Promise<any> {
@@ -568,8 +580,10 @@ export async function uploadKanbanAttachment(taskId: string, filename: string, c
   return call('upload_kanban_attachment', { task_id: taskId, filename, content_base64: contentBase64, board });
 }
 
-export async function deleteKanbanAttachment(attachmentId: string): Promise<any> {
-  return call('delete_kanban_attachment', { attachment_id: attachmentId });
+// 🔴 修复（批量）：以下端点后端均从 body/query 读 board（缺省 'default'），
+// 非 default 看板必须显式传 board，否则落到 default 板（0 行影响/404）。
+export async function deleteKanbanAttachment(attachmentId: string, board = 'default'): Promise<any> {
+  return call('delete_kanban_attachment', { attachment_id: attachmentId, board });
 }
 
 export async function getKanbanDiagnostics(board = 'default'): Promise<any> {
@@ -580,20 +594,20 @@ export async function getKanbanActiveWorkers(board = 'default'): Promise<any> {
   return call('get_kanban_active_workers', { board });
 }
 
-export async function getKanbanRun(runId: string): Promise<any> {
-  return call('get_kanban_run', { run_id: runId });
+export async function getKanbanRun(runId: string, board = 'default'): Promise<any> {
+  return call('get_kanban_run', { run_id: runId, board });
 }
 
-export async function terminateKanbanRun(runId: string, reason: string): Promise<any> {
-  return call('terminate_kanban_run', { run_id: runId, reason });
+export async function terminateKanbanRun(runId: string, reason: string, board = 'default'): Promise<any> {
+  return call('terminate_kanban_run', { run_id: runId, reason, board });
 }
 
-export async function decomposeKanbanTask(taskId: string, author: string): Promise<any> {
-  return call('decompose_kanban_task', { task_id: taskId, author });
+export async function decomposeKanbanTask(taskId: string, author: string, board = 'default'): Promise<any> {
+  return call('decompose_kanban_task', { task_id: taskId, author, board });
 }
 
-export async function specifyKanbanTask(taskId: string, author: string): Promise<any> {
-  return call('specify_kanban_task', { task_id: taskId, author });
+export async function specifyKanbanTask(taskId: string, author: string, board = 'default'): Promise<any> {
+  return call('specify_kanban_task', { task_id: taskId, author, board });
 }
 
 export async function getKanbanOrchestration(): Promise<any> {
@@ -612,12 +626,12 @@ export async function getKanbanHomeChannels(taskId: string, board = 'default'): 
   return call('get_kanban_home_channels', { task_id: taskId, board });
 }
 
-export async function subscribeKanbanHome(taskId: string, platform: string): Promise<any> {
-  return call('subscribe_kanban_home', { task_id: taskId, platform });
+export async function subscribeKanbanHome(taskId: string, platform: string, board = 'default'): Promise<any> {
+  return call('subscribe_kanban_home', { task_id: taskId, platform, board });
 }
 
-export async function unsubscribeKanbanHome(taskId: string, platform: string): Promise<any> {
-  return call('unsubscribe_kanban_home', { task_id: taskId, platform });
+export async function unsubscribeKanbanHome(taskId: string, platform: string, board = 'default'): Promise<any> {
+  return call('unsubscribe_kanban_home', { task_id: taskId, platform, board });
 }
 
 export async function getKanbanConfig(): Promise<any> {
