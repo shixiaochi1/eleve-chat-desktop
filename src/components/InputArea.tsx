@@ -88,7 +88,7 @@ function InputArea({
   // ── 排队编辑（对齐 Hermes use-composer-queue: beginQueuedEdit / stepQueuedEdit / exitQueuedEdit）
   // 🔴 2026-08-16 方案A：队列数据源 = 后端权威投影（queue.status 轮询），
   // 编辑/删除/立即发送走 queue.edit / queue.remove / queue.steer RPC
-  const { queue: queueEntries, edit: queueEditEntry, remove: queueRemove, steer: queueSteer } = useBackendQueue(sessionId);
+  const { queue: queueEntries, subagentActive, edit: queueEditEntry, remove: queueRemove, steer: queueSteer } = useBackendQueue(sessionId);
   const [queueEdit, setQueueEdit] = useState<{ entryIndex: number; draft: string } | null>(null);
   // 🔴 2026-08-15 DSH QueueDock 对齐：排队改为控制行按钮 + 容器内向上弹出面板
   // （老大需求）。原常驻展开面板改为按需开合；有编辑/新排队时自动展开。
@@ -617,10 +617,20 @@ function InputArea({
             <QueuePanel
               entries={queueEntries}
               busy={!!isStreaming}
+              subagentActive={subagentActive}
               editingId={queueEdit?.entryIndex ?? null}
-              onDelete={(index) => void queueRemove(index)}
+              onDelete={(index) => {
+                // 🔴 P3-3：编辑态激活时先退出（恢复草稿）——删除导致后续行 index
+                // 前移，残留 queueEdit.entryIndex 会指向错行
+                if (queueEdit) exitQueueEdit('cancel');
+                void queueRemove(index);
+              }}
               onEdit={beginQueueEdit}
-              onSendNow={(index) => void queueSteer(index)}
+              onSendNow={(index) => {
+                // 🔴 P3-3：同删除——steer 移除条目同样引起 index 漂移
+                if (queueEdit) exitQueueEdit('cancel');
+                void queueSteer(index);
+              }}
             />
           </div>
         )}

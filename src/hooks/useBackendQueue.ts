@@ -24,12 +24,15 @@ const POLL_MS = 3000;
 
 export function useBackendQueue(sessionId?: string | null) {
   const [queue, setQueue] = useState<QueueEntry[]>([]);
+  // DSH QueueDock queueMutable 语义：subagent 运行时队列不可操作（前端禁用按钮）
+  const [subagentActive, setSubagentActive] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!sessionId) return;
     try {
       const res = await call('queue_status', { session_id: sessionId });
       setQueue(res?.queue ?? []);
+      setSubagentActive(res?.subagent_active === true);
     } catch {
       // 静默（会话未就绪等）
     }
@@ -86,5 +89,5 @@ export function useBackendQueue(sessionId?: string | null) {
     [sessionId, refresh],
   );
 
-  return { queue, refresh, remove, edit, steer };
+  return { queue, subagentActive, refresh, remove, edit, steer };
 }

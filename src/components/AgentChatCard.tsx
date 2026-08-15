@@ -168,7 +168,7 @@ export const AgentChatCard = memo(function AgentChatCard({
 
   // ── 排队编辑（对齐 Hermes use-composer-queue：per-agent queueEdit 状态）
   // 🔴 2026-08-16 方案A：队列数据源 = 后端权威投影（queue.status 轮询）
-  const { queue: queueEntries, edit: queueEditEntry, remove: queueRemove, steer: queueSteer } = useBackendQueue(state.sessionId ?? null);
+  const { queue: queueEntries, subagentActive, edit: queueEditEntry, remove: queueRemove, steer: queueSteer } = useBackendQueue(state.sessionId ?? null);
   const [queueEdit, setQueueEdit] = useState<{ entryIndex: number; draft: string } | null>(null);
   // 🔴 2026-08-15 DSH QueueDock 对齐（宫格）：排队面板改弹层开合（同单视图 InputArea）
   const [queueOpen, setQueueOpen] = useState(false);
@@ -609,10 +609,22 @@ export const AgentChatCard = memo(function AgentChatCard({
             <QueuePanel
               entries={queueEntries}
               busy={streaming}
+              subagentActive={subagentActive}
               editingId={queueEdit?.entryIndex ?? null}
-              onDelete={(index) => void queueRemove(index)}
+              onDelete={(index) => {
+                // 🔴 P3-3：编辑态激活时先退出（恢复草稿）——删除导致后续行 index
+                // 前移，残留 queueEdit.entryIndex 会指向错行
+                const restored = queueEdit ? exitQueueEdit('cancel', composerRef.current?.getValue() ?? '') : null;
+                if (restored !== null) composerRef.current?.setValue(restored);
+                void queueRemove(index);
+              }}
               onEdit={(entry) => beginQueueEdit(entry, composerRef.current?.getValue() ?? '')}
-              onSendNow={(index) => void queueSteer(index)}
+              onSendNow={(index) => {
+                // 🔴 P3-3：同删除——steer 移除条目同样引起 index 漂移
+                const restored = queueEdit ? exitQueueEdit('cancel', composerRef.current?.getValue() ?? '') : null;
+                if (restored !== null) composerRef.current?.setValue(restored);
+                void queueSteer(index);
+              }}
             />
           </div>
         )}

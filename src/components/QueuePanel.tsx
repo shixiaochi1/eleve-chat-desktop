@@ -16,6 +16,8 @@ import type { QueueEntry } from '@/hooks/useBackendQueue';
 interface QueuePanelProps {
   entries: QueueEntry[];
   busy: boolean;
+  /** DSH QueueDock queueMutable 语义：subagent 运行时队列不可操作（隐藏操作列） */
+  subagentActive?: boolean;
   editingId: number | null;
   onDelete: (index: number) => void;
   onEdit: (entry: QueueEntry) => void;
@@ -29,7 +31,7 @@ function entryPreview(entry: QueueEntry): string {
   return '[空消息]';
 }
 
-export default function QueuePanel({ entries, busy, editingId, onDelete, onEdit, onSendNow }: QueuePanelProps) {
+export default function QueuePanel({ entries, busy, subagentActive = false, editingId, onDelete, onEdit, onSendNow }: QueuePanelProps) {
   if (entries.length === 0) return null;
 
   return (
@@ -71,7 +73,9 @@ export default function QueuePanel({ entries, busy, editingId, onDelete, onEdit,
                 )}
               </div>
 
-              {/* 操作按钮（对齐 Hermes: 编辑/发送/删除，hover 显示 + 编辑中常驻） */}
+              {/* 操作按钮（对齐 Hermes: 编辑/发送/删除，hover 显示 + 编辑中常驻）
+                DSH queueMutable 语义：subagent 运行时整块隐藏（不可操作队列） */}
+              {!subagentActive && (
               <div className={cn(
                 'flex shrink-0 items-center gap-0.5 transition-opacity',
                 isEditing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
@@ -111,6 +115,7 @@ export default function QueuePanel({ entries, busy, editingId, onDelete, onEdit,
                   <Trash2 size={11} />
                 </button>
               </div>
+              )}
             </div>
           );
         })}
