@@ -2,6 +2,10 @@
  * OverlayView — 全屏浮层组件
  * 用于 Settings、About 等需要更多空间的密集面板
  * 特性：ESC 关闭、点击 backdrop 关闭、入场滑入动画
+ *
+ * bare 模式（2026-08-15）：无遮罩/无 popover 框/无标题栏/无分割线，
+ * 仅保留 ESC 关闭与滚动锁定——用于设置面板等"背板 + 卡片"布局，
+ * 背板由子组件自身提供，本组件只做全屏容器。
  */
 import { useEffect, useCallback, type ReactNode } from 'react';
 import { X } from 'lucide-react';
@@ -12,9 +16,11 @@ interface OverlayViewProps {
   onClose?: () => void;
   title?: string;
   wide?: boolean;
+  /** bare 模式：纯全屏容器（无框/无遮罩/无标题栏），背板由 children 提供 */
+  bare?: boolean;
 }
 
-export default function OverlayView({ children, onClose, title, wide = false }: OverlayViewProps) {
+export default function OverlayView({ children, onClose, title, wide = false, bare = false }: OverlayViewProps) {
   // ESC 键关闭
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -32,6 +38,15 @@ export default function OverlayView({ children, onClose, title, wide = false }: 
       document.body.style.overflow = prev;
     };
   }, [handleKeyDown]);
+
+  // ── bare 模式：纯全屏容器（设置面板等 1+N 布局用）──
+  if (bare) {
+    return (
+      <div className="fixed inset-0 z-50">
+        <div className="h-full w-full">{children}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/40 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => onClose?.()}>
