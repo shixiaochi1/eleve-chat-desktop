@@ -350,7 +350,15 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
                           ? 'text-[var(--color-foreground)] font-semibold'
                           : 'text-[var(--color-foreground)] hover:bg-[var(--color-accent)]'
                       )}>
-                      {name}
+                      <span>{name}</span>
+                      {/* 🔴 对齐 Hermes BoardSwitcher 每板 total 徽标（board-switcher.tsx
+                          L220-222，审查 P1-8）：后端 list_boards_with_counts 已返回 */}
+                      {typeof b.total === 'number' && (
+                        <span className={cn('ml-1.5 text-[0.65rem] tabular-nums',
+                          slug === currentBoard ? 'text-[var(--kanban-hover-bg)]' : 'text-[var(--ui-text-tertiary)]')}>
+                          {b.total}
+                        </span>
+                      )}
                     </button>
                     <div className="opacity-0 group-hover:opacity-100 flex items-center transition-all">
                       <button onClick={e => { e.stopPropagation(); setShowBoardPicker(false); setEditBoardTarget({ slug, name, description: b.description || '', color: b.color || '' }); setEditBoardName(name); setEditBoardDesc(b.description || ''); setEditBoardColor(b.color || ''); }}

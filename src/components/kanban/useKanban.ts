@@ -548,12 +548,15 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       }
       await loadBoard();
       if (action === 'delete' || action === 'archive') setSelectedTask(null);
+      // 🔴 对齐 Hermes api.ts L168-188：写操作后 nudge dispatcher——完成/阻塞/
+      //   滞留/回收/归档/终止等全部动作立即促进调度，不等 60s tick（审查 P1-3）
+      nudgeDispatch(currentBoard);
     } catch (err) {
       console.error(`[KanbanPanel] Action ${action} failed:`, err);
     } finally {
       setLoadingId(null);
     }
-  }, [loadBoard, apiTasks, currentBoard]);
+  }, [loadBoard, apiTasks, currentBoard, nudgeDispatch]);
 
   // checkbox 切换
   const handleCheck = useCallback((taskId: string) => {
@@ -599,10 +602,13 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       }
       setCheckedIds(new Set());
       await loadBoard();
+      // 🔴 对齐 Hermes api.ts L168-188：批量完成/归档后 nudge——移入 done 立即
+      //   促进依赖子任务、归档释放容量，不等 60s tick（审查 P1-3）
+      nudgeDispatch(currentBoard);
     } catch (err) {
       console.error('[KanbanPanel] Bulk action failed:', err);
     }
-  }, [checkedIds, currentBoard, loadBoard]);
+  }, [checkedIds, currentBoard, loadBoard, nudgeDispatch]);
 
   // Phase 3: 批量重分配
   const handleBulkReassign = useCallback(async () => {
@@ -616,10 +622,12 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       setShowBulkReassign(false);
       setBulkReassignProfile('');
       await loadBoard();
+      // 🔴 对齐 Hermes：重分配后 nudge（新 profile 可能立即被调度）
+      nudgeDispatch(currentBoard);
     } catch (err) {
       console.error('[KanbanPanel] Bulk reassign failed:', err);
     }
-  }, [checkedIds, bulkReassignProfile, currentBoard, loadBoard]);
+  }, [checkedIds, bulkReassignProfile, currentBoard, loadBoard, nudgeDispatch]);
 
   // Phase 3: 批量改优先级
   const handleBulkPriority = useCallback(async () => {
@@ -632,10 +640,12 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       setShowBulkPriority(false);
       setBulkPriority('');
       await loadBoard();
+      // 🔴 对齐 Hermes：改优先级后 nudge（高优先级任务应被立即调度）
+      nudgeDispatch(currentBoard);
     } catch (err) {
       console.error('[KanbanPanel] Bulk priority failed:', err);
     }
-  }, [checkedIds, bulkPriority, currentBoard, loadBoard]);
+  }, [checkedIds, bulkPriority, currentBoard, loadBoard, nudgeDispatch]);
 
   // 删除任务
   const handleDeleteTask = useCallback(async (taskId: string) => {
