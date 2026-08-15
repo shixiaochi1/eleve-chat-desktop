@@ -15,7 +15,7 @@ import type { ColumnDef } from './types';
 // 阻塞原因/完成摘要），列内快速创建无法满足 → 不提供添加按钮（对齐 Hermes
 // 锁定列不渲染 add 按钮的纪律）。
 export const COLUMNS: ColumnDef[] = [
-  { key: 'triage',    label: '分诊',    dotColor: 'var(--ui-purple)', emptyText: '暂无待甄别任务', canCreate: true },
+  { key: 'triage',    label: '分类',    dotColor: 'var(--ui-purple)', emptyText: '暂无待甄别任务', canCreate: true },
   { key: 'todo',      label: '待办',    dotColor: 'var(--ui-text-tertiary)', emptyText: '暂无待办任务', canCreate: true },
   { key: 'scheduled', label: '已排期',  dotColor: 'var(--ui-cyan)', emptyText: '暂无定时等待任务', canCreate: false },
   { key: 'ready',     label: '就绪',    dotColor: 'var(--ui-yellow)', emptyText: '暂无就绪任务', canCreate: true },

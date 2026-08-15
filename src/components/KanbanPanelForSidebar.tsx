@@ -65,6 +65,10 @@ export default function KanbanPanelForSidebar() {
     homeChannels,
     showDispatch,
     setShowDispatch,
+    handleDrop,
+    draggingTaskId,
+    setDraggingTaskId,
+    justCreatedIds,
   } = useKanban({ board: 'default' });
 
   const handleSelectTask = (task: KanbanTask) => {
@@ -73,10 +77,6 @@ export default function KanbanPanelForSidebar() {
 
   const handleCreateTask = (status: string) => {
     setCreatingIn(status);
-  };
-
-  const handleRefresh = () => {
-    loadBoard();
   };
 
   return (
@@ -90,8 +90,12 @@ export default function KanbanPanelForSidebar() {
         onCreateTask={handleCreateTask}
         onSwitchBoard={handleSwitchBoard}
         onShowCreateBoard={() => setShowCreateBoard(true)}
-        onRefresh={handleRefresh}
         onDispatch={() => setShowDispatch(true)}
+        onDrop={handleDrop}
+        onDragStart={(taskId) => setDraggingTaskId(taskId)}
+        onDragEnd={() => setDraggingTaskId(null)}
+        draggingTaskId={draggingTaskId}
+        justCreatedIds={justCreatedIds}
       />
 
       {/* 创建任务 — 与主看板共享 CreateTaskDrawer（overlay 变体，全量字段） */}
@@ -112,10 +116,11 @@ export default function KanbanPanelForSidebar() {
       {/* 手动调度 — 与主看板共享 DispatchModal */}
       <DispatchModal open={showDispatch} board={currentBoard} onClose={() => setShowDispatch(false)} onDispatched={loadBoard} />
 
-      {/* 详情抽屉 — 点卡片打开查看/操作；依赖点击可跳转 */}
+      {/* 详情抽屉 — 双击卡片打开查看/操作；依赖点击可跳转（overlay 变体，
+          与新建任务 CreateTaskDrawer 的侧边栏样式一致） */}
       {selectedTask && (
         <TaskDrawer task={selectedTask} onClose={() => setSelectedTask(null)} onAction={handleAction} loadingId={loadingId}
-          onRefresh={loadBoard} homeChannels={homeChannels} board={currentBoard}
+          onRefresh={loadBoard} homeChannels={homeChannels} board={currentBoard} variant="overlay"
           onOpenTask={(id) => { const t = allTasks.find(x => x.id === id); if (t) setSelectedTask(t); }} />
       )}
 

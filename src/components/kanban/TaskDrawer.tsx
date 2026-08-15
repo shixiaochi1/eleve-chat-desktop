@@ -140,9 +140,12 @@ interface TaskDrawerProps {
   board?: string;
   /** 点击依赖链接跳转到目标任务（对齐 Hermes drawer onOpen） */
   onOpenTask?: (id: string) => void;
+  /** 外壳变体：'drawer'（默认，全屏遮罩 + 右侧滑出，主看板用）/
+   *  'overlay'（容器内覆盖层圆角卡片，侧边栏用，与 CreateTaskDrawer overlay 一致） */
+  variant?: 'drawer' | 'overlay';
 }
 
-export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, homeChannels, board = 'default', onOpenTask }: TaskDrawerProps) {
+export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, homeChannels, board = 'default', onOpenTask, variant = 'drawer' }: TaskDrawerProps) {
   const busy = loadingId === task?.id;
   const [detail, setDetail] = useState<any>(null);
   const [commentInput, setCommentInput] = useState('');
@@ -332,9 +335,8 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
     return 'var(--ui-stroke-tertiary)';
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-overlay/40" onClick={handleShadeClick} style={{ animation: 'fadeIn 150ms ease-out' }}>
-      <div className="flex flex-col h-full border-l border-[var(--kanban-col-border)] bg-[var(--color-background)]" onClick={(e) => e.stopPropagation()} style={{ width: 'min(400px, 88vw)', animation: 'slideInRight 180ms ease-out' }}>
+  const panel = (
+    <>
         {/* 抽屉头 */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ui-stroke-tertiary)]">
           <div className="flex items-center gap-2">
@@ -841,6 +843,26 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
             </>
           )}
         </div>
+    </>
+  );
+
+  // overlay 变体（侧边栏）：容器内覆盖层圆角卡片，与 CreateTaskDrawer overlay 一致
+  if (variant === 'overlay') {
+    return (
+      <div
+        className="absolute inset-0 z-50 flex flex-col bg-[var(--ui-bg-elevated)] border border-[var(--ui-stroke-tertiary)] rounded-lg overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {panel}
+      </div>
+    );
+  }
+
+  // drawer 变体（默认，主看板）：全屏遮罩 + 右侧滑出
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-overlay/40" onClick={handleShadeClick} style={{ animation: 'fadeIn 150ms ease-out' }}>
+      <div className="flex flex-col h-full border-l border-[var(--kanban-col-border)] bg-[var(--color-background)]" onClick={(e) => e.stopPropagation()} style={{ width: 'min(400px, 88vw)', animation: 'slideInRight 180ms ease-out' }}>
+        {panel}
       </div>
     </div>
   );
