@@ -7,6 +7,8 @@ import { cn } from '@/lib/utils';
 import type { KanbanTask, ColumnDef } from './types';
 import { isBlocked, isDone, getStaleness, fmtAge, fmtDuration } from './helpers';
 import { COLUMNS, LOCKED_DROP_COLUMNS } from './constants';
+// 🔴 2026-08-16：卡片 hover 状态浮层（侧边栏卡片小/截断看不清内容与状态）
+import { useTaskHover } from './TaskHoverCard';
 
 // ── 任务卡片（Trail 极简风格 + 删除按钮 + 右键菜单）──
 const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, justCreated, isDragging, onDelete, defaultAssignee, orchestrator, onMoveTo }: { task: KanbanTask; onSelect: (task: KanbanTask) => void; isSelected: boolean; onDragStart: (id: string) => void; checked: boolean; onCheck: (id: string) => void; justCreated: boolean; isDragging: boolean; onDelete?: (id: string) => void; defaultAssignee?: string; orchestrator?: string; onMoveTo?: (status: string) => void }) {
@@ -37,6 +39,8 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
   }, [task.status]);
   // 🔴 对齐 Hermes ContextMenu：右键菜单（打开/选择/移动到/删除）
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  // 🔴 2026-08-16：hover 状态浮层（200ms 延迟防抖动，portal 到 body）
+  const { hoverEl, hoverHandlers } = useTaskHover(task);
 
   const priorityLevel = task.priority ? String(task.priority).replace(/^p/i, '') : null;
   const showBar = isSelected || (priorityLevel !== null && ['0', '1', '2', '3'].includes(priorityLevel));
@@ -88,8 +92,9 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
       }}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => { setHovered(false); setConfirmDelete(false); }}
+      onMouseEnter={hoverHandlers.onMouseEnter}
+      onMouseMove={hoverHandlers.onMouseMove}
+      onMouseLeave={() => { hoverHandlers.onMouseLeave(); setHovered(false); setConfirmDelete(false); }}
       style={showBar ? {
         borderLeftWidth: isSelected ? 3 : 2,
         borderLeftColor: isSelected ? 'var(--kanban-card-selected-bar)' : `var(--priority-${priorityLevel})`,
@@ -267,6 +272,9 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
         )}
       </div>
     </div>
+
+      {/* 🔴 2026-08-16：hover 状态浮层（portal 到 body） */}
+      {hoverEl}
 
       {/* 🔴 对齐 Hermes ContextMenu：打开/选择/移动到/删除 */}
       {menu && (

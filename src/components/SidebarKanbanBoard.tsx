@@ -24,6 +24,8 @@ import {
 import { cn } from '@/lib/utils';
 import type { KanbanTask, ColumnDef } from './kanban/types';
 import { COLUMNS, LOCKED_DROP_COLUMNS } from './kanban/constants';
+// 🔴 2026-08-16：卡片 hover 状态浮层（侧边栏 72px 小卡看不清内容与状态）
+import { useTaskHover } from './kanban/TaskHoverCard';
 
 // 新建任务高亮动画（独立注入，不依赖主看板 KanbanPanel 的 <style>）
 const SB_PULSE_CSS = `
@@ -56,6 +58,8 @@ function SidebarTaskCard({
   isSelected: boolean;
 }) {
   const hasProgress = (task.child_total ?? 0) > 0;
+  // 🔴 2026-08-16：hover 状态浮层（200ms 延迟防抖动，portal 到 body）
+  const { hoverEl, hoverHandlers } = useTaskHover(task);
 
   return (
     <div
@@ -68,6 +72,9 @@ function SidebarTaskCard({
       onDragEnd={onDragEnd}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
+      onMouseEnter={hoverHandlers.onMouseEnter}
+      onMouseMove={hoverHandlers.onMouseMove}
+      onMouseLeave={hoverHandlers.onMouseLeave}
       style={{
         // 主题色渐变背景：顶部 accent 微光 → 卡片底色（立体层次，accent 加强）；
         // 选中态 accent 浓度更高（可见的选中反馈）
@@ -104,6 +111,8 @@ function SidebarTaskCard({
           </span>
         )}
       </div>
+      {/* 🔴 2026-08-16：hover 状态浮层（portal 到 body） */}
+      {hoverEl}
     </div>
   );
 }

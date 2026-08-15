@@ -428,6 +428,25 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       //   host.notify 错误提示 + 回滚），删除阻断式 confirm。
     }
 
+    // 🔴 2026-08-16 修复：拖入归档列 = 归档动作。归档任务默认不显示
+    //   （showArchived=false 顶栏开关），此前乐观更新后卡片静默消失无提示
+    //   （用户实测「拖到已归档卡片自动消失」）；现在成功 notify 说明去向。
+    if (newStatus === 'archived') {
+      setApiTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+      try {
+        await updateKanbanTask(taskId, { status: newStatus }, currentBoard);
+        notify({
+          kind: 'success',
+          title: '已归档',
+          message: `任务 ${taskId} 已归档（顶栏「显示归档」开关可查看）`,
+        });
+      } catch (err) {
+        console.error('[KanbanPanel] Archive drop failed, rolling back:', err);
+        await loadBoard(); // 回滚：重新加载真实数据
+      }
+      return;
+    }
+
     // 乐观更新：立即移动卡片
     setApiTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
     try {
