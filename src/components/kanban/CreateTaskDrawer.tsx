@@ -34,6 +34,7 @@ interface CreateTaskDrawerProps {
   goalMaxTurns: string;
   workspaceKind: string;
   workspacePath: string;
+  modelOverride: string;
   parentOptions: Array<{ id: string; title: string }>;
   onTitleChange: (v: string) => void;
   onBodyChange: (v: string) => void;
@@ -45,16 +46,17 @@ interface CreateTaskDrawerProps {
   onGoalMaxTurnsChange: (v: string) => void;
   onWorkspaceKindChange: (v: string) => void;
   onWorkspacePathChange: (v: string) => void;
+  onModelOverrideChange: (v: string) => void;
   onSubmit: () => Promise<void>;
   onClose: () => void;
 }
 
 export function CreateTaskDrawer({
   open, target, variant = 'drawer',
-  title, body, assignee, priority, skills, parent, goalMode, goalMaxTurns, workspaceKind, workspacePath,
+  title, body, assignee, priority, skills, parent, goalMode, goalMaxTurns, workspaceKind, workspacePath, modelOverride,
   parentOptions,
   onTitleChange, onBodyChange, onAssigneeChange, onPriorityChange, onSkillsChange, onParentChange,
-  onGoalModeChange, onGoalMaxTurnsChange, onWorkspaceKindChange, onWorkspacePathChange,
+  onGoalModeChange, onGoalMaxTurnsChange, onWorkspaceKindChange, onWorkspacePathChange, onModelOverrideChange,
   onSubmit, onClose,
 }: CreateTaskDrawerProps) {
   const [submitting, setSubmitting] = useState(false);
@@ -135,6 +137,13 @@ export function CreateTaskDrawer({
             placeholder="工作区路径（留空继承看板默认目录）"
             className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
         )}
+      </div>
+      {/* 模型覆盖（对齐 HERMES TaskModelOverride：留空继承 profile 模型） */}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">模型覆盖（可选）</label>
+        <input value={modelOverride} onChange={e => onModelOverrideChange(e.target.value)}
+          placeholder="留空继承 assigned profile 的模型"
+          className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
       </div>
       {/* Goal Mode */}
       <div className="flex flex-col gap-1.5">

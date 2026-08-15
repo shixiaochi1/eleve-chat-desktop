@@ -69,6 +69,8 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   // 工作区类型/路径（对齐 HERMES NewTaskDialog：scratch/worktree/dir + 可选覆盖路径）
   const [newWorkspaceKind, setNewWorkspaceKind] = useState('scratch');
   const [newWorkspacePath, setNewWorkspacePath] = useState('');
+  // 🔴 模型覆盖（对齐 HERMES TaskModelOverride）：'' = 继承 profile 的模型
+  const [newModelOverride, setNewModelOverride] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [checkedIds, setCheckedIds] = useState<Set<any>>(new Set());
   // Phase 4 状态
@@ -315,7 +317,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   const resetCreateForm = useCallback(() => {
     setNewTitle(''); setNewBody(''); setNewAssignee(''); setNewPriority('');
     setNewSkills(''); setNewParent(''); setNewGoalMode(false); setNewGoalMaxTurns('20');
-    setNewWorkspaceKind('scratch'); setNewWorkspacePath('');
+    setNewWorkspaceKind('scratch'); setNewWorkspacePath(''); setNewModelOverride('');
   }, []);
 
   // 创建 ready 任务后 400ms 防抖立即触发一次调度（对齐 Hermes nudgeDispatcher）：
@@ -353,6 +355,8 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       if (newWorkspaceKind !== 'scratch' && newWorkspacePath.trim()) {
         payload.workspace_path = newWorkspacePath.trim();
       }
+      // 模型覆盖（后端 create handler 读 model_override，'' 不发送 = 继承 profile）
+      if (newModelOverride.trim()) payload.model_override = newModelOverride.trim();
       if (creatingIn === 'triage') payload.triage = true;
       const result = await createKanbanTask(payload);
       setCreatingIn(null);
@@ -380,7 +384,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       // 让调用方（CreateTaskDrawer）能感知失败并展示错误
       throw err;
     }
-  }, [currentBoard, creatingIn, newTitle, newBody, newAssignee, newPriority, newSkills, newParent, newGoalMode, newGoalMaxTurns, newWorkspaceKind, newWorkspacePath, loadBoard, orchestration, nudgeDispatch]);
+  }, [currentBoard, creatingIn, newTitle, newBody, newAssignee, newPriority, newSkills, newParent, newGoalMode, newGoalMaxTurns, newWorkspaceKind, newWorkspacePath, newModelOverride, loadBoard, orchestration, nudgeDispatch]);
 
   // 操作
   const handleAction = useCallback(async (action: string, taskId: string) => {
@@ -796,6 +800,8 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     setNewWorkspaceKind,
     newWorkspacePath,
     setNewWorkspacePath,
+    newModelOverride,
+    setNewModelOverride,
     handleReassign,
   };
 

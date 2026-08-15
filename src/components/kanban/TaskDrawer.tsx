@@ -414,6 +414,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                     )}
                   </div>
                   <MetaRow label="创建时间" value={task.startTs ? fmtAge(task.startTs) : '—'} />
+                  {task.model_override && <MetaRow label="模型覆盖" value={task.model_override} />}
                   {blocked && task.block_reason && <MetaRow label="阻塞原因" value={task.block_reason} />}
                 </div>
 

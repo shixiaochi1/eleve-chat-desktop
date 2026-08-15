@@ -622,6 +622,23 @@ export async function getKanbanProfiles(): Promise<any> {
   return call('get_kanban_profiles', {});
 }
 
+// 🔴 连线完善：对齐后端已注册端点（PATCH /profiles/:id、POST /profiles/:id/describe-auto、
+//   GET /runs/:id/inspect），此前后端有、前端 API 层未接
+/** 更新 profile 描述（编排面板用，对齐 Hermes saveProfileDescription） */
+export async function patchKanbanProfile(profileId: string, description: string): Promise<any> {
+  return call('patch_kanban_profile', { profile_id: profileId, description });
+}
+
+/** 用辅助模型自动生成 profile 描述（对齐 Hermes autoDescribeProfile） */
+export async function autoDescribeKanbanProfile(profileId: string): Promise<any> {
+  return call('auto_describe_kanban_profile', { profile_id: profileId, overwrite: true });
+}
+
+/** 检查 run 进程存活状态（对齐 Hermes inspect_run_endpoint） */
+export async function inspectKanbanRun(runId: string, board = 'default'): Promise<any> {
+  return call('get_kanban_run_inspect', { run_id: runId, board });
+}
+
 export async function getKanbanHomeChannels(taskId: string, board = 'default'): Promise<any> {
   return call('get_kanban_home_channels', { task_id: taskId, board });
 }

@@ -356,8 +356,14 @@ const KANBAN_HTTP_MAP: Record<string, KanbanMapping> = {
   // Workers / runs / diagnostics
   get_kanban_diagnostics:     { method: 'GET',  path: (a) => `/api/kanban/diagnostics?board=${encodeURIComponent(a.board || 'default')}` },
   get_kanban_active_workers:  { method: 'GET',  path: (a) => `/api/kanban/workers/active?board=${encodeURIComponent(a.board || 'default')}` },
-  get_kanban_run:             { method: 'GET',  path: (a) => `/api/kanban/runs/${a.run_id}` },
+  // 🔴 修复（连线断点）：run 详情按 board 路由——后端 Query board 缺省 'default'，
+  //   此前映射不带 board，非 default 看板查 run 落错板
+  get_kanban_run:             { method: 'GET',  path: (a) => `/api/kanban/runs/${a.run_id}?board=${encodeURIComponent(a.board || 'default')}` },
   terminate_kanban_run:       { method: 'POST', path: (a) => `/api/kanban/runs/${a.run_id}/terminate` },
+  // 🔴 连线完善：对齐后端已注册的端点（编排面板用），此前后端有、前端 API 层未接
+  get_kanban_run_inspect:     { method: 'GET',  path: (a) => `/api/kanban/runs/${a.run_id}/inspect?board=${encodeURIComponent(a.board || 'default')}` },
+  patch_kanban_profile:       { method: 'PATCH', path: (a) => `/api/kanban/profiles/${encodeURIComponent(a.profile_id)}` },
+  auto_describe_kanban_profile: { method: 'POST', path: (a) => `/api/kanban/profiles/${encodeURIComponent(a.profile_id)}/describe-auto` },
 
   // Decompose / specify / orchestration
   decompose_kanban_task:      { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/decompose` },

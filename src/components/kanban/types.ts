@@ -86,6 +86,8 @@ export interface KanbanTask {
   link_counts?: { parents: number; children: number };
   /** 诊断提示数组（后端 board 接口注入的 blocked 原因等，对齐 Hermes warnings rollup） */
   diagnostics?: string[];
+  /** 任务级模型覆盖（后端 Task.model_override，'' = 继承 profile） */
+  model_override?: string;
   runs: RunRecord[];
   comments: CommentRecord[];
   child_done: number | null;

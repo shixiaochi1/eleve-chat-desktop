@@ -147,6 +147,8 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     setNewWorkspaceKind,
     newWorkspacePath,
     setNewWorkspacePath,
+    newModelOverride,
+    setNewModelOverride,
     searchQuery,
     setSearchQuery,
     checkedIds,
@@ -591,12 +593,12 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
         open={Boolean(creatingIn)} target={creatingIn || 'triage'} variant="drawer"
         title={newTitle} body={newBody} assignee={newAssignee} priority={newPriority}
         skills={newSkills} parent={newParent} goalMode={newGoalMode} goalMaxTurns={newGoalMaxTurns}
-        workspaceKind={newWorkspaceKind} workspacePath={newWorkspacePath}
+        workspaceKind={newWorkspaceKind} workspacePath={newWorkspacePath} modelOverride={newModelOverride}
         parentOptions={allTasks.filter(t => t.id && t.status !== 'running').slice(0, 30).map(t => ({ id: t.id, title: t.title }))}
         onTitleChange={setNewTitle} onBodyChange={setNewBody} onAssigneeChange={setNewAssignee}
         onPriorityChange={setNewPriority} onSkillsChange={setNewSkills} onParentChange={setNewParent}
         onGoalModeChange={setNewGoalMode} onGoalMaxTurnsChange={setNewGoalMaxTurns}
-        onWorkspaceKindChange={setNewWorkspaceKind} onWorkspacePathChange={setNewWorkspacePath}
+        onWorkspaceKindChange={setNewWorkspaceKind} onWorkspacePathChange={setNewWorkspacePath} onModelOverrideChange={setNewModelOverride}
         onSubmit={() => handleCreateSubmit()}
         onClose={() => { setCreatingIn(null); resetCreateForm(); }}
       />
