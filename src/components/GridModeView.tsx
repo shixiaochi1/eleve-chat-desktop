@@ -198,7 +198,7 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   // currentProfile getter 用 ref 防闭包过期（useGridChat 事件 handler 长生命周期）
   const currentProfileRef = useRef(currentProfile);
   currentProfileRef.current = currentProfile;
-  const { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand, handleSlashConfirmDone, sendQueueNow, deleteQueueEntry } = useGridChat(true, {
+  const { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand, handleSlashConfirmDone } = useGridChat(true, {
     onSessionCwd: onSessionCwd,
     currentProfile: () => currentProfileRef.current,
   });
@@ -235,8 +235,8 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   // 🔴 M-1/M-2 修复：宫格发送不再注入全局 currentModel —— 每张卡片用自己
   // session 的 client（该 profile config.model_ref 热更新 + 卡片级 provider.switch override），
   // 各 Agent 模型互不干扰。useModelContext 仅保留给 ModelPill 展示。
-  const handleSendTo = useCallback((profile: string, text: string, attachments?: Array<{ id: string; name: string; size: number; preview: string }>, attachmentDataURLs?: string[], sessionId?: string) => {
-    sendTo(profile, text, undefined, { attachments, attachmentDataURLs, explicitSessionId: sessionId });
+  const handleSendTo = useCallback((profile: string, text: string, attachmentDataURLs?: string[], sessionId?: string) => {
+    sendTo(profile, text, undefined, { attachmentDataURLs, explicitSessionId: sessionId });
   }, [sendTo]);
 
   // 状态镜像（退出/展开时读当前各 Agent session 指针）
@@ -573,8 +573,6 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
                   onNewSession={handleGridNewSession}
                   onCommand={execCommand}
                   onSlashConfirmDone={handleSlashConfirmDone}
-                  onQueueSendNow={sendQueueNow}
-                  onQueueDelete={deleteQueueEntry}
                   onSelectModel={onSelectModel}
                 />
               </div>

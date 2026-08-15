@@ -38,7 +38,8 @@ import TodoPanel from './TodoPanel';
 import { useImageAttachments } from '@/hooks/useImageAttachments';
 import { useFileAttachments } from '@/hooks/useFileAttachments';
 import { collectDroppedPaths, dragHasPaths } from '@/lib/paths-dnd';
-import { useQueue, updateEntry, type QueuedMessage } from '@/lib/message-queue';
+
+import { useBackendQueue, type QueueEntry } from '@/hooks/useBackendQueue';
 import type { AgentChatState } from '../hooks/useGridChat';
 
 // 消息虚拟化估算高度/过扫（宫格卡片窄小，估算低于单视图 MessageContainer 的 220）
@@ -70,7 +71,7 @@ interface AgentChatCardProps {
   color: AgentCardColor;
   focused: boolean;
   portReady: boolean;
-  onSend: (profile: string, text: string, attachments?: Array<{ id: string; name: string; size: number; preview: string }>, attachmentDataURLs?: string[], sessionId?: string) => void;
+  onSend: (profile: string, text: string, attachmentDataURLs?: string[], sessionId?: string) => void;
   onLoadMore: (profile: string) => void;
   onAbort: (profile: string) => void;
   onClearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm') => void;
@@ -81,10 +82,6 @@ interface AgentChatCardProps {
   onCommand: (profile: string, cmdName: string, args: string) => void;
   /** slash 破坏性命令确认完成（输出上屏 + session 轮换，对齐单视图） */
   onSlashConfirmDone: (profile: string, choice: string, result?: { output?: string; session_id?: string }) => void;
-  /** 立即发送排队条目（对齐 Hermes sendQueuedNow） */
-  onQueueSendNow: (profile: string, id: string) => void;
-  /** 删除排队条目 */
-  onQueueDelete: (profile: string, id: string) => void;
   /** 🔴 M-2 修复：选模型 → 写该卡片 profile 的 config + 切该卡片的 session（per-Agent 模型隔离） */
   onSelectModel?: (profile: string, modelId: string, sessionId?: string | null) => void;
 }
@@ -154,7 +151,7 @@ function RobotAvatar({ agentColor, profile }: { agentColor: string; profile?: Ag
 export const AgentChatCard = memo(function AgentChatCard({
   profile, state, color, focused, portReady,
   onSend, onLoadMore, onAbort, onClearPending, onExpand, onNewSession, onCommand, onSlashConfirmDone,
-  onQueueSendNow, onQueueDelete, onSelectModel,
+  onSelectModel,
 }: AgentChatCardProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
@@ -169,9 +166,10 @@ export const AgentChatCard = memo(function AgentChatCard({
   const { grouped } = useModelContext();
   const hasModels = !!grouped && Object.values(grouped).some((g) => g.models.length > 0);
 
-  // ── 排队编辑（对齐 Hermes use-composer-queue：per-agent queueEdit 状态）──
-  const queueEntries = useQueue(name);
-  const [queueEdit, setQueueEdit] = useState<{ entryId: string; draft: string } | null>(null);
+  // ── 排队编辑（对齐 Hermes use-composer-queue：per-agent queueEdit 状态）
+  // 🔴 2026-08-16 方案A：队列数据源 = 后端权威投影（queue.status 轮询）
+  const { queue: queueEntries, edit: queueEditEntry, remove: queueRemove, steer: queueSteer } = useBackendQueue(state.sessionId ?? null);
+  const [queueEdit, setQueueEdit] = useState<{ entryIndex: number; draft: string } | null>(null);
   // 🔴 2026-08-15 DSH QueueDock 对齐（宫格）：排队面板改弹层开合（同单视图 InputArea）
   const [queueOpen, setQueueOpen] = useState(false);
   const queuePopupRef = useRef<HTMLDivElement | null>(null);
@@ -199,39 +197,43 @@ export const AgentChatCard = memo(function AgentChatCard({
     return () => document.removeEventListener('mousedown', onDocDown);
   }, [queueOpen, queueEdit]);
 
-  const beginQueueEdit = useCallback((entry: QueuedMessage, currentDraft: string) => {
+  const beginQueueEdit = useCallback((entry: QueueEntry, currentDraft: string) => {
     if (queueEdit) return;
-    setQueueEdit({ entryId: entry.id, draft: currentDraft });
+    setQueueEdit({ entryIndex: entry.index, draft: currentDraft });
     // 加载条目文本到 composer（对齐 Hermes loadIntoComposer）
     composerRef.current?.setValue(entry.text);
   }, [queueEdit]);
 
   const stepQueueEdit = useCallback((direction: -1 | 1, currentDraft: string): { text: string; done: boolean } | null => {
     if (!queueEdit) return null;
-    const index = queueEntries.findIndex((e) => e.id === queueEdit.entryId);
+    const index = queueEntries.findIndex((e) => e.index === queueEdit.entryIndex);
     const target = index + direction;
     if (index < 0 || target < 0) return index >= 0 ? { text: currentDraft, done: false } : null;
-    // 保存当前编辑
-    updateEntry(name, queueEdit.entryId, { text: currentDraft });
+    // 保存当前编辑（后端 queue.edit RPC，轮询自动刷新）
+    const save = async () => {
+      const current = currentDraft;
+      if (current.trim()) await queueEditEntry(queueEdit.entryIndex, current);
+    };
+    void save();
     const next = queueEntries[target];
     if (next) {
-      setQueueEdit({ ...queueEdit, entryId: next.id });
+      setQueueEdit({ ...queueEdit, entryIndex: next.index });
       return { text: next.text, done: false };
     }
     // 越过末条：退出编辑，恢复原草稿
     setQueueEdit(null);
     return { text: queueEdit.draft, done: true };
-  }, [queueEdit, queueEntries, name]);
+  }, [queueEdit, queueEntries, queueEditEntry]);
 
   const exitQueueEdit = useCallback((action: 'save' | 'cancel', currentDraft: string): string | null => {
     if (!queueEdit) return null;
     if (action === 'save' && currentDraft.trim()) {
-      updateEntry(name, queueEdit.entryId, { text: currentDraft });
+      queueEditEntry(queueEdit.entryIndex, currentDraft);
     }
     const restored = queueEdit.draft;
     setQueueEdit(null);
     return restored;
-  }, [queueEdit, name]);
+  }, [queueEdit, queueEditEntry]);
 
   // per-agent 图片附件 — 绑到本 Agent 的 session（getSessionId 随状态槽实时取值）
   const stateRef = useRef(state);
@@ -328,25 +330,18 @@ export const AgentChatCard = memo(function AgentChatCard({
       explicitSid = sid;
     }
 
-    // 准备附件元数据 + base64（排队用）
-    const queuedAttachments = images.map((img) => ({ id: img.id, name: img.name, size: img.size, preview: img.preview }));
+    // 准备附件 data URL（乐观上屏缩略图用；附件本体已由 uploadUnuploaded 附着后端 session）
     const dataURLs = images.map((img) => img.preview);
 
     // 🔴 2026-08-09 文件附件 ref_text 注入（对齐 Hermes attachment.refText 语义）
     const fileRefs = attachedFiles.map((f) => f.refText).join(' ');
     const finalText = fileRefs ? `${fileRefs}\n${text}` : text;
 
-    onSend(name, finalText, queuedAttachments.length > 0 ? queuedAttachments : undefined, dataURLs.length > 0 ? dataURLs : undefined, explicitSid);
-    // 🔴 busy 时排队：从 session 分离图片（防下次发送误消费）
-    // 🔴 P2: 显式传本 Agent sessionId（禁止 fallback 到 ws-client 全局 sessionId，宫格多 Agent 并发会 detach 错 session）
-    if (wasBusy && images.length > 0) {
-      const ws = getWsClient();
-      const sid = stateRef.current.sessionId ?? undefined;
-      for (const img of images) {
-        // 仅分离已上传到后端的图片（本地暂存的无后端状态）
-        if (img.uploaded && img.path) ws.imageDetach(img.path, sid).catch(() => {});
-      }
-    }
+    onSend(name, finalText, dataURLs.length > 0 ? dataURLs : undefined, explicitSid);
+    // 🔴 2026-08-16 方案A：附件归属后端权威——busy 直发后端 route_busy_submit：
+    // media 非空必 fall through Queue，Queue 快照接管 attached_images 后
+    // 后端自行 detach_image（dispatch.rs），Overflow 时保留 for retry；
+    // 前端不再做条目级 imageDetach（旧前端自治队列配套，已退役）。
     if (images.length > 0) clearImages();
     if (attachedFiles.length > 0) clearFileAttachments();
   }, [onSend, name, clearImages, attachedImages, state.status, uploadUnuploaded, attachedFiles, clearFileAttachments]);
@@ -614,10 +609,10 @@ export const AgentChatCard = memo(function AgentChatCard({
             <QueuePanel
               entries={queueEntries}
               busy={streaming}
-              editingId={queueEdit?.entryId ?? null}
-              onDelete={(id) => onQueueDelete(name, id)}
+              editingId={queueEdit?.entryIndex ?? null}
+              onDelete={(index) => void queueRemove(index)}
               onEdit={(entry) => beginQueueEdit(entry, composerRef.current?.getValue() ?? '')}
-              onSendNow={(id) => onQueueSendNow(name, id)}
+              onSendNow={(index) => void queueSteer(index)}
             />
           </div>
         )}
@@ -641,7 +636,7 @@ export const AgentChatCard = memo(function AgentChatCard({
         fileError={fileError}
         onRemoveFile={removeFileAttachment}
         onClearFileError={clearFileError}
-        queueEditingId={queueEdit?.entryId ?? null}
+        queueEditingId={queueEdit?.entryIndex ?? null}
         onQueueStep={(dir) => stepQueueEdit(dir, composerRef.current?.getValue() ?? '')}
         onQueueExit={(action) => exitQueueEdit(action, composerRef.current?.getValue() ?? '')}
         onQueueLoadText={(text) => composerRef.current?.setValue(text)}

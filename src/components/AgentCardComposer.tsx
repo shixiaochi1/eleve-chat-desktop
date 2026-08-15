@@ -55,7 +55,7 @@ interface AgentCardComposerProps {
   onRemoveFile?: (id: string) => void;
   onClearFileError?: () => void;
   /** 队列编辑状态（对齐 Hermes stepQueuedEdit / exitQueuedEdit） */
-  queueEditingId?: string | null;
+  queueEditingId?: number | null;
   onQueueStep?: (direction: -1 | 1) => { text: string; done: boolean } | null;
   onQueueExit?: (action: 'save' | 'cancel') => string | null;
   onQueueLoadText?: (text: string) => void;

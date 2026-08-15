@@ -64,7 +64,7 @@ export default function SessionWindowApp() {
   const grid = useGridChat(true, { persistGlobalPointers: false });
   const {
     states, loadLatest, sendTo, loadMore, abortAgent, clearPending,
-    resetAgent, execCommand, handleSlashConfirmDone, sendQueueNow, deleteQueueEntry,
+    resetAgent, execCommand, handleSlashConfirmDone,
   } = grid;
 
   // 4. 加载目标会话（🔴 2026-08-13：归属校验通过才加载——fail-closed）
@@ -127,8 +127,8 @@ export default function SessionWindowApp() {
         color={color}
         focused
         portReady={portReady}
-        onSend={(p, text, attachments, attachmentDataURLs, sid) =>
-          void sendTo(p, text, undefined, { attachments, attachmentDataURLs, explicitSessionId: sid })}
+        onSend={(p, text, attachmentDataURLs, sid) =>
+          void sendTo(p, text, undefined, { attachmentDataURLs, explicitSessionId: sid })}
         onLoadMore={loadMore}
         onAbort={abortAgent}
         onClearPending={clearPending}
@@ -136,8 +136,6 @@ export default function SessionWindowApp() {
         onNewSession={resetAgent}
         onCommand={execCommand}
         onSlashConfirmDone={handleSlashConfirmDone}
-        onQueueSendNow={sendQueueNow}
-        onQueueDelete={deleteQueueEntry}
       />
     </div>
   );

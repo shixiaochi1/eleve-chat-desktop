@@ -53,7 +53,7 @@ import { handleGlobalEvent } from '@/lib/global-events';
 import { writeAgentTerminalChunk } from '@/lib/agent-terminal-stream';
 import { burstVibeHearts } from '@/lib/vibe-hearts';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
-import { enqueue as queueEnqueue, dequeue as queueDequeue, peek as queuePeek, clearQueue, getQueueLength, getQueue, removeEntry, promoteEntry, MAX_DRAIN_ATTEMPTS, getDrainFailures, incrementDrainFailures, clearDrainFailures, resetAllDrainFailures, stashAttachmentData, takeAttachmentData, type QueuedAttachment } from '@/lib/message-queue';
+
 import { getSessionStatus } from '@/store/session-status';
 import type { ChatMessage } from '@/types';
 import { WINDOW_MAX, PAGE_SIZE, FLUSH_MS, emptyState, gridMsgId, type AgentStatus, type AgentChatState } from './gridChatTypes';
@@ -77,7 +77,7 @@ export function useGridChat(
   states: Record<string, AgentChatState>;
   loadLatest: (profile: string, sessionId: string) => Promise<void>;
   loadMore: (profile: string) => Promise<void>;
-  sendTo: (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachments?: QueuedAttachment[]; attachmentDataURLs?: string[]; explicitSessionId?: string }) => Promise<void>;
+  sendTo: (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachmentDataURLs?: string[]; explicitSessionId?: string }) => Promise<void>;
   abortAgent: (profile: string) => Promise<void>;
   clearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm') => void;
   /** 新建会话：清空本 Agent 上下文，下条 sendTo 后端自动建新 session */
@@ -86,10 +86,6 @@ export function useGridChat(
   execCommand: (profile: string, cmdName: string, args?: string) => Promise<void>;
   /** slash 破坏性命令确认完成（对齐单视图 handleSlashConfirmDone：输出上屏 + session 轮换） */
   handleSlashConfirmDone: (profile: string, choice: string, result?: { output?: string; session_id?: string }) => void;
-  /** 立即发送排队条目（对齐 Hermes sendQueuedNow） */
-  sendQueueNow: (profile: string, id: string) => void;
-  /** 删除排队条目 */
-  deleteQueueEntry: (profile: string, id: string) => void;
 } {
   const [states, setStates] = useState<Record<string, AgentChatState>>({});
 
@@ -99,12 +95,10 @@ export function useGridChat(
   const statesRef = useRef(states);
   statesRef.current = states;
 
-  // 🔴 per-agent 发送锁 + 排队（队列走 message-queue.ts localStorage 持久化，对齐 Hermes composer-queue）
+  // 🔴 per-agent 发送锁（2026-08-16 方案A：localStorage 队列已退役，无排队）
   const sendingRef = useRef<Record<string, boolean>>({});
-  // 🔴 per-entry 失败计数（对齐 Hermes drainFailuresRef Map）：记录当前正在 drain 的条目 ID
-  const lastDrainEntryRef = useRef<Record<string, string | null>>({});
-  // sendTo 镜像 ref（供 WS handler message.complete 内 drain 调用，避免循环依赖）
-  const sendToRef = useRef<(profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachments?: QueuedAttachment[]; attachmentDataURLs?: string[]; explicitSessionId?: string }, fromDrain?: boolean) => Promise<void>>(async () => {});
+  // 注：2026-08-16 方案A 队列退役——本地队列已删除，sendingRef 保留为 per-agent 发送锁
+  // 锁由 message.complete 单一权威释放（Phase B），见 abortAgent/complete 分支
 
   // 单 Agent 状态更新（不可变 patch）
   const patch = useCallback((profile: string, updater: (s: AgentChatState) => AgentChatState) => {
@@ -127,7 +121,6 @@ export function useGridChat(
     // 🔴 P0-3: 切会话前重置旧流状态（防旧流 message.complete 终稿注入新会话）
     if (accRef.current[profile]) resetAccumulator(accRef.current[profile]);
     sendingRef.current[profile] = false;
-    clearQueue(profile);
     // 🔴 2026-08-13 边界修复：切会话清 pending 槽（新会话无旧审批/澄清卡；
     // loadLatest 不一定建 WS 流 → session.info 可能不推，必须显式清）
     patch(profile, (s) => ({ ...s, sessionId, status: 'idle', streamParts: [], activityHint: '',
@@ -184,46 +177,22 @@ export function useGridChat(
   }, [patch]);
 
   // ── 发送消息到指定 Agent（显式 profile + session_id，不切全局盖章） ──
-  const sendTo = useCallback(async (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachments?: QueuedAttachment[]; attachmentDataURLs?: string[]; explicitSessionId?: string }, fromDrain?: boolean) => {
+  const sendTo = useCallback(async (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachmentDataURLs?: string[]; explicitSessionId?: string }) => {
     if (!text.trim()) return;
 
     // 🔴 Phase 2: per-agent 发送锁保留，但 busy 分支不再是"前端截流排队"——
-    // 带附件/已排队条目才走前端队列（附件 base64 仅存本地内存，必须先上传后端，
-    // 物理约束非截流）；纯文本直发后端 prompt.submit，由 route_busy_submit
-    // 决定 steer/interrupt/queue（对齐 Hermes use-composer-submit busy 决策树：
-    // busy + 纯文本 → steerDraft 直发；busy + 附件 → queueCurrentDraft）。
-    // 前端队列定位降级为"回显 + 用户管理 UI + 附件暂存"（对齐 Hermes
-    // $queuedPromptsBySession），drain 权归后端 spawn_ws_turn_with_drain。
+    // 附件/纯文本统一直发后端 prompt.submit，由 route_busy_submit 决定
+    // steer/interrupt/queue（对齐 DSH route_busy_submit 三模式决策树）。附件
+    // base64 已由 useImageAttachments.addImage 即时 imageAttachBytes 上传后端
+    // session，busy 直发时后端对 media 非空自动 Queue（attached_images 快照
+    // 接管进 InboxItem）。
+    // 🔴 2026-08-16 方案A：localStorage 前端队列退役——排队显示改后端权威
+    // Inbox.followup 投影（queue.status 轮询），此处不再 enqueue。
     // 🔴 Phase 2: busy 判定 = 发送锁 OR 事件驱动状态非 idle（streaming/waiting）。
     // 关键：interrupt/queue 模式下后端 spawn_ws_turn_with_drain 会自动起新 turn
     // （run.started → status='streaming'，审批 → 'waiting'），该 turn 无前端锁 ——
     // 仅看 sendingRef 会把后端 drain turn 误判为 idle，走直发路径重置累加器抹掉终稿。
     const wasBusy = sendingRef.current[profile] || (statesRef.current[profile]?.status ?? 'idle') !== 'idle';
-    if (wasBusy) {
-      if (opts?.attachments?.length) {
-        const entry = queueEnqueue(profile, { text, modelOpts, attachments: opts.attachments });
-        // 🔴 附件 base64 暂存内存（drain 时取出附着后端，对齐单视图 stashAttachmentData）
-        if (opts.attachmentDataURLs?.length) stashAttachmentData(entry.id, opts.attachmentDataURLs);
-        patch(profile, (st) => ({
-          ...st,
-          messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(text)], attachmentRefs: opts.attachmentDataURLs?.length ? opts.attachmentDataURLs : undefined, timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
-        }));
-        return;
-      }
-      // 压缩中纯文本也排队（对齐 Hermes use-composer-submit：busy && compacting
-      // → queue，不 steer/interrupt 打断压缩）；非压缩中纯文本 fall through 直发
-      const sid = statesRef.current[profile]?.sessionId;
-      if (sid && getSessionStatus(sid).compacting) {
-        const entry = queueEnqueue(profile, { text, modelOpts });
-        if (opts?.attachmentDataURLs?.length) stashAttachmentData(entry.id, opts.attachmentDataURLs);
-        patch(profile, (st) => ({
-          ...st,
-          messages: [...st.messages, { id: gridMsgId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX),
-        }));
-        return;
-      }
-      // 纯文本直发（乐观上屏由下方统一路径负责，此处 fall through）
-    }
 
     const s = statesRef.current[profile];
     // 🔴 串台防御：sessionId 的 profile 前缀必须匹配目标 profile，否则丢弃（让后端新建）
@@ -243,9 +212,8 @@ export function useGridChat(
     if (rawSid && !sessionId) {
       patch(profile, (st) => ({ ...st, sessionId: null }));
     }
-    // 🔴 P1-2.6: drain 路径跳过用户消息追加（排队时已上屏，再追加 = 重复显示）
-    if (!fromDrain) {
-      const userMsg: ChatMessage = {
+    // 🔴 2026-08-16 方案A：本地队列退役——无 fromDrain 续发路径，统一乐观上屏
+    const userMsg: ChatMessage = {
         id: gridMsgId(), role: 'user', parts: [textPart(text)], timestamp: Date.now(),
         // 图片附件 data URL → 缩略图（对齐 Hermes attachmentRefs）
         ...(opts?.attachmentDataURLs?.length ? { attachmentRefs: opts.attachmentDataURLs } : {}),
@@ -257,9 +225,6 @@ export function useGridChat(
         // queued 类 outcome 等后端 drain 的 run.started 驱动，steered 沿用旧流
         ...(wasBusy ? {} : { status: 'streaming' as AgentStatus }),
       }));
-    } else {
-      patch(profile, (st) => ({ ...st, status: 'streaming' }));
-    }
     // 🔴 Phase 2: busy 直发不重置累加器 —— live turn 正在其中累积 delta，
     // 重置会让当前轮 finalize 时丢失 acc.parts（终稿截断）
     if (!wasBusy) accRef.current[profile] = createAccumulator();
@@ -291,7 +256,6 @@ export function useGridChat(
         text, profile, session_id: sessionId ?? '',
         // 🔴 对齐单视图：传递 model/provider（ModelPill 选择的模型生效）
         ...(modelOpts?.model ? { model: modelOpts.model, provider: modelOpts.provider || '' } : {}),
-        ...(fromDrain ? { queued: true } : {}),
       }) as { session_id?: string; status?: string };
       // 后端可能新建 session → 记录 sessionId + 🔴 P1-F 即时持久化（防崩溃丢失）
       if (result?.session_id && result.session_id !== sessionId) {
@@ -318,31 +282,6 @@ export function useGridChat(
       import('../utils/notifications').then(({ notifyError }) => notifyError('发送失败，请检查连接', '发送失败')).catch(() => {});
     }
   }, [patch]);
-
-  // 同步 sendTo 镜像（供 WS handler drain 调用）
-  sendToRef.current = sendTo;
-
-  // ── drain 附件 re-attach + 发送（对齐单视图 drainQueue 附件流）──
-  const drainSendEntry = useCallback(async (profile: string, entry: { id: string; text: string; modelOpts?: { model?: string; provider?: string }; attachments: QueuedAttachment[] }) => {
-    // 🔴 附件 re-attach：drain 时取出内存 base64 → imageAttachBytes → 后端 session.attached_images
-    const dataURLs = takeAttachmentData(entry.id);
-    if (entry.attachments.length > 0 && dataURLs && dataURLs.length > 0) {
-      try {
-        const ws = getWsClient();
-        const sid = statesRef.current[profile]?.sessionId;
-        for (const dataURL of dataURLs) {
-          const base64 = dataURL.includes(',') ? dataURL.split(',')[1]! : dataURL;
-          await ws.imageAttachBytes(base64, undefined, sid ?? undefined);
-        }
-      } catch (e) {
-        console.warn('[useGridChat] drain attachment re-attach failed:', e);
-        import('../utils/notifications').then(({ notifyWarning }) => notifyWarning('附件重新附着失败，已降级为纯文本发送', '附件失效')).catch(() => {});
-      }
-    } else if (entry.attachments.length > 0 && !dataURLs) {
-      import('../utils/notifications').then(({ notifyWarning }) => notifyWarning('页面刷新后附件数据已失效，已降级为纯文本发送', '附件失效')).catch(() => {});
-    }
-    await sendToRef.current(profile, entry.text, entry.modelOpts, undefined, true);
-  }, []);
 
   // ── 中止某 Agent 的流 ──
   // 🔴 Phase B 重构：abort 不自释放锁 / 不自 drain。
@@ -408,12 +347,9 @@ export function useGridChat(
     const oldSid = statesRef.current[profile]?.sessionId;
     if (oldSid) getWsClient().abortStream(oldSid).catch(() => {});
     if (accRef.current[profile]) accRef.current[profile] = createAccumulator();
-    // 🔴 释放发送锁 + 清排队消息（对齐单视图 resetSendingLock）
+    // 🔴 释放发送锁（对齐单视图 resetSendingLock）
     // 不释放 → 旧流被 abort 后 message.complete 永不到达 → sendingRef 恒 true → Agent 锁死
     sendingRef.current[profile] = false;
-    lastDrainEntryRef.current[profile] = null;
-    resetAllDrainFailures();
-    clearQueue(profile);
     patch(profile, (st) => ({
       ...emptyState(),
       lastActivity: st.lastActivity,
@@ -630,15 +566,11 @@ export function useGridChat(
                   : s.messages);
             return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamParts: [], activityHint: '', lastUsage: usageData ?? s.lastUsage, lastActivity: Date.now() };
           });
-          // 🔴 Phase B: 释放发送锁 + 排队消息自动发送（单一权威终止入口）
+          // 🔴 Phase B: 释放发送锁（单一权威终止入口）
           // abort 不自 drain，message.complete 是唯一释放点 → 消灭双 drain 并发 turn
+          // 2026-08-16 方案A：本地队列退役——不再前端出队，排队显示由后端
+          // queue.status 轮询驱动（后端 spawn_ws_turn_with_drain 自动续轮）
           sendingRef.current[profile] = false;
-          // 🔴 per-entry 失败计数：成功重置当前 drain 条目
-          { const eid = lastDrainEntryRef.current[profile]; if (eid) clearDrainFailures(eid); lastDrainEntryRef.current[profile] = null; }
-          if (getQueueLength(profile) > 0) {
-            const next = queueDequeue(profile);
-            if (next) { lastDrainEntryRef.current[profile] = next.id; void drainSendEntry(profile, next); }
-          }
           break;
         }
         case 'approval.request':
@@ -683,9 +615,8 @@ export function useGridChat(
           } else if (suKind === 'lifecycle') {
             // 🔴 后端 reset 响应（/new /reset 后端路径）— 对齐单视图 onSessionReset
             const newSid = payload.new_session_id as string | undefined;
-            // 🔴 释放发送锁 + 清排队（后端 reset 会中断当前流，message.complete 可能不到达）
+            // 🔴 释放发送锁（后端 reset 会中断当前流，message.complete 可能不到达）
             sendingRef.current[profile] = false;
-            clearQueue(profile);
             if (newSid) {
               patch(profile, (s) => ({
                 ...emptyState(),
@@ -722,17 +653,9 @@ export function useGridChat(
             return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamParts: [], activityHint: '' };
           });
           import('../utils/notifications').then(({ notifyError }) => notifyError(errMsg, 'Agent 错误')).catch(() => {});
-          // 🔴 Phase B: error 也是权威终止事件，释放锁 + drain（对齐单视图 onError → drainQueue）
+          // 🔴 Phase B: error 也是权威终止事件，释放锁（对齐单视图 onError → drainQueue）
+          // 2026-08-16 方案A：本地队列退役——不再前端出队，排队显示由后端驱动
           sendingRef.current[profile] = false;
-          // 🔴 per-entry 失败计数：失败累加，超限暂停自动出队
-          { const eid = lastDrainEntryRef.current[profile]; if (eid) incrementDrainFailures(eid); lastDrainEntryRef.current[profile] = null; }
-          { const next = queuePeek(profile);
-            if (next && getDrainFailures(next.id) < MAX_DRAIN_ATTEMPTS) {
-              queueDequeue(profile); lastDrainEntryRef.current[profile] = next.id; void drainSendEntry(profile, next);
-            } else if (next) {
-              import('../utils/notifications').then(({ notifyError }) => notifyError(`排队消息连续失败 ${MAX_DRAIN_ATTEMPTS} 次，已暂停自动发送`, '队列暂停')).catch(() => {});
-            }
-          }
           break;
         }
         // ── 推理生命周期（reasoning.available / reasoning.delta / reasoning.end 均由 processAccumulatorEvent 统一处理）──
@@ -860,12 +783,7 @@ export function useGridChat(
                 : s.messages;
               return { ...s, messages: msgs.slice(-WINDOW_MAX), status: 'idle', streamParts: [], activityHint: '', lastActivity: Date.now() };
             });
-            // drain 排队消息（自愈 = 成功终止，重置计数）
-            { const eid = lastDrainEntryRef.current[profile]; if (eid) clearDrainFailures(eid); lastDrainEntryRef.current[profile] = null; }
-            if (getQueueLength(profile) > 0) {
-              const next = queueDequeue(profile);
-              if (next) { lastDrainEntryRef.current[profile] = next.id; void drainSendEntry(profile, next); }
-            }
+            // 🔴 2026-08-16 方案A：本地队列退役——不再前端出队，排队显示由后端驱动
             break;
           }
           // 同步 model/usage（重连后状态对齐）
@@ -955,30 +873,5 @@ export function useGridChat(
     };
   }, [active, patch]);
 
-  // ── 立即发送排队条目（对齐 Hermes sendQueuedNow：busy→promote+abort / idle→立即发）──
-  const sendQueueNow = useCallback((profile: string, id: string) => {
-    if (sendingRef.current[profile]) {
-      promoteEntry(profile, id);
-      clearDrainFailures(id);
-      const s = statesRef.current[profile];
-      if (s?.sessionId) getWsClient().abortStream(s.sessionId).catch(() => {});
-      patch(profile, (st) => ({ ...st, status: 'idle', streamParts: [], activityHint: '' }));
-      return;
-    }
-    clearDrainFailures(id);
-    const entries = getQueue(profile);
-    const entry = entries.find((e) => e.id === id);
-    if (!entry) return;
-    removeEntry(profile, id);
-    lastDrainEntryRef.current[profile] = entry.id;
-    void drainSendEntry(profile, entry);
-  }, [patch, drainSendEntry]);
-
-  // ── 删除排队条目 ──
-  const deleteQueueEntry = useCallback((profile: string, id: string) => {
-    removeEntry(profile, id);
-    clearDrainFailures(id);
-  }, []);
-
-  return { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand, handleSlashConfirmDone, sendQueueNow, deleteQueueEntry };
+  return { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand, handleSlashConfirmDone };
 }

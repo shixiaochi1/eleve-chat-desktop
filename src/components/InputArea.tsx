@@ -20,7 +20,9 @@ import { getWsClient } from '@/services/ws-client';
 import { mimeFromExt, arrayBufferToBase64 } from '@/utils/file';
 import { isRemoteMode, loadConnection } from '@/lib/connection';
 import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
-import { useQueue, updateEntry, type QueuedMessage } from '@/lib/message-queue';
+
+import { useBackendQueue, type QueueEntry } from '@/hooks/useBackendQueue';
+import { call } from '../utils/bridge';
 import { onComposerInsertRequest, LINE_REF_MIME, fileLineRef } from '@/lib/composer-events';
 import { dragHasPaths, collectDroppedPaths } from '@/lib/paths-dnd';
 import { linkifyUrls, rewriteTypedUrl, formatRefValue } from '@/lib/url-refs';
@@ -42,10 +44,6 @@ interface InputAreaProps {
   sessionId?: string | null;
   /** 🔴 W-6：会话 cwd（session.info 推送）— 透传给 complete.path 作补全基准目录 */
   sessionCwd?: string;
-  /** 立即发送排队条目（对齐 Hermes sendQueuedNow） */
-  onQueueSendNow?: (id: string) => void;
-  /** 删除排队条目 */
-  onQueueDelete?: (id: string) => void;
 }
 
 /**
@@ -84,8 +82,6 @@ function InputArea({
   queueProfile,
   sessionId,
   sessionCwd,
-  onQueueSendNow,
-  onQueueDelete,
 }: InputAreaProps) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   // `/` 命令补全 — 共享 hook（与宫格 AgentCardComposer 同一权威源）
@@ -93,9 +89,11 @@ function InputArea({
   /** 输入框是否有内容 — 驱动发送键的置灰态（仅布尔翻转时触发渲染） */
   const [hasText, setHasText] = useState(false);
 
-  // ── 排队编辑（对齐 Hermes use-composer-queue: beginQueuedEdit / stepQueuedEdit / exitQueuedEdit）──
-  const queueEntries = useQueue(queueProfile ?? '');
-  const [queueEdit, setQueueEdit] = useState<{ entryId: string; draft: string } | null>(null);
+  // ── 排队编辑（对齐 Hermes use-composer-queue: beginQueuedEdit / stepQueuedEdit / exitQueuedEdit）
+  // 🔴 2026-08-16 方案A：队列数据源 = 后端权威投影（queue.status 轮询），
+  // 编辑/删除/立即发送走 queue.edit / queue.remove / queue.steer RPC
+  const { queue: queueEntries, edit: queueEditEntry, remove: queueRemove, steer: queueSteer } = useBackendQueue(sessionId);
+  const [queueEdit, setQueueEdit] = useState<{ entryIndex: number; draft: string } | null>(null);
   // 🔴 2026-08-15 DSH QueueDock 对齐：排队改为控制行按钮 + 容器内向上弹出面板
   // （老大需求）。原常驻展开面板改为按需开合；有编辑/新排队时自动展开。
   const [queueOpen, setQueueOpen] = useState(false);
@@ -135,10 +133,10 @@ function InputArea({
     el.style.height = Math.min(el.scrollHeight, 150) + 'px';
   }, []);
 
-  const beginQueueEdit = useCallback((entry: QueuedMessage) => {
+  const beginQueueEdit = useCallback((entry: QueueEntry) => {
     const el = inputRef.current;
     if (!el || queueEdit) return;
-    setQueueEdit({ entryId: entry.id, draft: el.value });
+    setQueueEdit({ entryIndex: entry.index, draft: el.value });
     el.value = entry.text;
     syncHeight();
     el.focus();
@@ -148,14 +146,18 @@ function InputArea({
     if (!queueEdit) return false;
     const el = inputRef.current;
     if (!el) return false;
-    const index = queueEntries.findIndex((e) => e.id === queueEdit.entryId);
+    const index = queueEntries.findIndex((e) => e.index === queueEdit.entryIndex);
     const target = index + direction;
     if (index < 0 || target < 0) return index >= 0; // 最顶部：吞掉
-    // 保存当前编辑
-    if (queueProfile) updateEntry(queueProfile, queueEdit.entryId, { text: el.value });
+    // 保存当前编辑（后端 queue.edit RPC，轮询自动刷新）
+    const save = async () => {
+      const current = el.value;
+      if (current.trim()) await queueEditEntry(queueEdit.entryIndex, current);
+    };
+    void save();
     const next = queueEntries[target];
     if (next) {
-      setQueueEdit({ ...queueEdit, entryId: next.id });
+      setQueueEdit({ ...queueEdit, entryIndex: next.index });
       el.value = next.text;
     } else {
       // 越过末条：退出编辑，恢复原草稿（对齐 Hermes stepQueuedEdit）
@@ -165,7 +167,7 @@ function InputArea({
     syncHeight();
     el.focus();
     return true;
-  }, [queueEdit, queueEntries, queueProfile, syncHeight]);
+  }, [queueEdit, queueEntries, queueEditEntry, syncHeight]);
 
   const exitQueueEdit = useCallback((action: 'save' | 'cancel'): boolean => {
     if (!queueEdit) return false;
@@ -174,14 +176,14 @@ function InputArea({
     if (action === 'save') {
       const text = el.value;
       if (!text.trim()) return false; // 空内容不保存
-      if (queueProfile) updateEntry(queueProfile, queueEdit.entryId, { text });
+      void queueEditEntry(queueEdit.entryIndex, text);
     }
     setQueueEdit(null);
     el.value = queueEdit.draft;
     syncHeight();
     el.focus();
     return true;
-  }, [queueEdit, queueProfile, syncHeight]);
+  }, [queueEdit, queueEditEntry, syncHeight]);
   const popupRef = useRef<HTMLDivElement | null>(null);
   // F3 T3.1: @ 路径补全
   const [pathItems, setPathItems] = useState<Array<{ text: string; display: string; meta: string }>>([]);
@@ -611,7 +613,7 @@ function InputArea({
       <div className="composer-surface relative rounded-2xl border">
         {/* 🔴 2026-08-15 排队消息弹层（DSH QueueDock 对齐）：控制行按钮开合，
             容器内向上弹出（与 @ 路径补全弹窗同锚定模式）。 */}
-        {queueProfile && queueOpen && queueEntries.length > 0 && (
+        {queueEntries.length > 0 && queueOpen && (
           <div
             ref={queuePopupRef}
             className="absolute inset-x-0 bottom-full z-50 mb-1.5"
@@ -619,10 +621,10 @@ function InputArea({
             <QueuePanel
               entries={queueEntries}
               busy={!!isStreaming}
-              editingId={queueEdit?.entryId ?? null}
-              onDelete={(id) => onQueueDelete?.(id)}
+              editingId={queueEdit?.entryIndex ?? null}
+              onDelete={(index) => void queueRemove(index)}
               onEdit={beginQueueEdit}
-              onSendNow={(id) => onQueueSendNow?.(id)}
+              onSendNow={(index) => void queueSteer(index)}
             />
           </div>
         )}
@@ -710,7 +712,7 @@ function InputArea({
             {onAddImage && <AttachMenu onPickImage={handleFileSelect} onPickImagePaths={handlePickImagePaths} onAttachFiles={handleAttachFiles} onAddUrl={handleAddUrl} onAddPaths={handleAddPaths} />}
             {/* 🔴 2026-08-15 排队消息按钮（DSH QueueDock 对齐，老大需求：按钮放输入框上的按钮栏）
                 —— 有排队条目时显示；点击开合容器内向上弹出的排队面板 */}
-            {queueProfile && queueEntries.length > 0 && (
+            {queueEntries.length > 0 && (
               <button
                 type="button"
                 data-queue-toggle

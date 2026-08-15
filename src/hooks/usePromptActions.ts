@@ -7,12 +7,7 @@ import { setMonitor } from '../store/debug';
 import { textPart } from '@/lib/chat-messages'
 import { getWsClient } from '../services/ws-client';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
-import {
-  enqueue, dequeue, clearQueue, getQueueLength, getQueue, removeEntry, promoteEntry,
-  MAX_DRAIN_ATTEMPTS, getDrainFailures, incrementDrainFailures, clearDrainFailures,
-  resetAllDrainFailures, stashAttachmentData, takeAttachmentData,
-  type QueuedAttachment,
-} from '@/lib/message-queue';
+
 import type { ChatMessage } from '@/types'
 import type { SessionManagerHandle } from './useMessageStream';
 
@@ -62,17 +57,13 @@ export function usePromptActions({
    *  点项目记录的 pending 烙印（turn 完成后自动 session.cwd.set 到项目根） */
   onTurnComplete?: () => void
 }): {
-  handleSend: (text: string, attachments?: QueuedAttachment[], attachmentDataURLs?: string[]) => void
+  handleSend: (text: string, attachmentDataURLs?: string[]) => void
   handleAbort: () => void
   handleCommand: (cmdName: string, args?: string) => Promise<void>
   isSendingRef: MutableRefObject<boolean>
   drainQueue: () => void
   drainQueueRef: MutableRefObject<(() => void) | null>
   resetSendingLock: () => void
-  /** 对齐 Hermes sendQueuedNow：busy→promote+abort / idle→立即发 */
-  sendQueueNow: (id: string) => void
-  /** 删除排队条目 */
-  deleteQueueEntry: (id: string) => void
 } {
   const isSendingRef = useRef(false);
   const drainQueueRef = useRef<(() => void) | null>(null);
@@ -81,130 +72,14 @@ export function usePromptActions({
   // 不新建平行状态。
   const compacting = useSessionStatus(sess.sessionId ?? '').compacting;
 
-  // ── drain：per-entry 失败计数 + 附件附着（对齐 Hermes runDrain + autoDrainNext）──
-  const drainQueue = useCallback(async () => {
+  // ── 释放发送锁回调（原 drainQueue，2026-08-16 方案A：localStorage 前端队列退役，
+  // 队列显示/续轮由后端 queue.* RPC 权威驱动，前端只剩"轮末释放发送锁"职责；
+  // useMessageStream 三处调用点语义不变）──
+  const drainQueue = useCallback(() => {
     isSendingRef.current = false;
-
-    const queue = getQueueLength(currentProfile);
-    if (queue === 0) return;
-
-    // 取队首
-    const entry = dequeue(currentProfile);
-    if (!entry) return;
-
-    // 🔴 per-entry 失败计数（对齐 Hermes drainFailuresRef Map）：一条卡住不拖死全队列
-    if (getDrainFailures(entry.id) >= MAX_DRAIN_ATTEMPTS) {
-      console.warn(`[drainQueue] entry ${entry.id} exceeded ${MAX_DRAIN_ATTEMPTS} failures, skipping`);
-      import('../utils/notifications').then(({ notifyError }) => {
-        notifyError(`排队消息连续失败 ${MAX_DRAIN_ATTEMPTS} 次，已跳过（可手动重试）`, '队列暂停');
-      });
-      return;
-    }
-
-    isSendingRef.current = true;
-
-    if (!storage.isReady()) {
-      console.warn('[drainQueue] Storage not ready, waiting...');
-      await storage.init();
-    }
-
-    // 🔴 附件附着（对齐 Hermes entry 级归属：drain 时 attachImage → 立即 submit）
-    const dataURLs = takeAttachmentData(entry.id);
-    if (entry.attachments.length > 0 && dataURLs && dataURLs.length > 0) {
-      try {
-        const ws = getWsClient();
-        for (const dataURL of dataURLs) {
-          // 从 data URL 提取 base64（对齐 utils/file.ts base64FromDataURL）
-          const base64 = dataURL.includes(',') ? dataURL.split(',')[1]! : dataURL;
-          await ws.imageAttachBytes(base64, undefined, sess.sessionId ?? undefined);
-        }
-      } catch (e) {
-        console.warn('[drainQueue] attachment re-attach failed, sending text-only:', e);
-        import('../utils/notifications').then(({ notifyWarning }) => {
-          notifyWarning('附件重新附着失败，已降级为纯文本发送', '附件失效');
-        });
-      }
-    } else if (entry.attachments.length > 0 && !dataURLs) {
-      // 刷新后内存丢失 → 诚实降级（对齐方案：降纯文本 + toast）
-      console.warn('[drainQueue] attachment data lost (page refresh?), sending text-only');
-      import('../utils/notifications').then(({ notifyWarning }) => {
-        notifyWarning('页面刷新后附件数据已失效，已降级为纯文本发送', '附件失效');
-      });
-    }
-
-    const modelOpts = entry.modelOpts; // M-1/M-2: 不再注入全局 model
-
-    if (sess.sessionId && !sess.titles[sess.sessionId]) {
-      sess.setTitle(sess.sessionId, entry.text.slice(0, 30));
-    }
-
-    setConnectionStatus('connected');
-    setMonitor((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0 }));
-    addDebugEvent('text', `user: ${entry.text.slice(0, 60)}`);
-    try {
-      // 🔴 Phase 2: drain 续发带 queued:true（红线 3 — Hermes server.py:7258：
-      // drain 消息强制 queue，绝不劫持/打断 live turn）
-      await send(entry.text, sess.sessionId as null | undefined, { ...modelOpts, queued: true });
-      clearDrainFailures(entry.id); // 成功重置
-    } catch {
-      incrementDrainFailures(entry.id);
-      isSendingRef.current = false;
-    }
-  }, [sess, send, addDebugEvent, setConnectionStatus, currentProfile]);
+  }, []);
 
   drainQueueRef.current = drainQueue;
-
-  // ── sendQueueNow（对齐 Hermes sendQueuedNow）──
-  const sendQueueNow = useCallback((id: string) => {
-    if (isSendingRef.current) {
-      // busy：置首 + abort → 轮末 auto-drain 发出（对齐 Hermes promote + onCancel）
-      promoteEntry(currentProfile, id);
-      clearDrainFailures(id); // 手动发送清除失败计数
-      abort?.();
-      return;
-    }
-    // idle：立即发送（对齐 Hermes runDrain byId）
-    clearDrainFailures(id);
-    const queue = getQueueLength(currentProfile);
-    if (queue === 0) return;
-    // 找到目标条目并移除，然后发送
-    const entries = getQueue(currentProfile);
-    const entry = entries.find((e) => e.id === id);
-    if (!entry) return;
-    removeEntry(currentProfile, id);
-    // 走 drain 路径发送（复用附件附着 + 锁管理）
-    isSendingRef.current = true;
-    const modelOpts = entry.modelOpts; // M-1/M-2: 不再注入全局 model
-
-    // 附件附着
-    const dataURLs = takeAttachmentData(entry.id);
-    const attachAndSend = async () => {
-      if (entry.attachments.length > 0 && dataURLs?.length) {
-        try {
-          const ws = getWsClient();
-          for (const dataURL of dataURLs) {
-            const base64 = dataURL.includes(',') ? dataURL.split(',')[1]! : dataURL;
-            await ws.imageAttachBytes(base64, undefined, sess.sessionId ?? undefined);
-          }
-        } catch { /* 降级纯文本 */ }
-      }
-      setConnectionStatus('connected');
-      addDebugEvent('text', `user (queue-now): ${entry.text.slice(0, 60)}`);
-      try {
-        // 🔴 Phase 2: 排队条目立即发送同样带 queued:true（红线 3）
-        await send(entry.text, sess.sessionId as null | undefined, { ...modelOpts, queued: true });
-      } catch {
-        isSendingRef.current = false;
-      }
-    };
-    void attachAndSend();
-  }, [currentProfile, abort, send, sess, setConnectionStatus, addDebugEvent]);
-
-  // ── deleteQueueEntry ──
-  const deleteQueueEntry = useCallback((id: string) => {
-    removeEntry(currentProfile, id);
-    clearDrainFailures(id);
-  }, [currentProfile]);
 
   // ── slash command handler ──
   // 🔴 对齐 Hermes slashStatusText：system 消息用 `slash:/cmd\noutput` 格式，
@@ -256,7 +131,7 @@ export function usePromptActions({
   }, [sess, genId, setSessionListVersion, onSlashConfirm, send, isSendingRef]);
 
   // ── send message ──
-  const handleSend = useCallback(async (text: string, attachments?: QueuedAttachment[], attachmentDataURLs?: string[]) => {
+  const handleSend = useCallback(async (text: string, attachmentDataURLs?: string[]) => {
     if (!text.trim()) return;
 
     if (!storage.isReady()) {
@@ -276,41 +151,16 @@ export function usePromptActions({
       return;
     }
 
-    // 🔴 Phase 2: busy 分支不再是前端截流 —— 带附件才走前端队列（附件 base64 仅存
-    // 本地内存，物理上必须先上传后端）；纯文本直发后端 prompt.submit，由
-    // route_busy_submit 决定 steer/interrupt/queue（对齐宫格 useGridChat sendTo
-    // wasBusy 语义 + Hermes use-composer-submit busy 决策树）
+    // 🔴 Phase 2: busy 分支不再是前端截流 —— 附件/纯文本统一直发后端 prompt.submit，
+    // 由 route_busy_submit 决定 steer/interrupt/queue（对齐 DSH route_busy_submit
+    // 三模式决策树 + use-composer-submit busy 语义）。附件 base64 已由
+    // useImageAttachments.addImage 即时 imageAttachBytes 上传后端 session，
+    // busy 直发时后端对 media 非空自动 Queue（attached_images 快照接管进 InboxItem）。
+    // 🔴 2026-08-16 方案A：localStorage 前端队列退役——排队显示改后端权威
+    // Inbox.followup 投影（queue.status 轮询），此处不再 enqueue。
     // 🔴 判定含 store 快照：后端 drain turn（run.started → isStreaming=true）无发送锁，
     // 仅看 isSendingRef 会让附件消息漏走队列（对齐宫格 wasBusy 的 status 判定）
     const wasBusy = isSendingRef.current || getIsStreaming();
-    if (wasBusy && attachments?.length) {
-      // 🔴 M-1/M-2 修复：排队消息不带 model（drain 时后端用该 profile session 当前 client）
-      const modelOpts = undefined;
-      const entry = enqueue(currentProfile, { text, modelOpts, attachments });
-      // 附件 base64 暂存内存（drain 时取出附着后端）
-      if (attachmentDataURLs?.length) {
-        stashAttachmentData(entry.id, attachmentDataURLs);
-      }
-      // 乐观上屏（对齐 Hermes：排队时已显示用户消息；图片附件以 data URL 形式
-      // 挂 attachmentRefs，MessageRow 渲染缩略图）
-      storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], attachmentRefs: attachmentDataURLs?.length ? attachmentDataURLs : undefined, timestamp: Date.now() } as ChatMessage]);
-      return;
-    }
-    // 压缩中 busy 纯文本也排队（对齐 Hermes use-composer-submit：busy && compacting
-    // → queue，不 steer/interrupt 打断压缩）；非压缩中 busy 纯文本直发后端由
-    // route_busy_submit 三模式决策
-    if (wasBusy && compacting) {
-      // 🔴 M-1/M-2 修复：排队消息不带 model（后端用该 profile session 当前 client）
-      const modelOpts = undefined;
-      const entry = enqueue(currentProfile, { text, modelOpts });
-      if (attachmentDataURLs?.length) {
-        stashAttachmentData(entry.id, attachmentDataURLs);
-      }
-      storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], timestamp: Date.now() } as ChatMessage]);
-      return;
-    }
-    // busy 纯文本 → fall through 直发（乐观上屏由下方统一路径负责）
-
     // 直接发送（idle 直发 / busy 直发共用；wasBusy 不加锁——锁归属 live turn，
     // 对齐宫格 sendTo：早释放会打开双提交窗口，早持有会让旧 turn 的 complete 误 drain）
     if (!wasBusy) isSendingRef.current = true;
@@ -401,9 +251,9 @@ export function usePromptActions({
   // ── 重置发送锁 ──
   const resetSendingLock = useCallback(() => {
     isSendingRef.current = false;
-    resetAllDrainFailures();
-    clearQueue(currentProfile);
-  }, [currentProfile]);
+    // 🔴 2026-08-16 方案A：localStorage 队列退役——不再清前端队列（无条目），
+    // 后端 queue.* RPC 是队列唯一权威，轮询自动刷新
+  }, []);
 
   return {
     handleSend,
@@ -413,7 +263,5 @@ export function usePromptActions({
     drainQueue,
     drainQueueRef,
     resetSendingLock,
-    sendQueueNow,
-    deleteQueueEntry,
   };
 }

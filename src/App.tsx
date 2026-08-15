@@ -850,8 +850,6 @@ export default function App() {
     drainQueue,
     resetSendingLock,
     isSendingRef,
-    sendQueueNow,
-    deleteQueueEntry,
   } = usePromptActions({
     sess,
     genId,
@@ -1094,10 +1092,7 @@ export default function App() {
       }
     }
 
-    // 准备附件元数据 + base64（排队用）
-    const queuedAttachments = images.map((img) => ({
-      id: img.id, name: img.name, size: img.size, preview: img.preview,
-    }));
+    // 准备附件 data URL（乐观上屏缩略图用；附件本体已由 uploadUnuploaded 附着后端 session）
     const dataURLs = images.map((img) => img.preview);
 
     // 🔴 2026-08-09 文件附件 ref_text 注入（对齐 Hermes attachment.refText 语义）：
@@ -1105,19 +1100,13 @@ export default function App() {
     const fileRefs = attachedFiles.map((f) => f.refText).join(' ');
     const finalText = fileRefs ? `${fileRefs}\n${text}` : text;
 
-    rawHandleSend(finalText, queuedAttachments.length > 0 ? queuedAttachments : undefined, dataURLs.length > 0 ? dataURLs : undefined);
+    rawHandleSend(finalText, dataURLs.length > 0 ? dataURLs : undefined);
 
-    if (wasBusy && images.length > 0) {
-      // 排队场景：从 session 分离图片（防下次发送误消费）+ 清本地状态
-      // 🔴 显式传 sessionId（禁止 fallback 到 ws-client 全局，profile 切换瞬间全局可能是目标 Agent）
-      const ws = getWsClient();
-      const sid = sess.sessionId ?? undefined;
-      for (const img of images) {
-        // 仅分离已上传到后端的图片（本地暂存的无后端状态）
-        if (img.uploaded && img.path) ws.imageDetach(img.path, sid).catch(() => {});
-      }
-    }
-    // 发送/排队后都清本地预览（后端 prompt.submit 自动 drain / 排队已暂存）
+    // 🔴 2026-08-16 方案A：附件归属后端权威——busy 直发后端 route_busy_submit：
+    // media 非空必 fall through Queue，Queue 快照接管 attached_images 后
+    // 后端自行 detach_image（dispatch.rs），Overflow 时保留 for retry；
+    // 前端不再做条目级 imageDetach（旧前端自治队列配套，已退役）。
+    // 发送/排后都清本地预览（后端 prompt.submit 自动 drain / 排队已暂存）
     if (images.length > 0) {
       clearImages();
     }
@@ -1639,8 +1628,6 @@ export default function App() {
                 onAddImageFromPath={handleAddImageFromPath}
                 queueProfile={currentProfile}
                 sessionId={sess.sessionId}
-                onQueueSendNow={sendQueueNow}
-                onQueueDelete={deleteQueueEntry}
               />
             </main>
             </div>

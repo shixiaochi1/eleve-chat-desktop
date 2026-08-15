@@ -184,6 +184,11 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   goal_resume:            'goal.resume',
   goal_clear:             'goal.clear',
   todo_status:            'todo.status',
+  // 🔴 2026-08-16 DSH QueueDock 对齐：会话排队队列（后端权威 Inbox.followup 投影）
+  queue_status:           'queue.status',
+  queue_remove:           'queue.remove',
+  queue_edit:             'queue.edit',
+  queue_steer:            'queue.steer',
   // F3: 输入增强（后端已就绪）
   complete_path:          'complete.path',
   // F4: 信息面板（后端已就绪）

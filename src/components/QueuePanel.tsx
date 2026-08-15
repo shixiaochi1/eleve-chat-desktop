@@ -11,21 +11,21 @@
  */
 import { Layers, Pencil, ArrowUp, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { QueuedMessage } from '@/lib/message-queue';
+import type { QueueEntry } from '@/hooks/useBackendQueue';
 
 interface QueuePanelProps {
-  entries: QueuedMessage[];
+  entries: QueueEntry[];
   busy: boolean;
-  editingId: string | null;
-  onDelete: (id: string) => void;
-  onEdit: (entry: QueuedMessage) => void;
-  onSendNow: (id: string) => void;
+  editingId: number | null;
+  onDelete: (index: number) => void;
+  onEdit: (entry: QueueEntry) => void;
+  onSendNow: (index: number) => void;
 }
 
-function entryPreview(entry: QueuedMessage): string {
+function entryPreview(entry: QueueEntry): string {
   const text = entry.text.trim();
   if (text) return text;
-  if (entry.attachments.length > 0) return '[附件]';
+  if (entry.media_count > 0) return '[附件]';
   return '[空消息]';
 }
 
@@ -42,13 +42,13 @@ export default function QueuePanel({ entries, busy, editingId, onDelete, onEdit,
 
       {/* 条目列表 */}
       <div className="flex flex-col gap-0.5">
-        {entries.map((entry, index) => {
-          const isEditing = editingId === entry.id;
-          const attachCount = entry.attachments.length;
+        {entries.map((entry) => {
+          const isEditing = editingId === entry.index;
+          const attachCount = entry.media_count;
 
           return (
             <div
-              key={entry.id}
+              key={entry.index}
               className={cn(
                 'group flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors',
                 'border border-transparent',
@@ -57,7 +57,7 @@ export default function QueuePanel({ entries, busy, editingId, onDelete, onEdit,
             >
               {/* 序号 */}
               <span className="shrink-0 w-4 text-right text-[10px] tabular-nums text-muted-foreground/50">
-                {index + 1}
+                {entry.index + 1}
               </span>
 
               {/* 预览 + 附件数 */}
@@ -95,7 +95,7 @@ export default function QueuePanel({ entries, busy, editingId, onDelete, onEdit,
                   title={busy ? '置首并中断当前轮（轮末自动发送）' : '立即发送'}
                   aria-label={busy ? '置首并中断' : '立即发送'}
                   disabled={isEditing}
-                  onClick={() => onSendNow(entry.id)}
+                  onClick={() => onSendNow(entry.index)}
                 >
                   <ArrowUp size={11} />
                 </button>
@@ -106,7 +106,7 @@ export default function QueuePanel({ entries, busy, editingId, onDelete, onEdit,
                   className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-destructive/15 hover:text-destructive transition-colors"
                   title="删除排队消息"
                   aria-label="删除排队消息"
-                  onClick={() => onDelete(entry.id)}
+                  onClick={() => onDelete(entry.index)}
                 >
                   <Trash2 size={11} />
                 </button>
