@@ -330,6 +330,8 @@ const KANBAN_HTTP_MAP: Record<string, KanbanMapping> = {
   create_kanban_task:     { method: 'POST', path: '/api/kanban/tasks' },
   // 🔴 P0-4：新建前工作量估算（对齐 Hermes estimateNew）
   estimate_kanban_task:   { method: 'POST', path: '/api/kanban/tasks/estimate' },
+  // 🔴 P0-4b：任务详情估算（对齐 Hermes /tasks/{id}/estimate，抽屉 EstimateSection）
+  estimate_kanban_task_by_id: { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/estimate?board=${encodeURIComponent(a.board || 'default')}` },
   update_kanban_task:     { method: 'PATCH', path: (a) => `/api/kanban/tasks/${a.task_id}` },
   delete_kanban_task:     { method: 'DELETE', path: (a) => `/api/kanban/tasks/${a.task_id}?board=${encodeURIComponent(a.board || 'default')}` },
   bulk_update_kanban_tasks: { method: 'POST', path: '/api/kanban/tasks/bulk' },

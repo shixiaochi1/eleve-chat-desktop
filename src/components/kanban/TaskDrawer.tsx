@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X, ChevronDown, Edit3, Save, GitBranch, Paperclip, Download, Trash2,
   FileText, Radio, BellOff, Bell, Send, Play, Ban, Clock, CheckCircle2,
-  ArrowLeftFromLine, Archive, Zap, Loader, Plus, AlertTriangle, Eye,
+  ArrowLeftFromLine, Archive, Zap, Loader, Plus, AlertTriangle, Eye, Gauge,
   MoreHorizontal, Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -16,7 +16,7 @@ import {
   getKanbanRun, getKanbanTask, getKanbanAttachments, addKanbanComment,
   updateKanbanTask, uploadKanbanAttachment, deleteKanbanAttachment,
   deleteKanbanLink, createKanbanLink, getKanbanTaskLog, getKanbanDiagnostics,
-  getApiBase, getKanbanProfiles, reassignKanbanTask,
+  getApiBase, getKanbanProfiles, reassignKanbanTask, estimateKanbanTaskById,
 } from '@/utils/api';
 import type { KanbanTask, CommentRecord, AttachmentRecord, RunRecord, KanbanEvent } from './types';
 import { isBlocked, isDone, fmtAge, fmtDuration } from './helpers';
@@ -200,6 +200,10 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null); // Phase B7: Run 详情展开
   const [expandedRunData, setExpandedRunData] = useState<RunRecord | null>(null);
   const [expandedRunLoading, setExpandedRunLoading] = useState(false);
+  // 🔴 P0-4b：抽屉工作量估算状态（对齐 Hermes drawer EstimateSection）
+  const [estimating, setEstimating] = useState(false);
+  const [estimateResult, setEstimateResult] = useState<{ estTokens: number; complexity: string; rationale: string } | null>(null);
+  const [estimateError, setEstimateError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 🔴 修复：评论/运行历史/依赖统一来自 detail 端点（get_kanban_task 返回
@@ -231,6 +235,31 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   }, [expandedRunId, board]);
 
   // 加载详情（评论/事件/运行/链接）+ 附件
+  // 🔴 P0-4b：抽屉估算（对齐 Hermes EstimateSection：永不抛错，失败内联提示）
+  const runTaskEstimate = async () => {
+    if (!task?.id || estimating) return;
+    setEstimating(true);
+    setEstimateError(null);
+    try {
+      const res = await estimateKanbanTaskById(task.id, board);
+      if (res?.ok) {
+        setEstimateResult({
+          estTokens: Number(res.est_tokens ?? 0),
+          complexity: res.complexity ?? 'M',
+          rationale: res.rationale ?? '',
+        });
+      } else {
+        setEstimateResult(null);
+        setEstimateError(res?.reason ?? '估算失败');
+      }
+    } catch (err) {
+      setEstimateResult(null);
+      setEstimateError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setEstimating(false);
+    }
+  };
+
   // 🔴 对齐 Hermes drawer refetchInterval 30s：此前一次性拉取，抽屉打开期间
   //   事件/评论/运行/依赖/附件恒旧；改为 30s 轮询自动刷新
   const fetchDetail = useCallback(() => {
@@ -937,6 +966,40 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
               </div>
             )}
           </div>
+
+          {/* ── 工作量估算（🔴 P0-4b：对齐 Hermes drawer EstimateSection L476-538——
+              辅助模型估 token+复杂度，可重估；d4-2 闭合）── */}
+          {!['done', 'completed', 'archived'].includes((task.status || '').toLowerCase()) && (
+            <div>
+              <button onClick={() => setCollapsedSections(prev => ({...prev, estimate: !prev.estimate}))}
+                className="flex items-center gap-2 w-full text-left py-2.5 px-1 border-b border-[var(--ui-stroke-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_3%,transparent)] transition-colors">
+                <ChevronDown size={12} strokeWidth={1.5}
+                  className={cn('text-[var(--ui-text-tertiary)] transition-transform', !collapsedSections.estimate && 'rotate-180')} />
+                <span className="text-[0.72rem] font-semibold tracking-wide text-[var(--ui-text-tertiary)]">工作量估算</span>
+              </button>
+              {!collapsedSections.estimate && (
+                <div className="py-2.5 flex flex-col gap-1.5">
+                  {estimating ? (
+                    <span className="flex items-center gap-1.5 text-[0.75rem] text-[var(--ui-text-tertiary)]">
+                      <Loader size={11} strokeWidth={1.5} className="animate-spin" /> 估算中…
+                    </span>
+                  ) : estimateResult ? (
+                    <span className="text-[0.75rem] text-[var(--ui-text-secondary)]">
+                      ~{estimateResult.estTokens.toLocaleString()} tok · <span className="font-medium">{estimateResult.complexity}</span>
+                      {estimateResult.rationale && <span className="text-[var(--ui-text-tertiary)]"> — {estimateResult.rationale}</span>}
+                    </span>
+                  ) : estimateError ? (
+                    <span className="text-[0.7rem] text-danger">{estimateError}</span>
+                  ) : null}
+                  <button onClick={() => void runTaskEstimate()}
+                    className="self-start flex items-center gap-1.5 text-[0.7rem] px-2 py-1 rounded border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors">
+                    <Gauge size={11} strokeWidth={1.5} />
+                    {estimateResult ? '重新估算' : '估算'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ── 日志（🔴 对齐 Hermes：running 3s / 其他 15s 自动轮询，按钮=立即刷新）── */}
           <div>

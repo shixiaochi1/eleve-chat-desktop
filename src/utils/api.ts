@@ -495,6 +495,14 @@ export async function estimateKanbanTask(
   return call('estimate_kanban_task', { title, body, board });
 }
 
+// 🔴 P0-4b：任务详情估算（对齐 Hermes /tasks/{id}/estimate，抽屉 EstimateSection）
+export async function estimateKanbanTaskById(
+  taskId: string,
+  board = 'default',
+): Promise<{ ok: boolean; est_tokens?: number; complexity?: string; rationale?: string; reason?: string }> {
+  return call('estimate_kanban_task_by_id', { task_id: taskId, board });
+}
+
 /**
  * 更新任务字段/状态。🔴 修复：后端 update handler 从 body 读 board（缺省
  * 'default'），此前不传 board → 非 default 看板上的拖拽/动作/抽屉保存全部
