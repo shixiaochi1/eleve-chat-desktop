@@ -876,6 +876,9 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
             checkedIds={checkedIds} onCheck={handleCheck} justCreatedIds={justCreatedIds} draggingTaskId={draggingTaskId}
             onCreateSubmit={() => { void handleCreateSubmit().catch(() => {}); }} newTitle={newTitle} setNewTitle={setNewTitle} onDelete={handleDeleteTask}
             defaultAssignee={orchestration?.config?.default_assignee || ''}
+            // 🔴 2026-08-16（d1-R3-06）：triage 卡显示编排器归属（对齐 Hermes
+            //   orchestratorTip——resolved 值经 profile_exists 校验）
+            orchestrator={orchestration?.resolved_orchestrator_profile || ''}
             collapsed={collapsedLanes[col.key] ?? (boardHasWork && (grouped[col.key] || []).length === 0)}
             onToggle={() => {
               const tasks = grouped[col.key] || [];

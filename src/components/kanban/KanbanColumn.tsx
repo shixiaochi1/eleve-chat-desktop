@@ -2,14 +2,14 @@
  * 看板列 + 任务卡片 — 从 KanbanPanel.tsx 拆分（Tier 3 · 6-2）
  */
 import { memo, useEffect, useState } from 'react';
-import { Plus, CheckCircle2, X, Trash2, AlertTriangle, Clock, Eye, Loader, MessageSquare, GitBranch, ChevronLeft, ArrowUp } from 'lucide-react';
+import { Plus, CheckCircle2, X, Trash2, AlertTriangle, Clock, Eye, Loader, MessageSquare, GitBranch, ChevronLeft, ArrowRight, ArrowUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { KanbanTask, ColumnDef } from './types';
 import { isBlocked, isDone, getStaleness, fmtAge, fmtDuration } from './helpers';
 import { COLUMNS, LOCKED_DROP_COLUMNS } from './constants';
 
 // ── 任务卡片（Trail 极简风格 + 删除按钮 + 右键菜单）──
-const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, justCreated, isDragging, onDelete, defaultAssignee, onMoveTo }: { task: KanbanTask; onSelect: (task: KanbanTask) => void; isSelected: boolean; onDragStart: (id: string) => void; checked: boolean; onCheck: (id: string) => void; justCreated: boolean; isDragging: boolean; onDelete?: (id: string) => void; defaultAssignee?: string; onMoveTo?: (status: string) => void }) {
+const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, justCreated, isDragging, onDelete, defaultAssignee, orchestrator, onMoveTo }: { task: KanbanTask; onSelect: (task: KanbanTask) => void; isSelected: boolean; onDragStart: (id: string) => void; checked: boolean; onCheck: (id: string) => void; justCreated: boolean; isDragging: boolean; onDelete?: (id: string) => void; defaultAssignee?: string; orchestrator?: string; onMoveTo?: (status: string) => void }) {
   const blocked = isBlocked(task);
   const done = isDone(task);
   const running = task.status === 'running';
@@ -192,6 +192,30 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
               {task.assignee}
             </span>
           )}
+          {/* 🔴 2026-08-16（d1-R3-06）：queued 附着名章（对齐 Hermes board.tsx
+              L166-190 arcState queued：ready+默认负责人 / triage / review 显示
+              『谁将来接手』）——未分配加 → 前缀；Tip 区分 autoAssign/orchestrator/
+              reviewChecking */}
+          {!task.assignee && task.status === 'ready' && (defaultAssignee || '').trim() && (
+            <span className="flex items-center gap-1 font-medium truncate max-w-[100px] text-[var(--ui-text-tertiary)]"
+              title={`调度器将自动分配给默认负责人 ${defaultAssignee}`}>
+              <ArrowRight size={10} strokeWidth={1.5} className="shrink-0" />
+              {defaultAssignee}
+            </span>
+          )}
+          {task.status === 'triage' && (orchestrator || '').trim() && (
+            <span className="flex items-center gap-1 font-medium truncate max-w-[100px] text-[var(--ui-text-tertiary)]"
+              title={`由编排器 ${orchestrator} 处理分诊`}>
+              <ArrowRight size={10} strokeWidth={1.5} className="shrink-0" />
+              {orchestrator}
+            </span>
+          )}
+          {task.status === 'review' && (
+            <span className="inline-flex items-center gap-1 text-[0.65rem] text-[var(--ui-text-tertiary)]" title="等待评审">
+              <Eye size={10} strokeWidth={1.5} className="shrink-0" />
+              评审检查中
+            </span>
+          )}
           {running && <Loader size={10} strokeWidth={1.5} className="animate-spin text-success shrink-0" />}
           {running && (task.startedAt || task.startTs) && (
             <span className="text-[0.65rem] tabular-nums text-success/90" title="已运行时长">
@@ -300,12 +324,14 @@ interface KanbanColumnProps {
   onDelete: (taskId: string) => void;
   /** 默认负责人（orchestration.config.default_assignee），用于 won't-run 判断 */
   defaultAssignee?: string;
+  /** 🔴 2026-08-16（d1-R3-06）：triage 卡编排器归属（Hermes orchestratorTip） */
+  orchestrator?: string;
   /** 🔴 对齐 Hermes：列折叠（空列自动折叠成竖轨 rail） */
   collapsed?: boolean;
   onToggle?: () => void;
 }
 
-export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart, onDrop, creatingIn, onCreateStart, onCreateCancel, checkedIds, onCheck, runningLanes, justCreatedIds, draggingTaskId, onCreateSubmit, newTitle, setNewTitle, onDelete, defaultAssignee, collapsed = false, onToggle }: KanbanColumnProps) {
+export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart, onDrop, creatingIn, onCreateStart, onCreateCancel, checkedIds, onCheck, runningLanes, justCreatedIds, draggingTaskId, onCreateSubmit, newTitle, setNewTitle, onDelete, defaultAssignee, orchestrator, collapsed = false, onToggle }: KanbanColumnProps) {
   const [dragOver, setDragOver] = useState(false);
   // 🔴 修复（对齐 Hermes LOCKED_COLUMNS）：running（调度器 claim 独占）与
   //   scheduled（需定时唤醒时间）列拒绝拖入——不 preventDefault → 操作系统
@@ -395,7 +421,7 @@ export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect
               <div className="flex flex-col gap-2 mt-1">
                 {(laneTasks).map((task: KanbanTask) => (
                   <TaskCard key={task.id} task={task} onSelect={onSelect} isSelected={selectedId === task.id} onDragStart={onDragStart}
-                    checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} onDelete={onDelete} defaultAssignee={defaultAssignee}
+                    checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} onDelete={onDelete} defaultAssignee={defaultAssignee} orchestrator={orchestrator}
                       onMoveTo={(status) => onDrop(status, task.id)} />
                 ))}
               </div>
@@ -404,7 +430,7 @@ export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect
         ) : (
           tasks.map((task: KanbanTask) => (
             <TaskCard key={task.id} task={task} onSelect={onSelect} isSelected={selectedId === task.id} onDragStart={onDragStart}
-              checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} onDelete={onDelete} defaultAssignee={defaultAssignee}
+              checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} onDelete={onDelete} defaultAssignee={defaultAssignee} orchestrator={orchestrator}
                       onMoveTo={(status) => onDrop(status, task.id)} />
           ))
         )}

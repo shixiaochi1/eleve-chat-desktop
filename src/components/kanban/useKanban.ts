@@ -92,6 +92,13 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   // C1: 编排配置 & Profile 列表
   const [orchestration, setOrchestration] = useState<any>(null);
   const [profiles, setProfiles] = useState<any[]>([]);
+  // 🔴 2026-08-16（d2-R3-04）：resolved 默认负责人提前定义（handleCreateSubmit
+  //   空选时恒发；对齐 Hermes resolved_default_assignee——经 profile_exists
+  //   校验的解析值，绝无幽灵 profile）
+  const resolvedDefaultAssignee = useMemo(() => {
+    const o = orchestration as Record<string, unknown> | null;
+    return (o?.resolved_default_assignee as string | undefined) || undefined;
+  }, [orchestration]);
   // Phase A: 新建看板模态
   const [showCreateBoard, setShowCreateBoard] = useState(false);
   const [newBoardName, setNewBoardName] = useState('');
@@ -441,8 +448,14 @@ export function useKanban({ board = 'default' }: { board?: string }) {
         payload.parked = true;
       } else if (newAssignee.trim()) {
         payload.assignee = newAssignee.trim();
+      } else if (resolvedDefaultAssignee) {
+        // 🔴 2026-08-16（第三轮审查 d2-R3-04）：空选时前端恒发 resolved 值
+        //   （对齐 Hermes board.tsx:635 `assignee || resolvedDefault` 恒发
+        //   语义）——后端兜底链已校验 profile 存在，前端显式携带使
+        //   创建请求自包含（不依赖后端 config 快照一致）
+        payload.assignee = resolvedDefaultAssignee;
       }
-      // 空 → 不发送 assignee，后端 default_assignee 兜底
+      // 空且无 resolved（编排未配置）→ 不发送，后端兜底
       // 🔴 对齐 Hermes `priority: Number(priority) || 0` 恒发送（board.tsx L639，
       //   审查 d3-11）：显式输入 0 也被吞（Number('0')=0 为 falsy）——改为恒发送
       payload.priority = Number(newPriority) || 0;
@@ -489,7 +502,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       // 让调用方（CreateTaskDrawer）能感知失败并展示错误
       throw err;
     }
-  }, [currentBoard, creatingIn, newTitle, newBody, newAssignee, newPriority, newSkills, newParent, newGoalMode, newGoalMaxTurns, newWorkspaceKind, newWorkspacePath, newModelOverride, loadBoard, orchestration, nudgeDispatch]);
+  }, [currentBoard, creatingIn, newTitle, newBody, newAssignee, newPriority, newSkills, newParent, newGoalMode, newGoalMaxTurns, newWorkspaceKind, newWorkspacePath, newModelOverride, loadBoard, orchestration, resolvedDefaultAssignee, nudgeDispatch]);
 
   // 操作
   const handleAction = useCallback(async (action: string, taskId: string) => {
@@ -865,13 +878,6 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-
-  // 🔴 对齐 Hermes GET /orchestration resolved_default_assignee（审查 d3-18）：
-  //   新建表单默认项显示实际解析出的默认负责人（此前通用文案无实际值）
-  const resolvedDefaultAssignee = useMemo(() => {
-    const o = orchestration as Record<string, unknown> | null;
-    return (o?.resolved_default_assignee as string | undefined) || undefined;
-  }, [orchestration]);
 
   return {
     apiTasks,

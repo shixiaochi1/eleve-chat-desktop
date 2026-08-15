@@ -348,6 +348,10 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   }, []);
 
   // 🔴 对齐 Hermes 抽屉诊断区：board 级 /diagnostics 按 task_id 过滤展示
+  // 🔴 2026-08-16（第三轮审查 d4-R3-04）：诊断随 detail 刷新——30s 详情轮询
+  //   与 SSE detailRefreshTick 一并重拉（对齐 Hermes 诊断内嵌 detail 随
+  //   30s refetchInterval + socket invalidate 恒新）——此前仅任务切换时拉
+  //   一次，诊断（含恢复动作按钮状态）可长期陈旧
   useEffect(() => {
     if (!task?.id) { setDiags([]); return; }
     let alive = true;
@@ -357,7 +361,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
       setDiags(list.filter(d => d.task_id === task.id));
     }).catch(() => { if (alive) setDiags([]); });
     return () => { alive = false; };
-  }, [task?.id, board]);
+  }, [task?.id, board, detailRefreshTick]);
 
   // 🔴 对齐 Hermes worker log 自动轮询：running 3s / 其他 15s（手动按钮变"立即刷新"）
   const runningNow = task?.status === 'running';
