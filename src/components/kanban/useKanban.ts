@@ -21,6 +21,8 @@ import {
   bulkUpdateKanbanTasks,
   pollKanbanEvents,
   getApiBase,
+  requestKanbanReview,
+  requestKanbanChanges,
   // Phase 4 APIs
   getKanbanBoards,
   createKanbanBoard,
@@ -47,7 +49,8 @@ import {
   getKanbanProfiles,
 } from '@/utils/api';
 import type { KanbanTask } from './types';
-import { COLUMNS, COLUMN_STATUS, updateStaleConfig } from './constants';
+import { COLUMNS, COLUMN_STATUS, LOCKED_REASON, updateStaleConfig } from './constants';
+import { notify } from '../../utils/notifications';
 import { taskColumn, normalizeBoardData } from './helpers';
 import { useKanbanSSE } from './useKanbanSSE';
 
@@ -136,7 +139,16 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     setError(null);
     try {
       const result = await getKanbanBoard(currentBoard);
-      setApiTasks(normalizeBoardData(result));
+      const tasks = normalizeBoardData(result);
+      setApiTasks(tasks);
+      // 🔴 对齐 Hermes board.tsx L1131-1145：选中集自动修剪已离板/已删除的
+      //   id——否则批量操作可能命中死 id（部分失败/误操作）
+      setCheckedIds(prev => {
+        if (!prev || prev.size === 0) return prev;
+        const live = new Set(tasks.map(t => t.id));
+        const next = new Set([...prev].filter(id => live.has(id)));
+        return next.size === prev.size ? prev : next;
+      });
     } catch (err) {
       console.error('[KanbanPanel] Failed to load board:', err);
       setError('加载看板失败');
@@ -281,40 +293,64 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     const task = apiTasks.find(t => t.id === taskId);
     const from = task?.status || '';
 
-    // 锁定列：running/scheduled 列级已拒绝（dropEffect none），此处兜底防穿透
-    if (newStatus === 'running' || newStatus === 'scheduled') {
-      alert(newStatus === 'running'
-        ? '不能直接拖入「进行中」：running 由调度器 claim 启动（对齐 Hermes：只能 promote 到 ready）。'
-        : '不能直接拖入「已排期」：scheduled 需要定时唤醒时间，请使用抽屉/操作栏的「滞留」显式执行。');
+    // 锁定列：review/running/scheduled 列级已拒绝（dropEffect none），此处兜底防穿透。
+    // 🔴 review 加入锁定（对齐 Hermes LOCKED_COLUMNS，2026-08 一等评审生命周期）；
+    //   提示改用应用内 notify（对齐 Hermes lockedReason toast，替代原生 alert）
+    if (newStatus === 'review' || newStatus === 'running' || newStatus === 'scheduled') {
+      notify({
+        kind: 'warning',
+        title: '不能移动到「' + (COLUMNS.find(c => c.key === newStatus)?.label ?? newStatus) + '」',
+        message: LOCKED_REASON[newStatus] ?? '该列由系统独占',
+      });
       return;
     }
 
     // 源状态门控（对齐后端 complete_task/block_task 的 WHERE 子句）
     const ALLOWED_FROM: Record<string, string[]> = {
-      done: ['ready', 'running', 'blocked'],
+      done: ['ready', 'running', 'blocked', 'review'],
       blocked: ['running', 'ready'],
     };
     if (ALLOWED_FROM[newStatus] && task && !ALLOWED_FROM[newStatus].includes(from)) {
-      alert(`无法移动到「${newStatus}」：当前状态「${from}」不允许该转换（后端门控，对齐 Hermes）。`);
+      notify({
+        kind: 'warning',
+        title: '无法移动到「' + (COLUMNS.find(c => c.key === newStatus)?.label ?? newStatus) + '」',
+        message: `当前状态「${from}」不允许该转换（后端门控，对齐 Hermes）。`,
+      });
       return;
     }
 
     if (newStatus === 'done') {
-      const summary = prompt('请输入完成摘要（必填）：');
-      if (summary === null) return; // 用户取消
-      if (!summary.trim()) {
-        alert('完成摘要不能为空，操作已取消。');
+      // 🔴 review → done 免摘要（对齐 Hermes 2026-08：complete_task 门控含 review，
+      //   无摘要时后端合成 'Review approved without additional evidence.'）；
+      //   其余状态保持完成摘要流程
+      const isReview = task?.status === 'review';
+      if (!isReview) {
+        const summary = prompt('请输入完成摘要（必填）：');
+        if (summary === null) return; // 用户取消
+        if (!summary.trim()) {
+          alert('完成摘要不能为空，操作已取消。');
+          return;
+        }
+        // 乐观更新
+        setApiTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+        try {
+          await updateKanbanTask(taskId, { status: newStatus, result: summary.trim(), summary: summary.trim() }, currentBoard);
+          // 🔴 对齐 Hermes api.ts L168-188：写操作后 nudge dispatcher——
+          //   移入 done 立即促进依赖子任务，不等 60s tick
+          nudgeDispatch(currentBoard);
+        } catch (err) {
+          console.error('[KanbanPanel] Drag drop failed, rolling back:', err);
+          await loadBoard();
+        }
         return;
       }
-      // 乐观更新
+      // review → done：直接 PATCH（无摘要，后端合成）
       setApiTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
       try {
-        await updateKanbanTask(taskId, { status: newStatus, result: summary.trim(), summary: summary.trim() }, currentBoard);
-        // 🔴 对齐 Hermes api.ts L168-188：写操作后 nudge dispatcher——
-        //   移入 done 立即促进依赖子任务，不等 60s tick
+        await updateKanbanTask(taskId, { status: newStatus }, currentBoard);
         nudgeDispatch(currentBoard);
       } catch (err) {
-        console.error('[KanbanPanel] Drag drop failed, rolling back:', err);
+        console.error('[KanbanPanel] Review approve failed, rolling back:', err);
         await loadBoard();
       }
       return;
@@ -390,11 +426,13 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       }
       // 🔴 修复（对齐 Hermes NewTaskDialog：create 后 status 与目标列不一致时 patch 落位）：
       // create_task 无 parents 默认落 'ready'（triage 标志落 'triage'），在
-      // todo/review 列内联创建会落错列——transition_status 对这些列直通
+      // todo 列内联创建会落错列——transition_status 对这些列直通
       // set_status_direct（合法），创建成功后补一次 patch 到目标列。
+      // 🔴 review 已移出 canCreate（对齐 Hermes 锁定列语义），白名单同步收敛；
+      //   triage 由后端直接落位无需补丁
       const createdStatus = result?.task?.status || result?.status;
       if (newId && creatingIn && createdStatus && createdStatus !== creatingIn
-        && ['todo', 'ready', 'review'].includes(creatingIn)) {
+        && ['todo', 'ready'].includes(creatingIn)) {
         try { await updateKanbanTask(newId, { status: creatingIn }, currentBoard); } catch { /* 门控拒绝则留在后端落位状态 */ }
       }
       await loadBoard();
@@ -421,9 +459,15 @@ export function useKanban({ board = 'default' }: { board?: string }) {
           //   门控 IN ('running','ready','blocked')——原实现裸发 {status:'done'}
           //   恒 400（"at least one of summary or result must be provided"）。
           //   与拖拽完成路径同语义：先收摘要再提交。
+          // 🔴 对齐 Hermes 2026-08：门控含 review——评审卡可人工直接通过，
+          //   无摘要时后端合成 'Review approved without additional evidence.'
           const task = apiTasks.find(t => t.id === taskId);
-          if (task && !['ready', 'running', 'blocked'].includes(task.status)) {
-            alert(`无法完成该任务：当前状态为「${task.status}」。只有 ready/running/blocked 状态的任务可直接完成（对齐 Hermes complete_task 门控）。`);
+          if (task && !['ready', 'running', 'blocked', 'review'].includes(task.status)) {
+            alert(`无法完成该任务：当前状态为「${task.status}」。只有 ready/running/blocked/review 状态的任务可直接完成（对齐 Hermes complete_task 门控）。`);
+            break;
+          }
+          if (task?.status === 'review') {
+            await updateKanbanTask(taskId, { status: 'done' }, currentBoard);
             break;
           }
           const summary = prompt('请输入完成摘要（必填）：');
@@ -433,6 +477,32 @@ export function useKanban({ board = 'default' }: { board?: string }) {
           break;
         }
         case 'block': await updateKanbanTask(taskId, { status: 'blocked' }, currentBoard); break;
+        // 🔴 对齐 Hermes 2026-08 一等评审生命周期：提交评审（running/ready → review）。
+        //   运行中任务默认拒绝（live-claim 防窃取），需用户确认 force 覆盖
+        case 'requestReview': {
+          const task = apiTasks.find(t => t.id === taskId);
+          if (task && !['running', 'ready'].includes(task.status)) {
+            notify({
+              kind: 'warning',
+              title: '无法提交评审',
+              message: `当前状态「${task.status}」不允许提交评审（仅 running/ready，对齐 Hermes request_review）。`,
+            });
+            break;
+          }
+          const running = task?.status === 'running';
+          if (running && !confirm('任务正在运行中，提交评审将清空 worker 的 claim（需显式覆盖，对齐 Hermes force 语义）。确认继续？')) break;
+          await requestKanbanReview(taskId, { force: running }, currentBoard);
+          notify({ kind: 'success', title: '已提交评审', message: `任务 ${taskId} 已进入评审列` });
+          break;
+        }
+        // 评审退回返工（活动 review run → changes_requested）
+        case 'requestChanges': {
+          const reason = prompt('请输入退回理由（必填）：');
+          if (reason === null) break;
+          if (!reason.trim()) { alert('退回理由不能为空，操作已取消。'); break; }
+          await requestKanbanChanges(taskId, reason.trim(), currentBoard);
+          break;
+        }
         // 滞留：running/ready → scheduled（gateway 走 schedule_task 关 run 清 claim）
         case 'schedule': await updateKanbanTask(taskId, { status: 'scheduled' }, currentBoard); break;
         case 'reclaim': await reclaimKanbanTask(taskId, 'manual reclaim', currentBoard); break;
@@ -683,7 +753,14 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA' || (e.target as HTMLElement).tagName === 'SELECT') return;
       if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setCreatingIn('triage'); }
       if (e.key === '/' ) { e.preventDefault(); (document.querySelector('[data-kanban-search]') as HTMLElement)?.focus(); }
-      if (e.key === 'Escape') { setSelectedTask(null); setCheckedIds(new Set()); }
+      // 🔴 对齐 Hermes board.tsx L1147-1161：Esc 仅在有选中集时清空选中
+      //   （抽屉关闭由抽屉自身 Esc 处理，不再全局连带关抽屉）
+      if (e.key === 'Escape') {
+        setCheckedIds(prev => {
+          if (!prev || prev.size === 0) return prev;
+          return new Set();
+        });
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

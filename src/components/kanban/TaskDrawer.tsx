@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X, ChevronDown, Edit3, Save, GitBranch, Paperclip, Download, Trash2,
   FileText, Radio, BellOff, Bell, Send, Play, Ban, Clock, CheckCircle2,
-  ArrowLeftFromLine, Archive, Zap, Loader, Plus, AlertTriangle,
+  ArrowLeftFromLine, Archive, Zap, Loader, Plus, AlertTriangle, Eye,
   MoreHorizontal, Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -66,6 +66,20 @@ function eventText(kind: string, payloadRaw: unknown): { detail?: string; label:
     case 'dependency_wait': return { label: '依赖等待', detail: str('reason') ?? undefined };
     case 'block_loop_detected': return { label: '阻塞循环检测', detail: `${str('reason') ?? ''} ×${p.recurrences ?? ''}` };
     case 'attached': case 'attachment_removed': return { label: '附件更新' };
+    // 🔴 对齐 Hermes 2026-08 一等评审生命周期事件（review_requested /
+    //   changes_requested / review_reopened）
+    case 'review_requested': return {
+      label: '提交评审',
+      detail: [
+        str('reviewer') ? `评审人 ${str('reviewer')}` : null,
+        str('summary') ? str('summary') : null,
+      ].filter(Boolean).join(' · ') || undefined,
+    };
+    case 'changes_requested': return { label: '评审退回返工', detail: str('reason') ?? undefined };
+    case 'review_reopened': return {
+      label: '评审重开',
+      detail: str('implementer') ? `回到实现者 ${str('implementer')}` : undefined,
+    };
     default: {
       const detail = Object.entries(p)
         .filter(([, v]) => v != null && typeof v !== 'object')
@@ -350,10 +364,12 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
     const r = effortDraft.trim();
     if (m === (task.model_override || '') && p === (task.provider_override || '') && r === (task.reasoning_effort || '')) return;
     try {
+      // 🔴 对齐 Hermes clear 语义（审查 d2-10）：空串 = 显式清除（后端写 NULL
+      //   回退继承）——此前发 null 被后端 as_str() 吞成 None，「清空模型」静默失败
       await updateKanbanTask(task.id, {
-        model_override: m || null,
-        provider_override: m && p ? p : null,
-        reasoning_effort: r || null,
+        model_override: m,
+        provider_override: m && p ? p : '',
+        reasoning_effort: r,
       }, board);
       onRefresh?.();
     } catch (err) {
@@ -960,6 +976,9 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
               <ActionButton icon={Ban} label="阻塞" color="amber" onClick={() => onAction('block', task.id)} busy={busy} />
               <ActionButton icon={Clock} label="滞留" color="muted" onClick={() => onAction('schedule', task.id)} busy={busy} />
               <ActionButton icon={ArrowLeftFromLine} label="回收" color="muted" onClick={() => onAction('reclaim', task.id)} busy={busy} />
+              {/* 🔴 对齐 Hermes request_review：运行中提交评审（需 force 覆盖确认，
+                  防清活 worker claim） */}
+              <ActionButton icon={Eye} label="提交评审" color="accent" onClick={() => onAction('requestReview', task.id)} busy={busy} />
               {/* 🔴 修复死代码：handleAction 有 terminate 分支但无 UI 入口——
                   补终止按钮（参数为 run_id，对齐 Worker 面板既有用法） */}
               {detail?.task?.run_id != null && (
@@ -967,12 +986,15 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
               )}
             </>
           )}
-          {/* review — 🔴 修复：后端 complete_task 门控 IN ('running','ready','blocked')、
-              block_task 门控 IN ('running','ready')，review 卡「通过/阻塞」恒 400。
-              保留合法路径：恢复（review→ready 直通 set_status_direct）+ 分解/指定/重分配；
-              评审通过由评审 worker claim 后走 running→done。 */}
+          {/* review — 🔴 对齐 Hermes 2026-08 一等评审生命周期：
+              complete_task 门控含 review（人工可直接『通过』，免摘要后端合成）；
+              恢复 = reopen（review→ready/todo，回实现者重跑）。
+              评审退回返工（request_changes）由评审 run 的评论区操作。 */}
           {review && (
-            <ActionButton icon={ArrowLeftFromLine} label="恢复" color="muted" onClick={() => onAction('promote', task.id)} busy={busy} />
+            <>
+              <ActionButton icon={CheckCircle2} label="通过" color="green" onClick={() => onAction('complete', task.id)} busy={busy} />
+              <ActionButton icon={ArrowLeftFromLine} label="恢复" color="muted" onClick={() => onAction('promote', task.id)} busy={busy} />
+            </>
           )}
           {done && (
             <>

@@ -10,14 +10,22 @@
  *   本组件展示错误）；创建成功由 useKanban 侧完成落列 + auto-nudge + 刷新
  */
 import { useEffect, useState } from 'react';
-import { X, Loader } from 'lucide-react';
+import { X, Loader, Gauge } from 'lucide-react';
 import { COLUMNS } from './constants';
+import { estimateKanbanTask } from '../../utils/api';
 
 const WORKSPACE_KINDS = [
   { key: 'scratch', label: 'scratch（沙箱，默认）' },
   { key: 'worktree', label: 'worktree（Git 工作树）' },
   { key: 'dir', label: 'dir（指定目录）' },
 ];
+
+/** 🔴 P0-4 估算结果（对齐 Hermes estimateNew footer 展示） */
+interface EstimateResult {
+  estTokens: number;
+  complexity: string;
+  rationale: string;
+}
 
 interface CreateTaskDrawerProps {
   open: boolean;
@@ -71,6 +79,10 @@ export function CreateTaskDrawer({
 }: CreateTaskDrawerProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 🔴 P0-4：工作量估算状态（对齐 Hermes estimateNew：footer 展示 + 重估）
+  const [estimating, setEstimating] = useState(false);
+  const [estimate, setEstimate] = useState<EstimateResult | null>(null);
+  const [estimateError, setEstimateError] = useState<string | null>(null);
   // 每次打开重置内部状态（组件常驻，open 切换不卸载）
   useEffect(() => {
     if (open) { setError(null); setSubmitting(false); }
@@ -94,8 +106,54 @@ export function CreateTaskDrawer({
 
   const doClose = () => { if (!submitting) onClose(); };
 
+  // 🔴 P0-4：工作量估算（对齐 Hermes estimateNew——辅助模型估 token+复杂度，
+  //   footer 展示 ~N tok · L/M/S + 重估；永不抛错，失败内联提示）
+  const runEstimate = async () => {
+    if (!title.trim() || estimating) return;
+    setEstimating(true);
+    setEstimateError(null);
+    try {
+      const res = await estimateKanbanTask(title.trim(), body);
+      if (res?.ok) {
+        setEstimate({
+          estTokens: Number(res.est_tokens ?? 0),
+          complexity: res.complexity ?? 'M',
+          rationale: res.rationale ?? '',
+        });
+      } else {
+        setEstimate(null);
+        setEstimateError(res?.reason ?? '估算失败');
+      }
+    } catch (err) {
+      setEstimate(null);
+      setEstimateError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setEstimating(false);
+    }
+  };
+
+  // 标题变更后旧估算失效（对齐 Hermes：重估按钮手动触发）
+  useEffect(() => {
+    if (open) setEstimate(null);
+  }, [open, title]);
+
   const form = (
     <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-3.5">
+      {/* 🔴 P0-4 估算行（对齐 Hermes footer 展示） */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <button onClick={() => void runEstimate()} disabled={!title.trim() || estimating}
+          className="flex items-center gap-1.5 h-8 px-3 rounded-md border border-[var(--color-border)] text-[0.75rem] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+          {estimating ? <Loader size={12} strokeWidth={1.5} className="animate-spin" /> : <Gauge size={12} strokeWidth={1.5} />}
+          {estimating ? '估算中...' : '估算'}
+        </button>
+        {estimate && (
+          <span className="text-[0.75rem] text-[var(--color-muted-foreground)]">
+            ~{estimate.estTokens.toLocaleString()} tok · <span className="font-medium">{estimate.complexity}</span>
+            {estimate.rationale && <span className="text-[var(--color-muted-foreground)]/70"> — {estimate.rationale}</span>}
+          </span>
+        )}
+        {estimateError && <span className="text-[0.7rem] text-danger">{estimateError}</span>}
+      </div>
       {/* 标题 */}
       <div className="flex flex-col gap-1.5">
         <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">标题 *</label>

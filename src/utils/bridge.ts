@@ -328,6 +328,8 @@ const KANBAN_HTTP_MAP: Record<string, KanbanMapping> = {
   // Task CRUD
   get_kanban_task:        { method: 'GET',  path: (a) => `/api/kanban/tasks/${a.task_id}?board=${encodeURIComponent(a.board || 'default')}` },
   create_kanban_task:     { method: 'POST', path: '/api/kanban/tasks' },
+  // 🔴 P0-4：新建前工作量估算（对齐 Hermes estimateNew）
+  estimate_kanban_task:   { method: 'POST', path: '/api/kanban/tasks/estimate' },
   update_kanban_task:     { method: 'PATCH', path: (a) => `/api/kanban/tasks/${a.task_id}` },
   delete_kanban_task:     { method: 'DELETE', path: (a) => `/api/kanban/tasks/${a.task_id}?board=${encodeURIComponent(a.board || 'default')}` },
   bulk_update_kanban_tasks: { method: 'POST', path: '/api/kanban/tasks/bulk' },
@@ -337,6 +339,11 @@ const KANBAN_HTTP_MAP: Record<string, KanbanMapping> = {
   get_kanban_assignees:   { method: 'GET',  path: (a) => `/api/kanban/assignees?board=${encodeURIComponent(a.board || 'default')}` },
   dispatch_kanban_tasks:  { method: 'POST', path: '/api/kanban/dispatch' },
   reclaim_kanban_task:    { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/reclaim` },
+  // 🔴 对齐 Hermes 2026-08 一等评审生命周期：request_review（running/ready→review，
+  //   force=true 显式人工覆盖）、request_changes（评审退回返工）、reopen_review（评审重开）
+  request_kanban_review:  { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/review` },
+  request_kanban_changes: { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/review/changes` },
+  reopen_kanban_review:   { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/review/reopen` },
   add_kanban_comment:     { method: 'POST', path: (a) => `/api/kanban/tasks/${a.task_id}/comments` },
   create_kanban_link:     { method: 'POST', path: '/api/kanban/links' },
   delete_kanban_link:     { method: 'DELETE', path: (a) => `/api/kanban/links?parent_id=${a.parent_id}&child_id=${a.child_id}&board=${encodeURIComponent(a.board || 'default')}` },

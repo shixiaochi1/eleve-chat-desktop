@@ -486,6 +486,15 @@ export async function createKanbanTask(data: Record<string, any>): Promise<any> 
   return call('create_kanban_task', data);
 }
 
+// 🔴 P0-4：新建前工作量估算（对齐 Hermes estimateNew：辅助模型估 token+复杂度）
+export async function estimateKanbanTask(
+  title: string,
+  body: string,
+  board = 'default',
+): Promise<{ ok: boolean; est_tokens?: number; complexity?: string; rationale?: string; reason?: string }> {
+  return call('estimate_kanban_task', { title, body, board });
+}
+
 /**
  * 更新任务字段/状态。🔴 修复：后端 update handler 从 body 读 board（缺省
  * 'default'），此前不传 board → 非 default 看板上的拖拽/动作/抽屉保存全部
@@ -513,6 +522,36 @@ export async function dispatchKanbanTasks(params: Record<string, any> = {}): Pro
 
 export async function reclaimKanbanTask(taskId: string, reason: string, board = 'default'): Promise<any> {
   return call('reclaim_kanban_task', { task_id: taskId, reason, board });
+}
+
+// --- 🔴 对齐 Hermes 2026-08 一等评审生命周期（request_review / request_changes /
+//     reopen_review_task）---
+
+/** running/ready → review（提交评审）。force=true 为显式人工覆盖：
+ *  任务 running 有活 claim 时，无 expected_run_id 必须 force（防清活 worker claim）。 */
+export async function requestKanbanReview(
+  taskId: string,
+  opts: { summary?: string; reviewer?: string; force?: boolean; expectedRunId?: string } = {},
+  board = 'default',
+): Promise<any> {
+  return call('request_kanban_review', {
+    task_id: taskId,
+    board,
+    summary: opts.summary,
+    reviewer: opts.reviewer,
+    force: opts.force ?? false,
+    expected_run_id: opts.expectedRunId,
+  });
+}
+
+/** 评审退回返工：活动 review run → changes_requested（回实现者重跑） */
+export async function requestKanbanChanges(taskId: string, reason: string, board = 'default', expectedRunId?: string): Promise<any> {
+  return call('request_kanban_changes', { task_id: taskId, board, reason, expected_run_id: expectedRunId });
+}
+
+/** 评审重开：review → ready/todo（实现者按新评论重跑） */
+export async function reopenKanbanReview(taskId: string, board = 'default'): Promise<any> {
+  return call('reopen_kanban_review', { task_id: taskId, board });
 }
 
 // --- New kanban functions ---

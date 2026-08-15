@@ -8,12 +8,14 @@ import type { ColumnDef } from './types';
 // ═══════════════════════════════════════════════════════════════
 
 // 🔴 修复（对齐 Hermes + 后端 create_task 语义）：
-// canCreate 只保留 triage/todo/ready/review —— 后端 create_task 无 parents 时
+// canCreate 只保留 triage/todo/ready —— 后端 create_task 无 parents 时
 // 默认落 'ready'（triage 标志落 'triage'），其余列只能经创建后 patch 落位，
-// 而 patch 直接可设的目标仅 triage/todo/review/ready（transition_status 直通
+// 而 patch 直接可设的目标仅 triage/todo/ready（transition_status 直通
 // set_status_direct）；scheduled/blocked/done/archived 需结构化参数（定时时间/
 // 阻塞原因/完成摘要），列内快速创建无法满足 → 不提供添加按钮（对齐 Hermes
 // 锁定列不渲染 add 按钮的纪律）。
+// 🔴 review 移出 canCreate（对齐 Hermes LOCKED_COLUMNS 含 review：
+//   review 由 request_review/调度器独占，不直建）。
 export const COLUMNS: ColumnDef[] = [
   { key: 'triage',    label: '分类',    dotColor: 'var(--ui-purple)', emptyText: '暂无待甄别任务', canCreate: true },
   { key: 'todo',      label: '待办',    dotColor: 'var(--ui-text-tertiary)', emptyText: '暂无待办任务', canCreate: true },
@@ -21,7 +23,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: 'ready',     label: '就绪',    dotColor: 'var(--ui-yellow)', emptyText: '暂无就绪任务', canCreate: true },
   { key: 'running',   label: '进行中',  dotColor: 'var(--ui-green)', emptyText: '暂无运行中任务', canCreate: false },
   { key: 'blocked',   label: '阻塞',    dotColor: 'var(--ui-red)', emptyText: '暂无阻塞任务', canCreate: false },
-  { key: 'review',    label: '评审',    dotColor: 'var(--ui-orange)', emptyText: '暂无待审任务', canCreate: true },
+  { key: 'review',    label: '评审',    dotColor: 'var(--ui-orange)', emptyText: '暂无待审任务', canCreate: false },
   { key: 'done',      label: '已完成',  dotColor: 'var(--ui-blue)', emptyText: '暂无已完成任务', canCreate: false },
   { key: 'archived',  label: '已归档',  dotColor: 'var(--ui-text-quaternary)', emptyText: '暂无已归档任务', canCreate: false },
 ];
@@ -33,14 +35,23 @@ export const COLUMN_STATUS: Record<string, string> = {
   archived: 'archived',
 };
 
-// ── 锁定拖入列（对齐 Hermes LOCKED_COLUMNS）──
+// ── 锁定拖入列（对齐 Hermes LOCKED_COLUMNS=['review','running','scheduled']）──
 // running：调度器 claim 独占，transition_status 显式拒绝任何直设
 //   （"running (must use dispatcher/claim path)"），列级拒绝拖入。
 // scheduled：需要定时唤醒时间（仅 agent/CLI 能附），裸 status 拖入
 //   语义残缺（scheduled_at=0 悬挂），同样列级拒绝；需「滞留」操作显式执行。
-// review 不在锁定内：ELEVE 后端 review 可 set_status_direct 直设（与 Hermes
-//   的 dispatcher 独占语义不同，保留为合法拖入目标）。
-export const LOCKED_DROP_COLUMNS: string[] = ['running', 'scheduled'];
+// review：对齐 Hermes 2026-08 一等评审生命周期——评审交接只走
+//   request_review（running/ready→review）/ reopen（review→ready/todo）/
+//   完成（review→done），不再允许裸拖入/直建（后端 set_status_direct
+//   对 review 已移除直通）。
+export const LOCKED_DROP_COLUMNS: string[] = ['review', 'running', 'scheduled'];
+
+// ── 锁定列拒绝提示文案（对齐 Hermes lockedReason / i18n locked.*）──
+export const LOCKED_REASON: Record<string, string> = {
+  review: '评审列由调度器独占：请用「提交评审」（运行/就绪卡）或「评审通过/退回」（评审卡）操作，不能直接拖入',
+  running: '进行中列由调度器独占（worker claim），不能直接拖入',
+  scheduled: '排期列需要定时唤醒时间：请用「滞留」操作或由 Agent/CLI 附 scheduled_at',
+};
 
 // ── 陈旧度阈值（秒）— [amber, red]，可被 getKanbanConfig 覆盖 ──
 export let staleConfig: Record<string, [number, number]> = {
