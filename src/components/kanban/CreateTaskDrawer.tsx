@@ -45,7 +45,7 @@ interface CreateTaskDrawerProps {
   modelOverride: string;
   /** 对齐 Hermes 三元组：provider 覆盖（须与 model 成对） */
   providerOverride: string;
-  /** 对齐 Hermes 三元组：推理深度覆盖（none/minimal/low/medium/high/xhigh） */
+  /** 对齐 Hermes 三元组：推理深度覆盖（none/minimal/low/medium/high/xhigh/max/ultra，对齐 VALID_REASONING_EFFORTS） */
   reasoningEffort: string;
   /** 负责人下拉选项（profiles roster，对齐 Hermes fetchProfiles） */
   assigneeOptions: Array<{ name: string }>;
@@ -269,12 +269,12 @@ export function CreateTaskDrawer({
           <select value={reasoningEffort} onChange={e => onReasoningEffortChange(e.target.value)}
             className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] focus:outline-none focus:border-[var(--color-ring)] cursor-pointer">
             <option value="">推理深度（继承）</option>
-            {['none', 'minimal', 'low', 'medium', 'high', 'xhigh'].map(v => (
+            {['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].map(v => (
               <option key={v} value={v}>{v}</option>
             ))}
           </select>
         </div>
-        <span className="text-[0.65rem] text-[var(--color-muted-foreground)]">Provider 需配合模型填写；推理深度取值 none/minimal/low/medium/high/xhigh</span>
+        <span className="text-[0.65rem] text-[var(--color-muted-foreground)]">Provider 需配合模型填写；推理深度取值 none/minimal/low/medium/high/xhigh/max/ultra</span>
       </div>
       {/* Goal Mode */}
       <div className="flex flex-col gap-1.5">

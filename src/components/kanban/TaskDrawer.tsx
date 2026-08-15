@@ -16,7 +16,7 @@ import {
   getKanbanRun, getKanbanTask, getKanbanAttachments, addKanbanComment,
   updateKanbanTask, uploadKanbanAttachment, deleteKanbanAttachment,
   deleteKanbanLink, createKanbanLink, getKanbanTaskLog, getKanbanDiagnostics,
-  getApiBase, getKanbanProfiles, reassignKanbanTask, estimateKanbanTaskById,
+  getApiBase, getKanbanProfiles, getKanbanOrchestration, reassignKanbanTask, estimateKanbanTaskById,
 } from '@/utils/api';
 import type { KanbanTask, CommentRecord, AttachmentRecord, RunRecord, KanbanEvent } from './types';
 import { isBlocked, isDone, fmtAge, fmtDuration } from './helpers';
@@ -333,6 +333,20 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
     return () => { alive = false; };
   }, []);
 
+  // 🔴 2026-08-16（第三轮审查 d4-R3-05）：ready 未分配 Callout 需读
+  //   resolved_default_assignee（对齐 Hermes useDefaultAssignee drawer.tsx:789
+  //   ——存在默认负责人时任务会被调度器自动分配，不显示误导警告）
+  const [resolvedDefaultAssignee, setResolvedDefaultAssignee] = useState('');
+  useEffect(() => {
+    let alive = true;
+    getKanbanOrchestration().then((data: any) => {
+      if (!alive) return;
+      const rda = data?.resolved_default_assignee || data?.default_assignee || '';
+      setResolvedDefaultAssignee(typeof rda === 'string' ? rda : '');
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
   // 🔴 对齐 Hermes 抽屉诊断区：board 级 /diagnostics 按 task_id 过滤展示
   useEffect(() => {
     if (!task?.id) { setDiags([]); return; }
@@ -351,7 +365,8 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
     if (!task?.id) { setWorkerLog(null); return; }
     let alive = true;
     const fetchLog = () => {
-      getKanbanTaskLog(task.id, 400, board).then(data => {
+      // 🔴 d4-R3-06：字节 tail 对齐 Hermes api.ts:150 tail=16384
+      getKanbanTaskLog(task.id, 16384, board).then(data => {
         if (alive) { setWorkerLog(data?.log || data || '无日志'); setLogTruncated(Boolean(data?.truncated)); }
       }).catch(() => { if (alive) setWorkerLog('加载日志失败'); });
     };
@@ -551,7 +566,10 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
 
         {/* 🔴 对齐 Hermes ready 未分配 Callout（drawer.tsx L789-793，审查 d4-11）：
             就绪但无负责人 → 不会被调度器运行，提示分配 profile */}
-        {liveStatus === 'ready' && !liveAssignee && (
+        {/* 🔴 2026-08-16（d4-R3-05）：补 `&& !resolvedDefaultAssignee`——
+            配置了默认负责人时调度器会自动认领，不显示警告（对齐 Hermes
+            drawer.tsx:789 三条件） */}
+        {liveStatus === 'ready' && !liveAssignee && !resolvedDefaultAssignee && (
           <div className="mx-5 mb-2 px-3 py-2 rounded-md border border-warning/25 bg-warning/5 text-[0.72rem] text-warning flex items-center gap-1.5">
             <AlertTriangle size={12} strokeWidth={1.5} className="shrink-0" />
             任务已就绪但未分配负责人——分配 profile 后调度器才会运行它
@@ -1034,7 +1052,9 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
 
           {/* ── 工作量估算（🔴 P0-4b：对齐 Hermes drawer EstimateSection L476-538——
               辅助模型估 token+复杂度，可重估；d4-2 闭合）── */}
-          {!['done', 'completed', 'archived'].includes((task.status || '').toLowerCase()) && (
+          {/* 🔴 2026-08-16（d4-R3-10）：估算区去状态门控——对齐 Hermes
+              drawer.tsx:803 无条件渲染，已完成任务也可复盘/重估成本 */}
+          {(
             <div>
               <button onClick={() => setCollapsedSections(prev => ({...prev, estimate: !prev.estimate}))}
                 className="flex items-center gap-2 w-full text-left py-2.5 px-1 border-b border-[var(--ui-stroke-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_3%,transparent)] transition-colors">
@@ -1077,7 +1097,8 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
             {!collapsedSections.log && (
               <div className="py-3 flex flex-col gap-2">
                 <button onClick={() => {
-                  getKanbanTaskLog(task.id, 400, board).then(data => {
+                  // 🔴 d4-R3-06：字节 tail 对齐 Hermes api.ts:150 tail=16384
+                  getKanbanTaskLog(task.id, 16384, board).then(data => {
                     setWorkerLog(data?.log || data || '无日志');
                     setLogTruncated(Boolean(data?.truncated));
                   }).catch(() => setWorkerLog('加载日志失败'));
@@ -1085,7 +1106,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                   <FileText size={11} /> 立即刷新
                 </button>
                 {logTruncated && (
-                  <span className="text-[0.65rem] text-[var(--ui-text-quaternary)]">日志过长，仅显示末尾 400 行</span>
+                  <span className="text-[0.65rem] text-[var(--ui-text-quaternary)]">日志过长，仅显示末尾 16 KB</span>
                 )}
                 {workerLog ? (
                   <pre className="text-[0.7rem] font-mono leading-relaxed p-3 rounded-md bg-[color-mix(in_srgb,var(--ui-text-primary)_4%,transparent)] border border-[var(--ui-stroke-tertiary)] overflow-x-auto whitespace-pre-wrap max-h-[300px] overflow-y-auto text-[var(--ui-text-primary)]">

@@ -1,7 +1,7 @@
 /**
  * 看板列 + 任务卡片 — 从 KanbanPanel.tsx 拆分（Tier 3 · 6-2）
  */
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Plus, CheckCircle2, X, Trash2, AlertTriangle, Clock, Eye, Loader, MessageSquare, GitBranch, ChevronLeft, ArrowUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { KanbanTask, ColumnDef } from './types';
@@ -26,6 +26,15 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
   const links = task.link_counts ? task.link_counts.parents + task.link_counts.children : 0;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [hovered, setHovered] = useState(false);
+  // 🔴 2026-08-16（第三轮审查 d1-R3-07）：running 卡时长 5s tick（对齐
+  //   Hermes RunClock useTicking ui.tsx:93-113）——此前仅渲染时计算一次，
+  //   SSE 无事件且 60s 轮询未到时数字静止不动
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (task.status !== 'running') return;
+    const id = window.setInterval(() => setTick(t => t + 1), 5000);
+    return () => window.clearInterval(id);
+  }, [task.status]);
   // 🔴 对齐 Hermes ContextMenu：右键菜单（打开/选择/移动到/删除）
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
