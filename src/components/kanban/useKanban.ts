@@ -19,7 +19,6 @@ import {
   deleteKanbanAttachment,
   getKanbanRun,
   bulkUpdateKanbanTasks,
-  getKanbanTaskLog,
   pollKanbanEvents,
   getApiBase,
   // Phase 4 APIs
@@ -117,7 +116,8 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   const [reassignProfile, setReassignProfile] = useState('');
   const [reassignReclaim, setReassignReclaim] = useState(false);
   const [reassigning, setReassigning] = useState(false);
-  const [workerLog, setWorkerLog] = useState<any>(null);
+  // 🔴 workerLog 状态已移除：日志查看下沉 TaskDrawer 自管（running 3s/其他 15s
+  //   自动轮询，对齐 Hermes logKey），useKanban 不再持有
   const [justCreatedIds, setJustCreatedIds] = useState<Set<any>>(new Set()); // Phase 4.10: 新创建卡片高亮
   const [draggingTaskId, setDraggingTaskId] = useState<any>(null); // Phase 3: 拖拽源标识
   const [bulkConfirmAction, setBulkConfirmAction] = useState<any>(null); // Phase 4.10: 批量确认弹窗
@@ -509,16 +509,6 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     }
   }, [checkedIds, bulkPriority, currentBoard, loadBoard]);
 
-  // Phase 4.4: Worker 日志查看
-  const handleViewLog = useCallback(async (taskId: string) => {
-    try {
-      const data = await getKanbanTaskLog(taskId, 50, currentBoard);
-      setWorkerLog(data?.log || data || '无日志');
-    } catch (err) {
-      setWorkerLog('加载日志失败');
-    }
-  }, [currentBoard]);
-
   // 删除任务
   const handleDeleteTask = useCallback(async (taskId: string) => {
     try {
@@ -769,8 +759,6 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     setReassignReclaim,
     reassigning,
     setReassigning,
-    workerLog,
-    setWorkerLog,
     justCreatedIds,
     setJustCreatedIds,
     draggingTaskId,
@@ -799,7 +787,6 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     executeBulkAction,
     handleBulkReassign,
     handleBulkPriority,
-    handleViewLog,
     handleDeleteTask,
     handleSwitchBoard,
     handleCreateBoard,

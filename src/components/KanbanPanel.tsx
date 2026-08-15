@@ -65,7 +65,6 @@ import {
   deleteKanbanAttachment,
   getKanbanRun,
   bulkUpdateKanbanTasks,
-  getKanbanTaskLog,
   pollKanbanEvents,
   getApiBase,
   // Phase 4 APIs
@@ -222,8 +221,6 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     setReassignReclaim,
     reassigning,
     setReassigning,
-    workerLog,
-    setWorkerLog,
     justCreatedIds,
     setJustCreatedIds,
     draggingTaskId,
@@ -252,7 +249,6 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     executeBulkAction,
     handleBulkReassign,
     handleBulkPriority,
-    handleViewLog,
     handleDeleteTask,
     handleSwitchBoard,
     handleCreateBoard,
@@ -577,14 +573,16 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
             onDrop={handleDrop}
             creatingIn={creatingIn} onCreateStart={setCreatingIn} onCreateCancel={() => setCreatingIn(null)}
             checkedIds={checkedIds} onCheck={handleCheck} justCreatedIds={justCreatedIds} draggingTaskId={draggingTaskId}
-            onCreateSubmit={() => { void handleCreateSubmit().catch(() => {}); }} newTitle={newTitle} setNewTitle={setNewTitle} onDelete={handleDeleteTask} />
+            onCreateSubmit={() => { void handleCreateSubmit().catch(() => {}); }} newTitle={newTitle} setNewTitle={setNewTitle} onDelete={handleDeleteTask}
+            defaultAssignee={orchestration?.config?.default_assignee || ''} />
         ))}
       </div>
 
       {/* 详情抽屉 */}
       {selectedTask && (
         <TaskDrawer task={selectedTask} onClose={() => setSelectedTask(null)} onAction={handleAction} loadingId={loadingId} onRefresh={loadBoard}
-          onViewLog={handleViewLog} workerLog={workerLog} homeChannels={homeChannels} board={currentBoard} />
+          homeChannels={homeChannels} board={currentBoard}
+          onOpenTask={(id) => { const t = allTasks.find(x => x.id === id); if (t) setSelectedTask(t); }} />
       )}
 
       {/* 创建任务抽屉 — 共享 CreateTaskDrawer（对齐 HERMES NewTaskDialog 字段集，

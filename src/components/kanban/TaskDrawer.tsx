@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X, ChevronDown, Edit3, Save, GitBranch, Paperclip, Download, Trash2,
   FileText, Radio, BellOff, Bell, Send, Play, Ban, Clock, CheckCircle2,
-  ArrowLeftFromLine, Archive, Zap, Loader, Plus,
+  ArrowLeftFromLine, Archive, Zap, Loader, Plus, AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { readFileAsDataURL, base64FromDataURL } from '@/utils/file';
@@ -14,14 +14,78 @@ import { getWsActiveProfile } from '@/services/ws-client';
 import {
   getKanbanRun, getKanbanTask, getKanbanAttachments, addKanbanComment,
   updateKanbanTask, uploadKanbanAttachment, deleteKanbanAttachment,
-  deleteKanbanLink, createKanbanLink, getApiBase,
+  deleteKanbanLink, createKanbanLink, getKanbanTaskLog, getKanbanDiagnostics,
+  getApiBase,
 } from '@/utils/api';
-import type { KanbanTask, CommentRecord, AttachmentRecord, RunRecord } from './types';
+import type { KanbanTask, CommentRecord, AttachmentRecord, RunRecord, KanbanEvent } from './types';
 import { isBlocked, isDone, fmtAge, fmtDuration } from './helpers';
 
 // ═══════════════════════════════════════════════════════════════
 // 子组件
 // ═══════════════════════════════════════════════════════════════
+
+/**
+ * 事件 → 人类可读行（对齐 Hermes drawer eventText）：后端写机器 payload，
+ * 已知 kind 转中文语义 + payload 细节；未知 kind 回退 kind + 键值摘要。
+ */
+function eventText(kind: string, payloadRaw: unknown): { detail?: string; label: string } {
+  let p: Record<string, unknown> = {};
+  if (typeof payloadRaw === 'string' && payloadRaw) {
+    try { p = JSON.parse(payloadRaw) as Record<string, unknown>; } catch { return { label: kind.replace(/_/g, ' '), detail: payloadRaw }; }
+  } else if (payloadRaw && typeof payloadRaw === 'object') {
+    p = payloadRaw as Record<string, unknown>;
+  }
+  const str = (key: string): null | string => {
+    const v = p[key];
+    return typeof v === 'string' && v ? v : null;
+  };
+  switch (kind) {
+    case 'created': return { label: `创建任务${str('status') ? `（状态 ${str('status')}）` : ''}` };
+    case 'completed': return { label: '任务完成' };
+    case 'blocked': return { label: '阻塞', detail: str('reason') ?? undefined };
+    case 'unblocked': return { label: '解除阻塞' };
+    case 'promoted': return { label: '提升为就绪' };
+    case 'archived': return { label: '已归档' };
+    case 'assigned': return { label: str('assignee') ? `分配给 ${str('assignee')}` : '重新分配' };
+    case 'status': return { label: `状态变更 → ${str('status') ?? '?'}` };
+    case 'claimed': return { label: '已被调度器认领' };
+    case 'reclaimed': return { label: '已回收', detail: str('reason') ?? undefined };
+    case 'scheduled': return { label: '已排期', detail: str('reason') ?? undefined };
+    case 'edited': return { label: '字段已编辑' };
+    case 'heartbeat': return { label: 'worker 心跳' };
+    case 'spawn_failed': return { label: 'worker 启动失败' };
+    case 'gave_up': return { label: 'worker 放弃' };
+    case 'crashed': return { label: 'worker 崩溃' };
+    case 'timed_out': return { label: '运行超时' };
+    case 'dependency_wait': return { label: '依赖等待', detail: str('reason') ?? undefined };
+    case 'block_loop_detected': return { label: '阻塞循环检测', detail: `${str('reason') ?? ''} ×${p.recurrences ?? ''}` };
+    case 'attached': case 'attachment_removed': return { label: '附件更新' };
+    default: {
+      const detail = Object.entries(p)
+        .filter(([, v]) => v != null && typeof v !== 'object')
+        .map(([k, v]) => `${k}=${String(v)}`)
+        .join(' ');
+      return { label: kind.replace(/_/g, ' '), detail: detail || undefined };
+    }
+  }
+}
+
+/** 诊断恢复动作（对齐 Hermes DiagnosticAction） */
+interface TaskDiagAction {
+  kind: string;
+  label: string;
+  payload?: Record<string, unknown>;
+  suggested?: boolean;
+}
+/** 结构化任务诊断（对齐 Hermes Diagnostic） */
+interface TaskDiag {
+  task_id: string;
+  severity: string;
+  title: string;
+  detail: string;
+  count?: number;
+  actions?: TaskDiagAction[];
+}
 
 function StatusDot({ status, size = 8 }: { status: string; size?: number }) {
   const s = (status || '').toLowerCase();
@@ -71,18 +135,20 @@ interface TaskDrawerProps {
   onAction: (action: string, taskId: string) => void;
   loadingId: string | null;
   onRefresh: () => void;
-  onViewLog: (taskId: string) => void;
-  workerLog: string | Record<string, unknown> | null;
   homeChannels: Array<{ platform?: string } | string>;
   /** 当前看板 slug（🔴 修复：详情/评论/附件/链接 API 均需按板路由，缺省恒 default 错板） */
   board?: string;
+  /** 点击依赖链接跳转到目标任务（对齐 Hermes drawer onOpen） */
+  onOpenTask?: (id: string) => void;
 }
 
-export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onViewLog, workerLog, homeChannels, board = 'default' }: TaskDrawerProps) {
+export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, homeChannels, board = 'default', onOpenTask }: TaskDrawerProps) {
   const busy = loadingId === task?.id;
   const [detail, setDetail] = useState<any>(null);
   const [commentInput, setCommentInput] = useState('');
   const [attachments, setAttachments] = useState<AttachmentRecord[]>([]);
+  const [workerLog, setWorkerLog] = useState<string | Record<string, unknown> | null>(null);
+  const [diags, setDiags] = useState<TaskDiag[]>([]);
   const [editingBody, setEditingBody] = useState(false);
   const [bodyDraft, setBodyDraft] = useState('');
   const [editingTitle, setEditingTitle] = useState(false);
@@ -102,6 +168,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
   //   顺带修正非 default 看板下 getKanbanTask 缺省 board 参数导致的错板读取。
   const comments: CommentRecord[] = detail?.comments || [];
   const runs: RunRecord[] = detail?.runs || [];
+  const events: KanbanEvent[] = detail?.events || [];
   const links: { parents: string[]; children: string[] } = detail?.links || { parents: [], children: [] };
 
   // Phase B7: 展开/收起 Run 详情
@@ -134,6 +201,33 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
     setExpandedRunId(null);
     setExpandedRunData(null);
   }, [task?.id, board]);
+
+  // 🔴 对齐 Hermes 抽屉诊断区：board 级 /diagnostics 按 task_id 过滤展示
+  useEffect(() => {
+    if (!task?.id) { setDiags([]); return; }
+    let alive = true;
+    getKanbanDiagnostics(board).then(data => {
+      if (!alive) return;
+      const list = (data?.diagnostics || []) as TaskDiag[];
+      setDiags(list.filter(d => d.task_id === task.id));
+    }).catch(() => { if (alive) setDiags([]); });
+    return () => { alive = false; };
+  }, [task?.id, board]);
+
+  // 🔴 对齐 Hermes worker log 自动轮询：running 3s / 其他 15s（手动按钮变"立即刷新"）
+  const runningNow = task?.status === 'running';
+  useEffect(() => {
+    if (!task?.id) { setWorkerLog(null); return; }
+    let alive = true;
+    const fetchLog = () => {
+      getKanbanTaskLog(task.id, 50, board).then(data => {
+        if (alive) setWorkerLog(data?.log || data || '无日志');
+      }).catch(() => { if (alive) setWorkerLog('加载日志失败'); });
+    };
+    fetchLog();
+    const interval = window.setInterval(fetchLog, runningNow ? 3000 : 15000);
+    return () => { alive = false; window.clearInterval(interval); };
+  }, [task?.id, board, runningNow]);
 
   const handleShadeClick = (e: React.MouseEvent) => { if (e.target === e.currentTarget) onClose(); };
   useEffect(() => {
@@ -362,19 +456,68 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
                   </div>
                 )}
 
-                {/* 依赖（🔴 修复：来自 detail.links，board 任务对象无 parents/children） */}
+                {/* 依赖（🔴 修复：来自 detail.links，board 任务对象无 parents/children；
+                    点击可跳转目标任务，对齐 Hermes drawer onOpen） */}
                 {(links.parents?.length > 0 || links.children?.length > 0) && (
                   <div className="flex flex-col gap-1.5">
                     <span className="text-[0.72rem] font-semibold tracking-wide text-[var(--ui-text-tertiary)]">依赖关系</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {links.parents.map((p: string) => <span key={p} className="font-mono text-[0.68rem] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--ui-text-primary)_6%,transparent)] border border-[var(--ui-stroke-tertiary)]">↑ {typeof p === 'string' ? p.slice(0, 6) : p}</span>)}
-                      {links.children.map((c: string) => <span key={c} className="font-mono text-[0.68rem] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--ui-text-primary)_6%,transparent)] border border-[var(--ui-stroke-tertiary)]">↓ {typeof c === 'string' ? c.slice(0, 6) : c}</span>)}
+                      {links.parents.map((p: string) => (
+                        <button key={p} type="button" onClick={() => onOpenTask?.(p)}
+                          className="font-mono text-[0.68rem] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--ui-text-primary)_6%,transparent)] border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-secondary)] hover:bg-[var(--chrome-action-hover)] hover:text-foreground transition-colors" title="打开父任务">
+                          ↑ {typeof p === 'string' ? p.slice(0, 6) : p}
+                        </button>
+                      ))}
+                      {links.children.map((c: string) => (
+                        <button key={c} type="button" onClick={() => onOpenTask?.(c)}
+                          className="font-mono text-[0.68rem] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--ui-text-primary)_6%,transparent)] border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-secondary)] hover:bg-[var(--chrome-action-hover)] hover:text-foreground transition-colors" title="打开子任务">
+                          ↓ {typeof c === 'string' ? c.slice(0, 6) : c}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}
               </div>
             )}
           </div>
+
+          {/* ── 诊断（🔴 对齐 Hermes drawer Diagnostics：board 级诊断按任务过滤，
+              恢复动作一键执行）── */}
+          {diags.length > 0 && (
+            <div>
+              <button onClick={() => setCollapsedSections(prev => ({...prev, diags: !prev.diags}))}
+                className="flex items-center gap-2 w-full text-left py-2.5 px-1 border-b border-[var(--ui-stroke-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_3%,transparent)] transition-colors">
+                <ChevronDown size={12} strokeWidth={1.5}
+                  className={cn('text-[var(--ui-text-tertiary)] transition-transform', !collapsedSections.diags && 'rotate-180')} />
+                <span className="text-[0.72rem] font-semibold tracking-wide text-warning">诊断 ({diags.length})</span>
+              </button>
+              {!collapsedSections.diags && (
+                <div className="py-3 flex flex-col gap-2">
+                  {diags.map(d => {
+                    const tone = d.severity === 'warning' ? '#fbbf24' : 'var(--ui-red)';
+                    const action = (d.actions || []).find(a => a.kind === 'reclaim' || a.kind === 'unblock');
+                    return (
+                      <div key={`${d.task_id}-${d.title}`} className="flex flex-col gap-1.5 rounded-md p-2.5 text-[0.75rem]"
+                        style={{ backgroundColor: `color-mix(in srgb, ${tone} 7%, transparent)`, borderLeft: `2px solid ${tone}` }}>
+                        <div className="flex items-center gap-1.5 font-medium" style={{ color: tone }}>
+                          <AlertTriangle size={12} strokeWidth={1.5} className="shrink-0" />
+                          {d.title}{d.count && d.count > 1 ? ` ×${d.count}` : ''}
+                        </div>
+                        {d.detail && <p className="leading-relaxed text-[var(--ui-text-secondary)]">{d.detail}</p>}
+                        {action && (
+                          <button onClick={() => onAction(action.kind === 'reclaim' ? 'reclaim' : 'unblock', task.id)}
+                            className="self-start text-[0.7rem] px-2 py-1 rounded border transition-colors"
+                            style={{ borderColor: `color-mix(in srgb, ${tone} 40%, transparent)`, color: tone }}>
+                            {action.label}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ── 评论 ── */}
           <div>
@@ -402,6 +545,36 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
               </div>
             )}
           </div>
+
+          {/* ── 活动（🔴 对齐 Hermes drawer Activity：task_events 人类可读流）── */}
+          {events.length > 0 && (
+            <div>
+              <button onClick={() => setCollapsedSections(prev => ({...prev, activity: !prev.activity}))}
+                className="flex items-center gap-2 w-full text-left py-2.5 px-1 border-b border-[var(--ui-stroke-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_3%,transparent)] transition-colors">
+                <ChevronDown size={12} strokeWidth={1.5}
+                  className={cn('text-[var(--ui-text-tertiary)] transition-transform', !collapsedSections.activity && 'rotate-180')} />
+                <span className="text-[0.72rem] font-semibold tracking-wide text-[var(--ui-text-tertiary)]">活动 ({events.length})</span>
+              </button>
+              {!collapsedSections.activity && (
+                <div className="py-3">
+                  <ul className="flex flex-col gap-1.5 max-h-[11rem] overflow-y-auto pr-1">
+                    {[...events].sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0)).map((evt, idx) => {
+                      const { detail: extra, label } = eventText(evt.kind, evt.payload);
+                      return (
+                        <li key={evt.id ?? idx} className="flex items-baseline gap-2 text-[0.7rem]">
+                          <span className="shrink-0 text-[var(--ui-text-secondary)]">{label}</span>
+                          {extra && (
+                            <span className="min-w-0 truncate text-[0.65rem] text-[var(--ui-text-quaternary)]" title={extra}>{extra}</span>
+                          )}
+                          <span className="ml-auto shrink-0 text-[var(--ui-text-quaternary)]">{fmtAge(evt.created_at)}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ── 运行历史 ── */}
           <div>
@@ -479,7 +652,10 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
                       {links.parents.map((p: string) => (
                         <div key={p} className="flex items-center gap-2 text-[0.75rem]">
                           <GitBranch size={11} strokeWidth={1.5} className="text-[var(--ui-text-quaternary)] shrink-0" />
-                          <span className="font-mono text-[var(--ui-text-primary)]">{typeof p === 'string' ? p.slice(0, 8) : p}</span>
+                          <button type="button" onClick={() => onOpenTask?.(p)}
+                            className="font-mono text-[var(--ui-text-primary)] hover:text-[var(--kanban-hover-bg)] transition-colors" title="打开父任务">
+                            {typeof p === 'string' ? p.slice(0, 8) : p}
+                          </button>
                           <button onClick={async () => { try { await deleteKanbanLink(p, task.id, board); onRefresh(); } catch {} }}
                             className="ml-auto text-[var(--ui-text-quaternary)] hover:text-danger transition-colors"><X size={11} strokeWidth={1.5} /></button>
                         </div>
@@ -496,7 +672,10 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
                       {links.children.map((c: string) => (
                         <div key={c} className="flex items-center gap-2 text-[0.75rem]">
                           <GitBranch size={11} strokeWidth={1.5} className="text-[var(--ui-text-quaternary)] shrink-0" />
-                          <span className="font-mono text-[var(--ui-text-primary)]">{typeof c === 'string' ? c.slice(0, 8) : c}</span>
+                          <button type="button" onClick={() => onOpenTask?.(c)}
+                            className="font-mono text-[var(--ui-text-primary)] hover:text-[var(--kanban-hover-bg)] transition-colors" title="打开子任务">
+                            {typeof c === 'string' ? c.slice(0, 8) : c}
+                          </button>
                           <button onClick={async () => { try { await deleteKanbanLink(task.id, c, board); onRefresh(); } catch {} }}
                             className="ml-auto text-[var(--ui-text-quaternary)] hover:text-danger transition-colors"><X size={11} strokeWidth={1.5} /></button>
                         </div>
@@ -546,7 +725,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
             )}
           </div>
 
-          {/* ── 日志 ── */}
+          {/* ── 日志（🔴 对齐 Hermes：running 3s / 其他 15s 自动轮询，按钮=立即刷新）── */}
           <div>
             <button onClick={() => setCollapsedSections(prev => ({...prev, log: !prev.log}))}
               className="flex items-center gap-2 w-full text-left py-2.5 px-1 border-b border-[var(--ui-stroke-tertiary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_3%,transparent)] transition-colors">
@@ -556,13 +735,19 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, onVi
             </button>
             {!collapsedSections.log && (
               <div className="py-3 flex flex-col gap-2">
-                <button onClick={() => onViewLog?.(task.id)} className="inline-flex items-center gap-1.5 text-[0.7rem] px-2.5 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)] hover:text-[var(--ui-text-primary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors self-start">
-                  <FileText size={11} /> 加载日志
+                <button onClick={() => {
+                  getKanbanTaskLog(task.id, 50, board).then(data => {
+                    setWorkerLog(data?.log || data || '无日志');
+                  }).catch(() => setWorkerLog('加载日志失败'));
+                }} className="inline-flex items-center gap-1.5 text-[0.7rem] px-2.5 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] text-[var(--ui-text-tertiary)] hover:text-[var(--ui-text-primary)] hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors self-start">
+                  <FileText size={11} /> 刷新日志
                 </button>
-                {workerLog && (
+                {workerLog ? (
                   <pre className="text-[0.7rem] font-mono leading-relaxed p-3 rounded-md bg-[color-mix(in_srgb,var(--ui-text-primary)_4%,transparent)] border border-[var(--ui-stroke-tertiary)] overflow-x-auto whitespace-pre-wrap max-h-[300px] overflow-y-auto text-[var(--ui-text-primary)]">
                     {typeof workerLog === 'string' ? workerLog : JSON.stringify(workerLog, null, 2)}
                   </pre>
+                ) : (
+                  <p className="text-[0.75rem] text-[var(--ui-text-quaternary)]">加载中...</p>
                 )}
               </div>
             )}

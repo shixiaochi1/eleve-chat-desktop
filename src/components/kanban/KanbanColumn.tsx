@@ -2,14 +2,14 @@
  * 看板列 + 任务卡片 — 从 KanbanPanel.tsx 拆分（Tier 3 · 6-2）
  */
 import { memo, useState } from 'react';
-import { Plus, CheckCircle2, X, Trash2, AlertTriangle, Clock, Eye, Loader } from 'lucide-react';
+import { Plus, CheckCircle2, X, Trash2, AlertTriangle, Clock, Eye, Loader, MessageSquare, GitBranch } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { KanbanTask, ColumnDef } from './types';
 import { isBlocked, isDone, getStaleness, fmtAge } from './helpers';
 import { LOCKED_DROP_COLUMNS } from './constants';
 
 // ── 任务卡片（Trail 极简风格 + 删除按钮）──
-const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, justCreated, isDragging, onDelete }: { task: KanbanTask; onSelect: (task: KanbanTask) => void; isSelected: boolean; onDragStart: (id: string) => void; checked: boolean; onCheck: (id: string) => void; justCreated: boolean; isDragging: boolean; onDelete?: (id: string) => void }) {
+const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStart, checked, onCheck, justCreated, isDragging, onDelete, defaultAssignee }: { task: KanbanTask; onSelect: (task: KanbanTask) => void; isSelected: boolean; onDragStart: (id: string) => void; checked: boolean; onCheck: (id: string) => void; justCreated: boolean; isDragging: boolean; onDelete?: (id: string) => void; defaultAssignee?: string }) {
   const blocked = isBlocked(task);
   const done = isDone(task);
   const running = task.status === 'running';
@@ -18,6 +18,12 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
   const staleness = getStaleness(task);
   const hasProgress = (task.child_total ?? 0) > 0;
   const progressFull = hasProgress && task.child_done === task.child_total;
+  // 🔴 对齐 Hermes：摘要行 = latest_summary || body（normalizeTask 已把
+  //   latest_summary 并入 task.summary），展示在标题下方
+  const summary = task.summary || task.body;
+  // 🔴 对齐 Hermes won't-run 警告：ready + 无 assignee + 无默认负责人 → 调度器不会动它
+  const wontRun = task.status === 'ready' && !task.assignee && !(defaultAssignee || '').trim();
+  const links = task.link_counts ? task.link_counts.parents + task.link_counts.children : 0;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [hovered, setHovered] = useState(false);
 
@@ -139,10 +145,43 @@ const TaskCard = memo(function TaskCard({ task, onSelect, isSelected, onDragStar
           {task.assignee && <span className="font-medium truncate max-w-[100px]">{task.assignee}</span>}
           {running && <Loader size={10} strokeWidth={1.5} className="animate-spin text-success shrink-0" />}
           {task.updated_at && <span className="tabular-nums whitespace-nowrap">{fmtAge(task.updated_at)}</span>}
-          <span className="font-mono text-[0.6rem] tracking-wide text-[var(--ui-text-quaternary)] ml-auto shrink-0">
-            #{typeof task.id === 'string' ? task.id.slice(0, 6) : task.id}
-          </span>
+          {/* 🔴 对齐 Hermes footer meta：评论数 / 依赖链接数 / 诊断警告数 */}
+          <div className="ml-auto flex items-center gap-1.5 shrink-0 text-[var(--ui-text-quaternary)]">
+            {Boolean(task.comment_count) && (
+              <span className="inline-flex items-center gap-0.5" title={`${task.comment_count} 条评论`}>
+                <MessageSquare size={10} strokeWidth={1.5} />{task.comment_count}
+              </span>
+            )}
+            {links > 0 && (
+              <span className="inline-flex items-center gap-0.5" title={`${links} 个依赖链接`}>
+                <GitBranch size={10} strokeWidth={1.5} />{links}
+              </span>
+            )}
+            {Boolean(task.diagnostics?.length) && (
+              <span className="inline-flex items-center gap-0.5 text-warning" title={task.diagnostics!.join('\n')}>
+                <AlertTriangle size={10} strokeWidth={1.5} />{task.diagnostics!.length}
+              </span>
+            )}
+            <span className="font-mono text-[0.6rem] tracking-wide">
+              #{typeof task.id === 'string' ? task.id.slice(0, 6) : task.id}
+            </span>
+          </div>
         </div>
+
+        {/* Row 3: 摘要（latest_summary || body，对齐 Hermes） */}
+        {summary && !done && (
+          <div className="text-[0.68rem] leading-snug text-[var(--ui-text-tertiary)] line-clamp-2 min-w-0">
+            {summary}
+          </div>
+        )}
+
+        {/* won't run 警告（对齐 Hermes：ready + 无 assignee + 无默认负责人） */}
+        {wontRun && (
+          <div className="flex items-center gap-1 text-[0.62rem] font-medium text-warning">
+            <AlertTriangle size={10} strokeWidth={1.5} className="shrink-0" />
+            未分配，将不会自动运行
+          </div>
+        )}
       </div>
     </div>
   );
@@ -168,9 +207,11 @@ interface KanbanColumnProps {
   newTitle: string;
   setNewTitle: (v: string) => void;
   onDelete: (taskId: string) => void;
+  /** 默认负责人（orchestration.config.default_assignee），用于 won't-run 判断 */
+  defaultAssignee?: string;
 }
 
-export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart, onDrop, creatingIn, onCreateStart, onCreateCancel, checkedIds, onCheck, runningLanes, justCreatedIds, draggingTaskId, onCreateSubmit, newTitle, setNewTitle, onDelete }: KanbanColumnProps) {
+export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart, onDrop, creatingIn, onCreateStart, onCreateCancel, checkedIds, onCheck, runningLanes, justCreatedIds, draggingTaskId, onCreateSubmit, newTitle, setNewTitle, onDelete, defaultAssignee }: KanbanColumnProps) {
   const [dragOver, setDragOver] = useState(false);
   // 🔴 修复（对齐 Hermes LOCKED_COLUMNS）：running（调度器 claim 独占）与
   //   scheduled（需定时唤醒时间）列拒绝拖入——不 preventDefault → 操作系统
@@ -228,7 +269,7 @@ export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect
               <div className="flex flex-col gap-2 mt-1">
                 {(laneTasks).map((task: KanbanTask) => (
                   <TaskCard key={task.id} task={task} onSelect={onSelect} isSelected={selectedId === task.id} onDragStart={onDragStart}
-                    checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} onDelete={onDelete} />
+                    checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} onDelete={onDelete} defaultAssignee={defaultAssignee} />
                 ))}
               </div>
             </div>);
@@ -236,7 +277,7 @@ export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect
         ) : (
           tasks.map((task: KanbanTask) => (
             <TaskCard key={task.id} task={task} onSelect={onSelect} isSelected={selectedId === task.id} onDragStart={onDragStart}
-              checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} onDelete={onDelete} />
+              checked={checkedIds?.has(task.id)} onCheck={onCheck} justCreated={justCreatedIds?.has(task.id)} isDragging={draggingTaskId === task.id} onDelete={onDelete} defaultAssignee={defaultAssignee} />
           ))
         )}
       </div>

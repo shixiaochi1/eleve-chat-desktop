@@ -60,8 +60,6 @@ export default function KanbanPanelForSidebar() {
     loadBoard,
     loadingId,
     handleAction,
-    handleViewLog,
-    workerLog,
     homeChannels,
     showDispatch,
     setShowDispatch,
@@ -112,10 +110,11 @@ export default function KanbanPanelForSidebar() {
       {/* 手动调度 — 与主看板共享 DispatchModal */}
       <DispatchModal open={showDispatch} board={currentBoard} onClose={() => setShowDispatch(false)} onDispatched={loadBoard} />
 
-      {/* 详情抽屉 — 点卡片打开查看/操作 */}
+      {/* 详情抽屉 — 点卡片打开查看/操作；依赖点击可跳转 */}
       {selectedTask && (
         <TaskDrawer task={selectedTask} onClose={() => setSelectedTask(null)} onAction={handleAction} loadingId={loadingId}
-          onRefresh={loadBoard} onViewLog={handleViewLog} workerLog={workerLog} homeChannels={homeChannels} board={currentBoard} />
+          onRefresh={loadBoard} homeChannels={homeChannels} board={currentBoard}
+          onOpenTask={(id) => { const t = allTasks.find(x => x.id === id); if (t) setSelectedTask(t); }} />
       )}
 
       {/* 新建看板模态 — 与主面板共享 CreateBoardModal */}

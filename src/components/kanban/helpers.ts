@@ -118,6 +118,18 @@ export function normalizeTask(raw: Record<string, unknown>): KanbanTask {
     children: arr(raw.children) as string[],
     tags: arr(raw.tags) as string[],
     tenant: s(raw.tenant),
+    // 🔴 对齐 Hermes 卡片 footer meta：后端 board 接口已批量注入
+    //   comment_count / link_counts / diagnostics（blocked 原因数组）
+    comment_count: n(raw.comment_count) ?? 0,
+    link_counts: (() => {
+      const lc = raw.link_counts as { parents?: unknown; children?: unknown } | undefined;
+      if (!lc) return undefined;
+      return {
+        parents: typeof lc.parents === 'number' ? lc.parents : 0,
+        children: typeof lc.children === 'number' ? lc.children : 0,
+      };
+    })(),
+    diagnostics: Array.isArray(raw.diagnostics) ? (raw.diagnostics as string[]) : undefined,
     runs: arr(raw.runs) as RunRecord[],
     comments: arr(raw.comments) as CommentRecord[],
     child_done: childDone,
@@ -136,6 +148,15 @@ export function normalizeBoardData(boardResult: Record<string, unknown> | null |
   return tasks;
 }
 
+/** 事件 payload 规范化：SSE 给对象、轮询给 JSON 字符串，统一成对象（对齐 Hermes eventText） */
+export function parsePayload(payload: unknown): Record<string, unknown> {
+  if (typeof payload === 'string' && payload) {
+    try { return JSON.parse(payload) as Record<string, unknown>; } catch { return {}; }
+  }
+  if (payload && typeof payload === 'object') return payload as Record<string, unknown>;
+  return {};
+}
+
 /**
  * 应用单个 kanban 事件到任务列表（SSE 与轮询共用，收敛重复逻辑）。
  * 返回新数组；仅「archived」事件移除条目（对齐后端语义），
@@ -144,12 +165,13 @@ export function normalizeBoardData(boardResult: Record<string, unknown> | null |
  * KANBAN_PATCH_KINDS 里且不触发重载时，卡片会凭空消失直到 60s 轮询兜底）。
  */
 export function applyKanbanEvent(tasks: KanbanTask[], evt: KanbanEvent): KanbanTask[] {
+  const p = parsePayload(evt.payload);
   return tasks.map(t => {
     if (t.id !== evt.task_id) return t;
     const task: KanbanTask = { ...t };
     switch (evt.kind) {
-      case 'completed': task.status = 'done'; if (evt.payload?.summary) task.summary = evt.payload.summary; return task;
-      case 'blocked': task.status = 'blocked'; task.blocked = true; if (evt.payload?.reason) task.block_reason = evt.payload.reason; return task;
+      case 'completed': task.status = 'done'; if (typeof p.summary === 'string' && p.summary) task.summary = p.summary; return task;
+      case 'blocked': task.status = 'blocked'; task.blocked = true; if (typeof p.reason === 'string' && p.reason) task.block_reason = p.reason; return task;
       case 'claimed': task.status = 'running'; return task;
       case 'unblocked': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
       case 'promoted': case 'promoted_manual': task.status = 'ready'; task.blocked = false; task.block_reason = ''; return task;
@@ -157,7 +179,7 @@ export function applyKanbanEvent(tasks: KanbanTask[], evt: KanbanEvent): KanbanT
       case 'scheduled': task.status = 'scheduled'; task.blocked = false; task.block_reason = ''; return task;
       case 'status': {
         // set_status_direct 写的事件：payload.status 即新状态（对齐 Hermes status event）
-        const st = (evt.payload as { status?: string } | undefined)?.status;
+        const st = p.status;
         if (st && typeof st === 'string') {
           task.status = st;
           if (st === 'ready' || st === 'todo' || st === 'scheduled') { task.blocked = false; task.block_reason = ''; }

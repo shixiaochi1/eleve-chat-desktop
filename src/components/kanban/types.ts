@@ -80,6 +80,12 @@ export interface KanbanTask {
   tags: string[];
   /** 租户（后端 Task.tenant）— 顶栏租户筛选的匹配字段（对齐 Hermes task.tenant） */
   tenant: string;
+  /** 评论数（后端 board 接口批量注入 comment_count，对齐 Hermes 卡片 footer meta） */
+  comment_count?: number;
+  /** 依赖链接数（后端 board 接口批量注入 link_counts，对齐 Hermes references meta） */
+  link_counts?: { parents: number; children: number };
+  /** 诊断提示数组（后端 board 接口注入的 blocked 原因等，对齐 Hermes warnings rollup） */
+  diagnostics?: string[];
   runs: RunRecord[];
   comments: CommentRecord[];
   child_done: number | null;
@@ -100,7 +106,10 @@ export interface StaleThresholds {
 
 /** SSE / 轮询事件（task_id + kind + 可选 payload） */
 export interface KanbanEvent {
+  id?: number;
   task_id: string;
   kind: string;
-  payload?: { summary?: string; reason?: string };
+  /** SSE 路径为解析后的对象；轮询路径为 JSON 字符串（消费方统一 parsePayload） */
+  payload?: { summary?: string; reason?: string; status?: string } | string | Record<string, unknown> | null;
+  created_at?: number;
 }
