@@ -684,6 +684,11 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                             className="flex-1 text-[0.8rem] px-1 py-0.5 rounded border border-[var(--kanban-hover-bg)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none" />
                         </div>
                         <div className="flex gap-2 text-[0.68rem]">
+                          {/* 🔴 2026-08-16（d2-R3-11）：一键清空（继承）——对齐
+                              Hermes ModelOverrideField × 按钮（model-override.tsx:
+                              116-130），显式发空串清 NULL 回退继承 */}
+                          <button onClick={() => { setModelDraft(''); setProviderDraft(''); setEffortDraft(''); }}
+                            className="text-[var(--ui-text-tertiary)] hover:text-[var(--ui-text-primary)] hover:underline">清空（继承）</button>
                           <button onClick={handleSaveModel} className="text-[var(--kanban-hover-bg)] hover:underline">保存</button>
                           <button onClick={() => setEditingModel(false)} className="text-[var(--ui-text-tertiary)] hover:underline">取消</button>
                         </div>

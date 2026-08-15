@@ -54,6 +54,9 @@ import { notify } from '../../utils/notifications';
 import { call } from '../../utils/bridge';
 import { taskColumn, normalizeBoardData } from './helpers';
 import { useKanbanSSE } from './useKanbanSSE';
+// 🔴 2026-08-16（d1-R3-12）：模块级共享看板状态（对齐 Hermes 全局原子
+//   $boardSlug）——主面板/侧边栏双实例同步板选择
+import { getSharedBoard, setSharedBoard, subscribeSharedBoard } from './boardStore';
 
 export function useKanban({ board = 'default' }: { board?: string }) {
   const [apiTasks, setApiTasks] = useState<KanbanTask[]>([]);
@@ -81,7 +84,13 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [checkedIds, setCheckedIds] = useState<Set<any>>(new Set());
   // Phase 4 状态
-  const [currentBoard, setCurrentBoard] = useState(board);
+  // 🔴 2026-08-16（d1-R3-12）：currentBoard 初始化为共享值（对齐 Hermes
+  //   $boardSlug 全局原子）——prop 仅作 fallback；订阅共享变化双向同步
+  const [currentBoard, setCurrentBoard] = useState(() => getSharedBoard() || board);
+  useEffect(() => {
+    const unsub = subscribeSharedBoard((b) => setCurrentBoard(b));
+    return unsub;
+  }, []);
   const [boards, setBoards] = useState<any[]>([]);
   const [showBoardPicker, setShowBoardPicker] = useState(false);
   const [diagnostics, setDiagnostics] = useState<any>(null);
@@ -721,6 +730,8 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     try {
       await switchKanbanBoard(slug);
       setCurrentBoard(slug);
+      // 🔴 2026-08-16（d1-R3-12）：同步共享 store（主面板/侧边栏双实例跟随）
+      setSharedBoard(slug);
       setShowBoardPicker(false);
     } catch (err) {
       console.error('[KanbanPanel] Switch board failed:', err);
