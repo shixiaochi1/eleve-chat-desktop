@@ -26,7 +26,7 @@ const NAV_ITEMS: NavItem[] = [
 
 export default function SettingsNav({ activeSection, onSectionChange }: { activeSection: string; onSectionChange: (id: string) => void }) {
   return (
-    <nav className="flex flex-col px-2.5 pt-9 pb-3">
+    <nav className="flex flex-col px-2.5 pt-6 pb-3">
       {/* 面板标题 */}
       <div className="px-3 pb-4 text-base font-semibold text-[var(--theme-foreground)]">
         设置
