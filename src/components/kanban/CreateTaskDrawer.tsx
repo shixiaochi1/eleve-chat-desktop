@@ -110,9 +110,22 @@ export function CreateTaskDrawer({
 
   const isTriage = target === 'triage';
   const targetLabel = COLUMNS.find(c => c.key === target)?.label || target;
+  // 🔴 2026-08-16（创建面板 P2）：workspace 继承时路径框可达——看板默认
+  //   类型为 dir/worktree 时（kind 留空继承），路径输入同样渲染；此前
+  //   仅显式选类型才显示路径框，继承场景路径框不可达
+  const effectiveWsKind = workspaceKind || boardDefaultKind || '';
+  const showWsPath = Boolean(effectiveWsKind && effectiveWsKind !== 'scratch');
 
   const submit = async () => {
     if (!title.trim() || submitting) return;
+    // 🔴 2026-08-16（创建面板 P2）：provider 单独填静默丢弃——后端
+    //   create_task 校验 provider_override 必须配 model_override（对齐
+    //   Hermes kanban_db.py L2949-2953），前端此前静默剔除（无任何反馈）；
+    //   改为提交前明确提示
+    if (providerOverride.trim() && !modelOverride.trim()) {
+      setError('Provider 需配合模型填写——模型留空时 Provider 会被忽略（继承 profile）');
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -231,10 +244,15 @@ export function CreateTaskDrawer({
             </option>
           ))}
         </select>
-        {workspaceKind && workspaceKind !== 'scratch' && (
+        {/* 🔴 2026-08-16（创建面板 P2）：showWsPath 覆盖继承场景——kind 留空
+            继承且看板默认类型为 dir/worktree 时路径框同样可达；提示行标注
+            实际继承的默认目录值 */}
+        {showWsPath && (
           <>
             <input value={workspacePath} onChange={e => onWorkspacePathChange(e.target.value)}
-              placeholder="工作区路径（留空继承看板默认目录）"
+              placeholder={workspaceKind
+                ? '工作区路径（留空继承看板默认目录）'
+                : `继承看板类型 ${effectiveWsKind}，路径留空继承默认目录`}
               className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
             {/* 🔴 对齐 Hermes 继承提示行（board.tsx L722-733，审查 d3-14）：
                 显示看板实际默认目录值 */}

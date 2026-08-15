@@ -497,8 +497,12 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       if (newGoalMode) { payload.goal_mode = true; payload.goal_max_turns = Number(newGoalMaxTurns) || 20; }
       // 工作区类型/路径（对齐 Hermes：'' = 继承看板 default_workspace_kind，
       // 后端 create_task 兜底；路径仅 dir/worktree 生效，scratch 忽略）
+      // 🔴 2026-08-16（创建面板 P2）：继承类型下路径框同样可达——看板默认
+      //   类型是 dir/worktree 时（workspace_kind 留空继承），显式路径照发
+      //   （此前仅显式选类型才发路径，继承场景填了路径也被静默丢弃）
+      const effectiveWsKind = newWorkspaceKind || boardMeta?.default_workspace_kind || '';
       if (newWorkspaceKind) payload.workspace_kind = newWorkspaceKind;
-      if (newWorkspaceKind && newWorkspaceKind !== 'scratch' && newWorkspacePath.trim()) {
+      if (effectiveWsKind && effectiveWsKind !== 'scratch' && newWorkspacePath.trim()) {
         payload.workspace_path = newWorkspacePath.trim();
       }
       // 模型覆盖（对齐 Hermes 三元组：model_override + provider_override +
@@ -525,11 +529,21 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       //   导致创建到 blocked/done 等列时卡片落错位；review/running/scheduled
       //   锁定列由后端门控拒绝（留在后端落位状态）；triage 由后端直接落位
       const createdStatus = result?.task?.status || result?.status;
+      // 🔴 2026-08-16（创建面板 P2）：父任务未完成时后端按依赖门控落位
+      //   todo（create_task 仅父 done 落 ready）——原逻辑把 todo 再补丁到
+      //   目标列（如 ready），下个 tick claim 时又被 claim_rejected 降回
+      //   todo（卡片静默抖动）；父未完成 → 尊重后端落位 + 明确提示
+      const parentTask = newParent ? apiTasks.find(t => t.id === newParent) : undefined;
+      const parentNotDone = Boolean(newParent) && parentTask?.status !== 'done';
       if (newId && creatingIn && createdStatus && createdStatus !== creatingIn
-        && !LOCKED_DROP_COLUMNS.includes(creatingIn) && creatingIn !== 'triage') {
+        && !LOCKED_DROP_COLUMNS.includes(creatingIn) && creatingIn !== 'triage'
+        && !parentNotDone) {
         try { await updateKanbanTask(newId, { status: creatingIn }, currentBoard); } catch { /* 门控拒绝则留在后端落位状态 */ }
       }
       await loadBoard();
+      if (parentNotDone) {
+        notify({ kind: 'info', title: '父任务未完成', message: '任务落在 todo——父任务完成后会自动推进（也可以手动推进）' });
+      }
       // 创建成功即 nudge：新卡落 ready（或 todo→父完成→ready）立即被调度
       nudgeDispatch(currentBoard);
     } catch (err) {
@@ -537,7 +551,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       // 让调用方（CreateTaskDrawer）能感知失败并展示错误
       throw err;
     }
-  }, [currentBoard, creatingIn, newTitle, newBody, newAssignee, newPriority, newSkills, newParent, newGoalMode, newGoalMaxTurns, newWorkspaceKind, newWorkspacePath, newModelOverride, newProviderOverride, newReasoningEffort, loadBoard, orchestration, resolvedDefaultAssignee, nudgeDispatch]);
+  }, [currentBoard, creatingIn, newTitle, newBody, newAssignee, newPriority, newSkills, newParent, newGoalMode, newGoalMaxTurns, newWorkspaceKind, newWorkspacePath, newModelOverride, newProviderOverride, newReasoningEffort, loadBoard, orchestration, resolvedDefaultAssignee, nudgeDispatch, apiTasks, boardMeta]);
 
   // 🔴 2026-08-16（P1 遗留闭合）：提交评审（force=运行中显式覆盖，对齐 Hermes
   //   request_review force 语义）。浮层确认后调用；内聚完整闭环（notify + 清浮层

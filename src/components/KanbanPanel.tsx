@@ -880,9 +880,9 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
             onSelect={setSelectedTask} selectedId={selectedTask?.id}
             onDragStart={(taskId: string) => setDraggingTaskId(taskId)}
             onDrop={handleDrop}
-            creatingIn={creatingIn} onCreateStart={setCreatingIn} onCreateCancel={() => setCreatingIn(null)}
+            onCreateStart={setCreatingIn}
             checkedIds={checkedIds} onCheck={handleCheck} justCreatedIds={justCreatedIds} draggingTaskId={draggingTaskId}
-            onCreateSubmit={() => { void handleCreateSubmit().catch(() => {}); }} newTitle={newTitle} setNewTitle={setNewTitle} onDelete={handleDeleteTask}
+            onDelete={handleDeleteTask}
             defaultAssignee={orchestration?.config?.default_assignee || ''}
             // 🔴 2026-08-16（d1-R3-06）：triage 卡显示编排器归属（对齐 Hermes
             //   orchestratorTip——resolved 值经 profile_exists 校验）

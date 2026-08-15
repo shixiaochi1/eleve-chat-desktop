@@ -404,6 +404,11 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   const running = liveStatus === 'running';
   const scheduled = (liveStatus || '').toLowerCase() === 'scheduled';
   const review = (liveStatus || '').toLowerCase() === 'review';
+  // 🔴 2026-08-16（走查评审 P1）：活动评审 run 标志（后端 task detail 计算：
+  //   status=running + current_run_id + claimed 源状态 review）——「退回」
+  //   按钮仅在活动评审 run 时渲染；原按 status='review' 显示，但 review 态
+  //   恰是无 run 态（claim 后即 running），点击必被后端拒绝（死按钮）
+  const reviewRunActive = Boolean((detail as any)?.review_run_active);
 
   // 发送评论 → 调 addKanbanComment → 刷新详情
   const handleSendComment = async () => {
@@ -1211,6 +1216,12 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
               {/* 🔴 对齐 Hermes request_review：运行中提交评审（force 覆盖确认
                   走应用内浮层 KanbanReviewDialogs，防清活 worker claim） */}
               <ActionButton icon={Eye} label="提交评审" color="accent" onClick={() => onAction('requestReview', task.id)} busy={busy} />
+              {/* 🔴 2026-08-16（走查评审 P1）：评审 worker 运行中 → 「退回」
+                  仅活动评审 run 时显示（review_run_active）——评审未 claim 时
+                  后端必拒（"task is not in an active review run"） */}
+              {reviewRunActive && (
+                <ActionButton icon={Undo2} label="退回" color="amber" onClick={() => onAction('requestChanges', task.id)} busy={busy} />
+              )}
               {/* 🔴 修复死代码：handleAction 有 terminate 分支但无 UI 入口——
                   补终止按钮（参数为 run_id，对齐 Worker 面板既有用法） */}
               {detail?.task?.run_id != null && (
@@ -1221,12 +1232,12 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
           {/* review — 🔴 对齐 Hermes 2026-08 一等评审生命周期：
               complete_task 门控含 review（人工可直接『通过』，免摘要后端合成）；
               恢复 = reopen（review→ready/todo，回实现者重跑）。
-              退回 = request_changes（评审 worker 运行时把不合格工作退回实现者，
-              走 KanbanReviewDialogs 理由浮层；无活动评审 run 时后端拒绝并提示） */}
+              退回 = request_changes（仅活动评审 run 可用——即评审 worker
+              运行时 status=running，按钮在 running 分支按 review_run_active
+              渲染；review 态恰是无 run 态，此处不再显示） */}
           {review && (
             <>
               <ActionButton icon={CheckCircle2} label="通过" color="green" onClick={() => onAction('complete', task.id)} busy={busy} />
-              <ActionButton icon={Undo2} label="退回" color="amber" onClick={() => onAction('requestChanges', task.id)} busy={busy} />
               <ActionButton icon={ArrowLeftFromLine} label="恢复" color="muted" onClick={() => onAction('promote', task.id)} busy={busy} />
             </>
           )}

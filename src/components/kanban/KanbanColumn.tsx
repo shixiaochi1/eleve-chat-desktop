@@ -318,17 +318,12 @@ interface KanbanColumnProps {
   selectedId: string | null | undefined;
   onDragStart: (taskId: string) => void;
   onDrop: (columnKey: string, taskId: string) => void;
-  creatingIn: string | null;
   onCreateStart: (key: string) => void;
-  onCreateCancel: () => void;
   checkedIds: Set<string>;
   onCheck: (id: string) => void;
   runningLanes: [string, KanbanTask[]][] | undefined;
   justCreatedIds: Set<string>;
   draggingTaskId: string | null;
-  onCreateSubmit: () => void;
-  newTitle: string;
-  setNewTitle: (v: string) => void;
   onDelete: (taskId: string) => void;
   /** 默认负责人（orchestration.config.default_assignee），用于 won't-run 判断 */
   defaultAssignee?: string;
@@ -339,7 +334,7 @@ interface KanbanColumnProps {
   onToggle?: () => void;
 }
 
-export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart, onDrop, creatingIn, onCreateStart, onCreateCancel, checkedIds, onCheck, runningLanes, justCreatedIds, draggingTaskId, onCreateSubmit, newTitle, setNewTitle, onDelete, defaultAssignee, orchestrator, collapsed = false, onToggle }: KanbanColumnProps) {
+export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect, selectedId, onDragStart, onDrop, onCreateStart, checkedIds, onCheck, runningLanes, justCreatedIds, draggingTaskId, onDelete, defaultAssignee, orchestrator, collapsed = false, onToggle }: KanbanColumnProps) {
   const [dragOver, setDragOver] = useState(false);
   // 🔴 修复（对齐 Hermes LOCKED_COLUMNS）：running（调度器 claim 独占）与
   //   scheduled（需定时唤醒时间）列拒绝拖入——不 preventDefault → 操作系统
@@ -412,7 +407,7 @@ export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect
 
       {/* 列内容 — Running 列按 assignee 分 Lane */}
       <div className="flex flex-col gap-2 p-2 overflow-y-auto flex-1 min-h-0">
-        {tasks.length === 0 && creatingIn !== column.key ? (
+        {tasks.length === 0 ? (
           <div className="flex items-center justify-center py-6 px-3">
             <span className="text-[0.75rem] text-[var(--ui-text-tertiary)] border border-dashed border-[color-mix(in_srgb,var(--ui-stroke-tertiary)_70%,transparent)] rounded-md px-4 py-3">
               {column.emptyText}
@@ -444,32 +439,20 @@ export const KanbanColumn = memo(function KanbanColumn({ column, tasks, onSelect
         )}
       </div>
 
-      {/* 列底部 — 行内快速创建 / + 添加按钮（仅可创建列显示） */}
+      {/* 列底部 — + 添加任务（打开全量创建抽屉，对齐 Hermes 单一 Dialog 入口
+          审查 d2-R3-13/d3-13）
+          🔴 2026-08-16（创建面板 P2）：删除行内单行输入——创建抽屉为
+          fixed inset-0 z-50 全屏覆盖，行内输入实际不可见（冗余死交互，
+          round-2 P1-11）；『添加任务』直接开抽屉 */}
       {column.canCreate && (
         <div className="shrink-0 px-2 pb-2">
-          {creatingIn === column.key ? (
-            <div className="flex items-center gap-1.5">
-              <input
-                autoFocus
-                value={newTitle || ''}
-                onChange={(e) => setNewTitle?.(e.target.value)}
-                placeholder="任务标题，回车创建…"
-                className="flex-1 text-[0.8rem] px-2.5 py-1.5 rounded-md border border-[var(--kanban-card-selected-bar)] bg-[var(--kanban-card-bg)] text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none"
-                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-                  if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) { e.preventDefault(); onCreateSubmit?.(); }
-                  if (e.key === 'Escape') onCreateCancel();
-                }}
-              />
-            </div>
-          ) : (
-            <button
-              onClick={() => onCreateStart(column.key)}
-              className="w-full flex items-center gap-1.5 text-[0.75rem] text-[var(--ui-text-tertiary)] hover:text-[var(--ui-text-primary)] px-2 py-1.5 rounded-md hover:bg-[color-mix(in_srgb,var(--ui-base)_6%,transparent)] transition-colors"
-            >
-              <Plus size={13} strokeWidth={1.5} />
-              添加任务
-            </button>
-          )}
+          <button
+            onClick={() => onCreateStart(column.key)}
+            className="w-full flex items-center gap-1.5 text-[0.75rem] text-[var(--ui-text-tertiary)] hover:text-[var(--ui-text-primary)] px-2 py-1.5 rounded-md hover:bg-[color-mix(in_srgb,var(--ui-base)_6%,transparent)] transition-colors"
+          >
+            <Plus size={13} strokeWidth={1.5} />
+            添加任务
+          </button>
         </div>
       )}
     </div>
