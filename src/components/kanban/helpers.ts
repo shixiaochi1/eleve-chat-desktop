@@ -209,7 +209,11 @@ export function applyKanbanEvent(tasks: KanbanTask[], evt: KanbanEvent): KanbanT
         }
         return task;
       }
-      case 'archived': return null;
+      // 🔴 2026-08-16（第三轮审查 d1-R3-11）：archived 事件改为跨列移动而非
+      //   删除卡片（对齐 Hermes api.ts onEventsFrame → refetch，归档卡移入归档
+      //   列）——此前返回 null 直接移除：『显示已归档』打开时卡片也从板面消失
+      //   （不落入归档列），要等 60s 轮询才可能恢复。
+      case 'archived': task.status = 'archived'; task.blocked = false; task.block_reason = ''; return task;
       case 'spawn_failed': case 'gave_up': case 'crashed': case 'timed_out': task.status = 'ready'; return task;
       default: return task;
     }

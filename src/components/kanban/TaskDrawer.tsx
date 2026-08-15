@@ -356,8 +356,13 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   // 🔴 对齐 Hermes 抽屉实时性（审查 d4-21）：头部状态/操作区读 detail 的
   //   最新 task（30s 轮询 + SSE 帧失效重拉）——此前读 selectedTask prop 快照，
   //   SSE 更新板面后抽屉内状态/操作区恒陈旧
+  // 🔴 2026-08-16（第三轮审查 d4-R3-08）：内容行统一读 detail.task 派生
+  //   （30s 轮询 + SSE 帧失效已保证 detail 新鲜）——此前标题/优先级/概要/
+  //   结果/阻塞原因读 prop 快照（选中时刻对象），外部完成/改标题/改优先级
+  //   后抽屉内容长期陈旧直到重开（round-2 d4-21 只修了状态行）。
+  const liveTask = { ...task, ...(detail?.task || {}) };
   const liveStatus = (detail?.task?.status as string | undefined) || task.status;
-  const liveAssignee = (detail?.task?.assignee as string | undefined | null) ?? task.assignee;
+  const liveAssignee = (detail?.task?.assignee as string | undefined | null) ?? liveTask.assignee;
 
   const blocked = liveStatus === 'blocked';
   const done = ['completed', 'done', 'success', 'finished', 'ok'].includes(liveStatus.toLowerCase());
@@ -399,7 +404,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   const handleSaveTitle = async () => {
     const trimmed = titleDraft.trim();
     if (!trimmed) { setEditingTitle(false); return; }
-    if (trimmed === (task.title || '')) { setEditingTitle(false); return; }
+    if (trimmed === (liveTask.title || '')) { setEditingTitle(false); return; }
     try {
       await updateKanbanTask(task.id, { title: trimmed }, board);
       setEditingTitle(false);
@@ -412,7 +417,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   // 保存 Priority → 行内下拉
   const handleSavePriority = async (newPriority: string) => {
     setEditingPriority(false);
-    const current = task.priority ? String(task.priority).replace(/^p/i, '') : '';
+    const current = liveTask.priority ? String(liveTask.priority).replace(/^p/i, '') : '';
     if (newPriority === current) return;
     try {
       await updateKanbanTask(task.id, { priority: newPriority ? Number(newPriority) : null }, board);
@@ -428,7 +433,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
   //   后 worker 继续跑旧任务直至超时（审查 d4-9）
   const saveAssigneeTo = async (value: string) => {
     const trimmed = value.trim();
-    if (trimmed === (task.assignee || '')) return;
+    if (trimmed === (liveTask.assignee || '')) return;
     try {
       // 🔴 2026-08-16（第三轮审查 d4-R3-02）：空串 = 解除分配（对齐 Hermes
       //   reassign_task(profile=None) 完全解除语义）——原 running 分支
@@ -456,7 +461,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
     const m = modelDraft.trim();
     const p = providerDraft.trim();
     const r = effortDraft.trim();
-    if (m === (task.model_override || '') && p === (task.provider_override || '') && r === (task.reasoning_effort || '')) return;
+    if (m === (liveTask.model_override || '') && p === (liveTask.provider_override || '') && r === (liveTask.reasoning_effort || '')) return;
     try {
       // 🔴 对齐 Hermes clear 语义（审查 d2-10）：空串 = 显式清除（后端写 NULL
       //   回退继承）——此前发 null 被后端 as_str() 吞成 None，「清空模型」静默失败
@@ -493,6 +498,10 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
       const data = await getKanbanAttachments(task.id, board);
       setAttachments(data?.attachments || data || []);
     } catch (err) {
+      // 🔴 2026-08-16（d4-R3-09）：上传失败进应用内通知（对齐 Hermes
+      //   uploadMut onError → host.notify error toast）——此前静默失败
+      const msg = (err as any)?.message || String(err);
+      notify({ kind: 'error', title: '附件上传失败', message: msg });
       console.error('[KanbanPanel] Upload failed:', err);
     }
   };
@@ -541,10 +550,10 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
               onBlur={handleSaveTitle} autoFocus
               className="w-full text-base font-semibold leading-snug px-2 py-1 -mx-2 rounded-md border border-[var(--kanban-hover-bg)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none" />
           ) : (
-            <h3 onClick={() => { setEditingTitle(true); setTitleDraft(task.title || ''); }}
+            <h3 onClick={() => { setEditingTitle(true); setTitleDraft(liveTask.title || ''); }}
               className="text-base font-semibold text-[var(--ui-text-primary)] leading-snug cursor-pointer rounded-md px-2 -mx-2 py-1 hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_6%,transparent)] transition-colors"
               title="点击编辑标题">
-              {task.title || '(无描述)'}
+              {liveTask.title || '(无描述)'}
             </h3>
           )}
         </div>
@@ -567,7 +576,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                   <div className="flex gap-3">
                     <span className="w-16 shrink-0 text-[var(--ui-text-tertiary)]">优先级</span>
                     {editingPriority ? (
-                      <select value={String(task.priority || '').replace(/^p/i, '')} autoFocus
+                      <select value={String(liveTask.priority || '').replace(/^p/i, '')} autoFocus
                         onChange={(e) => handleSavePriority(e.target.value)}
                         onBlur={() => setEditingPriority(false)}
                         className="text-[var(--ui-text-primary)] bg-transparent border border-[var(--kanban-hover-bg)] rounded px-1 py-0.5 -my-0.5 text-[0.8rem] focus:outline-none cursor-pointer">
@@ -581,7 +590,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                       <span onClick={() => setEditingPriority(true)}
                         className="text-[var(--ui-text-primary)] cursor-pointer rounded px-1 -mx-1 py-0.5 hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors break-words"
                         title="点击编辑优先级">
-                        {task.priority ? `P${String(task.priority).replace(/^p/i, '')}` : '—'}
+                        {liveTask.priority ? `P${String(liveTask.priority).replace(/^p/i, '')}` : '—'}
                       </span>
                     )}
                   </div>
@@ -597,14 +606,14 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                         title="运行中任务重分配将立即回收旧 worker（reclaim_first）">
                         <option value="">未分配</option>
                         {profileRoster.map(p => (
-                          <option key={p.name} value={p.name}>{p.name}{p.name === task.assignee ? '（当前）' : ''}</option>
+                          <option key={p.name} value={p.name}>{p.name}{p.name === liveTask.assignee ? '（当前）' : ''}</option>
                         ))}
                       </select>
                     ) : (
-                      <span onClick={() => { setEditingAssignee(true); setAssigneeDraft(task.assignee || ''); }}
+                      <span onClick={() => { setEditingAssignee(true); setAssigneeDraft(liveTask.assignee || ''); }}
                         className="text-[var(--ui-text-primary)] cursor-pointer rounded px-1 -mx-1 py-0.5 hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors break-words"
                         title="点击编辑负责人">
-                        {task.assignee || '未分配'}
+                        {liveTask.assignee || '未分配'}
                       </span>
                     )}
                   </div>
@@ -642,24 +651,24 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                         </div>
                       </div>
                     ) : (
-                      <span onClick={() => { setEditingModel(true); setModelDraft(task.model_override || ''); setProviderDraft(task.provider_override || ''); setEffortDraft(task.reasoning_effort || ''); }}
+                      <span onClick={() => { setEditingModel(true); setModelDraft(liveTask.model_override || ''); setProviderDraft(liveTask.provider_override || ''); setEffortDraft(liveTask.reasoning_effort || ''); }}
                         className="text-[var(--ui-text-primary)] cursor-pointer rounded px-1 -mx-1 py-0.5 hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_8%,transparent)] transition-colors break-words"
                         title="点击编辑模型覆盖">
-                        {task.model_override
-                          ? `${task.model_override}${task.provider_override ? ` @ ${task.provider_override}` : ''}${task.reasoning_effort ? ` · ${task.reasoning_effort}` : ''}`
+                        {liveTask.model_override
+                          ? `${liveTask.model_override}${liveTask.provider_override ? ` @ ${liveTask.provider_override}` : ''}${liveTask.reasoning_effort ? ` · ${liveTask.reasoning_effort}` : ''}`
                           : '继承 profile'}
                       </span>
                     )}
                   </div>
-                  {blocked && task.block_reason && <MetaRow label="阻塞原因" value={task.block_reason} />}
+                  {blocked && liveTask.block_reason && <MetaRow label="阻塞原因" value={liveTask.block_reason} />}
                 </div>
 
                 {/* 描述（点击正文区域直接编辑） */}
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
                     <span className="text-[0.72rem] font-semibold tracking-wide text-[var(--color-muted-foreground)]">描述</span>
-                    {!editingBody && task.body && (
-                      <button onClick={() => { setEditingBody(true); setBodyDraft(task.body || ''); }} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] transition-colors">
+                    {!editingBody && liveTask.body && (
+                      <button onClick={() => { setEditingBody(true); setBodyDraft(liveTask.body || ''); }} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] transition-colors">
                         <Edit3 size={12} strokeWidth={1.5} />
                       </button>
                     )}
@@ -675,10 +684,10 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                       </div>
                     </div>
                   ) : (
-                    task.body
-                      ? <p onClick={() => { setEditingBody(true); setBodyDraft(task.body || ''); }}
+                    liveTask.body
+                      ? <p onClick={() => { setEditingBody(true); setBodyDraft(liveTask.body || ''); }}
                           className="text-[0.82rem] text-[var(--color-foreground)] leading-relaxed whitespace-pre-wrap cursor-pointer rounded px-2 py-1.5 -mx-2 hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_5%,transparent)] transition-colors"
-                          title="点击编辑描述">{task.body}</p>
+                          title="点击编辑描述">{liveTask.body}</p>
                       : <p onClick={() => { setEditingBody(true); setBodyDraft(''); }}
                           className="text-[0.82rem] text-[var(--color-muted-foreground)] italic cursor-pointer rounded px-2 py-1.5 -mx-2 hover:bg-[color-mix(in_srgb,var(--ui-text-primary)_5%,transparent)] transition-colors"
                           title="点击添加描述">点击此处添加描述</p>
