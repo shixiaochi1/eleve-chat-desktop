@@ -66,9 +66,9 @@ export default function ProviderSettings({
 }) {
   return (
     <div className="space-y-4">
-      {/* 轻量头部：统计 + 说明（弱化，不设标题——左侧已有「设置」） */}
+      {/* 轻量头部：统计（弱化，不设标题——左侧已有「设置」） */}
       <div className="flex items-center gap-2.5">
-        <span className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--theme-accent)]/15 text-[var(--theme-accent)] font-medium">
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
           {providers.length} 家服务商
         </span>
         <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
