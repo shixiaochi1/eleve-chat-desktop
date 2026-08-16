@@ -86,6 +86,9 @@ export function useGridChat(
   execCommand: (profile: string, cmdName: string, args?: string) => Promise<void>;
   /** slash 破坏性命令确认完成（对齐单视图 handleSlashConfirmDone：输出上屏 + session 轮换） */
   handleSlashConfirmDone: (profile: string, choice: string, result?: { output?: string; session_id?: string }) => void;
+  /** 🔴 2026-08-16（四系统联动审计 C2）：per-profile 消息列表定向 patch
+   *  （QueuePanel 编辑/删除排队条目后同步乐观气泡用） */
+  patchMessages: (profile: string, updater: (msgs: ChatMessage[]) => ChatMessage[]) => void;
 } {
   const [states, setStates] = useState<Record<string, AgentChatState>>({});
 
@@ -112,6 +115,16 @@ export function useGridChat(
     getWsClient().subscribeSession(sid);
     if (options?.persistGlobalPointers !== false) persistSessionPointer(sid);
   }, [options?.persistGlobalPointers]);
+
+  // 🔴 2026-08-16（四系统联动审计 C2）：消息列表定向 patch——QueuePanel
+  // 编辑/删除排队条目后同步乐观气泡（AgentChatCard 经 onQueueBubbleSync
+  // 回调进入；单视图走 store/messages 全局 setMessages）
+  const patchMessages = useCallback(
+    (profile: string, updater: (msgs: ChatMessage[]) => ChatMessage[]) => {
+      patch(profile, (s) => ({ ...s, messages: updater(s.messages) }));
+    },
+    [patch],
+  );
 
   // ── 加载最新 N 条（进入宫格 / 切到某 Agent 时） ──
   const loadLatest = useCallback(async (profile: string, sessionId: string) => {
@@ -882,5 +895,5 @@ export function useGridChat(
     };
   }, [active, patch]);
 
-  return { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand, handleSlashConfirmDone };
+  return { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand, handleSlashConfirmDone, patchMessages };
 }

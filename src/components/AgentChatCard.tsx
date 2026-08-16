@@ -40,6 +40,7 @@ import { useFileAttachments } from '@/hooks/useFileAttachments';
 import { collectDroppedPaths, dragHasPaths } from '@/lib/paths-dnd';
 
 import { useBackendQueue, type QueueEntry } from '@/hooks/useBackendQueue';
+import { applyQueueEditToBubbles, applyQueueRemoveToBubbles, type QueueBubbleSyncOp } from '@/lib/queue-bubble-sync';
 import type { AgentChatState } from '../hooks/useGridChat';
 
 // 消息虚拟化估算高度/过扫（宫格卡片窄小，估算低于单视图 MessageContainer 的 220）
@@ -84,6 +85,13 @@ interface AgentChatCardProps {
   onSlashConfirmDone: (profile: string, choice: string, result?: { output?: string; session_id?: string }) => void;
   /** 🔴 M-2 修复：选模型 → 写该卡片 profile 的 config + 切该卡片的 session（per-Agent 模型隔离） */
   onSelectModel?: (profile: string, modelId: string, sessionId?: string | null) => void;
+  /** 🔴 2026-08-16（四系统联动审计 C2）：排队条目编辑/删除 → 乐观气泡同步
+   *  （宫格 per-profile 消息列表 patch；单视图走 store/messages 全局） */
+  onQueueBubbleSync?: (op: QueueBubbleSyncOp) => void;
+  /** 🔴 2026-08-16（四系统联动审计 C3）：新会话 cwd 单一漏斗（对齐单视图
+   *  usePromptActions getNewSessionCwd）——宫格图片附件懒创建会话时继承项目
+   *  scope（原仅 remote 记忆，本地模式落后端 resolve 链） */
+  getNewSessionCwd?: () => string | null;
 }
 
 // ── pending 交互 payload 形状（与单视图 activeApproval/activeClarify/activeSudo 一致）──
@@ -151,7 +159,7 @@ function RobotAvatar({ agentColor, profile }: { agentColor: string; profile?: Ag
 export const AgentChatCard = memo(function AgentChatCard({
   profile, state, color, focused, portReady,
   onSend, onLoadMore, onAbort, onClearPending, onExpand, onNewSession, onCommand, onSlashConfirmDone,
-  onSelectModel,
+  onSelectModel, onQueueBubbleSync, getNewSessionCwd,
 }: AgentChatCardProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
@@ -210,9 +218,17 @@ export const AgentChatCard = memo(function AgentChatCard({
     const target = index + direction;
     if (index < 0 || target < 0) return index >= 0 ? { text: currentDraft, done: false } : null;
     // 保存当前编辑（后端 queue.edit RPC，轮询自动刷新）
+    // 🔴 2026-08-16（审计 C2）：编辑成功后同步乐观气泡文本（busy 直发时前端
+    //   乐观上屏的气泡仍显示旧文本）；expected_text CAS 防快照漂移
     const save = async () => {
       const current = currentDraft;
-      if (current.trim()) await queueEditEntry(queueEdit.entryIndex, current);
+      if (!current.trim()) return;
+      const entry = queueEntries.find((e) => e.index === queueEdit.entryIndex);
+      const oldText = entry?.text ?? '';
+      const ok = await queueEditEntry(queueEdit.entryIndex, current, oldText);
+      if (ok && entry) {
+        onQueueBubbleSync?.({ type: 'edit', oldText, newText: current, mediaCount: entry.media_count });
+      }
     };
     void save();
     const next = queueEntries[target];
@@ -223,17 +239,25 @@ export const AgentChatCard = memo(function AgentChatCard({
     // 越过末条：退出编辑，恢复原草稿
     setQueueEdit(null);
     return { text: queueEdit.draft, done: true };
-  }, [queueEdit, queueEntries, queueEditEntry]);
+  }, [queueEdit, queueEntries, queueEditEntry, onQueueBubbleSync]);
 
   const exitQueueEdit = useCallback((action: 'save' | 'cancel', currentDraft: string): string | null => {
     if (!queueEdit) return null;
     if (action === 'save' && currentDraft.trim()) {
-      queueEditEntry(queueEdit.entryIndex, currentDraft);
+      // 🔴 2026-08-16（审计 C2）：同 stepQueueEdit——编辑成功同步乐观气泡
+      const entry = queueEntries.find((e) => e.index === queueEdit.entryIndex);
+      const oldText = entry?.text ?? '';
+      void (async () => {
+        const ok = await queueEditEntry(queueEdit.entryIndex, currentDraft, oldText);
+        if (ok && entry) {
+          onQueueBubbleSync?.({ type: 'edit', oldText, newText: currentDraft, mediaCount: entry.media_count });
+        }
+      })();
     }
     const restored = queueEdit.draft;
     setQueueEdit(null);
     return restored;
-  }, [queueEdit, queueEditEntry]);
+  }, [queueEdit, queueEntries, queueEditEntry, onQueueBubbleSync]);
 
   // per-agent 图片附件 — 绑到本 Agent 的 session（getSessionId 随状态槽实时取值）
   const stateRef = useRef(state);
@@ -311,12 +335,20 @@ export const AgentChatCard = memo(function AgentChatCard({
       let sid = stateRef.current.sessionId ?? undefined;
       if (!sid) {
         try {
-          // 🔴 Remote 记忆（对齐 Hermes workspaceCwdForNewSession）：remote 模式下
-          // 未显式指定目录的新会话落在上次工作目录（local 由后端 resolve 决定）
+          // 🔴 2026-08-16（四系统联动审计 C3）：新会话 cwd 单一漏斗——项目 scope
+          //   （getNewSessionCwd，对齐单视图 usePromptActions）优先；remote 模式下
+          //   未显式指定目录的新会话落上次工作目录（Hermes workspaceCwdForNewSession
+          //   语义）；local 由后端 resolve 决定（原实现仅 remote 记忆 → 宫格图片
+          //   附件懒创建会话不继承项目 scope）
           let cwd: string | undefined;
-          const conn = loadConnection();
-          if (isRemoteMode(conn) && conn.baseUrl) {
-            cwd = getRememberedWorkspaceCwd({ baseUrl: conn.baseUrl, profile: name }) || undefined;
+          const scopeCwd = getNewSessionCwd?.()?.trim();
+          if (scopeCwd) {
+            cwd = scopeCwd;
+          } else {
+            const conn = loadConnection();
+            if (isRemoteMode(conn) && conn.baseUrl) {
+              cwd = getRememberedWorkspaceCwd({ baseUrl: conn.baseUrl, profile: name }) || undefined;
+            }
           }
           const created = await ws.sessionCreate({ profile: name, ...(cwd ? { cwd } : {}) });
           sid = created.session_id;
@@ -344,7 +376,7 @@ export const AgentChatCard = memo(function AgentChatCard({
     // 前端不再做条目级 imageDetach（旧前端自治队列配套，已退役）。
     if (images.length > 0) clearImages();
     if (attachedFiles.length > 0) clearFileAttachments();
-  }, [onSend, name, clearImages, attachedImages, state.status, uploadUnuploaded, attachedFiles, clearFileAttachments]);
+  }, [onSend, name, clearImages, attachedImages, state.status, uploadUnuploaded, attachedFiles, clearFileAttachments, getNewSessionCwd]);
 
   const approval = state.pendingApproval as ApprovalPayload | null;
   const clarify = state.pendingClarify as ClarifyPayload | null;
@@ -616,7 +648,15 @@ export const AgentChatCard = memo(function AgentChatCard({
                 // 前移，残留 queueEdit.entryIndex 会指向错行
                 const restored = queueEdit ? exitQueueEdit('cancel', composerRef.current?.getValue() ?? '') : null;
                 if (restored !== null) composerRef.current?.setValue(restored);
-                void queueRemove(index);
+                // 🔴 2026-08-16（审计 C2）：删除成功后移除聊天区乐观气泡（防残留
+                // 无回复气泡）；expected_text CAS 防快照漂移删错条目
+                const entry = queueEntries[index];
+                void (async () => {
+                  const ok = await queueRemove(index, entry?.text ?? '');
+                  if (ok && entry) {
+                    onQueueBubbleSync?.({ type: 'remove', text: entry.text, mediaCount: entry.media_count });
+                  }
+                })();
               }}
               onEdit={(entry) => beginQueueEdit(entry, composerRef.current?.getValue() ?? '')}
               onSendNow={(index) => {

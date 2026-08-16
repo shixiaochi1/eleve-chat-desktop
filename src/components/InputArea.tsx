@@ -22,6 +22,8 @@ import { isRemoteMode, loadConnection } from '@/lib/connection';
 import { useSlashAutocomplete } from '@/hooks/useSlashAutocomplete';
 
 import { useBackendQueue, type QueueEntry } from '@/hooks/useBackendQueue';
+import { setMessages as storeSetMessages } from '../store/messages';
+import { applyQueueEditToBubbles, applyQueueRemoveToBubbles } from '../lib/queue-bubble-sync';
 import { onComposerInsertRequest, LINE_REF_MIME, fileLineRef } from '@/lib/composer-events';
 import { dragHasPaths, collectDroppedPaths } from '@/lib/paths-dnd';
 import { linkifyUrls, rewriteTypedUrl, formatRefValue } from '@/lib/url-refs';
@@ -146,9 +148,19 @@ function InputArea({
     const target = index + direction;
     if (index < 0 || target < 0) return index >= 0; // 最顶部：吞掉
     // 保存当前编辑（后端 queue.edit RPC，轮询自动刷新）
+    // 🔴 2026-08-16（审计 C2）：编辑成功后同步聊天区乐观气泡文本（busy 直发
+    //   时前端乐观上屏的气泡仍显示旧文本）；expected_text CAS 防快照漂移
     const save = async () => {
       const current = el.value;
-      if (current.trim()) await queueEditEntry(queueEdit.entryIndex, current);
+      if (!current.trim()) return;
+      const entry = queueEntries.find((e) => e.index === queueEdit.entryIndex);
+      const oldText = entry?.text ?? '';
+      const ok = await queueEditEntry(queueEdit.entryIndex, current, oldText);
+      if (ok && entry) {
+        storeSetMessages((prev) =>
+          applyQueueEditToBubbles(prev, { oldText, newText: current, mediaCount: entry.media_count }) ?? prev,
+        );
+      }
     };
     void save();
     const next = queueEntries[target];
@@ -172,14 +184,24 @@ function InputArea({
     if (action === 'save') {
       const text = el.value;
       if (!text.trim()) return false; // 空内容不保存
-      void queueEditEntry(queueEdit.entryIndex, text);
+      // 🔴 2026-08-16（审计 C2）：同 stepQueueEdit——编辑成功同步乐观气泡
+      const entry = queueEntries.find((e) => e.index === queueEdit.entryIndex);
+      const oldText = entry?.text ?? '';
+      void (async () => {
+        const ok = await queueEditEntry(queueEdit.entryIndex, text, oldText);
+        if (ok && entry) {
+          storeSetMessages((prev) =>
+            applyQueueEditToBubbles(prev, { oldText, newText: text, mediaCount: entry.media_count }) ?? prev,
+          );
+        }
+      })();
     }
     setQueueEdit(null);
     el.value = queueEdit.draft;
     syncHeight();
     el.focus();
     return true;
-  }, [queueEdit, queueEditEntry, syncHeight]);
+  }, [queueEdit, queueEntries, queueEditEntry, syncHeight]);
   const popupRef = useRef<HTMLDivElement | null>(null);
   // F3 T3.1: @ 路径补全
   const [pathItems, setPathItems] = useState<Array<{ text: string; display: string; meta: string }>>([]);
@@ -623,7 +645,17 @@ function InputArea({
                 // 🔴 P3-3：编辑态激活时先退出（恢复草稿）——删除导致后续行 index
                 // 前移，残留 queueEdit.entryIndex 会指向错行
                 if (queueEdit) exitQueueEdit('cancel');
-                void queueRemove(index);
+                // 🔴 2026-08-16（审计 C2）：删除成功后移除聊天区乐观气泡
+                // （防残留无回复气泡）；expected_text CAS 防快照漂移删错条目
+                const entry = queueEntries[index];
+                void (async () => {
+                  const ok = await queueRemove(index, entry?.text ?? '');
+                  if (ok && entry) {
+                    storeSetMessages((prev) =>
+                      applyQueueRemoveToBubbles(prev, { text: entry.text, mediaCount: entry.media_count }) ?? prev,
+                    );
+                  }
+                })();
               }}
               onEdit={beginQueueEdit}
               onSendNow={(index) => {

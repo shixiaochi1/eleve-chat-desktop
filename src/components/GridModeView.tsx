@@ -53,6 +53,7 @@ import { fetchProfiles } from '../utils/api';
 import { Square } from 'lucide-react';
 import { useGridChat, type AgentChatState } from '../hooks/useGridChat';
 import AgentChatCard, { type AgentProfileInfo, type AgentCardColor } from './AgentChatCard';
+import { applyQueueEditToBubbles, applyQueueRemoveToBubbles, type QueueBubbleSyncOp } from '../lib/queue-bubble-sync';
 import { ArtifactPreviewOverlay } from './ArtifactCard';
 import { getWsClient } from '../services/ws-client';
 import { sessionIdMatchesProfile, persistSessionPointer, loadProfilePointers, batchSaveProfilePointers } from '../utils/session';
@@ -206,10 +207,24 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   // currentProfile getter 用 ref 防闭包过期（useGridChat 事件 handler 长生命周期）
   const currentProfileRef = useRef(currentProfile);
   currentProfileRef.current = currentProfile;
-  const { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand, handleSlashConfirmDone } = useGridChat(true, {
+  const { states, loadLatest, loadMore, sendTo, abortAgent, clearPending, resetAgent, execCommand, handleSlashConfirmDone, patchMessages } = useGridChat(true, {
     onSessionCwd: onSessionCwd,
     currentProfile: () => currentProfileRef.current,
   });
+
+  // 🔴 2026-08-16（四系统联动审计 C2）：排队条目编辑/删除 → 乐观气泡同步
+  // （per-profile 消息列表定向 patch；单视图走 store/messages）
+  const handleQueueBubbleSync = useCallback(
+    (profile: string, op: QueueBubbleSyncOp) => {
+      patchMessages(profile, (msgs) => {
+        if (op.type === 'edit') {
+          return applyQueueEditToBubbles(msgs, op) ?? msgs;
+        }
+        return applyQueueRemoveToBubbles(msgs, op) ?? msgs;
+      });
+    },
+    [patchMessages],
+  );
 
   // 🔴 Phase 4b #4: 焦点 Agent 的真实 session 上抛 App → 侧栏会话列表高亮跟随 focusedAgent
   // （宫格模式下 sess.sessionId 是进宫格前的单视图全局 session，与焦点 Agent 不一致）
@@ -591,6 +606,8 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
                   onCommand={execCommand}
                   onSlashConfirmDone={handleSlashConfirmDone}
                   onSelectModel={onSelectModel}
+                  onQueueBubbleSync={(op) => handleQueueBubbleSync(profile.name, op)}
+                  getNewSessionCwd={getNewSessionCwd}
                 />
               </div>
             ))}

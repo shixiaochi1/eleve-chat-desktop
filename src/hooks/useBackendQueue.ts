@@ -48,10 +48,16 @@ export function useBackendQueue(sessionId?: string | null) {
   }, [sessionId, refresh]);
 
   const remove = useCallback(
-    async (index: number) => {
+    async (index: number, expectedText?: string) => {
       if (!sessionId) return false;
       try {
-        const res = await call('queue_remove', { session_id: sessionId, index });
+        // 🔴 2026-08-16（审计 C1）：expected_text CAS 守卫——传快照条目文本，
+        // 后端校验索引处文本一致才删除（3s 轮询快照 vs 后端索引漂移防删错）
+        const res = await call('queue_remove', {
+          session_id: sessionId,
+          index,
+          ...(expectedText !== undefined ? { expected_text: expectedText } : {}),
+        });
         await refresh();
         return res?.ok === true;
       } catch {
@@ -62,10 +68,15 @@ export function useBackendQueue(sessionId?: string | null) {
   );
 
   const edit = useCallback(
-    async (index: number, text: string) => {
+    async (index: number, text: string, expectedText?: string) => {
       if (!sessionId) return false;
       try {
-        const res = await call('queue_edit', { session_id: sessionId, index, text });
+        const res = await call('queue_edit', {
+          session_id: sessionId,
+          index,
+          text,
+          ...(expectedText !== undefined ? { expected_text: expectedText } : {}),
+        });
         await refresh();
         return res?.ok === true;
       } catch {
@@ -76,10 +87,14 @@ export function useBackendQueue(sessionId?: string | null) {
   );
 
   const steer = useCallback(
-    async (index: number) => {
+    async (index: number, expectedText?: string) => {
       if (!sessionId) return false;
       try {
-        const res = await call('queue_steer', { session_id: sessionId, index });
+        const res = await call('queue_steer', {
+          session_id: sessionId,
+          index,
+          ...(expectedText !== undefined ? { expected_text: expectedText } : {}),
+        });
         await refresh();
         return res?.ok === true;
       } catch {
