@@ -668,6 +668,13 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                   {/* 🔴 对齐 Hermes drawer L759-787：补元信息行 tenant/工作区/
                       创建者/worker PID（detail 为原始后端数据，含未 normalize 字段） */}
                   {task.tenant && <MetaRow label="租户" value={task.tenant} />}
+                  {/* 🔴 2026-08-16（project_id 系统审查 fe-4）：项目归属行——
+                      数据自 detail.task.project_id（be-6 后透出）；Hermes 抽屉
+                      不显示（彼时该字段恒 null），ELEVE project 链路打通后
+                      展示便于追溯项目锚定 */}
+                  {detail?.task?.project_id && (
+                    <MetaRow label="项目" value={String(detail.task.project_id)} />
+                  )}
                   {(detail?.task?.workspace_kind || detail?.task?.workspace_path) && (
                     <MetaRow label="工作区"
                       value={`${detail?.task?.workspace_kind || ''}${detail?.task?.workspace_path ? `: ${detail?.task?.workspace_path}` : ''}`} />

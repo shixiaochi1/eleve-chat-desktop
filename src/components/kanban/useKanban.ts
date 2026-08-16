@@ -410,7 +410,9 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       if (!laneMap.has(key)) laneMap.set(key, []);
       laneMap.get(key).push(t);
     }
-    return Array.from(laneMap.entries());
+    // 🔴 2026-08-16（round4 建议 d2-9）：lane 按 localeCompare 排序（对齐
+    //   Hermes board.tsx:382）——此前为插入序，中文名/拼音混排不稳定
+    return Array.from(laneMap.entries()).sort((a, b) => a[0].localeCompare(b[0], 'zh'));
   }, [grouped.running, groupRunning]);
 
   // 创建 ready 任务后 400ms 防抖立即触发一次调度（对齐 Hermes nudgeDispatcher）：

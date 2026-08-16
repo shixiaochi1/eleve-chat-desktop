@@ -70,7 +70,6 @@ import {
   getApiBase,
   // Phase 4 APIs
   getKanbanBoards,
-  createKanbanBoard,
   deleteKanbanBoard,
   updateKanbanBoard,
   getKanbanStats,
@@ -142,11 +141,14 @@ function ProfileDescriptionRow({ profile, onChanged }: { profile: any; onChanged
       const r = await autoDescribeKanbanProfile(profile.name);
       if (r?.description) setDraft(r.description);
       // 🔴 2026-08-16（d2-R3-02/07）：ok:false + reason 进应用内通知
-      //   （对齐 Hermes auto.onSuccess !ok → host.notify warning）；成功后刷新
+      //   （对齐 Hermes auto.onSuccess !ok → host.notify warning）；仅成功时
+      //   刷新 profiles（round4 建议 d2-3b：ok:false 时仅提示不刷新——
+      //   服务端未应用，刷新无意义且掩盖失败）
       if (r && r.ok === false) {
         notify({ kind: 'warning', title: '自动生成未应用', message: r.reason || '生成失败' });
+      } else {
+        onChanged?.();
       }
-      onChanged?.();
     } catch (err) {
       notify({ kind: 'error', title: '自动生成失败', message: String((err as any)?.message || err) });
     } finally {
