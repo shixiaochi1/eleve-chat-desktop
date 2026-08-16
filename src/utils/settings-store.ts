@@ -71,6 +71,10 @@ export interface SettingsV2 {
 }
 
 // ====== 提供商注册表预设（含 Base URL 和模型，无 Key） ======
+// 🔴 2026-08-16（R3 修复）：新增本地模型 provider 预设——Ollama / LM Studio
+// 默认端点（Hermes 的本地 Ollama 走 detect_local_server_type 自动探测；ELEVE
+// 暂未移植探测机制，以"预设卡片 → 保存入池"等效提供入口，用户可改 URL/测试
+// 连接发现模型。不进静态 PROVIDER_REGISTRY（避免第二权威源，池=唯一权威源）。
 export const PROVIDER_REGISTRY: ProviderEntry[] = [
   { id: 'aliyun-bailian', name: '阿里云百炼', baseUrl: 'https://coding.dashscope.aliyuncs.com/v1', keyEnv: 'DASHSCOPE_API_KEY',
     models: [
@@ -84,6 +88,9 @@ export const PROVIDER_REGISTRY: ProviderEntry[] = [
     { name: 'deepseek-v4-flash', context_length: 0, max_output: 16384 },
     ],
   },
+  // 本地模型：默认端点 + 无 key（Credential::None，本地服务免凭证）
+  { id: 'ollama', name: 'Ollama', baseUrl: 'http://localhost:11434/v1', keyEnv: '', models: [] },
+  { id: 'lmstudio', name: 'LM Studio', baseUrl: 'http://localhost:1234/v1', keyEnv: '', models: [] },
 ];
 
 

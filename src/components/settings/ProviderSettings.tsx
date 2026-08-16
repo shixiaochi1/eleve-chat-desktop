@@ -192,6 +192,10 @@ export default function ProviderSettings({
                 value={newProvider.modelsRaw}
                 onChange={e => setNewProvider({ ...newProvider, modelsRaw: e.target.value })}
               />
+              {/* 🔴 R5（2026-08-16）：空提示——留空可先建服务商，再点「测试连接」发现模型 */}
+              {!newProvider.modelsRaw.trim() && (
+                <p className="text-[10px] text-muted-foreground/50">留空也可：添加后可点「测试连接」自动发现模型</p>
+              )}
             </div>
             <div className="grid gap-1">
               <label className="text-xs text-muted-foreground">上下文大小</label>

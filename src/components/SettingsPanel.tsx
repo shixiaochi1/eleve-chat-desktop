@@ -557,6 +557,9 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
   // FIX-D：预设厂商直接用预设 ID（aliyun-bailian），不走后端 slugify
   // （后端拼音化会生成 a1-li3-yu2n-ba3i-lia4n 这种带声调的坏 ID），
   // 同时自动填充 baseUrl + 默认模型，省去手动输入。
+  // 🔴 R3（2026-08-16）：预设 keyEnv 为空（本地 provider：Ollama/LM Studio）
+  // 时**不自动生成** key_env——本地服务免凭证（Credential::None），
+  // 自动生成 OLLAMA_API_KEY 会让 useKeyEnv 判定为 true → 要求环境变量 → 报 KeyEnvNotSet。
   const handleProviderNameChange = async (name: string) => {
     setNewProvider(prev => ({ ...prev, name }));
     const trimmed = name.trim();
@@ -566,8 +569,8 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       setNewProvider(prev => ({
         ...prev,
         slug: preset.id,
-        // 注册表 keyEnv 优先（Hermes 同源 env 名，如 HF_TOKEN）；无则自动生成
-        keyEnv: preset.keyEnv || preset.id.toUpperCase().replace(/-/g, '_') + '_API_KEY',
+        // 注册表 keyEnv 优先（Hermes 同源 env 名，如 HF_TOKEN）；本地 provider 保持空
+        keyEnv: preset.keyEnv || '',
         baseUrl: preset.baseUrl,
         modelsRaw: preset.models.map(m => m.name).join(', '),
       }));
