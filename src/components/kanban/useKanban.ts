@@ -57,6 +57,16 @@ import { useKanbanSSE } from './useKanbanSSE';
 // 🔴 2026-08-16（d1-R3-12）：模块级共享看板状态（对齐 Hermes 全局原子
 //   $boardSlug）——主面板/侧边栏双实例同步板选择
 import { getSharedBoard, setSharedBoard, subscribeSharedBoard } from './boardStore';
+// 🔴 2026-08-16（第四轮审查 d2-3a/c）：模块级共享 orchestration/profiles
+//   缓存（对齐 Hermes React Query 全局缓存）——双实例挂载缓存复用 + 保存
+//   双写 + 订阅跟随 + storage 事件跨窗口同步
+import {
+  getSharedOrchestration,
+  getSharedProfiles,
+  setSharedOrchestration,
+  setSharedProfiles,
+  subscribeSharedConfig,
+} from './orchestrationStore';
 
 export function useKanban({ board = 'default' }: { board?: string }) {
   const [apiTasks, setApiTasks] = useState<KanbanTask[]>([]);
@@ -99,8 +109,21 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [showWorkers, setShowWorkers] = useState(false);
   // C1: 编排配置 & Profile 列表
-  const [orchestration, setOrchestration] = useState<any>(null);
-  const [profiles, setProfiles] = useState<any[]>([]);
+  // 🔴 2026-08-16（第四轮审查 d2-3a/c）：初始值取自模块级共享 store（另一
+  //   实例已加载/已编辑的结果直接可见，避免双实例各自拉取与陈旧）；setter
+  //   包装为「本地 state + store 双写」——保存后其他实例经订阅即时跟随
+  const [orchestration, setOrchestrationState] = useState<any>(() => getSharedOrchestration());
+  const [profiles, setProfilesState] = useState<any[]>(() => getSharedProfiles());
+  // setter 包装「本地 state + store 双写」；值相等时 bail-out（60s 轮询
+  // 拉回相同数据不触发重渲染）
+  const setOrchestration = useCallback((o: any) => {
+    setOrchestrationState((prev: any) => (JSON.stringify(prev) === JSON.stringify(o) ? prev : o));
+    setSharedOrchestration(o);
+  }, []);
+  const setProfiles = useCallback((p: any[]) => {
+    setProfilesState((prev: any[]) => (JSON.stringify(prev) === JSON.stringify(p) ? prev : p));
+    setSharedProfiles(p);
+  }, []);
   // 🔴 2026-08-16（d2-R3-04）：resolved 默认负责人提前定义（handleCreateSubmit
   //   空选时恒发；对齐 Hermes resolved_default_assignee——经 profile_exists
   //   校验的解析值，绝无幽灵 profile）
@@ -245,10 +268,44 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   // 🔴 对齐 Hermes useOrchestration/useDefaultAssignee：profiles + 编排配置
   //   挂载即加载（此前仅诊断面板打开时加载一次——负责人下拉/默认负责人
   //   路由依赖"面板打开史"，行为不确定）
+  // 🔴 2026-08-16（第四轮审查 d2-3a/c）：缓存优先——共享 store 已有数据
+  //   则直接采用（对齐 Hermes staleTime 缓存语义：orchestration.tsx:136
+  //   profiles staleTime 60s），仅缓存缺失时拉取；拉取结果经包装 setter
+  //   双写 store，其他实例订阅跟随
   useEffect(() => {
-    getKanbanProfiles().then(data => setProfiles(data?.profiles || data || [])).catch(() => setProfiles([]));
-    getKanbanOrchestration().then(data => setOrchestration(data?.orchestration || data || null)).catch(() => setOrchestration(null));
+    if (getSharedProfiles().length === 0) {
+      getKanbanProfiles().then(data => setProfiles(data?.profiles || data || [])).catch(() => setProfiles([]));
+    }
+    if (getSharedOrchestration() === null) {
+      getKanbanOrchestration().then(data => setOrchestration(data?.orchestration || data || null)).catch(() => setOrchestration(null));
+    }
+  }, [setProfiles, setOrchestration]);
+
+  // 🔴 2026-08-16（第四轮审查 d2-3a/c）：订阅共享 store——其他实例（含
+  //   跨窗口经 storage 事件桥接）保存/刷新后本实例即时跟随；值未变时
+  //   JSON 比较 bail-out 不重渲染
+  useEffect(() => {
+    return subscribeSharedConfig(() => {
+      setOrchestrationState((prev: any) =>
+        JSON.stringify(prev) === JSON.stringify(getSharedOrchestration()) ? prev : getSharedOrchestration(),
+      );
+      setProfilesState((prev: any[]) =>
+        JSON.stringify(prev) === JSON.stringify(getSharedProfiles()) ? prev : getSharedProfiles(),
+      );
+    });
   }, []);
+
+  // 🔴 2026-08-16（第四轮审查 d2-3a/c）：60s 轮询刷新——对齐 Hermes
+  //   profiles staleTime 60s（orchestration.tsx:136）；兜底 config.yaml
+  //   外部修改/其他窗口编辑 60s 内自愈；结果经 store 双写，订阅实例跟随
+  useEffect(() => {
+    const refresh = () => {
+      getKanbanProfiles().then(data => setProfiles(data?.profiles || data || [])).catch(() => {});
+      getKanbanOrchestration().then(data => setOrchestration(data?.orchestration || data || null)).catch(() => {});
+    };
+    const i = setInterval(refresh, 60000);
+    return () => clearInterval(i);
+  }, [setProfiles, setOrchestration]);
 
   // Phase 4: 加载诊断 & Worker & 编排 & Profile
   useEffect(() => {
