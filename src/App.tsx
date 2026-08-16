@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useMessageCount, setMessages as storeSetMessages } from './store/messages';
+import { useMessageCount, setMessages as storeSetMessages, getIsStreaming } from './store/messages';
 import {
   addDebugEvent,
   setDebugToolCalls,
@@ -29,7 +29,7 @@ import { getRememberedWorkspaceCwd, rememberWorkspaceCwd } from './lib/workspace
 import { getActiveProfile } from './utils/api';
 import { getWsClient, setWsActiveProfile, type SessionCreateResponse } from './services/ws-client';
 import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer, loadProfilePointers, saveProfilePointer, removeProfilePointer } from './utils/session';
-import { notifyError } from './utils/notifications';
+import { notifyError, notifyInfo } from './utils/notifications';
 import type { ChatMessage } from './types';
 import { Minus, Square, X, FileText } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -381,15 +381,29 @@ export default function App() {
     // setPanelRoot(path)；项目地址本身后端权威、永不被改。
     setPanelRoot(path);
     if (sess.sessionId) {
-      void getWsClient().sendRpc('session.cwd.set', { session_id: sess.sessionId, cwd: path }).catch((e) => {
-        console.warn('[App] session.cwd.set failed:', e);
-      });
+      // 🔴 2026-08-16 审计 P2 修复：busy 时后端 cwd.set 拒绝 4009——手动导航
+      // 同样走 pending 机制（轮末 turnCompleteRef 自动补偿烙印），不再静默丢失
+      // （与项目点击 busy 分支同款）。
+      if (isBusyRef.current()) {
+        pendingProjectCwdRef.current = { sid: sess.sessionId, path };
+        return;
+      }
+      void getWsClient().sendRpc('session.cwd.set', { session_id: sess.sessionId, cwd: path })
+        .then(() => {
+          // 🔴 2026-08-16 审计 P2 修复：cwd 烙印生效后项目树重组（会话归属
+          // 项目桶变化）——bump version 触发 ProjectTreePanel 静默重拉
+          // （原实现不 bump → 树停留旧项目分组，直到下次发消息）。
+          setSessionListVersion((v) => v + 1);
+        })
+        .catch((e) => {
+          console.warn('[App] session.cwd.set failed:', e);
+        });
     } else {
       setSessionCwd(path);
       // 🔴 2026-08-13 边界修复：无会话导航 → 新会话落点暂存（resolveNewSessionCwd 消费）
       newChatWorkspaceTargetRef.current = path;
     }
-  }, [sess.sessionId]);
+  }, [sess.sessionId, setSessionListVersion]);
 
   useEffect(() => {
     return initPreviewEvents({
@@ -469,6 +483,16 @@ export default function App() {
   // ── drain queue ref (wired after usePromptActions) ──
   const drainQueueRef = useRef<any>(null);
   const resetSendingLockRef = useRef<(() => void) | null>(null);
+  // 🔴 2026-08-16 busy 判定 ref（usePromptActions 定义在后，ref 打破 TDZ）：
+  // 语义与发送侧一致 = isSendingRef || getIsStreaming（handleProjectEntered /
+  // handleFilePanelCwdChange 的 busy 保护共用；队列续轮轮次无发送锁但
+  // isStreaming=true，只查锁会误判非 busy）。
+  const isBusyRef = useRef<() => boolean>(() => false);
+  // 🔴 2026-08-16 真实轮末通知 ref：busy 直发排队/steer/redirect 时 pending
+  // 项目烙印（session.cwd.set）必须在真实轮末 apply（busy 时后端拒绝 4009）——
+  // useMessageStream 在 message.complete / session.info running=false 触发，
+  // 此处延迟接线（handlePendingProjectCwd 定义在后，ref 模式防 TDZ）。
+  const turnCompleteRef = useRef<(() => void) | null>(null);
 
   // 🔴 2026-08-13 问题1修复：session.info 的 cwd 覆盖在"项目钉住"期间被忽略
   // （点击项目进入 → 文件面板保持项目根；推荐会话 cwd=子目录/workspace 时不跳走）。
@@ -511,6 +535,7 @@ export default function App() {
     setSessionCwd: handleSessionInfoCwd, // 🔴 2026-08-13 问题1：项目钉住期间忽略 session.info 覆盖
     sess,
     drainQueueRef,
+    turnCompleteRef, // 🔴 2026-08-16 真实轮末通知（busy 排队 pending 烙印消费点）
     setSessionListVersion,
     enabled: viewMode === 'single',  // 🔴 宫格模式暂停 useSSE，useGridChat 接管 WS 事件
   });
@@ -694,7 +719,10 @@ export default function App() {
     if (profile !== currentProfile) {
       // 🔴 2026-08-12 断线修复：宫格→单视图同样清旧项目 scope（防新会话落错项目）
       setProjectScopeCwd(null);
-      setPanelRoot(null); // 🔴 2026-08-13 老大语义重构：宫格→单视图重置面板映射
+      // 🔴 2026-08-16 一致性修复（审计 P2）：不再立即 setPanelRoot(null)——
+      // 与 handleProfileChange 的"抖动根治"同款：保持旧面板直到新 Agent
+      // 激活项目恢复（fetchTree 后 handleProjectScopeRestored 一次切换），
+      // 避免"旧面板→未打开项目→新项目"两次切换闪烁。
       newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：宫格→单视图同样清手动导航落点
     }
     // 🔴 S2: 宫格→单视图同样刷新会话列表（与 handleProfileChange 一致）
@@ -902,6 +930,19 @@ export default function App() {
       // 宫格：焦点 Agent 卡片切推荐/兑底最新会话（与单视图同一 target 规则，走
       // gridAwareSwitchSession 统一入口——宫格下自动路由 gridRef，不平行直调）；
       // 无 → 新会话带项目 cwd（HOME 则 workspace），卡片自治不打扰其它卡片
+      // 🔴 2026-08-16 busy 保护（审计 P1）：焦点卡片运行中（status != idle）
+      // 不切会话视图（运行中轮输出会被 session 过滤隐藏）——记录 pending 烙印
+      // + 提示（与单视图同语义；轮末消费：单视图 turnCompleteRef 在宫格暂停，
+      // 退出宫格后由同会话 message.complete 兜底消费）。
+      const focusedBusy = gridRef.current?.isFocusedBusy() ?? false;
+      if (focusedBusy) {
+        const focusSid = sess.sessionId;
+        if (focusSid && path) {
+          pendingProjectCwdRef.current = { sid: focusSid, path };
+          notifyInfo('任务运行中', '当前任务完成后将自动切换工作目录到该项目');
+        }
+        return;
+      }
       const target = (recommendedSessionId && sessionIdMatchesProfile(recommendedSessionId, currentProfile))
         ? recommendedSessionId
         : (latestSessionForDomain(sess.sessions, currentProfile, path)?.id ?? null);
@@ -925,18 +966,32 @@ export default function App() {
     if (belongs) {
       // 🔴 2026-08-13 对齐修复（老大指示，Hermes syncProjectCwd 语义）：
       // 同项目内点项目根 = 回根——烙印项目根，子目录会话拉回项目根
+      // 🔴 2026-08-16：busy 时后端 cwd.set 拒绝 4009——回根烙印延后到真实
+      // 轮末（pending 机制，与下方 busy 分支同款），否则静默丢失。
       if (sid && path) {
-        void getWsClient()
-          .sendRpc('session.cwd.set', { session_id: sid, cwd: path })
-          .catch((e) => console.warn('[App] project cwd.set failed:', e));
+        if (isSendingRef.current || getIsStreaming()) {
+          pendingProjectCwdRef.current = { sid, path };
+        } else {
+          void getWsClient()
+            .sendRpc('session.cwd.set', { session_id: sid, cwd: path })
+            .catch((e) => console.warn('[App] project cwd.set failed:', e));
+        }
       }
       return;
     }
-    if (isSendingRef.current) {
+    // 🔴 2026-08-16 busy 判定口径对齐（审计 P1）：发送侧 busy = 
+    // isSendingRef || getIsStreaming（usePromptActions.ts:163 同款）——
+    // 队列续轮（busy 直发后 drain 起的轮）无发送锁但 isStreaming=true，
+    // 只查 isSendingRef 会误判非 busy → 立即切会话视图（运行中轮输出被
+    // 过滤隐藏）+ 丢 pending 烙印（后续轮次继续工作旧目录）。
+    if (isSendingRef.current || getIsStreaming()) {
       // 🔴 2026-08-13 对齐修复（老大指示）：busy 不打断——记录 pending 烙印，
-      // turn 完成后（onTurnComplete）自动 session.cwd.set 到项目根
+      // 真实轮末（message.complete → turnCompleteRef）自动 session.cwd.set 到
+      // 项目根（🔴 2026-08-16：ack ≠ 轮末，必须等真实轮末——busy 时后端
+      // cwd.set 拒绝 4009）。随后排队任务在项目根工作区执行。
       if (sid && path) {
         pendingProjectCwdRef.current = { sid, path };
+        notifyInfo('任务运行中', '当前任务完成后将自动切换工作目录到该项目');
       }
       return;
     }
@@ -1135,6 +1190,11 @@ export default function App() {
   drainQueueRef.current = drainQueue;
   // 🔴 P0-1.1: Wire up resetSendingLockRef（useSessionActions 在 usePromptActions 之前调用，用 ref 打破循环）
   resetSendingLockRef.current = resetSendingLock;
+  // 🔴 2026-08-16 busy 判定接线（发送侧同口径：isSendingRef || getIsStreaming）
+  isBusyRef.current = () => isSendingRef.current || getIsStreaming();
+  // 🔴 2026-08-16 真实轮末通知接线：busy 排队时 pending 项目烙印在轮末消费
+  // （handlePendingProjectCwd 定义于 useMessageStream 之后，ref 打破 TDZ）
+  turnCompleteRef.current = handlePendingProjectCwd;
 
   // ── 禁用右键菜单 + 键盘刷新（聊天面板不是网页）──
   useEffect(() => {
@@ -1402,6 +1462,7 @@ export default function App() {
                   onSessionCwd={handleSessionInfoCwd}
                   portReady={portReady}
                   onNewSessionEffects={handleGridNewSessionEffects}
+                  getNewSessionCwd={resolveNewSessionCwd}
                   onSelectModel={handleGridSelectModel}
                 />
               </div>

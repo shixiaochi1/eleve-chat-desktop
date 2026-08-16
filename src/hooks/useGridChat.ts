@@ -272,6 +272,15 @@ export function useGridChat(
       if (result?.status === 'steered') {
         import('../utils/notifications').then(({ notifyInfo }) => notifyInfo('已注入当前轮（steer）', '消息已送达')).catch(() => {});
       }
+      // 🔴 2026-08-16 审计 P2：与单视图 useSSE 同款反馈——queued（进
+      // Inbox.followup）/redirected（软重定向）toast，队列面板 3s 轮询前的
+      // 即时反馈通道（否则 busy 直发排队无任何提示）。
+      if (result?.status === 'redirected') {
+        import('../utils/notifications').then(({ notifyInfo }) => notifyInfo('已重定向当前轮（redirect）', '修正已注入当前回复')).catch(() => {});
+      }
+      if (result?.status === 'queued') {
+        import('../utils/notifications').then(({ notifyInfo }) => notifyInfo('任务已加入队列', '当前任务完成后自动执行')).catch(() => {});
+      }
     } catch (e) {
       // 🔴 Phase 2: wasBusy 直发失败不动锁 —— 锁归属是 live turn（其 complete 负责释放）
       if (!wasBusy) {

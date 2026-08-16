@@ -74,6 +74,9 @@ export interface GridModeViewHandle {
   execCommand: (profile: string, cmdName: string, args: string) => void;
   /** 🔴 编辑面板保存后热刷新：重新拉 Agent 列表（昵称/颜色即时生效，不依赖重启） */
   refreshProfiles: () => Promise<void>;
+  /** 🔴 2026-08-16：焦点卡片是否运行中（status != idle）——App 项目点击
+   *  busy 保护判定用（宫格无全局发送锁，卡片状态是唯一权威） */
+  isFocusedBusy: () => boolean;
 }
 
 // ── Agent 颜色调色板（对齐 --ui-* 设计 token）──
@@ -134,6 +137,11 @@ interface GridModeViewProps {
   /** 新建会话的全局副作用（清 localStorage 指针 + 刷新会话列表），由 App 注入，
    *  复用 handleNewSession 同一套工具链，不重复造轮子 */
   onNewSessionEffects?: (profile: string) => void;
+  /** 🔴 2026-08-16 新会话落点单一漏斗（对齐单视图 resolveNewSessionCwd）：
+   *  卡片内新建按钮/`/new`/删末会话替代新建不带 cwd 直调 handleGridNewSession，
+   *  经此兜底取 App 的 target > 项目 scope > 启动 seed（不传 = detached）。
+   *  显式 cwd（App 侧 gridAwareNewSession 已传）优先。 */
+  getNewSessionCwd?: () => string | null;
   /** 🔴 M-2 修复：宫格卡片选模型 → 写该卡片 profile 的 config + 切该卡片的 session（per-Agent 模型隔离） */
   onSelectModel?: (profile: string, modelId: string, sessionId?: string | null) => void;
 }
@@ -182,7 +190,7 @@ function slotPos(index: number, cols: number, cellW: number, cellH: number) {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, onFocusedSessionChange, onSessionCwd, portReady, onNewSessionEffects, onSelectModel }, ref) {
+const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, onFocusedSessionChange, onSessionCwd, portReady, onNewSessionEffects, getNewSessionCwd, onSelectModel }, ref) {
   // 🔴 M-1/M-2 修复：不再从 Context 取全局 currentModel（发送链已去 model，
   // 各卡片展示用后端 per-session 推送的 modelName，选择走 onSelectModel 绑定卡片）
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
@@ -218,8 +226,12 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   const handleGridNewSession = useCallback(async (profile: string, cwd?: string) => {
     resetAgent(profile);
     onNewSessionEffects?.(profile);
+    // 🔴 2026-08-16 单一漏斗对齐（审计 P1）：卡片内新建按钮/`/new` 不带 cwd
+    // 直调本函数——统一经 App 的 resolveNewSessionCwd（target > 项目 scope >
+    // 启动 seed），新会话不再静默落 workspace。显式 cwd（App 侧调用已传）优先。
+    const effectiveCwd = cwd ?? getNewSessionCwd?.() ?? undefined;
     try {
-      const created = await getWsClient().sessionCreate({ profile, cwd });
+      const created = await getWsClient().sessionCreate({ profile, cwd: effectiveCwd });
       const sid = created.session_id;
       if (sid && sessionIdMatchesProfile(sid, profile)) {
         // 与 switchToSession 同款三行（函数定义在前，避免 TDZ 引用）
@@ -230,7 +242,7 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
     } catch {
       // 离线降级：保持空态，懒创建兜底（首条消息发送时自动建）
     }
-  }, [resetAgent, onNewSessionEffects, loadLatest, onFocusChange]);
+  }, [resetAgent, onNewSessionEffects, loadLatest, onFocusChange, getNewSessionCwd]);
 
   // 🔴 M-1/M-2 修复：宫格发送不再注入全局 currentModel —— 每张卡片用自己
   // session 的 client（该 profile config.model_ref 热更新 + 卡片级 provider.switch override），
@@ -360,7 +372,12 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   }, [loadLatest, onFocusChange]);
 
   // 🔴 命令式句柄：App 经 gridRef 调度宫格（switchToSession / persistPointers / newSession）
-  useImperativeHandle(ref, () => ({ switchToSession, persistPointers, newSession: handleGridNewSession, execCommand, refreshProfiles }), [switchToSession, persistPointers, handleGridNewSession, execCommand, refreshProfiles]);
+  // 🔴 2026-08-16：isFocusedBusy —— App 项目点击 busy 保护判定（焦点卡片状态权威）
+  const isFocusedBusy = useCallback(() => {
+    const st = statesRef.current[currentProfileRef.current];
+    return (st?.status ?? 'idle') !== 'idle';
+  }, []);
+  useImperativeHandle(ref, () => ({ switchToSession, persistPointers, newSession: handleGridNewSession, execCommand, refreshProfiles, isFocusedBusy }), [switchToSession, persistPointers, handleGridNewSession, execCommand, refreshProfiles, isFocusedBusy]);
 
   // 🔴 退出/展开：持久化权威收敛到 App（handleExitGrid/handleExpandAgent 经 gridRef.persistPointers）。
   // 此处只回调 App，不再本地 persist，消灭“按钮退出持久化 / Ctrl+G 退出不持久化”的双路径不一致。

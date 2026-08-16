@@ -749,7 +749,7 @@ export default function FileBrowserPanel({
         <div className="flex flex-col items-center py-8 text-muted-foreground gap-2">
           <Folder size={32} className="text-muted-foreground/30" />
           <p className="text-xs">未打开项目</p>
-          <span className="text-[10px] text-muted-foreground/50 text-center">当前会话无工作目录，打开会话后自动跟随</span>
+          <span className="text-[10px] text-muted-foreground/50 text-center">点击左侧项目卡片打开项目，或手动选择目录（面板跟随项目，不跟随会话）</span>
           <button
             className="mt-1 flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             onClick={handlePickRoot}

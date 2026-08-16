@@ -53,6 +53,10 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   // 响应可能后到——若只靠闭包捕获的 currentProfile，旧响应会把树/scope 写成旧 Agent）
   const currentProfileRef = useRef(currentProfile);
   currentProfileRef.current = currentProfile;
+  // 🔴 2026-08-16 审计 P2：当前树数据归属的 profile（fetchTree 成功时写入）。
+  // 切 Agent 的 silent 刷新窗口内旧树仍可点击——点击守卫拒绝旧 Agent 项目
+  // 以新 profile 执行 set_active / scope 污染（详见 persistActiveProject）。
+  const treeProfileRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // 阶段二·钻取状态（projects.project_sessions，hydrate=true 全量水合）
@@ -135,6 +139,11 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
         result.projects = result.projects.filter((p: ProjectNode) => !p.isAuto || !dismissed.has(p.id));
       }
       setTree(result);
+      // 🔴 2026-08-16 审计 P2 修复：树归属 profile 标记（点击守卫用）——
+      // 切 Agent 时树刷新是 silent（旧树保留到新数据到达），窗口内旧树可点击；
+      // persistActiveProject/handleActivate 据此拒绝旧 Agent 项目以新 profile
+      // 执行 set_active + scope 污染。
+      treeProfileRef.current = reqProfile ?? null;
       // 🔴 2026-08-13 切 Agent 恢复激活项目（老大反馈：项目选中但文件面板“未打开项目”）：
       // 仅切 Agent 后的首次加载（profileSwitchPendingRef）——有 active 项目 → 恢复
       // scope + 文件面板到激活项目根；无 active（或 active 无 path）→ 清面板（最终态
@@ -267,6 +276,14 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   // handleActivate（项目行单击）与会话行点击共用；会话行点击不触发 onEnterProject——
   // 其消息区联动会把刚点的会话切回项目最新会话（2026-08-12 stopPropagation 同款教训）。
   const persistActiveProject = useCallback((project: ProjectNode) => {
+    // 🔴 2026-08-16 审计 P2：树归属守卫——切 Agent 的 silent 刷新窗口内旧树
+    // 仍可点击；旧 Agent 的项目 id 以新 profile 执行 set_active + scope 会污染
+    // 新 Agent（点击期间树数据已属新 Agent 则放行）。守卫只拦"树数据≠当前
+    // profile"的陈旧点击（fetchTree 过期响应守卫同族，防的不是响应而是点击）。
+    if (treeProfileRef.current !== currentProfile) {
+      // 树仍显示旧 Agent 数据：忽略点击（新树到达后用户重新点选）
+      return;
+    }
     // 🔴 2026-08-13：用户点选 = 意图明确，取消切 Agent 自动恢复（防覆盖用户刚点的选择）
     profileSwitchPendingRef.current = false;
     setSelectedId(project.id);
@@ -297,6 +314,9 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   // 钻取：双击项目行 → 全量水合的 Repo/Lane/Session 树
   // （双击时浏览器会先触发两次单击（handleActivate，幂等无害），再触发本钻取）
   const handleDrill = useCallback(async (project: ProjectNode) => {
+    // 🔴 2026-08-16 审计 P2：树归属守卫（同 persistActiveProject）——
+    // 切 Agent 窗口内旧树双击钻取会用旧项目 id 打新 profile 的库。
+    if (treeProfileRef.current !== currentProfile) return;
     // 双击也先激活（联动语义一致）
     handleActivate(project);
     setDrill(project);
@@ -346,6 +366,9 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
 
   // 设为激活项目（对齐 Hermes setActiveProject → projects.set_active，per-profile 路由）
   const handleSetActive = useCallback(async (project: ProjectNode) => {
+    // 🔴 2026-08-16 审计 P2：树归属守卫（同 persistActiveProject）——
+    // 切 Agent 窗口内旧树菜单操作拒绝（防旧项目 id 以新 profile 执行）。
+    if (treeProfileRef.current !== currentProfile) return;
     try {
       await call('projects_set_active', { id: project.id, profile: currentProfile });
       // 🔴 2026-08-13：菜单设激活 = 用户意图，取消切 Agent 自动恢复

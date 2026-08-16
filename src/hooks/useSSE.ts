@@ -776,6 +776,13 @@ export function useSSE(
       if (result?.status === 'redirected') {
         import('../utils/notifications').then(({ notifyInfo }) => notifyInfo('已重定向当前轮（redirect）', '修正已注入当前回复')).catch(() => {});
       }
+      // 🔴 2026-08-16 方案A 补反馈：queued（busy 直发进 Inbox.followup）——
+      // 后端 route_busy_submit 立即 ack（不再挂到轮末），排队可见性由
+      // QueuePanel（queue.status 轮询）承担，此处 toast 明确告知用户
+      // "已排队，当前任务完成后自动执行"（消除"卡住"感知）。
+      if (result?.status === 'queued') {
+        import('../utils/notifications').then(({ notifyInfo }) => notifyInfo('任务已加入队列', '当前任务完成后自动执行')).catch(() => {});
+      }
       // 对齐架构原则：后端是 session_id 的唯一权威源
       // 后端自动创建 session 时返回 session_id，前端消费并更新本地状态
       if (result?.session_id && result.session_id !== sessionId) {
