@@ -34,7 +34,6 @@ export function usePromptActions({
   currentProfile,
   onSlashConfirm,
   getNewSessionCwd,
-  onTurnComplete,
 }: {
   sess: SessionManagerHandle
   genId: () => string
@@ -55,7 +54,6 @@ export function usePromptActions({
   getNewSessionCwd?: () => string | null
   /** 🔴 2026-08-13 对齐修复：turn 结束通知（含 abort/失败）——App 消费 busy 期间
    *  点项目记录的 pending 烙印（turn 完成后自动 session.cwd.set 到项目根） */
-  onTurnComplete?: () => void
 }): {
   handleSend: (text: string, attachmentDataURLs?: string[]) => void
   handleAbort: () => void
@@ -230,15 +228,6 @@ export function usePromptActions({
       setSessionListVersion?.((v) => v + 1);
     } finally {
       _submitInFlight.delete(submitLockKey);
-      // 🔴 2026-08-16 busy 直发时序修复：后端 route_busy_submit 现在**立即 ack**
-      // （queued/steered/redirected），ack ≠ 轮末——busy 时点项目记录的 pending
-      // 烙印（session.cwd.set）若在此 apply，会被后端 busy 拒绝（4009）静默丢失
-      // → 排队任务跑错目录。真实轮末由 useMessageStream turnCompleteRef
-      // （message.complete / session.info running=false）触发；仅 idle 直发
-      // （send 即轮起点）保留 ack 时通知（无 pending 时 no-op）。
-      if (!wasBusy) {
-        onTurnComplete?.();
-      }
     }
 
     if (sess.pendingTitle) {
@@ -247,7 +236,7 @@ export function usePromptActions({
     if (sess.freshDraftReady) {
       sess.setFreshDraftReady(false);
     }
-  }, [sess, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, currentProfile, getNewSessionCwd, onTurnComplete]);
+  }, [sess, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, currentProfile, getNewSessionCwd]);
 
   // ── abort ──
   const handleAbort = useCallback(() => {

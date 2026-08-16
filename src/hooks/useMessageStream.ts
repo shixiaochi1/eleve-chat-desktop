@@ -92,13 +92,6 @@ export interface UseMessageStreamProps {
   setSessionCwd?: React.Dispatch<React.SetStateAction<string>>
   sess: SessionManagerHandle
   drainQueueRef: MutableRefObject<(() => void) | null>
-  /** 🔴 2026-08-16 真实轮末通知 ref（busy 直发排队/steer/redirect 场景）：
-   *  prompt.submit 后端立即 ack ≠ 轮末——busy 期间点项目记录的 pending 烙印
-   *  （session.cwd.set）必须在真实轮末（message.complete / session.info
-   *  running=false）才 apply（busy 时后端 cwd.set 拒绝 4009）。App 接线
-   *  handlePendingProjectCwd。与 drainQueueRef 同模式（ref 由 App 注入，
-   *  usePromptActions 在 ack 时跳过 onTurnComplete、此处轮末兜底触发）。 */
-  turnCompleteRef?: MutableRefObject<(() => void) | null>
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
   /** 🔴 宫格/单视图互斥：grid 模式传 false 暂停 useSSE（useGridChat 接管 WS 事件） */
   enabled?: boolean
@@ -155,7 +148,6 @@ export function useMessageStream({
   setSessionCwd,
   sess,
   drainQueueRef,
-  turnCompleteRef,
   setSessionListVersion,
   enabled = true,
 }: UseMessageStreamProps): {
@@ -835,8 +827,6 @@ export function useMessageStream({
         // 🔴 P0-4: 自愈必须释放发送锁（对齐宫格 useGridChat:574-577 + 单视图 onDone:624）
         // 不释锁 → isSendingRef 恒 true → 后续消息静默进死队列永不发送
         if (drainQueueRef.current) drainQueueRef.current();
-        // 🔴 2026-08-16 真实轮末通知（busy 排队/steer 场景的 pending 烙印消费点）
-        if (turnCompleteRef?.current) turnCompleteRef.current();
       } else {
         // 🔴 2026-08-16 流程审查修复（S1）：running=true 自愈——abort 后若 WS
         // 断连导致 interrupt 丢失、后端 turn 续跑，重连 re-attach 只推
@@ -925,10 +915,6 @@ export function useMessageStream({
 
       if (drainQueueRef.current) drainQueueRef.current();
 
-      // 🔴 2026-08-16 真实轮末通知（busy 排队/steer 场景的 pending 烙印消费点）
-
-      if (turnCompleteRef?.current) turnCompleteRef.current();
-
       // 🔴 对齐 Hermes：onDone 后无条件刷新列表（300ms debounce 合并，确保新 session 标题更新）
       if (newSessionId && newSessionId !== currentSessionId) {
         if (currentSessionId && getMessages()?.length) {
@@ -962,8 +948,6 @@ export function useMessageStream({
         notifyError(msg, 'Agent 错误');
       });
       if (drainQueueRef.current) drainQueueRef.current();
-      // 🔴 2026-08-16 真实轮末通知（busy 排队/steer 场景的 pending 烙印消费点）
-      if (turnCompleteRef?.current) turnCompleteRef.current();
       setTimeout(() => setConnectionStatus((s) => (s === 'error' ? 'idle' : s)), 3000);
     },
 
