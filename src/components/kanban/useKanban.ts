@@ -1019,7 +1019,11 @@ export function useKanban({ board = 'default' }: { board?: string }) {
         .then((res: any) => {
           if (cancelled) return;
           const projects = res?.projects || [];
-          setBoardProjectList(projects.map((p: any) => ({ id: p.id, name: p.name || p.id })));
+          // 🔴 2026-08-16（前端链路核对 fe-5）：后端 ProjectNode.to_json 只发
+          //   label 不发 name（project_tree.rs:935-949）——原映射 `p.name ||
+          //   p.id` 使名称恒 undefined，看板项目下拉只显示裸 id；对照组
+          //   ProjectTreePanel 正确消费 p.label
+          setBoardProjectList(projects.map((p: any) => ({ id: p.id, name: p.label || p.id })));
         })
         .catch(() => { /* 项目列表不可用时项目选择留空（非关键路径） */ });
       return () => { cancelled = true; };

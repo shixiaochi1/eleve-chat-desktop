@@ -429,6 +429,15 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
                           : 'text-[var(--color-foreground)] hover:bg-[var(--color-accent)]'
                       )}>
                       <span>{name}</span>
+                      {/* 🔴 2026-08-16（端到端链路梳理 D1）：项目归属小标——跨
+                          profile 场景 project_name 为空（A 绑定的项目在 B 库
+                          不可解析）时兜底显示 project_id，避免绑定不可见 */}
+                      {(b as any).project_id && (
+                        <span className="ml-1 text-[0.62rem] text-[var(--ui-text-tertiary)]"
+                          title="关联项目">
+                          {(b as any).project_name || (b as any).project_id}
+                        </span>
+                      )}
                       {/* 🔴 对齐 Hermes BoardSwitcher 每板 total 徽标（board-switcher.tsx
                           L220-222，审查 P1-8）：后端 list_boards_with_counts 已返回 */}
                       {typeof b.total === 'number' && (
