@@ -21,6 +21,7 @@ import {
 import type { KanbanTask, CommentRecord, AttachmentRecord, RunRecord, KanbanEvent } from './types';
 import { isBlocked, isDone, fmtAge, fmtDuration } from './helpers';
 import { COLUMNS, LOCKED_DROP_COLUMNS } from './constants';
+import { ModelCatalogMenuField } from './ModelCatalogMenu';
 import { notify } from '../../utils/notifications';
 
 // ═══════════════════════════════════════════════════════════════
@@ -194,9 +195,12 @@ interface TaskDrawerProps {
   /** 🔴 SSE 事件 tick（对齐 Hermes socket 帧失效）：任一事件到达时递增，
    *   抽屉秒级重拉 detail——评论/回收/状态变更不等 30s 轮询（审查 d4-1） */
   detailRefreshTick?: number;
+  /** 🔴 2026-08-16：ModelCatalogMenu 数据源（profiles 派生 model→provider 目录，
+   *   模型覆盖行内编辑用；缺省空目录 = 仅手输继承态/清除） */
+  modelCatalog?: Array<{ model: string; provider: string }>;
 }
 
-export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, homeChannels, board = 'default', onOpenTask, variant = 'drawer', onMoveStatus, detailRefreshTick }: TaskDrawerProps) {
+export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, homeChannels, board = 'default', onOpenTask, variant = 'drawer', onMoveStatus, detailRefreshTick, modelCatalog }: TaskDrawerProps) {
   const busy = loadingId === task?.id;
   const [detail, setDetail] = useState<any>(null);
   const [commentInput, setCommentInput] = useState('');
@@ -677,17 +681,18 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                     <span className="w-16 shrink-0 text-[var(--ui-text-tertiary)]">模型</span>
                     {editingModel ? (
                       <div className="flex-1 flex flex-col gap-1 min-w-0">
-                        <input value={modelDraft} onChange={(e) => setModelDraft(e.target.value)}
-                          placeholder="模型（留空继承）"
-                          className="w-full text-[0.8rem] px-1 py-0.5 rounded border border-[var(--kanban-hover-bg)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none" />
-                        <div className="flex gap-1">
-                          <input value={providerDraft} onChange={(e) => setProviderDraft(e.target.value)}
-                            placeholder="Provider"
-                            className="flex-1 text-[0.8rem] px-1 py-0.5 rounded border border-[var(--kanban-hover-bg)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none" />
-                          <input value={effortDraft} onChange={(e) => setEffortDraft(e.target.value)}
-                            placeholder="推理深度"
-                            className="flex-1 text-[0.8rem] px-1 py-0.5 rounded border border-[var(--kanban-hover-bg)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none" />
-                        </div>
+                        {/* 🔴 2026-08-16：对齐 Hermes ModelOverrideField（搜索/
+                            Provider 分组/推理深度白名单/× 清除）——取代三个裸
+                            文本框（易拼错模型 id 静默进任务） */}
+                        <ModelCatalogMenuField
+                          catalog={modelCatalog || []}
+                          value={{ model: modelDraft, provider: providerDraft, effort: effortDraft }}
+                          onChange={next => {
+                            setModelDraft(next.model);
+                            setProviderDraft(next.provider);
+                            setEffortDraft(next.effort);
+                          }}
+                        />
                         <div className="flex gap-2 text-[0.68rem]">
                           {/* 🔴 2026-08-16（d2-R3-11）：一键清空（继承）——对齐
                               Hermes ModelOverrideField × 按钮（model-override.tsx:

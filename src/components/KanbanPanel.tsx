@@ -105,6 +105,7 @@ import { KanbanColumn } from './kanban/KanbanColumn';
 import { TaskDrawer } from './kanban/TaskDrawer';
 import { CreateBoardModal } from './kanban/CreateBoardModal';
 import { CreateTaskDrawer } from './kanban/CreateTaskDrawer';
+import { buildModelCatalog } from './kanban/ModelCatalogMenu';
 import { DispatchModal } from './kanban/DispatchModal';
 import { KanbanReviewDialogs } from './kanban/KanbanReviewDialogs';
 import { useKanbanSSE } from './kanban/useKanbanSSE';
@@ -365,6 +366,9 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     handleUpdateBoard,
     handleReassign,
   } = useKanban({ board });
+  // 🔴 2026-08-16：ModelCatalogMenu 数据源（profiles 派生 model→provider 目录，
+  //   创建抽屉 + 详情抽屉共享）
+  const modelCatalog = useMemo(() => buildModelCatalog(profiles || []), [profiles]);
   // 🔴 2026-08-16（第三轮审查 d2-R3-07）：profiles 刷新回调——描述保存/Auto
   //   后重拉（对齐 Hermes invalidateQueries(PROFILES_KEY) orchestration.tsx:75）
   const refreshProfiles = useCallback(() => {
@@ -903,6 +907,8 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
         <TaskDrawer task={selectedTask} onClose={() => setSelectedTask(null)} onAction={handleAction} loadingId={loadingId} onRefresh={loadBoard}
           homeChannels={homeChannels} board={currentBoard}
           detailRefreshTick={detailRefreshTick}
+          // 🔴 2026-08-16：ModelCatalogMenu 数据源（profiles 派生 model→provider 目录）
+          modelCatalog={modelCatalog}
           onMoveStatus={(s) => handleDrop(s, selectedTask.id)}
           onOpenTask={(id) => { const t = allTasks.find(x => x.id === id); if (t) setSelectedTask(t); }} />
       )}
@@ -916,8 +922,7 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
         workspaceKind={newWorkspaceKind} workspacePath={newWorkspacePath} modelOverride={newModelOverride}
         providerOverride={newProviderOverride} reasoningEffort={newReasoningEffort}
         assigneeOptions={(profiles || []).map((p: any) => ({ name: p.name }))}
-        modelOptions={Array.from(new Set((profiles || []).map((p: any) => p.model).filter(Boolean)))}
-        providerOptions={Array.from(new Set((profiles || []).map((p: any) => p.provider).filter(Boolean)))}
+        catalog={modelCatalog}
         boardDefaultKind={boardMeta?.default_workspace_kind}
         boardDefaultDir={boardMeta?.default_workdir}
         defaultAssignee={resolvedDefaultAssignee}

@@ -10,9 +10,10 @@
  *   本组件展示错误）；创建成功由 useKanban 侧完成落列 + auto-nudge + 刷新
  */
 import { useEffect, useState } from 'react';
-import { X, Loader, RotateCcw, Gauge } from 'lucide-react';
+import { X, Loader, Gauge } from 'lucide-react';
 import { COLUMNS } from './constants';
 import { estimateKanbanTask } from '../../utils/api';
+import { ModelCatalogMenuField, type ModelCatalogRow } from './ModelCatalogMenu';
 
 const WORKSPACE_KINDS = [
   { key: 'scratch', label: 'scratch（沙箱，默认）' },
@@ -53,9 +54,8 @@ interface CreateTaskDrawerProps {
    *   d3-18）：实际解析出的默认负责人——默认项显示真实值、roster 排除去重 */
   defaultAssignee?: string;
   /** 🔴 对齐 Hermes ModelCatalogMenu 数据源（审查 d3-2/d2-14）：profiles 的
-   *  model/provider 去重目录，配合 datalist 下拉+手输 */
-  modelOptions: string[];
-  providerOptions: string[];
+   *  model→provider 目录（ModelCatalogMenuField 搜索/分组消费） */
+  catalog: ModelCatalogRow[];
   /** 🔴 看板默认工作区/目录（审查 d3-20/d3-14）：kind 下拉标注「(看板默认)」+
    *   路径继承提示行（对齐 Hermes board default 后缀/workspaceInheritDir） */
   boardDefaultKind?: string;
@@ -81,7 +81,7 @@ interface CreateTaskDrawerProps {
 export function CreateTaskDrawer({
   open, target, variant = 'drawer',
   title, body, assignee, priority, skills, parent, goalMode, goalMaxTurns, workspaceKind, workspacePath, modelOverride,
-  providerOverride, reasoningEffort, assigneeOptions, modelOptions, providerOptions,
+  providerOverride, reasoningEffort, assigneeOptions, catalog,
   boardDefaultKind, boardDefaultDir, defaultAssignee,
   parentOptions,
   onTitleChange, onBodyChange, onAssigneeChange, onPriorityChange, onSkillsChange, onParentChange,
@@ -266,42 +266,21 @@ export function CreateTaskDrawer({
       </div>
       {/* 模型覆盖（对齐 HERMES TaskModelOverride 三元组：model + provider +
           reasoning effort；全留空继承 profile 模型）
-          🔴 对齐 Hermes ModelCatalogMenu（审查 d3-2/d2-14）：模型/provider
-          从 profiles 目录去重下拉（可手输）+ 推理深度白名单下拉——此前裸
-          文本框易拼错模型 id 静默进任务 */}
+          🔴 2026-08-16（对齐 Hermes ModelCatalogMenu，审查 d3-2/d2-14）：
+          完整目录选择器（搜索/Provider 分组/推理深度白名单/内嵌 × 清除）——
+          取代裸文本框 + datalist（此前易拼错模型 id 静默进任务，P0 保留项
+          闭合） */}
       <div className="flex flex-col gap-1.5">
-        <div className="flex items-center justify-between">
-          <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">模型覆盖（可选）</label>
-          {/* 🔴 2026-08-16（d2-R3-11）：一键清空（继承）——对齐 Hermes
-              ModelOverrideField 的 × 清除按钮（model-override.tsx:116-130），
-              空串 = 继承 assigned profile，显式清空避免手删三个格子 */}
-          <button type="button" onClick={() => { onModelOverrideChange(''); onProviderOverrideChange(''); onReasoningEffortChange(''); }}
-            title="清空全部覆盖（继承 assigned profile）"
-            className="inline-flex items-center gap-1 text-[0.68rem] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] transition-colors">
-            <RotateCcw size={10} strokeWidth={1.5} /> 清空（继承）
-          </button>
-        </div>
-        <input value={modelOverride} onChange={e => onModelOverrideChange(e.target.value)} list="eleve-kanban-model-catalog"
-          placeholder="留空继承 assigned profile 的模型"
-          className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
-        <datalist id="eleve-kanban-model-catalog">
-          {modelOptions.map(m => <option key={m} value={m} />)}
-        </datalist>
-        <div className="grid grid-cols-2 gap-2">
-          <input value={providerOverride} onChange={e => onProviderOverrideChange(e.target.value)} list="eleve-kanban-provider-catalog"
-            placeholder="Provider（如 openrouter）"
-            className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] focus:outline-none focus:border-[var(--color-ring)]" />
-          <datalist id="eleve-kanban-provider-catalog">
-            {providerOptions.map(p => <option key={p} value={p} />)}
-          </datalist>
-          <select value={reasoningEffort} onChange={e => onReasoningEffortChange(e.target.value)}
-            className="w-full text-[0.85rem] h-9 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] focus:outline-none focus:border-[var(--color-ring)] cursor-pointer">
-            <option value="">推理深度（继承）</option>
-            {['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].map(v => (
-              <option key={v} value={v}>{v}</option>
-            ))}
-          </select>
-        </div>
+        <label className="text-[0.8rem] font-medium text-[var(--color-foreground)]">模型覆盖（可选）</label>
+        <ModelCatalogMenuField
+          catalog={catalog}
+          value={{ model: modelOverride, provider: providerOverride, effort: reasoningEffort }}
+          onChange={next => {
+            onModelOverrideChange(next.model);
+            onProviderOverrideChange(next.provider);
+            onReasoningEffortChange(next.effort);
+          }}
+        />
         <span className="text-[0.65rem] text-[var(--color-muted-foreground)]">Provider 需配合模型填写；推理深度取值 none/minimal/low/medium/high/xhigh/max/ultra</span>
       </div>
       {/* Goal Mode */}

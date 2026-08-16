@@ -5,12 +5,14 @@
  * 新建任务 / 派发任务 复用与主看板相同的共享组件（CreateTaskDrawer overlay
  * 变体 + DispatchModal），字段能力与主看板完全对齐。
  */
+import { useMemo } from 'react';
 import SidebarKanbanBoard from './SidebarKanbanBoard';
 import { useKanban } from './kanban/useKanban';
 import type { KanbanTask } from './kanban/types';
 import { TaskDrawer } from './kanban/TaskDrawer';
 import { CreateBoardModal } from './kanban/CreateBoardModal';
 import { CreateTaskDrawer } from './kanban/CreateTaskDrawer';
+import { buildModelCatalog } from './kanban/ModelCatalogMenu';
 import { DispatchModal } from './kanban/DispatchModal';
 import { KanbanReviewDialogs } from './kanban/KanbanReviewDialogs';
 
@@ -86,6 +88,9 @@ export default function KanbanPanelForSidebar() {
     cancelChanges,
   } = useKanban({ board: 'default' });
 
+  // 🔴 2026-08-16：ModelCatalogMenu 数据源（profiles 派生 model→provider 目录）
+  const modelCatalog = useMemo(() => buildModelCatalog(profiles || []), [profiles]);
+
   const handleSelectTask = (task: KanbanTask) => {
     setSelectedTask(task);
   };
@@ -121,8 +126,7 @@ export default function KanbanPanelForSidebar() {
         workspaceKind={newWorkspaceKind} workspacePath={newWorkspacePath} modelOverride={newModelOverride}
         providerOverride={newProviderOverride} reasoningEffort={newReasoningEffort}
         assigneeOptions={(profiles || []).map((p: any) => ({ name: p.name }))}
-        modelOptions={Array.from(new Set((profiles || []).map((p: any) => p.model).filter(Boolean)))}
-        providerOptions={Array.from(new Set((profiles || []).map((p: any) => p.provider).filter(Boolean)))}
+        catalog={modelCatalog}
         boardDefaultKind={boardMeta?.default_workspace_kind}
         boardDefaultDir={boardMeta?.default_workdir}
         defaultAssignee={resolvedDefaultAssignee}
@@ -146,6 +150,7 @@ export default function KanbanPanelForSidebar() {
       {selectedTask && (
         <TaskDrawer task={selectedTask} onClose={() => setSelectedTask(null)} onAction={handleAction} loadingId={loadingId}
           onRefresh={loadBoard} homeChannels={homeChannels} board={currentBoard} variant="overlay"
+          modelCatalog={modelCatalog}
           onMoveStatus={(s) => handleDrop(s, selectedTask.id)}
           onOpenTask={(id) => { const t = allTasks.find(x => x.id === id); if (t) setSelectedTask(t); }} />
       )}
