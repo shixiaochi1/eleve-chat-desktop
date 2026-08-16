@@ -698,11 +698,14 @@ export function useGridChat(
           const dpSummary = (payload.progress_summary as string) || (payload.summary as string) || '';
           const dpGoal = payload.goal as string | undefined;
           const dpTool = payload.tool_name as string | undefined;
-          // 🔴 2026-08-15 编排对齐修复：后端 DelegateEvent::Complete 的 wire 值是
-          // 'subagent.complete'（eleve-core DelegateEvent.as_str），原比对
-          // 'complete'/'end' 永不命中 → 宫格模式的「✔ 子 Agent 完成」气泡从未出现。
+          // 🔴 2026-08-16 流程审查修复（R2）：subagent.complete 不再生成系统气泡——
+          // 同一委托完成时后端同时发 delegate.end（delegate.rs:461）与
+          // subagent.complete（进度事件）→ 宫格原实现两条「✔ 子 Agent 完成」
+          // 重复气泡（单视图只消费 delegate.end，两视图行为不一致）。
+          // subagent.complete 保留 activityHint 复位语义（子完成 → 提示清空），
+          // 完成气泡由 delegate.end 单一生产。
           if (dpEventType === 'subagent.complete') {
-            patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(`✔ 子 Agent 完成: ${dpSummary || dpGoal || 'done'}`)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), activityHint: '', lastActivity: Date.now() }));
+            patch(profile, (s) => ({ ...s, activityHint: '', lastActivity: Date.now() }));
           } else if (dpTool) {
             patch(profile, (s) => ({ ...s, activityHint: `↳ 子Agent: ${dpTool}`, lastActivity: Date.now() }));
           } else if (dpSummary) {

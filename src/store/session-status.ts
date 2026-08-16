@@ -165,7 +165,6 @@ getWsClient().addEventListener((eventName: string, data: unknown) => {
     case 'tool.start':
     case 'tool.generating':
     case 'tool.progress':
-    case 'tool.failed':
     case 'step.complete': {
       patch(sid, { running: true, stalled: false, compacting: false, lastActive: Date.now() });
       armWatchdog(sid);

@@ -81,10 +81,12 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
       return true;
     }
 
-    // theme.changed — 当前由前端 ThemeProvider 直接管理（localStorage + bridge），
-    // 此处仅 debug 日志。宫格模式 useSSE 暂停时由此处兜底，消灭静默丢弃
-    case 'theme.changed':
-      console.debug('[global-events] theme.changed', payload);
+    // skin.changed — 后端 config.set display.skin 推送（ws/mod.rs）；
+    // 主题由前端 ThemeProvider 本地管理（localStorage + bridge），此处仅
+    // debug 日志。宫格模式 useSSE 暂停时由此处兜底，消灭静默丢弃。
+    // 🔴 2026-08-16 流程审查（B1/D1）：原 theme.changed 事件名后端无生产端。
+    case 'skin.changed':
+      console.debug('[global-events] skin.changed', payload);
       return true;
 
     // wake.detected — 唤醒词命中（常开监听，全局广播无 session_id）

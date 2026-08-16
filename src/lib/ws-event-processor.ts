@@ -78,8 +78,6 @@ export function toolPayloadFromEvent(eventName: string, p: Record<string, unknow
       return { tool_call_id: toolCallId, name, args: p.args as Record<string, unknown> | undefined };
     case 'tool.complete':
       return { tool_call_id: toolCallId, name, duration: p.duration as number | undefined, error: p.error as boolean | undefined };
-    case 'tool.failed':
-      return { tool_call_id: toolCallId, name, error: true };
     default:
       return { tool_call_id: toolCallId, name };
   }
@@ -161,7 +159,6 @@ export function processAccumulatorEvent(
     // onToolGenerating 显示状态文本（statusText），此处不建行。
     // case 'tool.generating': 已移除（原 upsertToolPart 调用）
     case 'tool.complete':
-    case 'tool.failed':
       acc.parts = upsertToolPart(acc.parts, toolPayloadFromEvent(eventName, payload), 'complete');
       return true;
     default:

@@ -145,8 +145,6 @@ export interface SSECallbacks {
   onBackgroundReview?: (data: { summary: string }) => void
   // Phase 6: 浏览器连接进度（对齐 Hermes browser.progress）
   onBrowserProgress?: (data: { message: string; level: string }) => void
-  // Phase 6: 主题切换（对齐 Hermes theme.changed，由 display.accent/appearance 驱动）
-  onThemeChanged?: (data: { accent?: string; appearance?: string }) => void
   // Phase 6: 终端关闭（对齐 Hermes terminal.close）
   onTerminalClose?: (data: { process_id: string }) => void
   // reaction — 用户 affection（ily / <3 / good bot / 心形 emoji，对齐 Hermes reaction 事件）
@@ -238,15 +236,6 @@ function processEvent(
       processAccumulatorEvent(acc, eventName, chunk);
       cbs.onToolEnd?.({ id: (chunk.toolCallId as string) || null, name: chunk.tool as string, duration: chunk.duration as number | undefined, error: chunk.error as boolean | undefined });
       break;
-
-    case 'tool.failed': {
-      processAccumulatorEvent(acc, eventName, chunk);
-      // 🔴 P0-3: tool.failed 是可恢复事件（错误回喂模型继续跑），不路由到 onError。
-      // onError 会终止流 + 误发排队消息 + 弹错误 toast，语义完全错误。
-      // 走 onToolEnd(error:true) 让 ToolEntry 渲染错误状态（isError 三值），流继续。
-      cbs.onToolEnd?.({ id: (chunk.toolCallId as string) || null, name: chunk.tool as string, duration: chunk.duration as number | undefined, error: true });
-      break;
-    }
 
     // P1: 工具进度（对齐 Hermes tool_progress_command → StreamChunk::ToolProgress）
     case 'tool.progress':
@@ -394,9 +383,14 @@ function processEvent(
       cbs.onBrowserProgress?.({ message: chunk.message as string, level: chunk.level as string });
       break;
 
-    // Phase 6: 主题切换（对齐 Hermes theme.changed）
-    case 'theme.changed':
-      cbs.onThemeChanged?.({ accent: chunk.accent as string, appearance: chunk.appearance as string });
+    // Phase 6: 主题切换（对齐 Hermes theme.changed；后端实际事件名 =
+    // skin.changed，ws/mod.rs config.set display.skin 推送，payload {skin}）。
+    // 🔴 2026-08-16 流程审查修复（B1/D1）：原 theme.changed 事件名后端无生产端
+    // （死分支），契约错位——改用后端真实事件名。前端主题由 ThemeProvider
+    // 本地管理（localStorage + bridge），此处仅防御性消费（debug 日志），
+    // 不驱动 UI；未来主题集中管理时在此接线。
+    case 'skin.changed':
+      console.debug('[useSSE] skin.changed', chunk.skin);
       break;
 
     // Phase 6: 终端关闭（对齐 Hermes terminal.close）

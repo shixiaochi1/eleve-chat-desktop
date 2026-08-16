@@ -838,6 +838,19 @@ export function useMessageStream({
         // 🔴 2026-08-16 真实轮末通知（busy 排队/steer 场景的 pending 烙印消费点）
         if (turnCompleteRef?.current) turnCompleteRef.current();
       } else {
+        // 🔴 2026-08-16 流程审查修复（S1）：running=true 自愈——abort 后若 WS
+        // 断连导致 interrupt 丢失、后端 turn 续跑，重连 re-attach 只推
+        // session.info(running=true)（无 message.start）→ turnEndedRef 恒 true
+        // → 续跑轮全部 delta 被守卫丢弃，轮末 hydrate 又被 unresolvedUserTail
+        // 挡住 → 本轮输出静默丢失（需手动刷新）。对齐 Hermes per-turn
+        // state.interrupted 语义：running=true 且本地无活跃流时复位守卫。
+        if (turnEndedRef.current && !streamIdRef.current) {
+          const hasPendingAssistant = getMessages()?.some(m => m.role === 'assistant' && (m.pending || m.interim))
+          if (!hasPendingAssistant) {
+            turnEndedRef.current = false
+            interimSealedRef.current = false
+          }
+        }
         storeSetIsStreaming(true);
         setConnectionStatus('streaming');
       }
@@ -1116,11 +1129,6 @@ export function useMessageStream({
     onBrowserProgress: (data: { message: string; level: string }) => {
       addDebugEvent('browser_progress', `${data.level}: ${data.message}`);
       handleGlobalEvent('browser.progress', data as Record<string, unknown>);
-    },
-
-    // Phase 6: 主题切换 — App 层处理（重新加载主题配置）
-    onThemeChanged: (_data: { accent?: string; appearance?: string }) => {
-      addDebugEvent('theme_changed', 'theme updated');
     },
 
     // Phase 6: 终端关闭 — 委托共享处理器
