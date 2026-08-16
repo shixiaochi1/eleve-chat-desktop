@@ -75,9 +75,6 @@ export interface GridModeViewHandle {
   execCommand: (profile: string, cmdName: string, args: string) => void;
   /** 🔴 编辑面板保存后热刷新：重新拉 Agent 列表（昵称/颜色即时生效，不依赖重启） */
   refreshProfiles: () => Promise<void>;
-  /** 🔴 2026-08-16：焦点卡片是否运行中（status != idle）——App 项目点击
-   *  busy 保护判定用（宫格无全局发送锁，卡片状态是唯一权威） */
-  isFocusedBusy: () => boolean;
 }
 
 // ── Agent 颜色调色板（对齐 --ui-* 设计 token）──
@@ -387,12 +384,9 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   }, [loadLatest, onFocusChange]);
 
   // 🔴 命令式句柄：App 经 gridRef 调度宫格（switchToSession / persistPointers / newSession）
-  // 🔴 2026-08-16：isFocusedBusy —— App 项目点击 busy 保护判定（焦点卡片状态权威）
-  const isFocusedBusy = useCallback(() => {
-    const st = statesRef.current[currentProfileRef.current];
-    return (st?.status ?? 'idle') !== 'idle';
-  }, []);
-  useImperativeHandle(ref, () => ({ switchToSession, persistPointers, newSession: handleGridNewSession, execCommand, refreshProfiles, isFocusedBusy }), [switchToSession, persistPointers, handleGridNewSession, execCommand, refreshProfiles, isFocusedBusy]);
+  // 🔴 2026-08-16：isFocusedBusy 已随 busy 保护移除（视图切换与任务执行解耦，
+  // 项目点击 busy 时允许切卡——loadLatest 重置 + 过期流守卫兜底）。
+  useImperativeHandle(ref, () => ({ switchToSession, persistPointers, newSession: handleGridNewSession, execCommand, refreshProfiles }), [switchToSession, persistPointers, handleGridNewSession, execCommand, refreshProfiles]);
 
   // 🔴 退出/展开：持久化权威收敛到 App（handleExitGrid/handleExpandAgent 经 gridRef.persistPointers）。
   // 此处只回调 App，不再本地 persist，消灭“按钮退出持久化 / Ctrl+G 退出不持久化”的双路径不一致。

@@ -29,7 +29,7 @@ import { getRememberedWorkspaceCwd, rememberWorkspaceCwd } from './lib/workspace
 import { getActiveProfile } from './utils/api';
 import { getWsClient, setWsActiveProfile, type SessionCreateResponse } from './services/ws-client';
 import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer, loadProfilePointers, saveProfilePointer, removeProfilePointer } from './utils/session';
-import { notifyError, notifyInfo } from './utils/notifications';
+import { notifyError } from './utils/notifications';
 import type { ChatMessage } from './types';
 import { Minus, Square, X, FileText } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -926,23 +926,20 @@ export default function App() {
     }
     // ③ 消息区联动（推荐会话 = 后端分组权威：项目 = 该项目 previewSessions 最新；
     //    HOME = Home 桶 unowned 全集最新；无推荐 → 前端域匹配兑底 → 空态新建）
+    // 🔴 2026-08-16 架构修正（老大指示）：视图切换与任务执行解耦——焦点卡片
+    // 运行中（busy）**允许**切换视图：运行中轮的输出在离开期间被 session 过滤
+    // 隐藏，但轮在后台照常跑完、消息按迭代边界持久化；切回时 loadLatest /
+    // loadHistory 重载（与断线重连同一已加固路径：attach → session.info 快照
+    // + pending_prompts 恢复 + 全量历史），不丢结果。旧实现（审计 P1）busy
+    // 时弹"任务运行中"阻止切换 = 把视图诉求错当成会话绑定变更，属糊弄。
+    // 会话 cwd 绑定变更（同会话回根烙印/手动导航）才走 pending 轮末机制——
+    // 运行中轮的工具环境不能中途挪走（后端 busy 拒绝 4009 是对的）。
     if (viewMode === 'grid') {
       // 宫格：焦点 Agent 卡片切推荐/兑底最新会话（与单视图同一 target 规则，走
       // gridAwareSwitchSession 统一入口——宫格下自动路由 gridRef，不平行直调）；
-      // 无 → 新会话带项目 cwd（HOME 则 workspace），卡片自治不打扰其它卡片
-      // 🔴 2026-08-16 busy 保护（审计 P1）：焦点卡片运行中（status != idle）
-      // 不切会话视图（运行中轮输出会被 session 过滤隐藏）——记录 pending 烙印
-      // + 提示（与单视图同语义；轮末消费：单视图 turnCompleteRef 在宫格暂停，
-      // 退出宫格后由同会话 message.complete 兜底消费）。
-      const focusedBusy = gridRef.current?.isFocusedBusy() ?? false;
-      if (focusedBusy) {
-        const focusSid = sess.sessionId;
-        if (focusSid && path) {
-          pendingProjectCwdRef.current = { sid: focusSid, path };
-          notifyInfo('任务运行中', '当前任务完成后将自动切换工作目录到该项目');
-        }
-        return;
-      }
+      // 无 → 新会话带项目 cwd（HOME 则 workspace），卡片自治不打扰其它卡片。
+      // busy 切卡：loadLatest 重置累加器 + 释放发送锁 + 加载新会话消息；
+      // 旧会话轮继续后台跑，其迟到事件由过期流守卫（#10）丢弃，锁不泄漏。
       const target = (recommendedSessionId && sessionIdMatchesProfile(recommendedSessionId, currentProfile))
         ? recommendedSessionId
         : (latestSessionForDomain(sess.sessions, currentProfile, path)?.id ?? null);
@@ -979,24 +976,18 @@ export default function App() {
       }
       return;
     }
-    // 🔴 2026-08-16 busy 判定口径对齐（审计 P1）：发送侧 busy = 
-    // isSendingRef || getIsStreaming（usePromptActions.ts:163 同款）——
-    // 队列续轮（busy 直发后 drain 起的轮）无发送锁但 isStreaming=true，
-    // 只查 isSendingRef 会误判非 busy → 立即切会话视图（运行中轮输出被
-    // 过滤隐藏）+ 丢 pending 烙印（后续轮次继续工作旧目录）。
-    if (isSendingRef.current || getIsStreaming()) {
-      // 🔴 2026-08-13 对齐修复（老大指示）：busy 不打断——记录 pending 烙印，
-      // 真实轮末（message.complete → turnCompleteRef）自动 session.cwd.set 到
-      // 项目根（🔴 2026-08-16：ack ≠ 轮末，必须等真实轮末——busy 时后端
-      // cwd.set 拒绝 4009）。随后排队任务在项目根工作区执行。
-      if (sid && path) {
-        pendingProjectCwdRef.current = { sid, path };
-        notifyInfo('任务运行中', '当前任务完成后将自动切换工作目录到该项目');
-      }
-      return;
-    }
+    // 🔴 2026-08-16 架构修正（老大指示）：视图切换与任务执行解耦——busy 时
+    // 允许切换（见上方 grid 分支注释）；不再有"任务运行中"阻止弹窗。
     if (recommendedSessionId) {
-      if (recommendedSessionId === sid) return; // 已在该域最新会话 → 保持
+      if (recommendedSessionId === sid) {
+        // 已在该域最新会话 → 保持视图。边界：会话在项目子目录（belongs=false）
+        // 且 busy 时点项目根 = 回根意图——保留旧 busy guard 语义：pending 回根
+        // 烙印（轮末自动 session.cwd.set 到项目根），排队任务跑项目根不跑子目录。
+        if (sid && path && (isSendingRef.current || getIsStreaming())) {
+          pendingProjectCwdRef.current = { sid, path };
+        }
+        return;
+      }
       // 归属校验（后端分组权威，profile 校验防串台）
       if (sessionIdMatchesProfile(recommendedSessionId, currentProfile)) {
         gridAwareSwitchSession(recommendedSessionId);
@@ -1009,9 +1000,14 @@ export default function App() {
       if (latest.id === sid) return; // 已在该域最新会话 → 保持
       gridAwareSwitchSession(latest.id);
     } else {
+      // 空草稿：与 handleProfileChange 草稿路径同款重置——源会话的
+      // message.complete 被 session 过滤丢弃 → onDone 不触发 → 发送锁/流式
+      // 状态残留 → 新草稿发送瘫痪；必须先复位（resetStream 同步锁定过滤 ref）。
+      resetStream(null);
+      resetSendingLockRef.current?.();
       clearSessionView(currentProfile);
     }
-  }, [sess, isSendingRef, clearSessionView, currentProfile, viewMode, gridAwareSwitchSession]);
+  }, [sess, isSendingRef, resetStream, resetSendingLockRef, clearSessionView, currentProfile, viewMode, gridAwareSwitchSession]);
 
   // 🔴 2026-08-13 老大语义重构：会话行点击 → 只同步 scope（新会话落点）；
   // 文件面板是项目映射视图（只跟项目卡片/手动导航），不随会话行点击改变。

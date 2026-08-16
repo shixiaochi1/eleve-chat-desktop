@@ -593,11 +593,16 @@ function timelineDisplayContent(message: SessionMessage, content: string): strin
   }
   if (message.display_kind === 'async_delegation_complete') {
     const count = timelineTaskCount(message.display_metadata)
+    // 🔴 2026-08-16（/stop 自治链硬门控配套）：元数据现携带终态 status——
+    // 被用户停止中断的委派回注显示"已中断"而非"已完成"（显示诚实，
+    // 与后端 goal 续轮门控同一信息源：delegation_display_metadata）。
+    const interrupted = parseDisplayMetadata(message.display_metadata)?.status === 'interrupted'
+    const base = interrupted ? '后台任务已中断' : '后台任务已完成'
     return count === undefined
-      ? '后台任务已完成'
+      ? base
       : count === 1
-        ? '1 个后台任务已完成'
-        : `${count} 个后台任务已完成`
+        ? `${base}（1 项）`
+        : `${base}（${count} 项）`
   }
   return content
 }
