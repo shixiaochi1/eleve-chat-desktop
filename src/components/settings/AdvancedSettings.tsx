@@ -28,6 +28,9 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
     toolsets: '',
     session_idle_ttl_secs: 3600,
     session_max_live: 1000,
+    // 2026-08-16（DSH complete 借鉴）：用户自定义系统提示 + 组装模式
+    system_prompt: '',
+    system_prompt_mode: 'append',
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -66,6 +69,9 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
         toolsets: (Array.isArray(agent.enabled_toolsets) ? agent.enabled_toolsets.join(', ') : ''),
         session_idle_ttl_secs: sessions.idle_ttl_secs ?? 3600,
         session_max_live: sessions.max_live_sessions ?? 1000,
+        // 2026-08-16（DSH complete 借鉴）：用户自定义系统提示（空 = 不注入）
+        system_prompt: agent.system_prompt || '',
+        system_prompt_mode: agent.system_prompt_mode === 'replace' ? 'replace' : 'append',
       });
       setLoaded(true);
     } catch {
@@ -94,6 +100,9 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
             checkpoints: {
               max_snapshots: config.checkpoints_max_snapshots,
             },
+            // 2026-08-16（DSH complete 借鉴）：用户自定义系统提示 + 组装模式
+            system_prompt: config.system_prompt,
+            system_prompt_mode: config.system_prompt_mode === 'replace' ? 'replace' : 'append',
           },
           delegation: {
             max_iterations: config.max_iterations,
@@ -230,6 +239,46 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
         />
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
           逗号分隔的已启用工具集列表。留空则使用默认集。
+        </p>
+      </div>
+
+      {/* 用户自定义系统提示（2026-08-16，DSH complete 借鉴） */}
+      <div className="mb-3">
+        <label className="block text-xs text-muted-foreground mb-1">用户系统提示（System Prompt）</label>
+        <textarea
+          className="w-full max-w-xl rounded-md border border-input bg-transparent px-3 py-2 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          rows={5}
+          placeholder="留空则使用内置系统提示。支持 {{profile_name}} / {{model}} / {{cwd}} 等变量。"
+          value={config.system_prompt}
+          onChange={e => update('system_prompt', e.target.value)}
+        />
+        <div className="flex items-center gap-3 mt-1">
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <input
+              type="radio"
+              name="system_prompt_mode"
+              checked={config.system_prompt_mode === 'append'}
+              onChange={() => update('system_prompt_mode', 'append')}
+              className="accent-primary"
+            />
+            追加（append）— 与内置身份/指引共存
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <input
+              type="radio"
+              name="system_prompt_mode"
+              checked={config.system_prompt_mode === 'replace'}
+              onChange={() => update('system_prompt_mode', 'replace')}
+              className="accent-primary"
+            />
+            整体接管（replace）— 只使用你的提示
+          </label>
+        </div>
+        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
+          replace 模式下内置身份/指引/上下文文件不再注入（工具 schema 照常
+          提供）；新会话生效。支持变量：{'{{profile_name}}'}、{'{{model}}'}、
+          {'{{provider}}'}、{'{{platform}}'}、{'{{cwd}}'}、{'{{session_id}}'}、
+          {'{{display_name}}'}。
         </p>
       </div>
 
