@@ -50,8 +50,9 @@ export default function ProviderSettings({
   expandedProvider: string | null;
   onToggleProvider: (id: string) => void;
   updateProvider: (id: string, field: string, value: string) => void;
-  addProviderModel: (id: string, model: ProviderModel) => void;
-  removeProviderModel: (id: string, model: string) => void;
+  /** 🔴 2026-08-16（R1）：返回 Promise——ProviderCard await 即时落池成功后再清输入/提示 */
+  addProviderModel: (id: string, model: ProviderModel) => Promise<void>;
+  removeProviderModel: (id: string, model: string) => Promise<void>;
   requestDelete: (id: string) => void;
   requestUnlock: (id: string) => void;
   keyUnlocked: boolean;

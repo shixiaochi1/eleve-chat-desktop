@@ -93,6 +93,21 @@ function redactSensitive(obj: unknown): unknown {
   return obj;
 }
 
+/** 模型列表 → provider.upsert 用 models 映射（能力字段保留；handleSave / 增删模型共用，单一真相源） */
+function buildModelsMap(models: ProviderModel[]): Record<string, Record<string, unknown>> {
+  const map: Record<string, Record<string, unknown>> = {};
+  for (const m of models) {
+    map[m.name] = {
+      context_length: m.context_length,
+      max_output: m.max_output,
+      // 🔴 P-4：能力字段回传（加载时从池保留，保存不丢）
+      ...(m.supports_vision !== undefined && m.supports_vision !== null ? { supports_vision: m.supports_vision } : {}),
+      ...(m.use_prompt_caching !== undefined && m.use_prompt_caching !== null ? { use_prompt_caching: m.use_prompt_caching } : {}),
+    };
+  }
+  return map;
+}
+
 export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelProps) {
   // ── 核心数据 ──
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -364,18 +379,46 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
   };
 
   // 🔴 2026-08-10 重构：models 升级为 ProviderModel[]（带上下文/输出能力参数）
-  const addProviderModel = (id: string, model: ProviderModel) => {
-    setProviders(prev => prev.map(p =>
-      p.id === id && !p.models.some(m => m.name === model.name)
-        ? { ...p, models: [...p.models, model] }
-        : p
+  // 🔴 2026-08-16（R1 修复）：添加模型即时落池——先 upsert 池（后端 merge 保留
+  // 池中 UI 外模型 + 覆盖同名），成功才更新 state（防幽灵模型，对齐 handleAddProvider
+  // F-P1-2 模式）。此前只改内存 state、依赖底部"保存"按钮批量写池，"保存"前
+  // 切页签/关面板即丢失（BUG-1），聊天下拉（池数据源）永远看不到。
+  const addProviderModel = async (id: string, model: ProviderModel) => {
+    const p = findProvider(providers, id);
+    if (!p) return;
+    if (p.models.some(m => m.name === model.name)) return;
+    // 只传新增模型：后端 merge 保留池中已存在的（含此前即时添加的 + CLI/手写 UI 外模型）
+    await upsertPoolProvider({
+      id,
+      base_url: p.baseUrl || 'https://api.openai.com/v1',
+      models: buildModelsMap([model]),
+    });
+    setProviders(prev => prev.map(x =>
+      x.id === id && !x.models.some(m => m.name === model.name)
+        ? { ...x, models: [...x.models, model] }
+        : x
     ));
   };
 
-  const removeProviderModel = (id: string, modelName: string) => {
-    setProviders(prev => prev.map(p =>
-      p.id === id ? { ...p, models: p.models.filter(m => m.name !== modelName) } : p
-    ));
+  // 🔴 2026-08-16（R1 修复）：删除模型即时落池（同添加）。
+  // models 里传 null 删除标记（后端 provider.upsert 支持），否则 merge 语义
+  // 会把池中该模型当"UI 外模型"保留 → 假删（BUG-5，重开面板复活）。
+  const removeProviderModel = async (id: string, modelName: string) => {
+    const p = findProvider(providers, id);
+    if (!p) return;
+    const nextModels = p.models.filter(m => m.name !== modelName);
+    const modelsMap = buildModelsMap(nextModels);
+    modelsMap[modelName] = null; // null = 删除标记
+    try {
+      await upsertPoolProvider({
+        id,
+        base_url: p.baseUrl || 'https://api.openai.com/v1',
+        models: modelsMap,
+      });
+      setProviders(prev => prev.map(x => x.id === id ? { ...x, models: nextModels } : x));
+    } catch (e: unknown) {
+      notifyError(e, '删除模型失败（池写入）');
+    }
   };
 
   // 🔴 G-5：断开 API Key（provider.disconnect → Credential::None，对齐 Hermes
@@ -663,16 +706,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     // Phase P5: 同步到全局 Provider 池（池=唯一权威源）
     const poolPromises = providers.map(async (p) => {
       const transport = (p.transport && p.transport !== 'auto') ? p.transport : undefined;
-      const modelsMap: Record<string, Record<string, unknown>> = {};
-      for (const m of p.models) {
-        modelsMap[m.name] = {
-          context_length: m.context_length,
-          max_output: m.max_output,
-          // 🔴 P-4：能力字段回传（加载时从池保留，保存不丢）
-          ...(m.supports_vision !== undefined && m.supports_vision !== null ? { supports_vision: m.supports_vision } : {}),
-          ...(m.use_prompt_caching !== undefined && m.use_prompt_caching !== null ? { use_prompt_caching: m.use_prompt_caching } : {}),
-        };
-      }
+      const modelsMap = buildModelsMap(p.models);
       await upsertPoolProvider({
         id: p.id,
         name: p.name,

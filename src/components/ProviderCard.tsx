@@ -116,7 +116,9 @@ export default function ProviderCard({
     return () => clearTimeout(t);
   }, [newModel, lookupModel]);
 
-  const handleAddModel = () => {
+  // 🔴 2026-08-16（R1 修复）：添加模型即时落池——await onAddModel（内部先 upsert 池），
+  // 成功才清输入并提示；失败保留输入可重试（不再有"点底部保存才生效"的中间态）。
+  const handleAddModel = async () => {
     const name = newModel.trim();
     if (!name) return;
     if (provider.models.some(m => m.name === name)) {
@@ -124,20 +126,24 @@ export default function ProviderCard({
       return;
     }
     const ctx = parseInt(newCtx, 10);
-    onAddModel(provider.id, {
-      name,
-      // 🔴 2026-08-10 修：留空不再强制 128000（显示 "—" 表示未知/未配置，
-      // 运行时上下文由 eleve_model 独立解析链兜底，池值仅信息性展示）
-      context_length: Number.isFinite(ctx) && ctx > 0 ? ctx : 0,
-      // UI 不暴露输出字段（老大 2026-08-10）：后端保留默认 16384
-      max_output: 16384,
-    });
-    setNewModel('');
-    setNewCtx('');
-    setModelHint(null);
-    // 🔴 明显成功提示（3s 后自动消失）
-    setAddSuccess(`✓ 已添加「${name}」，点底部「保存」后生效`);
-    setTimeout(() => setAddSuccess(null), 3000);
+    try {
+      await onAddModel(provider.id, {
+        name,
+        // 🔴 2026-08-10 修：留空不再强制 128000（显示 "—" 表示未知/未配置，
+        // 运行时上下文由 eleve_model 独立解析链兜底，池值仅信息性展示）
+        context_length: Number.isFinite(ctx) && ctx > 0 ? ctx : 0,
+        // UI 不暴露输出字段（老大 2026-08-10）：后端保留默认 16384
+        max_output: 16384,
+      });
+      setNewModel('');
+      setNewCtx('');
+      setModelHint(null);
+      // 🔴 R1：即时落池，无需再点底部保存
+      setAddSuccess(`✓ 已添加「${name}」`);
+      setTimeout(() => setAddSuccess(null), 3000);
+    } catch {
+      setModelHint('⚠ 保存失败，请重试');
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -158,10 +164,13 @@ export default function ProviderCard({
       const res = await testProviderConnection(baseUrl, (provider.apiKey || '').trim() || undefined);
       if (res.ok) {
         let added = 0;
+        // 🔴 R1：测试发现的模型即时落池（await 串行 upsert；单模型失败跳过不阻塞整体）
         for (const m of res.models) {
           if (!provider.models.some(x => x.name === m)) {
-            onAddModel(provider.id, { name: m, context_length: 0, max_output: 16384 });
-            added++;
+            try {
+              await onAddModel(provider.id, { name: m, context_length: 0, max_output: 16384 });
+              added++;
+            } catch { /* 单个模型落池失败跳过 */ }
           }
         }
         setTestResult({
