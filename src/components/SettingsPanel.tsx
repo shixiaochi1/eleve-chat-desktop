@@ -93,9 +93,11 @@ function redactSensitive(obj: unknown): unknown {
   return obj;
 }
 
-/** 模型列表 → provider.upsert 用 models 映射（能力字段保留；handleSave / 增删模型共用，单一真相源） */
-function buildModelsMap(models: ProviderModel[]): Record<string, Record<string, unknown>> {
-  const map: Record<string, Record<string, unknown>> = {};
+/** 模型列表 → provider.upsert 用 models 映射（能力字段保留；handleSave / 增删模型共用，单一真相源）。
+ *  值类型含 null：null = 删除标记（后端 provider.upsert 支持，removeProviderModel 用——
+ *  否则 merge 语义把该模型当"UI 外模型"保留 → 假删，BUG-5）。 */
+function buildModelsMap(models: ProviderModel[]): Record<string, Record<string, unknown> | null> {
+  const map: Record<string, Record<string, unknown> | null> = {};
   for (const m of models) {
     map[m.name] = {
       context_length: m.context_length,
