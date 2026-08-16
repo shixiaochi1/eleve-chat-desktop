@@ -47,11 +47,13 @@ import {
   getKanbanOrchestration,
   setKanbanOrchestration,
   getKanbanProfiles,
+  getProjectsTree,
 } from '@/utils/api';
 import type { KanbanTask, KanbanEvent } from './types';
 import { COLUMNS, COLUMN_STATUS, LOCKED_REASON, LOCKED_DROP_COLUMNS, updateStaleConfig } from './constants';
 import { notify } from '../../utils/notifications';
-import { call } from '../../utils/bridge';
+// 🔴 2026-08-16（project_id 系统审查 fe-6）：call 直连移除——projects_tree
+//   改走 utils/api 封装 getProjectsTree（与其他 kanban 数据访问同惯例）
 import { taskColumn, normalizeBoardData } from './helpers';
 import { useKanbanSSE } from './useKanbanSSE';
 // 🔴 2026-08-16（d1-R3-12）：模块级共享看板状态（对齐 Hermes 全局原子
@@ -136,6 +138,9 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   const [newBoardName, setNewBoardName] = useState('');
   const [newBoardDesc, setNewBoardDesc] = useState('');
   const [newBoardColor, setNewBoardColor] = useState('');
+  // 🔴 2026-08-16（project_id 系统审查 fe-1）：新建看板可绑定项目（对齐
+  //   Hermes NewBoardDialog ProjectPicker）；空串 = 不绑定
+  const [newBoardProject, setNewBoardProject] = useState('');
   const [creatingBoard, setCreatingBoard] = useState(false);
   // Phase A2: 删除看板确认
   const [deleteBoardTarget, setDeleteBoardTarget] = useState<any>(null); // { slug, name }
@@ -921,7 +926,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     const slug = name.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-').replace(/^-|-$/g, '') || `board-${Date.now()}`;
     setCreatingBoard(true);
     try {
-      await createKanbanBoard(slug, name, newBoardDesc.trim() || "", "", newBoardColor.trim() || "", true);
+      await createKanbanBoard(slug, name, newBoardDesc.trim() || "", "", newBoardColor.trim() || "", true, newBoardProject.trim() || undefined);
       // 创建并切换成功，刷新列表和看板
       const data = await getKanbanBoards();
       const list = data?.boards || data || [];
@@ -932,12 +937,13 @@ export function useKanban({ board = 'default' }: { board?: string }) {
       setNewBoardName('');
       setNewBoardDesc('');
       setNewBoardColor('');
+      setNewBoardProject('');
     } catch (err) {
       console.error('[KanbanPanel] Create board failed:', err);
     } finally {
       setCreatingBoard(false);
     }
-  }, [newBoardName, newBoardDesc, newBoardColor]);
+  }, [newBoardName, newBoardDesc, newBoardColor, newBoardProject]);
 
   // Phase A2: 删除看板
   const handleDeleteBoard = useCallback(async () => {
@@ -974,7 +980,10 @@ export function useKanban({ board = 'default' }: { board?: string }) {
         color: editBoardColor.trim() || undefined,
         // 🔴 2026-08-16（d1-R3-04）：项目绑定随保存下发（空串 = 解除绑定，
         //   后端写 NULL；对齐 Hermes updateBoard {project_id}）
-        project_id: editBoardProject.trim() || undefined,
+        // 🔴 2026-08-16（project_id 系统审查 fe-2）：空串必须显式下发 ''——
+        //   此前 `|| undefined` 被 JSON 丢弃 → 后端收 None = 保留现值，
+        //   绑定一旦设置永远无法从 UI 清除
+        project_id: editBoardProject.trim(),
       });
       // 刷新看板列表
       const data = await getKanbanBoards();
@@ -994,11 +1003,17 @@ export function useKanban({ board = 'default' }: { board?: string }) {
   }, [editBoardTarget, editBoardName, editBoardDesc, editBoardColor, editBoardProject]);
 
   // 🔴 2026-08-16（d1-R3-04）：打开编辑模态时加载项目列表（projects_tree 数据源）
+  // 🔴 2026-08-16（project_id 系统审查 fe-1/fe-6）：新建模态同享项目列表
+  //   （打开创建或编辑时加载）；数据源改 api 封装 getProjectsTree
   useEffect(() => {
     if (editBoardTarget) {
       setEditBoardProject(editBoardTarget.project_id || '');
+    }
+  }, [editBoardTarget]);
+  useEffect(() => {
+    if (editBoardTarget || showCreateBoard) {
       let cancelled = false;
-      call('projects_tree', { preview_limit: 0, include_discovered: true })
+      getProjectsTree(0, true)
         .then((res: any) => {
           if (cancelled) return;
           const projects = res?.projects || [];
@@ -1007,7 +1022,7 @@ export function useKanban({ board = 'default' }: { board?: string }) {
         .catch(() => { /* 项目列表不可用时项目选择留空（非关键路径） */ });
       return () => { cancelled = true; };
     }
-  }, [editBoardTarget]);
+  }, [editBoardTarget, showCreateBoard]);
 
   // Phase B1: 加载统计
   useEffect(() => {
@@ -1129,6 +1144,8 @@ export function useKanban({ board = 'default' }: { board?: string }) {
     setNewBoardDesc,
     newBoardColor,
     setNewBoardColor,
+    newBoardProject,
+    setNewBoardProject,
     creatingBoard,
     setCreatingBoard,
     deleteBoardTarget,

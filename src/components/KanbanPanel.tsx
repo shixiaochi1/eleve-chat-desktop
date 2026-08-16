@@ -279,6 +279,8 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
     setNewBoardDesc,
     newBoardColor,
     setNewBoardColor,
+    newBoardProject,
+    setNewBoardProject,
     creatingBoard,
     setCreatingBoard,
     deleteBoardTarget,
@@ -1023,8 +1025,10 @@ export default function KanbanPanel({ board = 'default' }: { board?: string }) {
 
       {/* Phase A1: 新建看板模态 — 🔴 收敛到共享组件 CreateBoardModal（侧边栏复用） */}
       <CreateBoardModal open={showCreateBoard} name={newBoardName} desc={newBoardDesc} color={newBoardColor}
-        busy={creatingBoard} onClose={() => setShowCreateBoard(false)} onCreate={handleCreateBoard}
-        onNameChange={setNewBoardName} onDescChange={setNewBoardDesc} onColorChange={setNewBoardColor} />
+        busy={creatingBoard} project={newBoardProject} projectList={boardProjectList}
+        onClose={() => setShowCreateBoard(false)} onCreate={handleCreateBoard}
+        onNameChange={setNewBoardName} onDescChange={setNewBoardDesc} onColorChange={setNewBoardColor}
+        onProjectChange={setNewBoardProject} />
 
       {/* Phase A2: 删除看板确认 */}
       {deleteBoardTarget && (

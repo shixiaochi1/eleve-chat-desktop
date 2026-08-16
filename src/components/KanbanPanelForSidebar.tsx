@@ -66,6 +66,8 @@ export default function KanbanPanelForSidebar() {
     setNewBoardDesc,
     newBoardColor,
     setNewBoardColor,
+    newBoardProject,
+    setNewBoardProject,
     creatingBoard,
     handleCreateBoard,
     loadBoard,
@@ -86,6 +88,7 @@ export default function KanbanPanelForSidebar() {
     cancelForceReview,
     submitChanges,
     cancelChanges,
+    boardProjectList,
   } = useKanban({ board: 'default' });
 
   // 🔴 2026-08-16：ModelCatalogMenu 数据源（profiles 派生 model→provider 目录）
@@ -157,8 +160,10 @@ export default function KanbanPanelForSidebar() {
 
       {/* 新建看板模态 — 与主面板共享 CreateBoardModal */}
       <CreateBoardModal open={showCreateBoard} name={newBoardName} desc={newBoardDesc} color={newBoardColor}
-        busy={creatingBoard} onClose={() => setShowCreateBoard(false)} onCreate={handleCreateBoard}
-        onNameChange={setNewBoardName} onDescChange={setNewBoardDesc} onColorChange={setNewBoardColor} />
+        busy={creatingBoard} project={newBoardProject} projectList={boardProjectList}
+        onClose={() => setShowCreateBoard(false)} onCreate={handleCreateBoard}
+        onNameChange={setNewBoardName} onDescChange={setNewBoardDesc} onColorChange={setNewBoardColor}
+        onProjectChange={setNewBoardProject} />
 
       {/* 🔴 2026-08-16（P1 遗留闭合）：提交评审 force 确认 / 退回理由——
           应用内浮层（与主面板共享，取代原生 confirm/prompt/alert） */}

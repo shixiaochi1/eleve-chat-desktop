@@ -14,14 +14,17 @@ interface CreateBoardModalProps {
   desc: string;
   color: string;
   busy: boolean;
+  project: string;
+  projectList: { id: string; name?: string }[];
   onClose: () => void;
   onCreate: () => void;
   onNameChange: (v: string) => void;
   onDescChange: (v: string) => void;
   onColorChange: (v: string) => void;
+  onProjectChange: (v: string) => void;
 }
 
-export function CreateBoardModal({ open, name, desc, color, busy, onClose, onCreate, onNameChange, onDescChange, onColorChange }: CreateBoardModalProps) {
+export function CreateBoardModal({ open, name, desc, color, busy, project, projectList, onClose, onCreate, onNameChange, onDescChange, onColorChange, onProjectChange }: CreateBoardModalProps) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay/30 backdrop-blur-[2px]" onClick={onClose}>
@@ -51,6 +54,19 @@ export function CreateBoardModal({ open, name, desc, color, busy, onClose, onCre
                 className="flex-1 text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none focus:border-[var(--kanban-hover-bg)]" />
               {color && <span className="w-5 h-5 rounded-full border border-[var(--ui-stroke-tertiary)]" style={{ backgroundColor: color }} />}
             </div>
+          </div>
+          {/* 🔴 2026-08-16（project_id 系统审查 fe-1）：新建看板可绑定项目
+              （对齐 Hermes NewBoardDialog ProjectPicker board-switcher.tsx
+              L44-71/L120）；空 = 不绑定 */}
+          <div>
+            <label className="block text-[0.75rem] font-medium text-[var(--ui-text-tertiary)] mb-1">关联项目</label>
+            <input list="kanban-create-board-project-options" value={project} onChange={e => onProjectChange(e.target.value)} placeholder="可选（任务默认继承此项目）"
+              className="w-full text-[0.8rem] px-3 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] bg-transparent text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] focus:outline-none focus:border-[var(--kanban-hover-bg)]" />
+            <datalist id="kanban-create-board-project-options">
+              {projectList.map(p => (
+                <option key={p.id} value={p.id}>{p.name && p.name !== p.id ? `${p.name} (${p.id})` : p.id}</option>
+              ))}
+            </datalist>
           </div>
         </div>
         <div className="flex gap-2 justify-end pt-1">

@@ -596,8 +596,19 @@ export async function getKanbanBoards(): Promise<any> {
   return call('get_kanban_boards', {});
 }
 
-export async function createKanbanBoard(slug: string, name: string, description: string, icon: string, color: string, switchTo: boolean): Promise<any> {
-  return call('create_kanban_board', { slug, name, description, icon, color, switch: switchTo });
+export async function createKanbanBoard(slug: string, name: string, description: string, icon: string, color: string, switchTo: boolean, projectId?: string): Promise<any> {
+  const payload: Record<string, any> = { slug, name, description, icon, color, switch: switchTo };
+  // 🔴 2026-08-16（project_id 系统审查 fe-1）：新建看板可绑定项目（对齐
+  //   Hermes NewBoardDialog ProjectPicker → createBoard {project_id}）
+  if (projectId !== undefined) {
+    payload.project_id = projectId;
+  }
+  return call('create_kanban_board', payload);
+}
+
+/** 项目树（新建/编辑看板项目下拉数据源；对齐 Hermes kanban /projects 列表） */
+export async function getProjectsTree(previewLimit = 0, includeDiscovered = true): Promise<any> {
+  return call('projects_tree', { preview_limit: previewLimit, include_discovered: includeDiscovered });
 }
 
 export async function updateKanbanBoard(slug: string, data: Record<string, any>): Promise<any> {
