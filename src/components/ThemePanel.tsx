@@ -124,7 +124,7 @@ function ColorPickerPopover({ value, onChange, onClose }: {
   return (
     <div
       ref={ref}
-      className="absolute right-0 top-full z-50 mt-2 w-[252px] rounded-xl border border-border/80 bg-popover p-3 shadow-lg"
+      className="absolute right-0 top-full z-50 mt-2 w-[312px] rounded-xl border border-border/80 bg-popover p-3.5 shadow-lg"
       style={{ boxShadow: 'var(--shadow-lg)' }}
       role="dialog"
       aria-label="自定义颜色"
@@ -132,7 +132,7 @@ function ColorPickerPopover({ value, onChange, onClose }: {
       {/* 2D 色场（饱和度 × 亮度） */}
       <div
         ref={fieldRef}
-        className="relative h-32 cursor-crosshair touch-none overflow-hidden rounded-lg border border-border/60"
+        className="relative h-44 cursor-crosshair touch-none overflow-hidden rounded-lg border border-border/60"
         style={{
           background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${hslToHex(hsl.h, 100, 50)})`,
         }}
@@ -146,7 +146,7 @@ function ColorPickerPopover({ value, onChange, onClose }: {
       >
         {/* 取色光标 */}
         <span
-          className="pointer-events-none absolute size-3.5 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.35)]"
+          className="pointer-events-none absolute size-4 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.35)]"
           style={{ left: `${hsl.s}%`, top: `${100 - hsl.l}%`, transform: 'translate(-50%, -50%)' }}
         />
       </div>
@@ -154,7 +154,7 @@ function ColorPickerPopover({ value, onChange, onClose }: {
       {/* 色相条 */}
       <div
         ref={hueRef}
-        className="relative mt-2 h-3 cursor-pointer touch-none rounded-full border border-border/60"
+        className="relative mt-2.5 h-3.5 cursor-pointer touch-none rounded-full border border-border/60"
         style={{ background: HUE_TRACK }}
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId)
@@ -165,15 +165,15 @@ function ColorPickerPopover({ value, onChange, onClose }: {
         }}
       >
         <span
-          className="pointer-events-none absolute top-1/2 size-3.5 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.35)]"
+          className="pointer-events-none absolute top-1/2 size-4 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.35)]"
           style={{ left: `${(hsl.h / 360) * 100}%`, transform: 'translate(-50%, -50%)' }}
         />
       </div>
 
       {/* 当前色 + hex 输入 */}
-      <div className="mt-2.5 flex items-center gap-2">
+      <div className="mt-3 flex items-center gap-2">
         <span
-          className="size-6 shrink-0 rounded-md border border-border/70"
+          className="size-7 shrink-0 rounded-md border border-border/70"
           style={{ background: value, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.12)' }}
           aria-hidden
         />
@@ -188,7 +188,7 @@ function ColorPickerPopover({ value, onChange, onClose }: {
               applyHex()
             }
           }}
-          className="h-6 w-[76px] rounded-md border border-border/70 bg-background px-1.5 font-mono text-[11px] uppercase outline-none focus:border-primary/60"
+          className="h-7 w-[92px] rounded-md border border-border/70 bg-background px-1.5 font-mono text-xs uppercase outline-none focus:border-primary/60"
           aria-label="十六进制颜色值"
           spellCheck={false}
         />
@@ -196,7 +196,7 @@ function ColorPickerPopover({ value, onChange, onClose }: {
       </div>
 
       {/* 微色板（macOS 预设） */}
-      <div className="mt-2.5 flex items-center gap-1.5">
+      <div className="mt-3 flex items-center gap-2">
         {ACCENT_COLORS.map(({ name, color }) => (
           <button
             key={color}
@@ -207,7 +207,7 @@ function ColorPickerPopover({ value, onChange, onClose }: {
               setHexDraft(color)
             }}
             className={cn(
-              'size-4 rounded-full transition-transform duration-100 hover:scale-110',
+              'size-5 rounded-full transition-transform duration-100 hover:scale-110',
               color.toLowerCase() === value.toLowerCase() &&
                 'ring-2 ring-foreground/40 ring-offset-1 ring-offset-background',
             )}
