@@ -313,19 +313,21 @@ function deriveLightColors(accent: string): DerivedColors {
     // ── 主色 — 用户选的主题色（🔴 2026-08-13 降饱和 15%：选中态/主按钮实底不抢眼，色相不变）
     // 🔴 2026-08-18 灰度主题修复：灰无可降饱和 → 中灰底白字 ≈ 失效按钮观感
     // （老大反馈：浅色模式 Graphite 下新建按钮像 disabled）→ 浅色模式主按钮
-    // 实底改 Graphite 深灰（白字 ~10.7:1 对比，实心可用感）
+    // 实底改 Graphite 深灰（白字对比达标，实心可用感）
     primary: isGrayscale(accent) ? GRAY_PRIMARY_LIGHT : desaturate(accent, 0.85),
     // 🔴 2026-08-13 老大指示：主按钮文字/图标统一白色（getReadableOnAccent 对浅色
     // 主题色返回黑字 #1D1D1F，黑字突兀）——白字在任何主题色下视觉统一干净
     primaryForeground: '#FFFFFF',
 
-    // ── 次级 — 主题色淡化 ──
-    secondary: hexToRgba(accent, 0.12),
-    secondaryForeground: accent,
+    // ── 次级/强调 — 主题色淡化（🔴 2026-08-18 灰度主题整链加重：
+    // 中灰 8-12% 淡化在浅底上≈不可见 → 设置导航选中态/复选 hover/气泡等
+    // 全部"失效感"；灰色主题统一走石墨深灰淡化，彩色主题不变）──
+    secondary: hexToRgba(isGrayscale(accent) ? GRAY_PRIMARY_LIGHT : accent, 0.1),
+    secondaryForeground: isGrayscale(accent) ? GRAY_PRIMARY_LIGHT : accent,
 
     // ── 强调背景 — 更淡 ──
-    accent: hexToRgba(accent, 0.08),
-    accentForeground: accent,
+    accent: hexToRgba(isGrayscale(accent) ? GRAY_PRIMARY_LIGHT : accent, 0.07),
+    accentForeground: isGrayscale(accent) ? GRAY_PRIMARY_LIGHT : accent,
 
     // ── 边框 — 带 accent 色相的半透明灰 ──
     border: hexToRgba(neutral.fg, 0.08),
@@ -345,9 +347,9 @@ function deriveLightColors(accent: string): DerivedColors {
     sidebarBackground: neutral.sidebar,
     sidebarBorder: hexToRgba(neutral.fg, 0.06),
 
-    // ── 用户气泡 ──
-    userBubble: hexToRgba(accent, 0.1),
-    userBubbleBorder: hexToRgba(accent, 0.2),
+    // ── 用户气泡（🔴 2026-08-18 灰度主题同链加重）──
+    userBubble: hexToRgba(isGrayscale(accent) ? GRAY_PRIMARY_LIGHT : accent, 0.08),
+    userBubbleBorder: hexToRgba(isGrayscale(accent) ? GRAY_PRIMARY_LIGHT : accent, 0.18),
 
     // ── 8 语义色 ──
     semanticRed: semantic.red,
@@ -364,7 +366,7 @@ function deriveLightColors(accent: string): DerivedColors {
     inlineCodeBackground: hexToRgba(neutral.fg, 0.05),
     inlineCodeBorder: hexToRgba(neutral.fg, 0.08),
     inlineCodeForeground: hexToRgba(neutral.fg, 0.88),
-    selectionBackground: hexToRgba(accent, 0.3),
+    selectionBackground: hexToRgba(isGrayscale(accent) ? GRAY_PRIMARY_LIGHT : accent, 0.25),
     warmAccent: adjustHue(accent, -15),
 
     // ── 阴影色 ──
@@ -438,13 +440,14 @@ function deriveDarkColors(accent: string): DerivedColors {
     primary: isGrayscale(adjustedAccent) ? GRAY_PRIMARY_DARK : desaturate(adjustedAccent, 0.85),
     primaryForeground: neutral.backboard,
 
-    // ── 次级 ──
-    secondary: hexToRgba(adjustedAccent, 0.18),
-    secondaryForeground: adjustedAccent,
+    // ── 次级/强调 — 主题色淡化（🔴 2026-08-18 灰度主题整链加重：中灰淡化在
+    // 深底上同样乏力 → 选中/高亮失效感；灰色主题统一走石墨浅灰淡化）──
+    secondary: hexToRgba(isGrayscale(adjustedAccent) ? GRAY_PRIMARY_DARK : adjustedAccent, 0.16),
+    secondaryForeground: isGrayscale(adjustedAccent) ? GRAY_PRIMARY_DARK : adjustedAccent,
 
     // ── 强调背景 ──
-    accent: hexToRgba(adjustedAccent, 0.12),
-    accentForeground: adjustedAccent,
+    accent: hexToRgba(isGrayscale(adjustedAccent) ? GRAY_PRIMARY_DARK : adjustedAccent, 0.1),
+    accentForeground: isGrayscale(adjustedAccent) ? GRAY_PRIMARY_DARK : adjustedAccent,
 
     // ── 边框 ──
     border: hexToRgba(neutral.fg, 0.1),
@@ -463,9 +466,9 @@ function deriveDarkColors(accent: string): DerivedColors {
     sidebarBackground: neutral.sidebar,
     sidebarBorder: hexToRgba(neutral.fg, 0.08),
 
-    // ── 用户气泡 ──
-    userBubble: hexToRgba(adjustedAccent, 0.15),
-    userBubbleBorder: hexToRgba(adjustedAccent, 0.25),
+    // ── 用户气泡（🔴 2026-08-18 灰度主题同链加重）──
+    userBubble: hexToRgba(isGrayscale(adjustedAccent) ? GRAY_PRIMARY_DARK : adjustedAccent, 0.12),
+    userBubbleBorder: hexToRgba(isGrayscale(adjustedAccent) ? GRAY_PRIMARY_DARK : adjustedAccent, 0.22),
 
     // ── 8 语义色 ──
     semanticRed: semantic.red,
@@ -482,7 +485,7 @@ function deriveDarkColors(accent: string): DerivedColors {
     inlineCodeBackground: hexToRgba(neutral.fg, 0.06),
     inlineCodeBorder: hexToRgba(neutral.fg, 0.1),
     inlineCodeForeground: hexToRgba(neutral.fg, 0.88),
-    selectionBackground: hexToRgba(adjustedAccent, 0.35),
+    selectionBackground: hexToRgba(isGrayscale(adjustedAccent) ? GRAY_PRIMARY_DARK : adjustedAccent, 0.3),
     warmAccent: adjustHue(adjustedAccent, -15),
 
     // ── 阴影色 ──
