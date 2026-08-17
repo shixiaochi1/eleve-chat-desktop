@@ -618,8 +618,10 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
 
   // 🔴 2026-08-12 卡片统一（老大拍板：统一统一统一）：
   //   所有项目卡片（显式/自动/新建/Home）与 Agent 卡片同一形态、全走主题：
-  //   描边 = primary 30%（选中/未选中一致）；选中 = primary 10% 淡底 + 发光竖条
+  //   描边 = primary 30%（选中/未选中一致）；选中 = 发光竖条 + 光环
   //   + primary 实底圆点白勾（= "给了颜色"样式，无 color 用主题 primary）。
+  //   🔴 2026-08-18 老大需求：选中填充同背景色（去掉 primary 10% 淡底），
+  //   选中标识只靠描边/光环/发光竖条。
   //   项目自定义色仅保留在图标/色点着色（点缀）。
   const row = (
     <div
@@ -632,8 +634,8 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
       style={{
         // 描边 = 主题 primary 30% 透明混合（选中/未选中一致；与 Agent 卡片同构）
         borderColor: 'color-mix(in srgb, var(--dt-primary) 30%, transparent)',
-        // 选中态背景 = primary 10% 透明混合（未选中保持 bg-card）
-        background: isActiveProject ? 'color-mix(in srgb, var(--dt-primary) 10%, var(--ui-card-bg))' : undefined,
+        // 🔴 2026-08-18 选中态填充同背景色（bg-card 保持，不再混 primary 10%）
+        background: undefined,
         // 🔴 选中态背投影（对齐宫格卡片逻辑：细光环 + 明显投影；侧栏卡片小，光环 1px 不显粗）
         boxShadow: isActiveProject
           ? '0 0 0 1px color-mix(in srgb, var(--dt-primary) 45%, transparent), 0 6px 18px var(--theme-shadow-color-heavy)'

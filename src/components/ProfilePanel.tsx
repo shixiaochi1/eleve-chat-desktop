@@ -118,8 +118,9 @@ function ProfileCard({
         '--agent-color': color ?? undefined,
         // 🔴 卡片描边 = accent 30% 透明混合（选中/未选中一致；无 color = 主题 primary）
         borderColor: `color-mix(in srgb, ${accent} 30%, transparent)`,
-        // 🔴 选中态背景 = accent 10% 透明混合（未选中保持 bg-card）
-        background: active ? `color-mix(in srgb, ${accent} 10%, var(--ui-card-bg))` : undefined,
+        // 🔴 2026-08-18 老大需求：选中态填充同背景色——不再混入 accent 10% 淡底，
+        // 选中标识只靠描边 + 光环 + 左侧发光竖条（bg-card 保持）
+        background: undefined,
         // 🔴 选中态背投影（对齐宫格卡片逻辑：细光环 + 明显投影；侧栏卡片小，光环 1px 不显粗）
         boxShadow: active
           ? `0 0 0 1px color-mix(in srgb, ${accent} 45%, transparent), 0 6px 18px var(--theme-shadow-color-heavy)`
