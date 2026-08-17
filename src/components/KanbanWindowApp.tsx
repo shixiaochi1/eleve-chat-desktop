@@ -16,7 +16,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
 import KanbanPanel from './KanbanPanel';
 import { discoverPort, call } from '../utils/bridge';
-import { deriveColors, DEFAULT_ACCENT, parseAccentGradient, gradientMidColor, type Appearance } from '../themes/derive';
+import { deriveColors, DEFAULT_ACCENT, type Appearance } from '../themes/derive';
 import { applyThemeCSS, loadThemeAppearanceOptions } from '../themes/context';
 import { Loader, Minus, Square, X } from 'lucide-react';
 
@@ -36,11 +36,10 @@ export default function KanbanWindowApp() {
   };
 
   // 应用主题到 CSS（🔴 2026-08-18 同步外观选项——降低透明度/减弱动态/文字大小
-  // 与主窗口一致，多窗口主题体验统一；accent 可能是旧 hex 或新 JSON 渐变）
-  const applyTheme = useCallback((accentValue: string, appearance: Appearance) => {
+  // 与主窗口一致，多窗口主题体验统一）
+  const applyTheme = useCallback((accent: string, appearance: Appearance) => {
     const isDark = appearance === 'dark' || (appearance === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
     const isGlass = appearance === 'glass';
-    const accent = gradientMidColor(parseAccentGradient(accentValue));
     const colors = deriveColors(accent, isDark);
     applyThemeCSS(colors, isDark, isGlass, accent, loadThemeAppearanceOptions());
   }, []);
