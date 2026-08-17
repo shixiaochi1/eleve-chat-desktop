@@ -153,9 +153,12 @@ export default function TerminalPanel({ sessionId, cwd }: TerminalPanelProps) {
   }, [cwd]);
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-background">
+    // 🔴 2026-08-18 老大需求：终端卡片整体走卡片色（bg-card = --dt-card =
+    // 右侧面板 --ui-card-bg 同源）——原 bg-background 使整卡呈现背板色，
+    // 与右侧抽屉卡片割裂；标题栏同步从背板色调改卡片色。
+    <div className="flex flex-col flex-1 min-h-0 bg-card">
       {/* Tab bar — 右键菜单（关闭/关闭其他/关闭全部，对齐 Hermes TerminalRail） */}
-      <div className="flex items-center gap-0 px-1 py-0.5 border-b border-border bg-muted/10 shrink-0 overflow-x-auto">
+      <div className="flex items-center gap-0 px-1 py-0.5 border-b border-border bg-card shrink-0 overflow-x-auto">
         {tabs.map((tab) => (
           <ContextMenu key={tab.id}>
             <ContextMenuTrigger asChild>
@@ -615,8 +618,8 @@ function UserTerminalView({ entry, active }: { entry: TerminalEntry; active: boo
 
   return (
     <>
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-muted/10 shrink-0">
+      {/* Header — 🔴 2026-08-18 卡片色（原 bg-muted/10 叠背板呈背板色） */}
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-card shrink-0">
         <div className="flex items-center gap-1.5">
           <TerminalIcon size={14} className="text-muted-foreground" />
           <span className="text-xs font-medium text-foreground">{entry.title || '终端'}</span>
@@ -735,8 +738,9 @@ function AgentTerminalView({ entry, active }: { entry: TerminalEntry; active: bo
 
   return (
     <>
-      {/* Header（只读镜像无清屏 — backlog 回放语义下清屏会立即被快照重写） */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-muted/10 shrink-0">
+      {/* Header（只读镜像无清屏 — backlog 回放语义下清屏会立即被快照重写）
+          🔴 2026-08-18 卡片色（原 bg-muted/10 叠背板呈背板色） */}
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-card shrink-0">
         <div className="flex items-center gap-1.5">
           <TerminalIcon size={14} className="text-muted-foreground" />
           <span className="text-xs font-medium text-foreground">{entry.title || '终端'}</span>
@@ -744,8 +748,8 @@ function AgentTerminalView({ entry, active }: { entry: TerminalEntry; active: bo
         </div>
       </div>
 
-      {/* Agent terminal notice */}
-      <div className="px-3 py-1 text-[10px] text-muted-foreground/60 bg-muted/10 border-b border-border/50 shrink-0">
+      {/* Agent terminal notice — 🔴 2026-08-18 卡片色 */}
+      <div className="px-3 py-1 text-[10px] text-muted-foreground/60 bg-card border-b border-border/50 shrink-0">
         只读终端 — Agent 后台进程输出实时镜像（进程不会被关闭）
       </div>
 
