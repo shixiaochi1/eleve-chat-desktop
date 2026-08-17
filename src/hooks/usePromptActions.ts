@@ -13,6 +13,32 @@ import type { SessionManagerHandle } from './useMessageStream';
 
 // 对齐 Hermes: Hard guard — at most one prompt.submit in flight per session
 const _submitInFlight = new Set<string>()
+// 🔴 2026-08-17 会话隔离修复（F3）：_submitInFlight 守卫的挂起看门狗——
+// prompt.submit RPC 挂起（ws-client 默认 30min 超时）期间，同一会话的后续
+// 消息会被守卫静默吞掉（乐观上屏但从未发送 = "说话没反应"的锁滞留变体）。
+// 30s 后自动清除 in-flight 标记，后续发送不再被吞（重复发送由后端 busy
+// 路由 queue/steer 去重，不产生双轮）。
+const _submitInFlightTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const SUBMIT_IN_FLIGHT_WATCHDOG_MS = 30_000
+
+function markSubmitInFlight(key: string) {
+  _submitInFlight.add(key)
+  const t = setTimeout(() => {
+    console.warn('[handleSend] submitInFlight watchdog: clearing stale in-flight marker for', key)
+    _submitInFlight.delete(key)
+    _submitInFlightTimers.delete(key)
+  }, SUBMIT_IN_FLIGHT_WATCHDOG_MS)
+  _submitInFlightTimers.set(key, t)
+}
+
+function clearSubmitInFlight(key: string) {
+  _submitInFlight.delete(key)
+  const t = _submitInFlightTimers.get(key)
+  if (t) {
+    clearTimeout(t)
+    _submitInFlightTimers.delete(key)
+  }
+}
 
 /**
  * usePromptActions — send/abort/queue logic
@@ -174,7 +200,7 @@ export function usePromptActions({
       if (!wasBusy) isSendingRef.current = false;
       return;
     }
-    _submitInFlight.add(submitLockKey);
+    markSubmitInFlight(submitLockKey);
 
     // 🔴 2026-08-09 对齐 Hermes createBackendSessionForSend：无会话发送首条消息前
     // 先 session.create（带 cwd），再 submit——后端 prompt.submit 自动创建的会话
@@ -199,7 +225,7 @@ export function usePromptActions({
       } catch (err) {
         // 对齐 Hermes: 建会话失败 → 中止发送
         console.error('[handleSend] sessionCreate failed, aborting send:', err);
-        _submitInFlight.delete(submitLockKey);
+        clearSubmitInFlight(submitLockKey);
         if (!wasBusy) isSendingRef.current = false;
         return;
       }
@@ -227,7 +253,7 @@ export function usePromptActions({
       // 🔴 2026-08-12 树自动刷新：消息发送后 bump → 项目树静默重拉（预览会话标题/时间/计数回显）
       setSessionListVersion?.((v) => v + 1);
     } finally {
-      _submitInFlight.delete(submitLockKey);
+      clearSubmitInFlight(submitLockKey);
     }
 
     if (sess.pendingTitle) {

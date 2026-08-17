@@ -646,6 +646,9 @@ export function useSSE(
 
     // 🔴 多 Agent 隔离：事件带 session_id 且不匹配当前会话 → 丢弃
     // 不带 session_id 的事件（notification/skin/terminal 等全局广播）→ 放行
+    // （2026-08-17 评估：单视图发送锁是全局的，在过滤分支释放会误伤"当前
+    // 会话正在流式"的锁（截断终稿）——锁的释放由切换链 resetSendingLock /
+    // 当前会话 message.complete 负责，F1 已保证切离 busy 会话时锁被释放。）
     const eventSessionId = chunk.session_id as string | undefined;
     if (eventSessionId && currentSessionIdRef) {
       const current = currentSessionIdRef.current;

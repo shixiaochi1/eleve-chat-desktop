@@ -920,36 +920,42 @@ export default function App() {
       const c = curCwd.toLowerCase();
       return c === p || c.startsWith(p + '\\') || c.startsWith(p + '/');
     })();
-    // 当前会话已属于该项目 → 保持（任务运行中也不打断）
-    // 🔴 2026-08-16 冻结语义（DSH 对齐）：点项目根 = 面板视图回根（setPanelRoot
-    // 已在上方 ① 执行）；不再 session.cwd.set 烙印——会话工作目录创建即冻结，
-    // 无"回根烙印"（原 pending 轮末机制随之退役）。
-    if (belongs) {
-      return;
-    }
-    // 🔴 2026-08-16 架构修正（老大指示）：视图切换与任务执行解耦——busy 时
-    // 允许切换（见上方 grid 分支注释）；不再有"任务运行中"阻止弹窗。
-    if (recommendedSessionId) {
-      if (recommendedSessionId === sid) return; // 已在该域最新会话 → 保持
-      // 归属校验（后端分组权威，profile 校验防串台）
-      if (sessionIdMatchesProfile(recommendedSessionId, currentProfile)) {
-        gridAwareSwitchSession(recommendedSessionId);
+    // 🔴 2026-08-17 会话隔离修复（F1）：用户显式点击项目 = 明确的"消息区切到
+    // 该项目"意图。busy 会话的 cwd 若落在所点项目域内（HOME 桶 = agent
+    // workspace，新建项目通常位于其下 → cwd 前缀重叠），原"保持当前会话"
+    // 早退分支会把消息区**钉在 busy 会话** → 之后每条消息都进 busy 会话
+    // （busy 路由 queue/steer，无流式回复）→"切项目后说话没反应"。修复：
+    // busy 时强制切离（切到目标会话 / 无目标则清空草稿，下一条消息落在所点
+    // 项目）；仅当非 busy 且确实已在目标域时才保持（防重复点击打断）。
+    const busy = isSendingRef.current || getIsStreaming();
+    // 目标会话：推荐（后端分组权威）> 前端域匹配兑底。
+    const target = (recommendedSessionId && sessionIdMatchesProfile(recommendedSessionId, currentProfile))
+      ? recommendedSessionId
+      : (latestSessionForDomain(sess.sessions, currentProfile, path)?.id ?? null);
+    if (target) {
+      if (target === sid) {
+        // 目标 == 当前会话：非 busy 且已在目标域 → 保持（防重复点击打断）；
+        // busy → 域内最新就是 busy 会话本身，切无可切 → 清空草稿（释放锁 +
+        // 下一条消息新建会话落所点项目），把消息区从 busy 会话上摘下来。
+        if (!busy && belongs) return;
+        if (busy) {
+          resetStream(null);
+          resetSendingLockRef.current?.();
+          clearSessionView(currentProfile);
+        }
         return;
       }
+      // 目标 != 当前会话 → 切换（busy 同样切——切走不打断后台轮，其迟到
+      // 事件被 session 过滤丢弃，锁由 resetStream/loadHistory 链释放）。
+      gridAwareSwitchSession(target);
+      return;
     }
-    // 兑底：推荐缺失/归属不符 → 前端域匹配（项目= cwd 前缀；HOME= workspace 域）
-    const latest = latestSessionForDomain(sess.sessions, currentProfile, path);
-    if (latest) {
-      if (latest.id === sid) return; // 已在该域最新会话 → 保持
-      gridAwareSwitchSession(latest.id);
-    } else {
-      // 空草稿：与 handleProfileChange 草稿路径同款重置——源会话的
-      // message.complete 被 session 过滤丢弃 → onDone 不触发 → 发送锁/流式
-      // 状态残留 → 新草稿发送瘫痪；必须先复位（resetStream 同步锁定过滤 ref）。
-      resetStream(null);
-      resetSendingLockRef.current?.();
-      clearSessionView(currentProfile);
-    }
+    // 无目标会话 → 空草稿：与 handleProfileChange 草稿路径同款重置——源会话的
+    // message.complete 被 session 过滤丢弃 → onDone 不触发 → 发送锁/流式
+    // 状态残留 → 新草稿发送瘫痪；必须先复位（resetStream 同步锁定过滤 ref）。
+    resetStream(null);
+    resetSendingLockRef.current?.();
+    clearSessionView(currentProfile);
   }, [sess, isSendingRef, resetStream, resetSendingLockRef, clearSessionView, currentProfile, viewMode, gridAwareSwitchSession]);
 
   // 🔴 2026-08-13 老大语义重构：会话行点击 → 只同步 scope（新会话落点）；
