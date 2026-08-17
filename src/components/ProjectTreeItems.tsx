@@ -630,6 +630,8 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
         'group/workspace relative w-full text-left px-2.5 py-2 rounded-lg border bg-card shadow-sm transition-all duration-150 cursor-pointer hover:bg-accent/30',
         isDragging && 'opacity-40',
         isDragOver && 'bg-accent/30',
+        // 🔴 2026-08-18 选中入场扫光（一次性高光扫过，切换选中时重播）
+        isActiveProject && 'card-selected-sweep',
       )}
       style={{
         // 描边 = 主题 primary 30% 透明混合（选中/未选中一致；与 Agent 卡片同构）

@@ -112,6 +112,8 @@ function ProfileCard({
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(profile.name); } }}
       className={cn(
         'group relative w-full text-left px-2.5 py-2 rounded-lg border bg-card shadow-sm transition-all duration-150 cursor-pointer overflow-hidden space-y-1.5 hover:bg-accent/30',
+        // 🔴 2026-08-18 选中入场扫光（一次性高光扫过，切换选中时重播）
+        active && 'card-selected-sweep',
         switching && 'opacity-60'
       )}
       style={{

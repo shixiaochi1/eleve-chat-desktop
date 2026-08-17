@@ -1079,6 +1079,38 @@ canvas {
   37.5%, 100% { opacity: 0.15; }
 }
 
+/* ── 🔴 2026-08-18 选中入场扫光（老大选定方案：一次性高光扫过，不循环）──
+   高光 = 前景色 9% 斜向渐变条，从左侧滑到右侧（380ms ease-out + 60ms 落定延迟）。
+   浅色模式前景为深色 → 深色微光扫浅卡；深色模式前景为白 → 白光扫深卡，
+   两种外观下都可见，且零硬编码。
+   切换选中（A→B）时新卡片 class 重新挂载 → 自动重播；保持选中不循环。
+   .reduce-motion 全局禁用动画 → 自动降级为静态选中态。 */
+.card-selected-sweep {
+  position: relative;
+  overflow: hidden;
+}
+.card-selected-sweep::after {
+  content: '';
+  position: absolute;
+  top: -25%;
+  bottom: -25%;
+  left: 0;
+  width: 42%;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    color-mix(in srgb, var(--dt-foreground) 9%, transparent) 50%,
+    transparent 100%
+  );
+  transform: translateX(-130%);
+  animation: card-sweep 380ms cubic-bezier(0.22, 0.61, 0.36, 1) 60ms forwards;
+  pointer-events: none;
+}
+@keyframes card-sweep {
+  from { transform: translateX(-130%); }
+  to { transform: translateX(330%); }
+}
+
 /* ── 子 Agent 监控抽屉：从状态栏底边向下滑出，覆盖消息区。
    clip 层自状态栏底边（top:40px = h-10 状态栏高度）开始且 overflow:hidden：
    抽屉收起时上滑被裁剪在状态栏底边处——视觉锚定"从底边弹出/收回"
