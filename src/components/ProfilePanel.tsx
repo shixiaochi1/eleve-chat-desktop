@@ -140,14 +140,6 @@ function ProfileCard({
           }}
         />
       )}
-      {/* 🔴 2026-08-18 选中常驻边框流光（复用 arc-border 资产；--arc-c1 = agent 主题色） */}
-      {active && (
-        <div
-          aria-hidden
-          className="arc-border card-arc"
-          style={{ '--arc-c1': accent } as React.CSSProperties}
-        />
-      )}
       {/* 名称行 */}
       <div className="flex items-center gap-1.5">
         {/* 头像容器：恒无方块背景（老大 2026-08-12：与项目卡片一致，选中强调靠描边+淡底+光环） */}
