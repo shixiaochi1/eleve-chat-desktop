@@ -1054,7 +1054,20 @@ export function useMessageStream({
       if (data.subagentId) {
         setMonitorState((prev) => {
           const tasks = { ...((prev.delegateTasks as Record<string, unknown>) || {}) };
-          const prior = (tasks[data.subagentId!] as Record<string, unknown> | undefined) || {};
+          // 🔴 2026-08-17 链路闭合修复（E-F2 消解 + 水合同键）：卡片键 =
+          // childSessionId（registry 键）优先、展示身份兜底——与
+          // ToolStatusBar delegation.status 水合（同 registry 键）共用
+          // 一个键空间：父轮结束后/页面刷新后运行中的后台子卡片可恢复，
+          // steer/kill 恒命中 registry 键；旧展示身份键条目在
+          // childSessionId 到达时迁移删除（消除同子双卡片 E-F2）。
+          const key = data.childSessionId || data.subagentId!;
+          const legacyKey =
+            data.childSessionId && data.subagentId !== data.childSessionId
+              ? data.subagentId
+              : undefined;
+          const prior = ((tasks[key] as Record<string, unknown> | undefined) ||
+            (legacyKey ? (tasks[legacyKey] as Record<string, unknown> | undefined) : undefined)) || {};
+          if (legacyKey && legacyKey !== key) delete tasks[legacyKey];
           // 🔴 2026-08-15 编排对齐（③ 监控过程视图）：工具/进度/文本按到达序
           // 追加轨迹（cap 60），last-write-wins 快照升级为有过程的任务视图
           const trace = Array.isArray(prior.trace) ? [...(prior.trace as string[])] : [];
@@ -1066,9 +1079,9 @@ export function useMessageStream({
             trace.push(line);
             if (trace.length > 60) trace.splice(0, trace.length - 60);
           }
-          tasks[data.subagentId!] = {
+          tasks[key] = {
             ...prior,
-            id: data.subagentId,
+            id: key,
             sessionId: data.sessionId,
             goal: data.goal,
             eventType: data.eventType,
@@ -1081,7 +1094,7 @@ export function useMessageStream({
             parentId: data.parentId,
             model: data.model,
             toolsets: data.toolsets,
-            childSessionId: data.childSessionId,
+            childSessionId: data.childSessionId ?? prior.childSessionId,
             toolCount: data.toolCount,
             // 🔴 对齐Hermes: 统一 subagent.complete + status字段区分完成/失败
             status: data.status || (data.eventType === 'subagent.complete' && data.summary ? 'completed' : data.eventType === 'subagent.complete' ? 'failed' : 'running'),

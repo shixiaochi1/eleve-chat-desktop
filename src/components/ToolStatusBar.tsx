@@ -18,6 +18,9 @@ import { notifyError, notifySuccess } from '../utils/notifications';
 import { Pause, Play, Square, Bot, X, ChevronDown } from 'lucide-react';
 import SubagentMonitor, { useSubagentTasks } from './SubagentMonitor';
 import StateDot from './StateDot';
+// 🔴 2026-08-17 链路闭合修复：delegation.status 水合监控 store 用
+// （事件流瞬时通道的恢复面；与 useMessageStream 同一 setMonitorState 源）
+import { setMonitor } from '../store/debug';
 
 interface ToolStatusBarProps {
   sessionId?: string | null;
@@ -57,21 +60,52 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
       setHasSubagents(res.has_subagents);
       setRunning(res.running);
       setActiveSubagents(res.active ?? []);
+      // 🔴 2026-08-17 链路闭合修复（E-F3 补全：事件流是瞬时通道，父轮结束/
+      // 页面刷新后运行中的后台子不再有事件到达——delegation.status 轮询
+      // 是唯一恢复面）。把 active[]（registry 键 = 子会话 id）水合进监控
+      // store：与 useMessageStream 的 childSessionId 键同一键空间，卡片
+      // 刷新后可恢复、steer/kill 恒命中 registry 键（E-F2 双卡片消解）。
+      // 只补 running 缺口，不覆盖事件已写入的终态/富字段（spread 保留）。
+      const active = res.active ?? [];
+      if (active.length > 0) {
+        setMonitor((prev) => {
+          const tasks = { ...((prev.delegateTasks as Record<string, unknown>) || {}) };
+          for (const sa of active) {
+            if (!sa.subagent_id) continue;
+            const existing = (tasks[sa.subagent_id] as Record<string, unknown> | undefined) || {};
+            tasks[sa.subagent_id] = {
+              ...existing,
+              id: sa.subagent_id,
+              childSessionId: sa.subagent_id,
+              sessionId,
+              goal: existing.goal ?? sa.goal,
+              model: existing.model ?? sa.model,
+              depth: existing.depth ?? sa.depth,
+              // 状态以事件为准；水合仅在无事件时兜底为 running
+              status: existing.status ?? 'running',
+              eventType: existing.eventType ?? 'subagent.start',
+            };
+          }
+          return { ...prev, delegateTasks: tasks };
+        });
+      }
     } catch {
       // 静默
     }
   }, [sessionId]);
 
-  // streaming 时 3s 轮询委托状态
+  // 会话存在期间持续轮询委托状态（🔴 2026-08-17 链路闭合修复：不再限于
+  // isStreaming——后台子通常在父轮结束后仍在运行，轮询必须跨轮持续，
+  // chips/监控面板才能反映真实运行态并可恢复；streaming 时 3s 节奏不变）
   useEffect(() => {
-    if (!isStreaming || !sessionId) {
+    if (!sessionId) {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
       return;
     }
     poll();
     timerRef.current = setInterval(poll, 3000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [isStreaming, sessionId, poll]);
+  }, [sessionId, poll]);
 
   const handleTogglePause = useCallback(async () => {
     if (!sessionId) return;
