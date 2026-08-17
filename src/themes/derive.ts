@@ -168,26 +168,27 @@ export function mixHex(a: string, b: string, t: number): string {
 
 /** xterm ITheme 派生——终端 16 色 ANSI 色板全量主题化（🔴 2026-08-18 老大需求：
  *  UI 走主题控制不硬编码；原 useTerminal 写死 macOS 深色板，浅色模式不可用）：
- *  - 背景/前景/光标 = 主题派生色（浅色模式获得浅底终端）
+ *  - 背景 = 卡片色（--ui-card-bg 同源，整卡统一；🔴 2026-08-18 修复：
+ *    原深色模式用 colors.background 背板色 → 与右侧抽屉卡片割裂、不跟主题）
+ *  - 前景/光标 = 主题派生色
  *  - 8 语义色（red/green/yellow/blue/magenta/cyan）= 主题语义色（Light/Dark 独立）
- *  - 灰阶（black/brightBlack/white/brightWhite）= 前景↔背景混合
+ *  - 灰阶（black/brightBlack/white/brightWhite）= 前景↔背板混合（中性灰阶基底）
  *  - bright* = 语义色向白混合 35%（标准「亮色 = 同色相更亮」约定） */
 export function deriveTerminalTheme(colors: DerivedColors, isDark: boolean) {
-  const semantic = (c: string) => c
   const brighten = (c: string) => mixHex(c, '#ffffff', 0.35)
   return {
-    background: isDark ? colors.background : colors.card,
+    background: colors.card,
     foreground: colors.foreground,
     cursor: colors.primary,
     cursorAccent: colors.primaryForeground,
     selectionBackground: colors.selectionBackground,
     black: mixHex(colors.foreground, colors.background, 0.22),
-    red: semantic(colors.semanticRed),
-    green: semantic(colors.semanticGreen),
-    yellow: semantic(colors.semanticYellow),
-    blue: semantic(colors.semanticBlue),
-    magenta: semantic(colors.semanticPurple),
-    cyan: semantic(colors.semanticCyan),
+    red: colors.semanticRed,
+    green: colors.semanticGreen,
+    yellow: colors.semanticYellow,
+    blue: colors.semanticBlue,
+    magenta: colors.semanticPurple,
+    cyan: colors.semanticCyan,
     white: mixHex(colors.foreground, colors.background, 0.9),
     brightBlack: mixHex(colors.foreground, colors.background, 0.55),
     brightRed: brighten(colors.semanticRed),
