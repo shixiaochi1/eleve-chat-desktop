@@ -1077,9 +1077,10 @@ export function useMessageStream({
           // 追加轨迹（cap 60），last-write-wins 快照升级为有过程的任务视图
           const trace = Array.isArray(prior.trace) ? [...(prior.trace as string[])] : [];
           let line = '';
-          if (data.eventType === 'subagent.tool') line = `🔧 ${data.toolName || ''}`;
-          else if (data.eventType === 'subagent.progress' && data.progressSummary) line = `📊 ${data.progressSummary}`;
-          else if (data.eventType === 'subagent.text' && data.toolPreview) line = `💬 ${String(data.toolPreview).slice(0, 120)}`;
+          // 🔴 2026-08-18 禁 Emoji 规范：轨迹行前缀改纯文本标签
+          if (data.eventType === 'subagent.tool') line = `工具：${data.toolName || ''}`;
+          else if (data.eventType === 'subagent.progress' && data.progressSummary) line = `进度：${data.progressSummary}`;
+          else if (data.eventType === 'subagent.text' && data.toolPreview) line = `回复：${String(data.toolPreview).slice(0, 120)}`;
           if (line) {
             trace.push(line);
             if (trace.length > 60) trace.splice(0, trace.length - 60);

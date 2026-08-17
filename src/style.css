@@ -1330,6 +1330,37 @@ canvas {
 .reasoning-content .code-block-header * {
   color: inherit !important;
 }
+
+/* 🔴 2026-08-18 推理滚动预览 v2（整行吸附）：折叠+思考中的 2 行滚动容器。
+   v1 的 maxHeight:2.75em（≈1.67 行 @ .prose line-height 1.65）配 smooth 滚动
+   被流式打断后停在中途 → 半行/相互覆盖观感。v2：容器 = 恰好 2 行
+   （3.3em = 2×1.65em），内容行网格强制统一 1.65 × font-size、块间距归零，
+   与 ReasoningBlock 的 JS 行吸附滚动配合——视口上下边缘永远落在行边界上，
+   不管怎么滚、何时停，静止态必显示整行。 */
+.reasoning-preview {
+  max-height: 3.3em; /* 2 × 1.65em = 恰好两行（@ text-xs 12px = 39.6px） */
+  overflow: hidden;
+}
+.reasoning-preview .prose,
+.reasoning-preview .prose p,
+.reasoning-preview .prose li,
+.reasoning-preview .prose blockquote,
+.reasoning-preview .prose blockquote p,
+.reasoning-preview .prose pre,
+.reasoning-preview .prose pre code,
+.reasoning-preview .prose h1,
+.reasoning-preview .prose h2,
+.reasoning-preview .prose h3,
+.reasoning-preview .prose h4,
+.reasoning-preview .prose h5,
+.reasoning-preview .prose h6 {
+  line-height: 1.65;
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.reasoning-preview .prose > * + * {
+  margin-top: 0; /* 覆盖 [&>*+*]:mt-(--paragraph-gap)（0.7rem 会破坏行网格） */
+}
 .prose > :first-child { margin-top: 0; }
 .prose > :last-child { margin-bottom: 0; }
 

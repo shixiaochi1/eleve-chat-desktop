@@ -13,9 +13,9 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
-import { getDelegationStatus, setDelegationPause, interruptSubagent, type ActiveSubagent } from '../utils/api';
+import { getDelegationStatus, setDelegationPause, interruptSubagent } from '../utils/api';
 import { notifyError, notifySuccess } from '../utils/notifications';
-import { Pause, Play, Square, Bot, X, ChevronDown } from 'lucide-react';
+import { Pause, Play, Square, Bot, ChevronDown } from 'lucide-react';
 import SubagentMonitor, { useSubagentTasks } from './SubagentMonitor';
 import StateDot from './StateDot';
 // 🔴 2026-08-17 链路闭合修复：delegation.status 水合监控 store 用
@@ -33,7 +33,6 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
   const [paused, setPaused] = useState(false);
   const [hasSubagents, setHasSubagents] = useState(false);
   const [running, setRunning] = useState(false);
-  const [activeSubagents, setActiveSubagents] = useState<ActiveSubagent[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 🔴 2026-08-15 监控面板开合：按钮在状态栏内，新任务到达自动展开
@@ -59,7 +58,6 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
       setPaused(res.paused);
       setHasSubagents(res.has_subagents);
       setRunning(res.running);
-      setActiveSubagents(res.active ?? []);
       // 🔴 2026-08-17 链路闭合修复（E-F3 补全：事件流是瞬时通道，父轮结束/
       // 页面刷新后运行中的后台子不再有事件到达——delegation.status 轮询
       // 是唯一恢复面）。把 active[]（registry 键 = 子会话 id）水合进监控
@@ -96,7 +94,7 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
 
   // 会话存在期间持续轮询委托状态（🔴 2026-08-17 链路闭合修复：不再限于
   // isStreaming——后台子通常在父轮结束后仍在运行，轮询必须跨轮持续，
-  // chips/监控面板才能反映真实运行态并可恢复；streaming 时 3s 节奏不变）
+  // 状态栏/监控面板才能反映真实运行态并可恢复；streaming 时 3s 节奏不变）
   useEffect(() => {
     if (!sessionId) {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
@@ -129,17 +127,8 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
     }
   }, [sessionId, poll]);
 
-  // 🔴 P2-2（2026-08-10 对齐 Hermes TUI spawn tree 逐分支 kill）：按 subagent_id 精准中断单个
-  const handleKillSubagent = useCallback(async (subagentId: string) => {
-    if (!sessionId) return;
-    try {
-      await interruptSubagent(sessionId, subagentId);
-      notifySuccess('子 Agent 已中断');
-      poll();
-    } catch (e) {
-      notifyError(e, '中断失败');
-    }
-  }, [sessionId, poll]);
+  // 🔴 2026-08-18 老大反馈修复：逐分支 kill 由监控抽屉承担（TaskCard 头部
+  // X 按钮，同 registry 键寻址）——状态栏不再放逐条 chips，右端保持单一簇。
 
   // 无活跃子 Agent 且非 streaming → 显示简洁标题
   const showControls = hasSubagents || (isStreaming && running);
@@ -166,85 +155,66 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
               : '就绪'}
         </span>
 
-        {/* 🔴 2026-08-15 子 Agent 监控触发按钮（对齐 DSH SubagentCatalogAction trigger：
-            StateDot 像素追逐动画点 + 计数 + chevron；点击弹出顶部抽屉）。
-            老大调整：按钮右移（ml-auto）、文案"子Agent（个数）"。 */}
-        {hasMonitorTasks && (
-          <button
-            type="button"
-            className={cn(
-              'ml-auto flex items-center gap-[3px] min-h-[28px] px-1 rounded-md bg-transparent text-[12px] leading-[18px] cursor-pointer transition-colors',
-              monitorOpen ? 'text-foreground' : 'text-muted-foreground/70 hover:text-foreground'
-            )}
-            aria-haspopup="true"
-            aria-expanded={monitorOpen}
-            onClick={() => setMonitorOpen((v) => !v)}
-            title={monitorOpen ? '收起子 Agent 监控' : '展开子 Agent 监控'}
-          >
-            <span className="inline-flex flex-none w-2.5 h-2.5">
-              <StateDot running={runningCount > 0} />
-            </span>
-            <span className="mx-[5px]">
-              子Agent（{monitorTasks.length}）
-            </span>
-            <ChevronDown
-              size={14}
-              className={cn('transition-transform duration-150', monitorOpen && 'rotate-180')}
-            />
-          </button>
-        )}
-
-        {showControls && (
-          <div className="flex items-center gap-1 ml-auto">
-            {/* 🔴 P2-2（2026-08-10 对齐 Hermes spawn tree）：活跃子 Agent 列表 + 逐分支 kill */}
-            {activeSubagents.length > 0 && (
-              <div className="flex items-center gap-1 max-w-[45%] overflow-x-auto">
-                {activeSubagents.map((sa) => (
-                  <span
-                    key={sa.subagent_id}
-                    // 🔴 2026-08-18 老大需求：子 Agent 显示去掉主题色背景——
-                    // bg-accent/60 → 中性 bg-muted/40，与主聊天窗口一致干净
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/40 text-[10px] text-muted-foreground whitespace-nowrap"
-                    title={`${sa.goal || sa.subagent_id}${sa.interrupt_message ? `（中断请求：${sa.interrupt_message}）` : ''}`}
-                  >
-                    <span className="max-w-[110px] truncate">
-                      {sa.current_tool ?? (sa.goal ? sa.goal.slice(0, 12) : sa.subagent_id)}
-                    </span>
-                    <button
-                      className="text-destructive/70 hover:text-destructive transition-colors"
-                      onClick={() => handleKillSubagent(sa.subagent_id)}
-                      title="中断该子 Agent"
-                    >
-                      <X size={10} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-            <button
-              className={cn(
-                'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors',
-                paused
-                  ? 'text-success hover:bg-success/10'
-                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-              )}
-              onClick={handleTogglePause}
-              title={paused ? '恢复委托' : '暂停委托'}
-            >
-              {paused ? <Play size={11} /> : <Pause size={11} />}
-              {paused ? '恢复' : '暂停'}
-            </button>
-            {hasSubagents && (
+        {/* 🔴 2026-08-18 老大反馈修复：右端单一控制簇——ml-auto 只出现一次，
+            杜绝原先「监控按钮 + chips 区」双 ml-auto 把按钮挤到中间错位；
+            子 Agent 逐条 chips（current_tool / 12 字截断 goal / 原始 id 混排 +
+            内嵌横向滚动条 = 乱七八糟观感）移出状态栏——逐分支详情/中断由
+            监控抽屉承担（新任务到达自动展开，不丢能力）。 */}
+        <div className="ml-auto flex items-center gap-1.5">
+          {showControls && (
+            <>
               <button
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
-                onClick={handleInterrupt}
-                title="中断子 Agent"
+                className={cn(
+                  'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors',
+                  paused
+                    ? 'text-success hover:bg-success/10'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                )}
+                onClick={handleTogglePause}
+                title={paused ? '恢复委托' : '暂停委托'}
               >
-                <Square size={11} /> 中断
+                {paused ? <Play size={11} /> : <Pause size={11} />}
+                {paused ? '恢复' : '暂停'}
               </button>
-            )}
-          </div>
-        )}
+              {hasSubagents && (
+                <button
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                  onClick={handleInterrupt}
+                  title="中断子 Agent"
+                >
+                  <Square size={11} /> 中断
+                </button>
+              )}
+            </>
+          )}
+          {/* 🔴 2026-08-15 子 Agent 监控触发按钮（对齐 DSH SubagentCatalogAction trigger：
+              StateDot 像素追逐动画点 + 计数 + chevron；点击弹出顶部抽屉）。
+              老大调整：文案"子Agent（个数）"。 */}
+          {hasMonitorTasks && (
+            <button
+              type="button"
+              className={cn(
+                'flex items-center gap-[3px] min-h-[28px] px-1 rounded-md bg-transparent text-[12px] leading-[18px] cursor-pointer transition-colors',
+                monitorOpen ? 'text-foreground' : 'text-muted-foreground/70 hover:text-foreground'
+              )}
+              aria-haspopup="true"
+              aria-expanded={monitorOpen}
+              onClick={() => setMonitorOpen((v) => !v)}
+              title={monitorOpen ? '收起子 Agent 监控' : '展开子 Agent 监控'}
+            >
+              <span className="inline-flex flex-none w-2.5 h-2.5">
+                <StateDot running={runningCount > 0} />
+              </span>
+              <span className="mx-[5px]">
+                子Agent（{monitorTasks.length}）
+              </span>
+              <ChevronDown
+                size={14}
+                className={cn('transition-transform duration-150', monitorOpen && 'rotate-180')}
+              />
+            </button>
+          )}
+        </div>
       </div>
       {/* 🔴 2026-08-15 监控抽屉：从状态栏底边向下滑出、覆盖消息区。
           clip 层自状态栏底边（top:40px）开始且 overflow:hidden——抽屉收起时

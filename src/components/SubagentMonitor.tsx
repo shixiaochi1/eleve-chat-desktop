@@ -231,16 +231,16 @@ function TaskCard({ task, sessionId }: TaskCardProps) {
       {/* 实时状态行 */}
       <div className="text-[10px] text-muted-foreground/80 space-y-0.5 pl-5">
         {task.thinkingText && (
-          <div className="truncate" title={task.thinkingText}>💭 {task.thinkingText}</div>
+          <div className="truncate" title={task.thinkingText}>思考：{task.thinkingText}</div>
         )}
         {task.toolName && !isDone && (
-          <div className="truncate">🔧 当前工具：{task.toolName}</div>
+          <div className="truncate">当前工具：{task.toolName}</div>
         )}
         {task.lastText && (
-          <div className="truncate" title={task.lastText}>💬 {task.lastText}</div>
+          <div className="truncate" title={task.lastText}>回复：{task.lastText}</div>
         )}
         {isDone && task.summary && (
-          <div className="text-foreground/85 line-clamp-3" title={task.summary}>✅ {task.summary}</div>
+          <div className="text-foreground/85 line-clamp-3" title={task.summary}>完成：{task.summary}</div>
         )}
         {isDone && task.exitReason && (
           <div className="truncate text-destructive/80">退出原因：{task.exitReason}</div>

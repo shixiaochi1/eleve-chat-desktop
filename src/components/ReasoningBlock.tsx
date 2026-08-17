@@ -24,9 +24,10 @@ interface ReasoningBlockProps {
  * 
  * 🔴 2026-08-05 老大定调（细节对齐 Hermes ThinkingDisclosure / DisclosureRow）：
  *   - 思考过程中默认折叠，漏出前两行预览（Hermes overflow-hidden 同款截断语义）
- *   - 🔴 2026-08-18 老大调整：折叠+思考中 = 滚动预览容器（2 行高，内容持续
- *     平滑滚到底部，长思考可见文字滚动，不再定格前两行）；静止态保持
- *     line-clamp-2 静态预览
+ *   - 🔴 2026-08-18 老大调整 v2：折叠+思考中 = 滚动预览容器（恰好 2 行高，
+ *     内容随流滚动、长思考可见文字滚动，不再定格前两行）；滚动位置恒吸附
+ *     到行网格（整行吸附）——不管怎么滚、何时停，静止态必显示整行；
+ *     静止态保持 line-clamp-2 静态预览
  *   - 想看 → 点击预览区或标题"思考"展开；首次手动 toggle 后永久生效
  *   - 折叠/打开方向：caret 箭头收起 ▶ 朝右、展开 ▼ 朝下（rotate-90），
  *     静止淡显 0.4（Hermes thinking 专用 --disclosure-caret-rest）、hover/展开 0.8
@@ -59,14 +60,25 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
   // 渲染降级：思考流每 token 重渲染，useDeferredValue 降为低优先级（对齐 Hermes DeferStreamingText）
   const deferredClean = useDeferredValue(cleanText);
 
-  // 🔴 2026-08-18 老大需求：折叠态思考流持续滚动——长思考时预览不再定格
-  // 前两行，容器跟随内容平滑滚到底部（最新推理行持续上涌，可见文字在动）。
-  // 仅 pending+折叠 生效；展开态/静止态保持原语义（line-clamp 预览）。
+  // 🔴 2026-08-18 老大需求 v2：折叠态思考流滚动预览——长思考可见文字滚动。
+  // v1 平滑滚动（scroll-behavior:smooth + 每 token 写 scrollTop）被流式打断后
+  // 停在中途任意像素位 → 半行/相互覆盖观感。v2 改「整行吸附」：
+  // ① 无动画直跳（去掉 smooth，不再有滚动动画中间态）；
+  // ② 滚动位置吸附到行网格（1.65 × font-size，与 .reasoning-preview 强制
+  //    行高一致）→ 视口上下边缘恒落在行边界上，不管怎么滚、何时停，
+  //    静止态必显示整行。仅 pending+折叠 生效；展开态/静止态保持原语义。
   const previewRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!pending || open) return;
     const el = previewRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    // 行高 = .prose 强制 1.65 × 容器 font-size（text-xs=12px → 19.8px）
+    const fs = parseFloat(getComputedStyle(el).fontSize);
+    const lh = (Number.isFinite(fs) && fs > 0 ? fs : 12) * 1.65;
+    // 最大可滚位向下取整到行网格：视口恒为 2 整行（clientHeight=2×lh）
+    const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    const snapped = Math.floor(maxTop / lh) * lh;
+    if (Math.abs(el.scrollTop - snapped) > 0.5) el.scrollTop = snapped;
   }, [deferredClean, pending, open]);
 
   const handleCopy = useCallback(() => {
@@ -138,8 +150,9 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
           pending（流式）时尾块延迟高亮 + useDeferredValue 降载（对齐 Hermes defer）。
           🔴 折叠态 = 漏两行预览（line-clamp-2 硬截断，Hermes overflow-hidden 同款截断语义），
           点击预览区展开；展开态无 max-h 无内部滚动条 → 自然撑开跟随页面滚动。
-          🔴 2026-08-18 折叠+思考中：line-clamp 换滚动容器（2 行高、overflow hidden、
-          scroll-behavior smooth），内容持续滚到底部——长思考可见文字滚动。 */}
+          🔴 2026-08-18 折叠+思考中 v2：line-clamp 换整行吸附滚动容器——
+          .reasoning-preview（CSS 侧 3.3em=恰好两行 + 内容行网格强制 1.65 +
+          块间距归零），JS 侧滚动位置吸附行网格——内容持续滚到底部且静止必整行。 */}
       <div
         ref={!open && pending ? previewRef : undefined}
         className={cn(
@@ -151,15 +164,10 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
           !open && 'cursor-pointer',
           // 静止折叠：line-clamp-2 硬截断前两行
           !open && !pending && 'line-clamp-2',
-          // 🔴 2026-08-18 折叠+思考中：滚动预览容器（2 行 = 2.75em @ text-xs leading-snug），
-          // 与 line-clamp-2 互斥（后者 display:-webkit-box 会锁死滚动）
-          !open && pending && 'overflow-hidden'
+          // 🔴 2026-08-18 折叠+思考中：整行吸附滚动预览容器（与 line-clamp-2
+          // 互斥——后者 display:-webkit-box 会锁死滚动）
+          !open && pending && 'reasoning-preview'
         )}
-        style={
-          !open && pending
-            ? { maxHeight: '2.75em', scrollBehavior: 'smooth', overflowY: 'hidden' }
-            : undefined
-        }
         onClick={(e) => {
           if (open) return;
           // 选择文本时不触发（复制/划词场景）
