@@ -1111,16 +1111,54 @@ canvas {
   to { transform: translateX(330%); }
 }
 
-/* ── 🔴 2026-08-18 选中卡片常驻边框流光（老大选定方案：复用 .arc-border 资产）──
-   内嵌 1px 环（--arc-inset: 0），避免与扫光/卡片的 overflow:hidden 裁剪冲突；
-   流光拖尾色用卡片色（融入卡片）；--arc-c1 由消费方注入选中色
-   （Agent 卡 = agent 主题色 / 项目卡 = 主题 primary）。
-   2.23s 线性循环流动；.reduce-motion / prefers-reduced-motion 自动降级为静态环。 */
-.card-arc {
-  --arc-inset: 0;
-  --arc-width: 0.0625rem;
-  --arc-c2: var(--dt-card);
-  --arc-duration: 2.23s;
+/* ── 🔴 2026-08-18 选中卡片常驻边框流光 v2（老大反馈 v1 不贴边框/方向感混乱）──
+   conic 渐变沿边框环绕（mask 1px 环 + @property 动画 --flow-angle）：
+   - 严格贴合卡片圆角边框，光带沿边框顺时针流动
+   - 两道光带同向（顺时针）、间隔 ~150deg，峰值 --flow-color 全强度、
+     尾部渐隐 55%
+   - --flow-color 由消费方注入（Agent 卡 = agent 主题色 / 项目卡 = 主题 primary）
+   - 2.4s 线性循环；.reduce-motion / prefers-reduced-motion 自动降级为静态环
+   - @property 需要 Chromium 90+（WebView2 满足） */
+@property --flow-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.card-flow {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 0.0625rem;
+  overflow: hidden;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+.card-flow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--flow-angle),
+    transparent 0deg,
+    transparent 150deg,
+    var(--flow-color) 168deg,
+    color-mix(in srgb, var(--flow-color) 55%, transparent) 192deg,
+    transparent 208deg,
+    transparent 340deg,
+    var(--flow-color) 358deg,
+    color-mix(in srgb, var(--flow-color) 55%, transparent) 382deg,
+    transparent 398deg
+  );
+  animation: card-flow-rotate 2.4s linear infinite;
+}
+@keyframes card-flow-rotate {
+  from { --flow-angle: 0deg; }
+  to { --flow-angle: 360deg; }
 }
 
 /* ── 子 Agent 监控抽屉：从状态栏底边向下滑出，覆盖消息区。

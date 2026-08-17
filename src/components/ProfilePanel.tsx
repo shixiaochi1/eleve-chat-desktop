@@ -140,12 +140,13 @@ function ProfileCard({
           }}
         />
       )}
-      {/* 🔴 2026-08-18 选中常驻边框流光（复用 arc-border 资产；--arc-c1 = agent 主题色） */}
+      {/* 🔴 2026-08-18 选中常驻边框流光 v2（conic 沿边框顺时针双光带；
+          --flow-color = agent 主题色） */}
       {active && (
         <div
           aria-hidden
-          className="arc-border card-arc"
-          style={{ '--arc-c1': accent } as React.CSSProperties}
+          className="card-flow"
+          style={{ '--flow-color': accent } as React.CSSProperties}
         />
       )}
       {/* 名称行 */}
