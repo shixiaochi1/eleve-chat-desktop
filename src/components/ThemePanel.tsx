@@ -1,22 +1,38 @@
 /**
  * ThemePanel — macOS 风格主题设置（对齐 System Settings → 外观 + 辅助功能）
  *
- * 🔴 2026-08-18 老大需求：完善 ELEVE 主题系统，借鉴 macOS 主题体系：
- * - 外观：浅色/深色/自动/毛玻璃 —— 每个选项带真实派生色的迷你窗口缩略图
- *   （macOS System Settings 同款预览卡片形态，不再是一排文字按钮）
- * - 强调色：macOS 8 标准色 + 自定义取色器（勾选符号走 getReadableOnAccent）
- * - 边栏色调：macOS「允许墙纸调色」的桌面等价物（边栏跟随主题色/中性灰）
- * - 降低透明度 / 减弱动态效果：macOS 辅助功能两项（context.tsx 落 class）
- * - 文字大小：小/标准/大 分段控件（驱动 --dt-base-size 根字号）
- * - 实时预览：当前主题的迷你窗口（全部用真实派生色，零硬编码）
+ * 🔴 2026-08-18 老大需求（两轮）：
+ * ① 完善主题系统、macOS 风格面板；
+ * ② 强调色 → 主题色；主题色 = **多锚点渐变**——渐变色带上有多个可拖动
+ *    锚点（色标），每个锚点控制一个颜色停止点：
+ *    - 拖动锚点 → 调整该颜色在渐变中的位置（钳制相邻最小间距）
+ *    - 点击色带空白处 → 在当前位置添加锚点（插值当前色，上限 5 个）
+ *    - 选中锚点 → 下方展开颜色编辑区（色相/饱和度/亮度滑块 + hex 输入 +
+ *      微色板）；双击或删除按钮移除（下限 2 个）
+ *    - 派生主色 = 渐变中点（pos 0.5）插值色，旧消费方（accent）自动兼容
  *
- * 颜色铁律：本组件不允许任何硬编码色值——卡片/缩略图全部消费
- * useTheme().colors 与 deriveColors() 派生色 + 主题 CSS 变量。
+ * 外观：浅色/深色/自动/毛玻璃 —— 每个选项带真实派生色的迷你窗口缩略图；
+ * 边栏色调 / 降低透明度 / 减弱动态效果 / 文字大小：macOS 辅助功能等价物。
+ *
+ * 颜色铁律：本组件不允许硬编码色值——卡片/缩略图/滑块轨道/彩虹全部由
+ * useTheme().colors、deriveColors()、ACCENT_COLORS、HSL 算法派生。
  */
-import { type ReactNode } from 'react'
-import { Check, Sun, Moon, Monitor, Sparkles, Type } from 'lucide-react'
-import { useTheme, deriveColors, getReadableOnAccent, ACCENT_COLORS } from '../themes'
-import type { Appearance, DerivedColors, FontScale } from '../themes/derive'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Check, Sun, Moon, Monitor, Sparkles, Type, Trash2, Plus } from 'lucide-react'
+import {
+  useTheme,
+  deriveColors,
+  getReadableOnAccent,
+  ACCENT_COLORS,
+  normalizeStops,
+  gradientColorAt,
+  hexToHsl,
+  hslToHex,
+  GRADIENT_MIN_STOPS,
+  GRADIENT_MAX_STOPS,
+  GRADIENT_MIN_SPACING,
+} from '../themes'
+import type { Appearance, DerivedColors, AccentGradient, FontScale } from '../themes/derive'
 import { cn } from '@/lib/utils'
 import { Switch } from './ui/switch'
 
@@ -33,19 +49,325 @@ const FONT_SCALE_OPTIONS: { value: FontScale; label: string }[] = [
   { value: 'large', label: '大' },
 ]
 
+/** 色相轨道彩虹 — HSL 算法生成（h=0..360 标准色序，零硬编码） */
+const HUE_TRACK = `linear-gradient(90deg, ${[0, 60, 120, 180, 240, 300, 360]
+  .map((h) => hslToHex(h, 100, 50))
+  .join(', ')})`
+
 /** 自定义取色器的彩虹底 — 由 ACCENT_COLORS 派生（macOS 色环同源，零硬编码） */
 const RAINBOW_GRADIENT = `conic-gradient(${[
   ...ACCENT_COLORS.map((c) => c.color),
   ACCENT_COLORS[0].color,
 ].join(', ')})`
 
-/** 迷你窗口缩略图 — 全部消费真实派生色（macOS 预览卡片同构） */
+// ═══════════════════════════════════════════════════════════════════════════
+// 自绘滑块（macOS 风格：细圆角轨道 + 圆钮；点击/拖拽/键盘方向键）
+// ═══════════════════════════════════════════════════════════════════════════
+
+function Slider({ value, onChange, track, ariaLabel }: {
+  value: number
+  onChange: (v: number) => void
+  track: string
+  ariaLabel: string
+}) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const draggingRef = useRef(false)
+
+  const updateFromClientX = useCallback((clientX: number) => {
+    const el = ref.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    if (rect.width <= 0) return
+    onChange(Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)))
+  }, [onChange])
+
+  return (
+    <div
+      ref={ref}
+      role="slider"
+      aria-label={ariaLabel}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(value * 100)}
+      aria-valuetext={`${Math.round(value * 100)}%`}
+      tabIndex={0}
+      className="theme-slider"
+      style={{ background: track }}
+      onPointerDown={(e) => {
+        draggingRef.current = true
+        e.currentTarget.setPointerCapture(e.pointerId)
+        updateFromClientX(e.clientX)
+      }}
+      onPointerMove={(e) => {
+        if (draggingRef.current) updateFromClientX(e.clientX)
+      }}
+      onPointerUp={() => { draggingRef.current = false }}
+      onPointerCancel={() => { draggingRef.current = false }}
+      onKeyDown={(e) => {
+        const step = e.shiftKey ? 0.05 : 0.01
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+          e.preventDefault()
+          onChange(Math.max(0, value - step))
+        } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+          e.preventDefault()
+          onChange(Math.min(1, value + step))
+        }
+      }}
+    >
+      <span className="theme-slider-thumb" style={{ left: `${value * 100}%` }} />
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 渐变色带锚点编辑器（核心：多锚点滑块控制主题色范围）
+// ═══════════════════════════════════════════════════════════════════════════
+
+function GradientBar({ stops, onChange, selected, onSelect }: {
+  stops: AccentGradient
+  onChange: (stops: AccentGradient) => void
+  /** 选中锚点（有序下标；受控，父级 ThemePanel 持有——高亮与颜色编辑区同源） */
+  selected: number
+  onSelect: (index: number) => void
+}) {
+  const barRef = useRef<HTMLDivElement | null>(null)
+  const dragIndexRef = useRef<number | null>(null)
+
+  // 排序视图（拖动/渲染统一用排序后的顺序）
+  const sorted = useMemo(() => [...stops].sort((a, b) => a.pos - b.pos), [stops])
+  const active = Math.min(selected, sorted.length - 1)
+
+  const gradientCss = useMemo(
+    () => `linear-gradient(90deg, ${sorted.map((s) => `${s.color} ${(s.pos * 100).toFixed(1)}%`).join(', ')})`,
+    [sorted],
+  )
+
+  const moveStop = useCallback((index: number, pos: number) => {
+    const prev = sorted[index - 1]
+    const next = sorted[index + 1]
+    const min = index === 0 ? 0 : (prev?.pos ?? 0) + GRADIENT_MIN_SPACING
+    const max = index === sorted.length - 1 ? 1 : (next?.pos ?? 1) - GRADIENT_MIN_SPACING
+    const clamped = Math.min(1, Math.max(0, Math.min(max, Math.max(min, pos))))
+    onChange(stops.map((s) => (s === sorted[index] ? { ...s, pos: clamped } : s)))
+  }, [sorted, stops, onChange])
+
+  const addStop = useCallback((pos: number) => {
+    if (stops.length >= GRADIENT_MAX_STOPS) return
+    const added = { pos: Math.min(1, Math.max(0, pos)), color: gradientColorAt(stops, pos) }
+    const normalized = normalizeStops([...stops, added])
+    onChange(normalized)
+    // 选中新锚点：normalize 可能微移位置 → 找离点击位置最近的
+    let bestIdx = 0
+    let bestDist = Infinity
+    normalized.forEach((s, i) => {
+      const d = Math.abs(s.pos - added.pos)
+      if (d < bestDist) {
+        bestDist = d
+        bestIdx = i
+      }
+    })
+    onSelect(bestIdx)
+  }, [stops, onChange, onSelect])
+
+  const removeStop = useCallback((index: number) => {
+    if (stops.length <= GRADIENT_MIN_STOPS) return
+    const target = sorted[index]
+    onChange(stops.filter((s) => s !== target))
+    onSelect(Math.min(index, stops.length - 2))
+  }, [stops, sorted, onChange, onSelect])
+
+  return (
+    <div>
+      {/* 色带 + 锚点层 */}
+      <div
+        ref={barRef}
+        className="gradient-bar"
+        style={{ background: gradientCss }}
+        title="点击空白处添加锚点"
+        onPointerDown={(e) => {
+          if ((e.target as HTMLElement).closest('.gradient-stop')) return
+          const rect = barRef.current?.getBoundingClientRect()
+          if (!rect || rect.width <= 0) return
+          addStop((e.clientX - rect.left) / rect.width)
+        }}
+      >
+        {sorted.map((s, i) => (
+          <span
+            // key 必须稳定（index）——拖动中 pos/color 每秒多次变化，
+            // 用内容作 key 会导致 React 重挂载 → 丢失 pointer capture → 拖不动
+            key={i}
+            role="slider"
+            aria-label={`锚点 ${i + 1}`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(s.pos * 100)}
+            tabIndex={0}
+            className={cn(
+              'gradient-stop',
+              i === active && 'gradient-stop--active',
+              dragIndexRef.current === i && 'gradient-stop--dragging',
+            )}
+            style={{ left: `${s.pos * 100}%`, background: s.color }}
+            title={`${Math.round(s.pos * 100)}% · ${s.color.toUpperCase()}`}
+            onPointerDown={(e) => {
+              e.stopPropagation()
+              dragIndexRef.current = i
+              onSelect(i)
+              e.currentTarget.setPointerCapture(e.pointerId)
+            }}
+            onPointerMove={(e) => {
+              if (dragIndexRef.current !== i) return
+              const rect = barRef.current?.getBoundingClientRect()
+              if (!rect || rect.width <= 0) return
+              moveStop(i, (e.clientX - rect.left) / rect.width)
+            }}
+            onPointerUp={() => { dragIndexRef.current = null }}
+            onPointerCancel={() => { dragIndexRef.current = null }}
+            onDoubleClick={(e) => {
+              e.stopPropagation()
+              removeStop(i)
+            }}
+            onKeyDown={(e) => {
+              const step = e.shiftKey ? 0.05 : 0.01
+              if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+                e.preventDefault()
+                moveStop(i, s.pos - step)
+              } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+                e.preventDefault()
+                moveStop(i, s.pos + step)
+              }
+            }}
+          />
+        ))}
+      </div>
+
+      {/* 编辑提示 + 添加按钮 */}
+      <div className="mt-1.5 flex items-center justify-between">
+        <span className="text-[10px] text-muted-foreground/70">
+          点击色带添加锚点 · 拖动调整范围 · 双击删除
+          {stops.length >= GRADIENT_MAX_STOPS && `（已达上限 ${GRADIENT_MAX_STOPS}）`}
+        </span>
+        <button
+          type="button"
+          className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-muted-foreground/80 transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+          onClick={() => addStop(0.5)}
+          disabled={stops.length >= GRADIENT_MAX_STOPS}
+          title="在中间添加锚点"
+        >
+          <Plus size={10} strokeWidth={2} />
+          添加锚点
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 选中锚点的颜色编辑区（HSL 滑块 + hex 输入 + 微色板）
+// ═══════════════════════════════════════════════════════════════════════════
+
+function ColorEditor({ color, onChange, onDelete, canDelete }: {
+  color: string
+  onChange: (color: string) => void
+  onDelete: () => void
+  canDelete: boolean
+}) {
+  const [hexDraft, setHexDraft] = useState(color)
+  useEffect(() => { setHexDraft(color) }, [color])
+  const hsl = useMemo(() => hexToHsl(color), [color])
+
+  const setH = useCallback((t: number) => onChange(hslToHex(Math.round(t * 360), hsl.s, hsl.l)), [hsl, onChange])
+  const setS = useCallback((t: number) => onChange(hslToHex(hsl.h, Math.round(t * 100), hsl.l)), [hsl, onChange])
+  const setL = useCallback((t: number) => onChange(hslToHex(hsl.h, hsl.s, Math.round(t * 100))), [hsl, onChange])
+
+  const applyHex = useCallback(() => {
+    const v = hexDraft.trim()
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) onChange(v.toLowerCase())
+    else setHexDraft(color)
+  }, [hexDraft, color, onChange])
+
+  return (
+    <div className="mt-2 space-y-2 rounded-lg border border-border/60 bg-background/40 p-2.5">
+      {/* 头部：色块预览 + hex 输入 + 删除 */}
+      <div className="flex items-center gap-2">
+        <span
+          className="theme-color-swatch size-6 shrink-0"
+          style={{ background: color }}
+          aria-hidden
+        />
+        <div className="flex flex-1 items-center gap-1.5">
+          <span className="font-mono text-[10px] text-muted-foreground/60">#</span>
+          <input
+            value={hexDraft.startsWith('#') ? hexDraft.slice(1) : hexDraft}
+            onChange={(e) => setHexDraft(`#${e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6)}`)}
+            onBlur={applyHex}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); applyHex() }
+            }}
+            className="h-6 w-[76px] rounded border border-border/70 bg-background px-1.5 font-mono text-[11px] uppercase outline-none focus:border-primary/60"
+            aria-label="十六进制颜色值"
+            spellCheck={false}
+          />
+        </div>
+        {canDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            className="flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-destructive/80 transition-colors hover:bg-destructive/10 hover:text-destructive"
+            title="删除该锚点（双击锚点亦可）"
+          >
+            <Trash2 size={11} strokeWidth={1.5} />
+            删除
+          </button>
+        )}
+      </div>
+
+      {/* HSL 三滑块 */}
+      <div className="space-y-1.5">
+        <Slider value={hsl.h / 360} onChange={setH} track={HUE_TRACK} ariaLabel="色相" />
+        <Slider
+          value={hsl.s / 100}
+          onChange={setS}
+          track={`linear-gradient(90deg, ${hslToHex(hsl.h, 0, hsl.l)}, ${hslToHex(hsl.h, 100, hsl.l)})`}
+          ariaLabel="饱和度"
+        />
+        <Slider
+          value={hsl.l / 100}
+          onChange={setL}
+          track={`linear-gradient(90deg, ${hslToHex(hsl.h, hsl.s, 0)}, ${hslToHex(hsl.h, hsl.s, 50)}, ${hslToHex(hsl.h, hsl.s, 100)})`}
+          ariaLabel="亮度"
+        />
+      </div>
+
+      {/* 微色板（macOS 预设） */}
+      <div className="flex items-center gap-1.5">
+        {ACCENT_COLORS.map(({ name, color: c }) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => onChange(c)}
+            className={cn(
+              'size-4 rounded-full transition-transform duration-100 hover:scale-110',
+              c.toLowerCase() === color.toLowerCase() && 'ring-2 ring-foreground/40 ring-offset-1 ring-offset-background',
+            )}
+            style={{ background: c }}
+            title={name}
+            aria-label={name}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 迷你窗口缩略图（外观预览卡片）
+// ═══════════════════════════════════════════════════════════════════════════
+
 function WindowMock({ colors, accent, glass, auto }: { colors: DerivedColors; accent: string; glass?: boolean; auto?: boolean }) {
   const autoDark = auto ? deriveColors(accent, true) : colors
-  // auto 模式：内容区左浅右深分割（浅色侧用传入 colors，深色侧用暗色派生）
   const body = (
     <div className="flex" style={{ height: 52 }}>
-      {/* 侧边栏 */}
       <div
         className="flex w-1/4 flex-col gap-1 p-1.5"
         style={{
@@ -58,7 +380,6 @@ function WindowMock({ colors, accent, glass, auto }: { colors: DerivedColors; ac
         <div className="h-1 w-2.5 rounded-sm" style={{ background: colors.mutedForeground, opacity: 0.3 }} />
         <div className="h-1 w-3 rounded-sm" style={{ background: colors.mutedForeground, opacity: 0.3 }} />
       </div>
-      {/* 内容区 */}
       <div
         className="flex flex-1 flex-col gap-1 p-1.5"
         style={{
@@ -97,7 +418,6 @@ function WindowMock({ colors, accent, glass, auto }: { colors: DerivedColors; ac
         boxShadow: `0 0.25rem 0.75rem ${colors.shadowColor}`,
       }}
     >
-      {/* 标题栏：三色交通灯（语义色）+ 玻璃底 */}
       <div
         className="flex items-center gap-1 px-2 py-1"
         style={{
@@ -157,14 +477,19 @@ function ToggleRow({
   )
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 主面板
+// ═══════════════════════════════════════════════════════════════════════════
+
 export default function ThemePanel() {
   const {
     accent,
+    accentGradient,
     appearance,
     isDark,
     isGlass,
     colors,
-    setAccent,
+    setAccentGradient,
     setAppearance,
     accentColors,
     sidebarTint,
@@ -177,8 +502,27 @@ export default function ThemePanel() {
     setFontScale,
   } = useTheme()
 
-  // 实时预览用当前派生色（主题切换自动重渲染）
   const sectionTitle = 'mb-2.5 text-[13px] font-semibold text-foreground'
+
+  // 渐变色带锚点（有序视图 + 编辑回调）
+  const stops = useMemo(() => [...accentGradient].sort((a, b) => a.pos - b.pos), [accentGradient])
+  const updateGradient = useCallback((next: AccentGradient) => {
+    setAccentGradient(normalizeStops(next))
+  }, [setAccentGradient])
+  const pickPreset = useCallback((color: string) => {
+    setAccentGradient([
+      { pos: 0, color },
+      { pos: 1, color },
+    ])
+    setEditingIndex(0)
+  }, [setAccentGradient])
+
+  const [editingIndex, setEditingIndex] = useState<number | null>(0)
+  const activeIndex = editingIndex !== null ? Math.min(editingIndex, stops.length - 1) : null
+
+  const editStopColor = useCallback((index: number, color: string) => {
+    updateGradient(stops.map((s, i) => (i === index ? { ...s, color } : s)))
+  }, [stops, updateGradient])
 
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto pr-1">
@@ -202,17 +546,10 @@ export default function ThemePanel() {
                 )}
                 aria-pressed={selected}
               >
-                {/* 缩略图：浅色/深色/自动分割/毛玻璃渐变 */}
                 {value === 'light' && <WindowMock colors={light} accent={accent} />}
                 {value === 'dark' && <WindowMock colors={dark} accent={accent} />}
                 {value === 'auto' && <WindowMock colors={light} accent={accent} auto />}
-                {value === 'glass' && (
-                  <WindowMock
-                    colors={isDark ? dark : light}
-                    accent={accent}
-                    glass
-                  />
-                )}
+                {value === 'glass' && <WindowMock colors={isDark ? dark : light} accent={accent} glass />}
                 <span className="flex items-center gap-1 px-0.5 text-[11px] font-medium text-muted-foreground group-hover:text-foreground">
                   {icon}
                   {label}
@@ -231,16 +568,19 @@ export default function ThemePanel() {
         </div>
       </section>
 
-      {/* ═══ 强调色 ═══ */}
+      {/* ═══ 主题色 — 预设 + 多锚点渐变色带（🔴 2026-08-18 重做） ═══ */}
       <section>
-        <h3 className={sectionTitle}>强调色</h3>
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <h3 className={sectionTitle}>主题色</h3>
+
+        {/* 预设圆点行（macOS 标准 8 色 + 自定义） */}
+        <div className="mb-2.5 flex items-center gap-2.5 flex-wrap">
           {accentColors.map(({ name, color }) => {
-            const isSelected = accent.toLowerCase() === color.toLowerCase()
+            const isSelected = stops.every((s) => s.color.toLowerCase() === color.toLowerCase())
             return (
               <button
                 key={color}
-                onClick={() => setAccent(color)}
+                type="button"
+                onClick={() => pickPreset(color)}
                 className={cn(
                   'relative grid size-8 place-items-center rounded-full transition-all duration-150',
                   'hover:scale-110 active:scale-95',
@@ -254,17 +594,12 @@ export default function ThemePanel() {
                 aria-pressed={isSelected}
               >
                 {isSelected && (
-                  <Check
-                    size={14}
-                    strokeWidth={3}
-                    // 🔴 2026-08-18 可读色收敛：getReadableOnAccent（原硬编码白/黑）
-                    style={{ color: getReadableOnAccent(color) }}
-                  />
+                  <Check size={14} strokeWidth={3} style={{ color: getReadableOnAccent(color) }} />
                 )}
               </button>
             )
           })}
-          {/* 自定义颜色选择器（彩虹底由 ACCENT_COLORS 派生） */}
+          {/* 自定义取色器（彩虹底由 ACCENT_COLORS 派生） */}
           <label
             className="relative grid size-8 cursor-pointer place-items-center overflow-hidden rounded-full ring-1 ring-black/15 transition-transform duration-150 hover:scale-110"
             title="自定义颜色"
@@ -273,7 +608,7 @@ export default function ThemePanel() {
             <input
               type="color"
               value={accent}
-              onChange={(e) => setAccent(e.target.value)}
+              onChange={(e) => pickPreset(e.target.value)}
               className="absolute inset-0 size-full cursor-pointer opacity-0"
               aria-label="自定义颜色"
             />
@@ -282,12 +617,38 @@ export default function ThemePanel() {
             )}
           </label>
         </div>
-        {/* 当前主题色预览条（渐变，两端淡出） */}
-        <div className="mt-3 flex h-1.5 overflow-hidden rounded-full">
-          <div
-            className="h-full flex-1"
-            style={{ background: `linear-gradient(90deg, ${colorMix(accent, 0.15)}, ${accent}, ${colorMix(accent, 0.15)})` }}
+
+        {/* 多锚点渐变色带编辑器（选中态受控：高亮 + 编辑区同源） */}
+        <GradientBar
+          stops={stops}
+          onChange={updateGradient}
+          selected={activeIndex ?? 0}
+          onSelect={setEditingIndex}
+        />
+
+        {/* 选中锚点颜色编辑区 */}
+        {activeIndex !== null && (
+          <ColorEditor
+            color={stops[activeIndex].color}
+            onChange={(color) => editStopColor(activeIndex, color)}
+            onDelete={() => {
+              if (stops.length <= GRADIENT_MIN_STOPS) return
+              updateGradient(stops.filter((_, i) => i !== activeIndex))
+              setEditingIndex(null)
+            }}
+            canDelete={stops.length > GRADIENT_MIN_STOPS}
           />
+        )}
+
+        {/* 当前主题色预览条（渐变 + 主色读数） */}
+        <div className="mt-3 flex items-center gap-2">
+          <div
+            className="h-1.5 flex-1 overflow-hidden rounded-full"
+            style={{ background: `linear-gradient(90deg, ${stops.map((s) => `${s.color} ${(s.pos * 100).toFixed(1)}%`).join(', ')})` }}
+          />
+          <span className="font-mono text-[10px] text-muted-foreground/70" title="渐变中点色（派生主色）">
+            {accent.toUpperCase()}
+          </span>
         </div>
       </section>
 
@@ -314,7 +675,7 @@ export default function ThemePanel() {
           onCheckedChange={setReduceMotion}
         />
         <div className="mx-3 h-px bg-border/60" />
-        {/* 文字大小 — 分段控件（macOS 显示器设置 → 文本大小） */}
+        {/* 文字大小 — 分段控件 */}
         <div className="flex items-center justify-between gap-3 px-3 py-2.5">
           <div className="min-w-0">
             <div className="text-[13px] font-medium text-foreground">文字大小</div>
@@ -347,11 +708,7 @@ export default function ThemePanel() {
       <section>
         <h3 className={sectionTitle}>预览</h3>
         <div className="overflow-hidden rounded-xl border border-border/70">
-          <WindowMock
-            colors={colors}
-            accent={accent}
-            glass={isGlass}
-          />
+          <WindowMock colors={colors} accent={accent} glass={isGlass} />
           <div className="flex items-center justify-between border-t border-border/60 bg-card/40 px-3 py-1.5 text-[10px] text-muted-foreground">
             <span>
               当前：{appearance === 'light' ? '浅色' : appearance === 'dark' ? '深色' : appearance === 'glass' ? '毛玻璃' : '自动'}

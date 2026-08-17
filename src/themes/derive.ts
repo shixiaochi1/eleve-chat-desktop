@@ -122,6 +122,145 @@ export const ACCENT_COLORS = [
 export const DEFAULT_ACCENT = '#8E8E93'
 export const DEFAULT_APPEARANCE: Appearance = 'auto'
 
+// ── 🔴 2026-08-18 主题色 = 多锚点渐变（老大需求：锚点滑块控制主题色范围）──
+
+/** 渐变色标（锚点）：pos 0..1 = 颜色在主题色带中的位置；color = 该点颜色 */
+export interface GradientStop {
+  pos: number
+  color: string
+}
+
+/** 主题色渐变（锚点数组；UI 保证 ≥2 个，排序由解析/写入侧统一） */
+export type AccentGradient = GradientStop[]
+
+/** 渐变锚点数量限制（2–5 个：单色基底 + 可扩展的渐变色范围） */
+export const GRADIENT_MIN_STOPS = 2
+export const GRADIENT_MAX_STOPS = 5
+
+/** 相邻锚点最小间距（防重叠；拖动/插入时钳制） */
+export const GRADIENT_MIN_SPACING = 0.06
+
+/**
+ * 解析 accent 存储值 → 锚点数组（兼容旧单 hex 存储）：
+ * - JSON 数组字符串（新版）→ 校验后归一化（排序 + 位置钳制 + 去重同色）
+ * - 单 hex（旧版 localStorage/config.yaml）→ 单锚点（主色=该色；渲染复制两端）
+ * - 空/非法 → 默认石墨双锚点
+ */
+export function parseAccentGradient(value: string | null | undefined): AccentGradient {
+  const fallback: AccentGradient = [
+    { pos: 0, color: DEFAULT_ACCENT },
+    { pos: 1, color: DEFAULT_ACCENT },
+  ]
+  if (!value) return fallback
+  const trimmed = value.trim()
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown
+      if (!Array.isArray(parsed) || parsed.length === 0) return fallback
+      const stops: GradientStop[] = parsed
+        .filter((s): s is GradientStop =>
+          !!s && typeof s === 'object' &&
+          typeof (s as GradientStop).color === 'string' &&
+          /^#[0-9a-fA-F]{6}$/.test((s as GradientStop).color) &&
+          typeof (s as GradientStop).pos === 'number' &&
+          Number.isFinite((s as GradientStop).pos),
+        )
+        .map((s) => ({ pos: Math.min(1, Math.max(0, s.pos)), color: s.color.toLowerCase() }))
+      if (stops.length === 0) return fallback
+      // 单锚点 → 复制成双锚点（渐变渲染需要 ≥2）
+      if (stops.length === 1) return [{ pos: 0, color: stops[0].color }, { pos: 1, color: stops[0].color }]
+      return normalizeStops(stops)
+    } catch {
+      return fallback
+    }
+  }
+  // 旧格式：单 hex
+  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) {
+    return [{ pos: 0, color: trimmed.toLowerCase() }, { pos: 1, color: trimmed.toLowerCase() }]
+  }
+  return fallback
+}
+
+/** 排序 + 位置钳制 + 最小间距（写入/解析共用归一化） */
+export function normalizeStops(stops: GradientStop[]): AccentGradient {
+  const sorted = [...stops].sort((a, b) => a.pos - b.pos)
+  // 相邻最小间距钳制（从第二个起，向前让位）
+  for (let i = 1; i < sorted.length; i++) {
+    const min = sorted[i - 1].pos + GRADIENT_MIN_SPACING
+    if (sorted[i].pos < min) sorted[i] = { ...sorted[i], pos: min }
+  }
+  return sorted.map((s) => ({ ...s, pos: Math.min(1, Math.max(0, s.pos)) }))
+}
+
+/** 序列化为存储值（JSON 字符串；写入 localStorage / 后端 display.accent） */
+export function serializeAccentGradient(stops: AccentGradient): string {
+  return JSON.stringify(normalizeStops(stops))
+}
+
+/** 两色线性插值（t 0..1）——主色派生用 */
+function lerpColor(a: string, b: string, t: number): string {
+  const pa = a.replace('#', '')
+  const pb = b.replace('#', '')
+  const toHex = (v: number) => Math.round(v).toString(16).padStart(2, '0')
+  return `#${[0, 2, 4]
+    .map((i) => {
+      const va = parseInt(pa.slice(i, i + 2), 16)
+      const vb = parseInt(pb.slice(i, i + 2), 16)
+      return toHex(va + (vb - va) * t)
+    })
+    .join('')}`
+}
+
+/** 渐变任意位置插值色（色带点击添加锚点/主色派生共用） */
+export function gradientColorAt(stops: AccentGradient, pos: number): string {
+  if (stops.length === 0) return DEFAULT_ACCENT
+  if (stops.length === 1) return stops[0].color
+  const sorted = [...stops].sort((a, b) => a.pos - b.pos)
+  const p = Math.min(1, Math.max(0, pos))
+  if (p <= sorted[0].pos) return sorted[0].color
+  if (p >= sorted[sorted.length - 1].pos) return sorted[sorted.length - 1].color
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1]
+    const cur = sorted[i]
+    if (p <= cur.pos) {
+      const span = cur.pos - prev.pos
+      const t = span === 0 ? 0 : (p - prev.pos) / span
+      return lerpColor(prev.color, cur.color, t)
+    }
+  }
+  return sorted[sorted.length - 1].color
+}
+
+/** 渐变中点（pos=0.5）插值色 = 派生主色（单一真相源；
+ *  RightSidebarTabs/ProfilePanel 等旧消费方拿到的 accent 恒为此值） */
+export function gradientMidColor(stops: AccentGradient): string {
+  return gradientColorAt(stops, 0.5)
+}
+
+/** hex → HSL（h 0..360 / s,l 0..100；颜色编辑滑块用） */
+export function hexToHsl(hex: string): { h: number; s: number; l: number } {
+  const c = hex.replace('#', '')
+  const r = parseInt(c.slice(0, 2), 16) / 255
+  const g = parseInt(c.slice(2, 4), 16) / 255
+  const b = parseInt(c.slice(4, 6), 16) / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const d = max - min
+  const l = (max + min) / 2
+  if (d === 0) return { h: 0, s: 0, l: l * 100 }
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+  let h = 0
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) * 60
+  else if (max === g) h = ((b - r) / d + 2) * 60
+  else h = ((r - g) / d + 4) * 60
+  return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) }
+}
+
+/** HSL → hex（h 0..360 / s,l 0..100） */
+export function hslToHex(h: number, s: number, l: number): string {
+  return hsl(((h % 360) + 360) % 360, Math.min(100, Math.max(0, s)), Math.min(100, Math.max(0, l)))
+}
+
 // ── 🔴 2026-08-18 老大需求：macOS 主题系统完善（System Settings 同级参数）──
 
 /** 文字大小档位（macOS 显示器设置 → 文本大小；驱动 --dt-base-size） */

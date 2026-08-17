@@ -12,10 +12,20 @@ export {
   neutralSidebarFor,
   mixHex,
   deriveTerminalTheme,
+  parseAccentGradient,
+  normalizeStops,
+  serializeAccentGradient,
+  gradientColorAt,
+  gradientMidColor,
+  hexToHsl,
+  hslToHex,
+  GRADIENT_MIN_STOPS,
+  GRADIENT_MAX_STOPS,
+  GRADIENT_MIN_SPACING,
   migrateSkinConfig,
   relativeLuminance,
   isDarkColor,
   adjustBrightnessForDark,
   getReadableOnAccent,
 } from './derive'
-export type { Appearance, DerivedColors, FontScale, SidebarTint } from './derive'
+export type { Appearance, DerivedColors, FontScale, SidebarTint, GradientStop, AccentGradient } from './derive'

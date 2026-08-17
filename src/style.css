@@ -1079,6 +1079,82 @@ canvas {
   37.5%, 100% { opacity: 0.15; }
 }
 
+/* ── 🔴 2026-08-18 主题面板：滑块 + 渐变色带锚点编辑器（macOS 色板语言）──
+   全部消费主题变量，零硬编码色值 */
+
+/* 自绘滑块轨道（细圆角条 + 圆钮；色相/饱和度/亮度滑块共用） */
+.theme-slider {
+  position: relative;
+  height: 14px;
+  border-radius: 9999px;
+  cursor: pointer;
+  touch-action: none;
+  border: 1px solid color-mix(in srgb, var(--dt-foreground) 12%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--dt-foreground) 10%, transparent);
+}
+.theme-slider-thumb {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  transform: translate(-50%, -50%);
+  background: var(--dt-card);
+  border: 1px solid color-mix(in srgb, var(--dt-foreground) 25%, transparent);
+  box-shadow:
+    0 1px 3px var(--theme-shadow-color),
+    0 0 0 1px color-mix(in srgb, var(--dt-foreground) 6%, transparent);
+  pointer-events: none;
+}
+
+/* 渐变色带（锚点编辑器轨道） */
+.gradient-bar {
+  position: relative;
+  height: 26px;
+  border-radius: 8px;
+  cursor: crosshair;
+  touch-action: none;
+  border: 1px solid color-mix(in srgb, var(--dt-foreground) 14%, transparent);
+  box-shadow: inset 0 1px 3px color-mix(in srgb, var(--dt-foreground) 8%, transparent);
+}
+
+/* 锚点（可拖圆点） */
+.gradient-stop {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--dt-card);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--dt-foreground) 30%, transparent),
+    0 2px 6px var(--theme-shadow-color);
+  cursor: grab;
+  touch-action: none;
+  transition: box-shadow 120ms ease, transform 120ms ease;
+}
+.gradient-stop:hover {
+  transform: translate(-50%, -50%) scale(1.12);
+}
+.gradient-stop--active {
+  box-shadow:
+    0 0 0 2px var(--dt-primary),
+    0 0 0 4px color-mix(in srgb, var(--dt-primary) 35%, transparent),
+    0 2px 8px var(--theme-shadow-color-heavy);
+  transform: translate(-50%, -50%) scale(1.15);
+}
+.gradient-stop--dragging {
+  cursor: grabbing;
+}
+
+/* 颜色编辑区色块预览 */
+.theme-color-swatch {
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--dt-foreground) 20%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--dt-foreground) 8%, transparent);
+}
+
 /* ── 子 Agent 监控抽屉：从状态栏底边向下滑出，覆盖消息区。
    clip 层自状态栏底边（top:40px = h-10 状态栏高度）开始且 overflow:hidden：
    抽屉收起时上滑被裁剪在状态栏底边处——视觉锚定"从底边弹出/收回"

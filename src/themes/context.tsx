@@ -26,10 +26,14 @@ import {
   FONT_SCALE_SIZES,
   neutralSidebarFor,
   hexToRgba,
+  parseAccentGradient,
+  serializeAccentGradient,
+  gradientMidColor,
   type Appearance,
   type DerivedColors,
   type FontScale,
   type SidebarTint,
+  type AccentGradient,
 } from './derive'
 
 const ACCENT_KEY = 'eleve-accent-color'
@@ -59,16 +63,27 @@ function isDarkColor(hex: string): boolean {
 
 // ─── 持久化 ─────────────────────────────────────────────────────────────────
 
-function loadAccent(): string {
+/** 🔴 2026-08-18 主题色 = 多锚点渐变：存储 JSON 数组（兼容旧单 hex） */
+function loadAccentGradient(): AccentGradient {
   const local = localStorage.getItem(ACCENT_KEY)
-  if (local) return local
+  if (local !== null) return parseAccentGradient(local)
   const saved = storage.load(ACCENT_KEY) as string | null
-  return saved ?? DEFAULT_ACCENT
+  return parseAccentGradient(saved)
+}
+
+function saveAccentGradient(stops: AccentGradient): void {
+  const value = serializeAccentGradient(stops)
+  localStorage.setItem(ACCENT_KEY, value)
+  storage.save(ACCENT_KEY, value)
+}
+
+/** 兼容旧读取（单 hex；供启动回填/看板窗口等使用） */
+function loadAccent(): string {
+  return gradientMidColor(loadAccentGradient())
 }
 
 function saveAccent(color: string): void {
-  localStorage.setItem(ACCENT_KEY, color)
-  storage.save(ACCENT_KEY, color)
+  saveAccentGradient(parseAccentGradient(color))
 }
 
 function loadAppearance(): Appearance {
@@ -350,12 +365,17 @@ if (typeof window !== 'undefined') {
 // ─── Context ────────────────────────────────────────────────────────────────
 
 interface ThemeContextValue {
+  /** 派生主色 hex（= 渐变 pos 0.5 插值色；旧消费方兼容） */
   accent: string
+  /** 🔴 2026-08-18 主题色渐变锚点（面板锚点滑块编辑的真实数据） */
+  accentGradient: AccentGradient
   appearance: Appearance
   isDark: boolean
   isGlass: boolean
   colors: DerivedColors
   setAccent: (color: string) => void
+  /** 🔴 2026-08-18 设置整个渐变（多锚点）；单色时传双同色锚点 */
+  setAccentGradient: (stops: AccentGradient) => void
   setAppearance: (appearance: Appearance) => void
   accentColors: typeof ACCENT_COLORS
   // 🔴 2026-08-18 老大需求：macOS 主题系统完善——新增 4 项
@@ -371,11 +391,13 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue>({
   accent: DEFAULT_ACCENT,
+  accentGradient: parseAccentGradient(DEFAULT_ACCENT),
   appearance: DEFAULT_APPEARANCE,
   isDark: false,
   isGlass: false,
   colors: deriveColors(DEFAULT_ACCENT, false),
   setAccent: () => {},
+  setAccentGradient: () => {},
   setAppearance: () => {},
   accentColors: ACCENT_COLORS,
   sidebarTint: DEFAULT_SIDEBAR_TINT,
@@ -389,9 +411,11 @@ const ThemeContext = createContext<ThemeContextValue>({
 })
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [accent, setAccentState] = useState(() =>
-    typeof window === 'undefined' ? DEFAULT_ACCENT : loadAccent()
+  // 🔴 2026-08-18 主题色改为多锚点渐变（accent 主色由渐变派生，旧消费方兼容）
+  const [accentGradient, setAccentGradientState] = useState<AccentGradient>(() =>
+    typeof window === 'undefined' ? parseAccentGradient(DEFAULT_ACCENT) : loadAccentGradient()
   )
+  const accent = useMemo(() => gradientMidColor(accentGradient), [accentGradient])
   const [appearance, setAppearanceState] = useState(() =>
     typeof window === 'undefined' ? DEFAULT_APPEARANCE : loadAppearance()
   )
@@ -445,12 +469,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   // 设置函数（写入本地 + 后端同步，失败不阻塞 UI）
   const setAccent = useCallback((color: string) => {
-    setAccentState(color)
-    saveAccent(color)
-    call('update_config', { config: { display: { accent: color } } })
+    setAccentGradientState(parseAccentGradient(color))
+    saveAccentGradient(parseAccentGradient(color))
+    call('update_config', { config: { display: { accent: serializeAccentGradient(parseAccentGradient(color)) } } })
       .catch(() => console.warn('[Theme] 后端配置同步失败'))
     // 通知其他窗口（看板等）
-    emit('theme-changed', { accent: color, appearance: loadAppearance() })
+    emit('theme-changed', { accent: gradientMidColor(parseAccentGradient(color)), appearance: loadAppearance() })
+      .catch(() => console.warn('[Theme] 事件发送失败'))
+  }, [])
+
+  // 🔴 2026-08-18 老大需求：多锚点渐变设置（面板锚点滑块编辑入口）
+  const setAccentGradient = useCallback((stops: AccentGradient) => {
+    const normalized = parseAccentGradient(serializeAccentGradient(stops))
+    setAccentGradientState(normalized)
+    saveAccentGradient(normalized)
+    call('update_config', { config: { display: { accent: serializeAccentGradient(normalized) } } })
+      .catch(() => console.warn('[Theme] 后端配置同步失败'))
+    emit('theme-changed', { accent: gradientMidColor(normalized), appearance: loadAppearance() })
       .catch(() => console.warn('[Theme] 事件发送失败'))
   }, [])
 
@@ -476,8 +511,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
       // 仅当本地 localStorage 无值（首次启动或缓存被清）时才从后端填充
       if (backendAccent && !localStorage.getItem(ACCENT_KEY)) {
-        setAccentState(backendAccent)
-        saveAccent(backendAccent)
+        // 🔴 2026-08-18 后端值可能是旧 hex 或新 JSON 渐变——统一解析
+        const gradient = parseAccentGradient(backendAccent)
+        setAccentGradientState(gradient)
+        saveAccentGradient(gradient)
       }
       if (backendAppearance && !localStorage.getItem(APPEARANCE_KEY)) {
         setAppearanceState(backendAppearance)
@@ -544,11 +581,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       accent,
+      accentGradient,
       appearance,
       isDark,
       isGlass,
       colors,
       setAccent,
+      setAccentGradient,
       setAppearance,
       accentColors: ACCENT_COLORS,
       sidebarTint,
@@ -560,7 +599,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       fontScale,
       setFontScale,
     }),
-    [accent, appearance, isDark, isGlass, colors, setAccent, setAppearance, sidebarTint, setSidebarTint, reduceTransparency, setReduceTransparency, reduceMotion, setReduceMotion, fontScale, setFontScale]
+    [accent, accentGradient, appearance, isDark, isGlass, colors, setAccent, setAccentGradient, setAppearance, sidebarTint, setSidebarTint, reduceTransparency, setReduceTransparency, reduceMotion, setReduceMotion, fontScale, setFontScale]
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
