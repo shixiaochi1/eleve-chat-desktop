@@ -652,19 +652,24 @@ export function useMessageStream({
 
     onDelegateStart: ({ taskId, goal, model, sessionId }: { taskId: string; goal?: string; model?: string; sessionId?: string }) => {
       addDebugEvent('delegate', `start: ${goal?.slice(0, 50)}`);
+      // 🔴 2026-08-18 会话隔离加固：事件缺 session_id 时兜底打标当前流会话
+      // （sse_data 恒注入父会话 sid，兜底仅防漏标——无标任务会在
+      // 无会话上下文的空态抽屉里跨会话串显）
+      const sid = sessionId ?? sess.sessionId ?? undefined;
       setMonitorState((prev) => ({
         ...prev,
-        delegateTasks: { ...((prev.delegateTasks as Record<string, unknown>) || {}), [taskId]: { id: taskId, goal, model, status: 'running', startTs: Date.now(), sessionId } },
+        delegateTasks: { ...((prev.delegateTasks as Record<string, unknown>) || {}), [taskId]: { id: taskId, goal, model, status: 'running', startTs: Date.now(), sessionId: sid } },
       }));
       // 🔴 Phase 2: 独立 system 消息（对齐宫格 useGridChat delegate.start）
       appendIndependentMessage({ id: genId(), role: 'system' as const, parts: [textPart(`▶ 委托子 Agent: ${goal || taskId}`)], timestamp: Date.now() });
     },
 
     onDelegateEnd: ({ taskId, status, summary, model, tokensInput, tokensOutput, duration, sessionId }: { taskId: string; status?: string; summary?: string; model?: string; tokensInput?: number; tokensOutput?: number; duration?: number; sessionId?: string }) => {
+      const sid = sessionId ?? sess.sessionId ?? undefined;
       setMonitorState((prev) => {
         const next = { ...((prev.delegateTasks as Record<string, unknown>) || {}) };
         if (next[taskId]) {
-          next[taskId] = { ...(next[taskId] as Record<string, unknown>), status, summary, tokensInput, tokensOutput, duration, sessionId };
+          next[taskId] = { ...(next[taskId] as Record<string, unknown>), status, summary, tokensInput, tokensOutput, duration, sessionId: sid };
         }
         return { ...prev, delegateTasks: next };
       });
@@ -1082,7 +1087,9 @@ export function useMessageStream({
           tasks[key] = {
             ...prior,
             id: key,
-            sessionId: data.sessionId,
+            // 🔴 2026-08-18 会话隔离加固：事件缺 session_id 时兜底当前流会话
+            // （子 Agent 事件恒带父会话 sid，兜底仅防漏标串显）
+            sessionId: data.sessionId ?? sess.sessionId ?? undefined,
             goal: data.goal,
             eventType: data.eventType,
             taskIndex: data.taskIndex,

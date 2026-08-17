@@ -68,6 +68,7 @@
     "remark-rehype": "^11.1.2",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.0",
+    "unicode-animations": "^1.0.3",
     "unified": "^11.0.5",
     "unist-util-visit": "^5.1.0",
     "unist-util-visit-parents": "^6.0.2"

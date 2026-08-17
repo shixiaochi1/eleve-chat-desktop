@@ -4,7 +4,6 @@ import CommandMenu from './CommandMenu';
 import ModelPill from './ModelPill';
 import AttachMenu from './AttachMenu';
 import GoalBar from './GoalBar';
-import TodoPanel from './TodoPanel';
 import VoiceActivityBar from './VoiceActivityBar';
 import ThinkingButton from './ThinkingButton';
 import FastModeButton from './FastModeButton';
@@ -619,8 +618,9 @@ function InputArea({
 
   return (
     <div className="p-3">
-      {/* 🔴 2026-08-16 DSH TodoPanel 对齐：任务状态折叠条（输入框上方 dock，todo 工具会话级投影）。 */}
-      <TodoPanel sessionId={sessionId} />
+      {/* 🔴 2026-08-18 老大调整：TodoPanel 迁出 InputArea——任务计划改挂
+          在 ContextBar（新建/宫格按钮行）上方，见 App.tsx；此处仅保留
+          GoalBar 与 composer 的底部 dock 顺序。 */}
       {/* 🔴 2026-08-15 DSH GoalBar 对齐：进行中目标显示框（/goal 设定）。
           普通文档流（非 overlay）：消息区 → 附件缩略图 → 本框 → 输入框，
           天然不挡消息；附件缩略图在本框之上（App.tsx 附件条在 InputArea 之前渲染）。

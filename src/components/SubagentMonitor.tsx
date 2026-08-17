@@ -177,7 +177,10 @@ function TaskCard({ task, sessionId }: TaskCardProps) {
   }, [sessionId, task.childSessionId, task.id]);
 
   return (
-    <div className="rounded border border-border bg-background/60 px-2.5 py-2 space-y-1.5">
+    // 🔴 2026-08-18 老大需求：抽屉 UI 干干净净像主聊天窗口——卡片中性玻璃
+    // 表面（bg-card/50 + 细边框，与主气泡同语言），去掉主题色/强调色背景；
+    // 状态色仅保留在状态文字（信息性小字），不再整卡上色。
+    <div className="rounded-lg border border-border/60 bg-card/50 backdrop-blur-sm px-2.5 py-2 space-y-1.5">
       {/* 头部：状态 + goal + 控制 */}
       <div className="flex items-start gap-2">
         <Bot size={13} className="shrink-0 mt-0.5 text-muted-foreground/60" />
@@ -255,7 +258,7 @@ function TaskCard({ task, sessionId }: TaskCardProps) {
             任务过程（{task.trace.length} 条）
           </button>
           {showTrace && (
-            <div className="mt-1 max-h-32 overflow-y-auto space-y-0.5 rounded bg-accent/40 p-1.5">
+            <div className="mt-1 max-h-32 overflow-y-auto space-y-0.5 rounded bg-muted/40 p-1.5">
               {task.trace.map((line, i) => (
                 <div key={i} className="text-[10px] text-muted-foreground/90 leading-tight break-all">
                   {line}
@@ -279,7 +282,7 @@ function TaskCard({ task, sessionId }: TaskCardProps) {
             对话历史{history ? `（${history.length} 条${historyHasMore ? '+' : ''}）` : ''}
           </button>
           {showHistory && (
-            <div className="mt-1 max-h-44 overflow-y-auto space-y-1 rounded bg-accent/40 p-1.5">
+            <div className="mt-1 max-h-44 overflow-y-auto space-y-1 rounded bg-muted/40 p-1.5">
               {historyLoading && history === null && (
                 <div className="text-[10px] text-muted-foreground/70">加载中…</div>
               )}
@@ -349,21 +352,34 @@ function taskStatus(task: DelegateTask): string {
   return task.status ?? (task.eventType === 'subagent.complete' ? 'completed' : 'running');
 }
 
+/** 已结束任务保留上限（🔴 2026-08-18 老大需求：抽屉不积攒——运行中任务
+ *  恒显示，已完成/失败仅保留最近 N 条回看，杜绝跨轮无限堆叠） */
+const DONE_CAP = 8;
+
 /** 任务列表 + 运行中计数：ToolStatusBar 按钮徽章与面板共用单一数据源。
  *  🔴 2026-08-17 审计 E-F3：按会话过滤——delegate.* 事件恒带父会话 sid
  *  （现已不过滤存储），面板/徽章只渲染当前会话的任务，杜绝跨会话串显；
- *  无 sessionId 的旧任务仅在没有会话上下文时显示（兼容兜底）。 */
+ *  无 sessionId 的旧任务仅在没有会话上下文时显示（兼容兜底）。
+ *  🔴 2026-08-18 老大需求（会话隔离加固 + 不积攒）：
+ *  ① 兜底打标（useMessageStream）已保证事件任务恒有 sessionId，跨会话
+ *     串显彻底杜绝；② 已结束任务按到达序仅保留最近 DONE_CAP 条——
+ *     抽屉/徽章数字不再随轮次无限膨胀。 */
 export function useSubagentTasks(sessionId?: string | null): { tasks: DelegateTask[]; runningCount: number } {
   const rawTasks = useMonitorDelegateTasks();
   const tasks = useMemo(() => {
     const list = (Object.values(rawTasks).filter((t) => t && typeof t === 'object') as DelegateTask[])
       .filter((t) => (sessionId ? t.sessionId === sessionId : !t.sessionId));
     if (list.length === 0) return [];
-    return list.slice().sort((a, b) => {
+    // 运行中置顶（保持既有排序语义）
+    const sorted = list.slice().sort((a, b) => {
       const sa = taskStatus(a) === 'running' ? 0 : 1;
       const sb = taskStatus(b) === 'running' ? 0 : 1;
       return sa - sb;
     });
+    // 运行中恒显示；已结束仅保留最近 DONE_CAP 条（对象键插入序 ≈ 到达序）
+    const running = sorted.filter((t) => taskStatus(t) === 'running');
+    const done = sorted.filter((t) => taskStatus(t) !== 'running').slice(-DONE_CAP);
+    return [...running, ...done];
   }, [rawTasks, sessionId]);
   const runningCount = useMemo(
     () => tasks.filter((t) => taskStatus(t) === 'running').length,

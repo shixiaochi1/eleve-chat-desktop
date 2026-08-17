@@ -8,10 +8,13 @@
  * （completed 绿带勾圆 / in_progress 蓝渐变环 CSS 旋转 / pending 灰色虚线圆）、
  * 空列表不渲染（return null）、data-testid="todo-panel"。
  *
- * 布局契约（对齐现有 GoalBar 卡片形态，同 DSH input dock 顺序：todo 最上）：
- * - 普通文档流（非 overlay）：消息区 → 本框 → GoalBar → 输入框；
+ * 布局契约（🔴 2026-08-18 老大调整：任务计划移到新建/宫格按钮上方——
+ * 单视图挂载点从 InputArea 迁到 App 的 ContextBar 之前；宫格卡片保持
+ * 消息区 → 本框 → GoalBar → composer 顺序）：
  * - 数据源 = todo.status WS RPC（轮询 3s，同 GoalBar 节奏）；
- * - 会话切换即清空重拉。
+ * - 会话切换即清空重拉；
+ * - 🔴 2026-08-18 自动消失（DSH 语义）：仅存在待办/进行中任务时渲染，
+ *   全部完成/取消后整条折叠条自动消失，不再驻留"已完成 N"空壳。
  */
 import { useCallback, useEffect, useId, useState } from 'react';
 import { ChevronDown, ChevronUp, ListChecks } from 'lucide-react';
@@ -109,8 +112,13 @@ export default function TodoPanel({ sessionId }: { sessionId?: string | null }) 
     return () => clearInterval(timer);
   }, [sessionId, refresh]);
 
-  // DSH: 空列表不渲染
-  if (todos.length === 0) return null;
+  // DSH: 空列表不渲染；🔴 2026-08-18 老大需求：任务全部完成/取消后
+  // 任务计划条自动消失（DSH 下轮 turn/start 清列表的显示层等价物）——
+  // 仅存在待办/进行中任务时渲染，杜绝"已完成 N"空壳驻留。
+  const hasActive = todos.some(
+    (item) => item.status === 'pending' || item.status === 'in_progress',
+  );
+  if (!hasActive) return null;
 
   return (
     <section className={css.root} data-testid="todo-panel" aria-label="任务计划">

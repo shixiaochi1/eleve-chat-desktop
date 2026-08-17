@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useDeferredValue } from 'react';
+import { useState, useCallback, useMemo, useDeferredValue, useRef, useEffect } from 'react';
 import { ThinkingIcon, CopyIcon, CheckIcon, ExpandIcon } from './Icons';
 import ActivityTimerText from './ActivityTimerText';
 import { useElapsedSeconds } from '@/hooks/useActivityTimer';
@@ -6,6 +6,7 @@ import { useShowReasoning } from '@/store/display-settings';
 import { cleanThinkingText } from '@/lib/thinking-text';
 import { cn } from '@/lib/utils';
 import StreamBlocks from './StreamBlocks';
+import { BrailleSpinner } from './ui/braille-spinner';
 
 interface ReasoningBlockProps {
   text?: string;
@@ -22,13 +23,19 @@ interface ReasoningBlockProps {
  * 思维过程块 — 折叠漏两行预览 + 点击展开 + 计时器
  * 
  * 🔴 2026-08-05 老大定调（细节对齐 Hermes ThinkingDisclosure / DisclosureRow）：
- *   - 思考过程中默认折叠，漏出前两行预览（line-clamp-2 硬截断，Hermes overflow-hidden 同款语义）
+ *   - 思考过程中默认折叠，漏出前两行预览（Hermes overflow-hidden 同款截断语义）
+ *   - 🔴 2026-08-18 老大调整：折叠+思考中 = 滚动预览容器（2 行高，内容持续
+ *     平滑滚到底部，长思考可见文字滚动，不再定格前两行）；静止态保持
+ *     line-clamp-2 静态预览
  *   - 想看 → 点击预览区或标题"思考"展开；首次手动 toggle 后永久生效
  *   - 折叠/打开方向：caret 箭头收起 ▶ 朝右、展开 ▼ 朝下（rotate-90），
  *     静止淡显 0.4（Hermes thinking 专用 --disclosure-caret-rest）、hover/展开 0.8
  *   - 滚动形式：展开态无 max-h 无内部滚动条，内容自然撑开跟随页面滚动（Hermes 同款）
  *   - 字体颜色比回复正文淡（muted-foreground × 半透明），hover 提升可读性
  *   - pending 时静态浅色 + "思考了 Xs" 计时器（无呼吸动画，老大要求取消）
+ *   - 🔴 2026-08-18 老大需求：思考中标题图标换成动态 braille spinner
+ *     （对齐 Hermes 桌面/TUI THINK 集 helix，BrailleSpinner 同源镜像），
+ *     静止态保持 Brain 静态图标
  *   - 🔴 禁止 scrollIntoView — 虚拟化列表中会造成反馈循环
  */
 export default function ReasoningBlock({ text, visible, messageId, blockIndex, pending }: ReasoningBlockProps) {
@@ -51,6 +58,16 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
   const cleanText = useMemo(() => cleanThinkingText(text ?? '').trimStart(), [text]);
   // 渲染降级：思考流每 token 重渲染，useDeferredValue 降为低优先级（对齐 Hermes DeferStreamingText）
   const deferredClean = useDeferredValue(cleanText);
+
+  // 🔴 2026-08-18 老大需求：折叠态思考流持续滚动——长思考时预览不再定格
+  // 前两行，容器跟随内容平滑滚到底部（最新推理行持续上涌，可见文字在动）。
+  // 仅 pending+折叠 生效；展开态/静止态保持原语义（line-clamp 预览）。
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!pending || open) return;
+    const el = previewRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [deferredClean, pending, open]);
 
   const handleCopy = useCallback(() => {
     if (!cleanText) return;
@@ -75,7 +92,18 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
           onClick={() => setUserOpen(!open)}
           aria-expanded={open}
         >
-          <ThinkingIcon size={12} className="inline-block shrink-0" />
+          {/* 🔴 2026-08-18 老大需求：思考过程中图标换成动态图标（对齐 Hermes
+              桌面端思考 spinner——TUI thinking.tsx THINK 集首项 helix，
+              BrailleSpinner 同源镜像）；静止态保持 Brain 静态图标 */}
+          {pending ? (
+            <BrailleSpinner
+              spinner="helix"
+              ariaLabel="思考中"
+              className="shrink-0 text-[13px] text-primary"
+            />
+          ) : (
+            <ThinkingIcon size={12} className="inline-block shrink-0" />
+          )}
           思考
           {/* caret 对齐 Hermes DisclosureCaret（chevron-right）：收起 ▶ 朝右、
               展开 rotate-90 ▼ 朝下；静止淡显 0.4（Hermes thinking 专用
@@ -109,16 +137,29 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
           repair → split → marked）→ 行内 code 样式化、代码围栏变代码卡片、强调/列表正常排版。
           pending（流式）时尾块延迟高亮 + useDeferredValue 降载（对齐 Hermes defer）。
           🔴 折叠态 = 漏两行预览（line-clamp-2 硬截断，Hermes overflow-hidden 同款截断语义），
-          点击预览区展开；展开态无 max-h 无内部滚动条 → 自然撑开跟随页面滚动。 */}
+          点击预览区展开；展开态无 max-h 无内部滚动条 → 自然撑开跟随页面滚动。
+          🔴 2026-08-18 折叠+思考中：line-clamp 换滚动容器（2 行高、overflow hidden、
+          scroll-behavior smooth），内容持续滚到底部——长思考可见文字滚动。 */}
       <div
+        ref={!open && pending ? previewRef : undefined}
         className={cn(
           // 🔴 字体颜色（老大 2026-08-05 定调 + 2026-08-09 三次调淡）：推理过程文字
           // 必须比回复正文淡很多。2026-08-09 12:14 定位：内联 color 被子元素覆盖，
           // 改用 .reasoning-content !important 规则（style.css）强制压制所有子元素。
           'reasoning-content text-xs leading-snug break-words select-text transition-colors',
           // 折叠态：漏两行 + 光标提示可点击展开
-          !open && 'line-clamp-2 cursor-pointer'
+          !open && 'cursor-pointer',
+          // 静止折叠：line-clamp-2 硬截断前两行
+          !open && !pending && 'line-clamp-2',
+          // 🔴 2026-08-18 折叠+思考中：滚动预览容器（2 行 = 2.75em @ text-xs leading-snug），
+          // 与 line-clamp-2 互斥（后者 display:-webkit-box 会锁死滚动）
+          !open && pending && 'overflow-hidden'
         )}
+        style={
+          !open && pending
+            ? { maxHeight: '2.75em', scrollBehavior: 'smooth', overflowY: 'hidden' }
+            : undefined
+        }
         onClick={(e) => {
           if (open) return;
           // 选择文本时不触发（复制/划词场景）

@@ -202,7 +202,9 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
                 {activeSubagents.map((sa) => (
                   <span
                     key={sa.subagent_id}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-accent/60 text-[10px] text-muted-foreground whitespace-nowrap"
+                    // 🔴 2026-08-18 老大需求：子 Agent 显示去掉主题色背景——
+                    // bg-accent/60 → 中性 bg-muted/40，与主聊天窗口一致干净
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/40 text-[10px] text-muted-foreground whitespace-nowrap"
                     title={`${sa.goal || sa.subagent_id}${sa.interrupt_message ? `（中断请求：${sa.interrupt_message}）` : ''}`}
                   >
                     <span className="max-w-[110px] truncate">

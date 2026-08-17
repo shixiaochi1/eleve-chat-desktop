@@ -47,6 +47,7 @@ import ToolStatusBar from './components/ToolStatusBar'
 import MessageContainer from './components/MessageContainer';
 import InputArea from './components/InputArea';
 import ContextBar from './components/ContextBar';
+import TodoPanel from './components/TodoPanel';
 import ClarifyCard from './components/ClarifyCard';
 import ApprovalCard from './components/ApprovalCard';
 import SlashConfirmCard from './components/SlashConfirmCard';
@@ -1732,6 +1733,13 @@ export default function App() {
                       ))}
                     </div>
                   )}
+                  {/* 🔴 2026-08-18 老大调整：任务计划条（DSH TodoPanel）挂载点
+                      从 InputArea 迁到此处——显示在 ContextBar（新建会话/宫格
+                      等按钮行）上方；全部任务完成/取消后 TodoPanel 自返 null
+                      自动消失（todo 全部完成后不再驻留）。 */}
+                  <div className="px-3 pt-2">
+                    <TodoPanel sessionId={sess.sessionId} />
+                  </div>
                   <ContextBar sessionId={sess.sessionId} sessionStartedAt={sessionStartedAt} onNewSession={handleNewSessionWithScope} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount} deepseekVisible={deepseekVisible} onToggleDeepSeek={handleToggleDeepSeek} />
                 </>
               )}
