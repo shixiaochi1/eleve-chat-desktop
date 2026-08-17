@@ -1,21 +1,20 @@
 /**
  * ThemePanel — macOS 风格主题设置（对齐 System Settings → 外观 + 辅助功能）
  *
- * 🔴 2026-08-18 老大需求：完善 ELEVE 主题系统，借鉴 macOS 主题体系：
- * - 外观：浅色/深色/自动/毛玻璃 —— 每个选项带真实派生色的迷你窗口缩略图
- *   （macOS System Settings 同款预览卡片形态，不再是一排文字按钮）
- * - 强调色：macOS 8 标准色 + 自定义取色器（勾选符号走 getReadableOnAccent）
- * - 边栏色调：macOS「允许墙纸调色」的桌面等价物（边栏跟随主题色/中性灰）
- * - 降低透明度 / 减弱动态效果：macOS 辅助功能两项（context.tsx 落 class）
- * - 文字大小：小/标准/大 分段控件（驱动 --dt-base-size 根字号）
- * - 实时预览：当前主题的迷你窗口（全部用真实派生色，零硬编码）
+ * 🔴 2026-08-18 老大需求（两轮收敛）：
+ * ① 完善 ELEVE 主题系统，借鉴 macOS 主题体系：
+ *    - 外观：浅色/深色/自动/毛玻璃 —— 每个选项带真实派生色的迷你窗口缩略图
+ *    - 边栏色调 / 降低透明度 / 减弱动态效果 / 文字大小：macOS 等价物
+ * ② 强调色 → 主题色；自定义颜色改为自绘取色面板（macOS NSColorPanel 语言：
+ *    2D 色场 + 色相条 + hex 输入 + 微色板），替代简陋的原生 color input。
+ *    （多锚点渐变方案已按老大指示搁置——保持单色主题色 + 静态预览条）
  *
- * 颜色铁律：本组件不允许任何硬编码色值——卡片/缩略图全部消费
- * useTheme().colors 与 deriveColors() 派生色 + 主题 CSS 变量。
+ * 颜色铁律：本组件不允许硬编码色值——卡片/缩略图/色场/色相条全部由
+ * useTheme().colors、deriveColors()、ACCENT_COLORS、HSL 算法派生。
  */
-import { type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Check, Sun, Moon, Monitor, Sparkles, Type } from 'lucide-react'
-import { useTheme, deriveColors, getReadableOnAccent, ACCENT_COLORS } from '../themes'
+import { useTheme, deriveColors, getReadableOnAccent, ACCENT_COLORS, hexToHsl, hslToHex } from '../themes'
 import type { Appearance, DerivedColors, FontScale } from '../themes/derive'
 import { cn } from '@/lib/utils'
 import { Switch } from './ui/switch'
@@ -38,6 +37,189 @@ const RAINBOW_GRADIENT = `conic-gradient(${[
   ...ACCENT_COLORS.map((c) => c.color),
   ACCENT_COLORS[0].color,
 ].join(', ')})`
+
+/** 色相条彩虹轨道 — HSL 算法生成（h=0..360 标准色序，零硬编码） */
+const HUE_TRACK = `linear-gradient(90deg, ${[0, 60, 120, 180, 240, 300, 360]
+  .map((h) => hslToHex(h, 100, 50))
+  .join(', ')})`
+
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 自绘取色面板（macOS NSColorPanel 简化版：2D 色场 + 色相条 + hex + 微色板）
+// ═══════════════════════════════════════════════════════════════════════════
+
+function ColorPickerPopover({ value, onChange, onClose }: {
+  value: string
+  onChange: (color: string) => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const fieldRef = useRef<HTMLDivElement | null>(null)
+  const hueRef = useRef<HTMLDivElement | null>(null)
+  const [hsl, setHsl] = useState(() => hexToHsl(value))
+  const [hexDraft, setHexDraft] = useState(value)
+
+  // 外部点击 / Esc 关闭
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  // 外部颜色变化（如预设点选）→ 同步 hex 输入框。
+  // 🔴 注意：不从 value 反推 HSL——纯白/纯黑会丢失色相（hsl→hex→hsl 不可逆），
+  // 反推会让取色光标跳角；面板内部 hsl 恒为取色真源。
+  useEffect(() => {
+    setHexDraft(value)
+  }, [value])
+
+  const update = useCallback((next: Partial<{ h: number; s: number; l: number }>) => {
+    setHsl((prev) => {
+      const merged = { ...prev, ...next }
+      onChange(hslToHex(merged.h, merged.s, merged.l))
+      return merged
+    })
+  }, [onChange])
+
+  const pickField = useCallback((clientX: number, clientY: number) => {
+    const el = fieldRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return
+    update({
+      s: Math.round(clamp01((clientX - rect.left) / rect.width) * 100),
+      l: Math.round((1 - clamp01((clientY - rect.top) / rect.height)) * 100),
+    })
+  }, [update])
+
+  const pickHue = useCallback((clientX: number) => {
+    const el = hueRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    if (rect.width <= 0) return
+    update({ h: Math.round(clamp01((clientX - rect.left) / rect.width) * 360) })
+  }, [update])
+
+  const applyHex = useCallback(() => {
+    const v = hexDraft.trim()
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+      const color = v.toLowerCase()
+      setHsl(hexToHsl(color))
+      onChange(color)
+    } else {
+      setHexDraft(value)
+    }
+  }, [hexDraft, value, onChange])
+
+  return (
+    <div
+      ref={ref}
+      className="absolute right-0 top-full z-50 mt-2 w-[252px] rounded-xl border border-border/80 bg-popover p-3 shadow-lg"
+      style={{ boxShadow: 'var(--shadow-lg)' }}
+      role="dialog"
+      aria-label="自定义颜色"
+    >
+      {/* 2D 色场（饱和度 × 亮度） */}
+      <div
+        ref={fieldRef}
+        className="relative h-32 cursor-crosshair touch-none overflow-hidden rounded-lg border border-border/60"
+        style={{
+          background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${hslToHex(hsl.h, 100, 50)})`,
+        }}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId)
+          pickField(e.clientX, e.clientY)
+        }}
+        onPointerMove={(e) => {
+          if (e.buttons & 1) pickField(e.clientX, e.clientY)
+        }}
+      >
+        {/* 取色光标 */}
+        <span
+          className="pointer-events-none absolute size-3.5 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.35)]"
+          style={{ left: `${hsl.s}%`, top: `${100 - hsl.l}%`, transform: 'translate(-50%, -50%)' }}
+        />
+      </div>
+
+      {/* 色相条 */}
+      <div
+        ref={hueRef}
+        className="relative mt-2 h-3 cursor-pointer touch-none rounded-full border border-border/60"
+        style={{ background: HUE_TRACK }}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId)
+          pickHue(e.clientX)
+        }}
+        onPointerMove={(e) => {
+          if (e.buttons & 1) pickHue(e.clientX)
+        }}
+      >
+        <span
+          className="pointer-events-none absolute top-1/2 size-3.5 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.35)]"
+          style={{ left: `${(hsl.h / 360) * 100}%`, transform: 'translate(-50%, -50%)' }}
+        />
+      </div>
+
+      {/* 当前色 + hex 输入 */}
+      <div className="mt-2.5 flex items-center gap-2">
+        <span
+          className="size-6 shrink-0 rounded-md border border-border/70"
+          style={{ background: value, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.12)' }}
+          aria-hidden
+        />
+        <span className="font-mono text-[10px] text-muted-foreground/60">#</span>
+        <input
+          value={hexDraft.startsWith('#') ? hexDraft.slice(1) : hexDraft}
+          onChange={(e) => setHexDraft(`#${e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6)}`)}
+          onBlur={applyHex}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              applyHex()
+            }
+          }}
+          className="h-6 w-[76px] rounded-md border border-border/70 bg-background px-1.5 font-mono text-[11px] uppercase outline-none focus:border-primary/60"
+          aria-label="十六进制颜色值"
+          spellCheck={false}
+        />
+        <span className="ml-auto text-[10px] text-muted-foreground/50">拖拽取色</span>
+      </div>
+
+      {/* 微色板（macOS 预设） */}
+      <div className="mt-2.5 flex items-center gap-1.5">
+        {ACCENT_COLORS.map(({ name, color }) => (
+          <button
+            key={color}
+            type="button"
+            onClick={() => {
+              setHsl(hexToHsl(color))
+              onChange(color)
+              setHexDraft(color)
+            }}
+            className={cn(
+              'size-4 rounded-full transition-transform duration-100 hover:scale-110',
+              color.toLowerCase() === value.toLowerCase() &&
+                'ring-2 ring-foreground/40 ring-offset-1 ring-offset-background',
+            )}
+            style={{ background: color }}
+            title={name}
+            aria-label={name}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
 
 /** 迷你窗口缩略图 — 全部消费真实派生色（macOS 预览卡片同构） */
 function WindowMock({ colors, accent, glass, auto }: { colors: DerivedColors; accent: string; glass?: boolean; auto?: boolean }) {
@@ -179,6 +361,8 @@ export default function ThemePanel() {
 
   // 实时预览用当前派生色（主题切换自动重渲染）
   const sectionTitle = 'mb-2.5 text-[13px] font-semibold text-foreground'
+  // 🔴 2026-08-18 自绘取色面板开合
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto pr-1">
@@ -231,10 +415,10 @@ export default function ThemePanel() {
         </div>
       </section>
 
-      {/* ═══ 强调色 ═══ */}
+      {/* ═══ 主题色（🔴 2026-08-18 强调色改名；自定义取色改为自绘面板） ═══ */}
       <section>
-        <h3 className={sectionTitle}>强调色</h3>
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <h3 className={sectionTitle}>主题色</h3>
+        <div className="relative flex items-center gap-2.5 flex-wrap">
           {accentColors.map(({ name, color }) => {
             const isSelected = accent.toLowerCase() === color.toLowerCase()
             return (
@@ -264,23 +448,30 @@ export default function ThemePanel() {
               </button>
             )
           })}
-          {/* 自定义颜色选择器（彩虹底由 ACCENT_COLORS 派生） */}
-          <label
-            className="relative grid size-8 cursor-pointer place-items-center overflow-hidden rounded-full ring-1 ring-black/15 transition-transform duration-150 hover:scale-110"
+          {/* 自定义颜色 — 自绘取色面板（🔴 2026-08-18 替代原生 color input） */}
+          <button
+            type="button"
+            onClick={() => setPickerOpen((v) => !v)}
+            className={cn(
+              'relative grid size-8 place-items-center rounded-full ring-1 ring-black/15 transition-all duration-150 hover:scale-110 active:scale-95',
+              pickerOpen && 'ring-2 ring-foreground/40 ring-offset-2 ring-offset-background'
+            )}
             title="自定义颜色"
+            aria-label="自定义颜色"
+            aria-expanded={pickerOpen}
             style={{ background: RAINBOW_GRADIENT }}
           >
-            <input
-              type="color"
-              value={accent}
-              onChange={(e) => setAccent(e.target.value)}
-              className="absolute inset-0 size-full cursor-pointer opacity-0"
-              aria-label="自定义颜色"
-            />
             {!accentColors.some((c) => c.color.toLowerCase() === accent.toLowerCase()) && (
               <Check size={14} strokeWidth={3} style={{ color: '#ffffff' }} />
             )}
-          </label>
+          </button>
+          {pickerOpen && (
+            <ColorPickerPopover
+              value={accent}
+              onChange={setAccent}
+              onClose={() => setPickerOpen(false)}
+            />
+          )}
         </div>
         {/* 当前主题色预览条（渐变，两端淡出） */}
         <div className="mt-3 flex h-1.5 overflow-hidden rounded-full">

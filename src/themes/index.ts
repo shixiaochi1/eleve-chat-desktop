@@ -12,6 +12,8 @@ export {
   neutralSidebarFor,
   mixHex,
   deriveTerminalTheme,
+  hexToHsl,
+  hslToHex,
   migrateSkinConfig,
   relativeLuminance,
   isDarkColor,

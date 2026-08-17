@@ -200,6 +200,32 @@ export function deriveTerminalTheme(colors: DerivedColors, isDark: boolean) {
   }
 }
 
+// ── 🔴 2026-08-18 自定义取色面板：hex ↔ HSL 互转（macOS 色板语言）──
+
+/** hex → HSL（h 0..360 / s,l 0..100；2D 色场 + 色相条取色用） */
+export function hexToHsl(hex: string): { h: number; s: number; l: number } {
+  const c = hex.replace('#', '')
+  const r = parseInt(c.slice(0, 2), 16) / 255
+  const g = parseInt(c.slice(2, 4), 16) / 255
+  const b = parseInt(c.slice(4, 6), 16) / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const d = max - min
+  const l = (max + min) / 2
+  if (d === 0) return { h: 0, s: 0, l: l * 100 }
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+  let h = 0
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) * 60
+  else if (max === g) h = ((b - r) / d + 2) * 60
+  else h = ((r - g) / d + 4) * 60
+  return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) }
+}
+
+/** HSL → hex（h 0..360 / s,l 0..100） */
+export function hslToHex(h: number, s: number, l: number): string {
+  return hsl(((h % 360) + 360) % 360, Math.min(100, Math.max(0, s)), Math.min(100, Math.max(0, l)))
+}
+
 // ─── macOS 标准语义色 ───────────────────────────────────────────────────────
 
 const SEMANTIC_COLORS = {
