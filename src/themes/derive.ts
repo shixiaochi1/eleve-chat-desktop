@@ -254,6 +254,22 @@ const SEMANTIC_COLORS = {
 
 // ─── 核心派生逻辑 ───────────────────────────────────────────────────────────
 
+/** 🔴 2026-08-18 灰度（石墨/黑白）判定：RGB 通道最大差 < 12 视为无色相灰。
+ *  灰色主题的 primary 实底不能走「降饱和」路线（灰无可降 → 中灰底白字 ≈
+ *  失效按钮观感），需按模式加重：浅色=深灰/黑、深色=浅灰（macOS Graphite 语义） */
+export function isGrayscale(hex: string): boolean {
+  const c = hex.replace('#', '')
+  const r = parseInt(c.slice(0, 2), 16)
+  const g = parseInt(c.slice(2, 4), 16)
+  const b = parseInt(c.slice(4, 6), 16)
+  return Math.max(r, g, b) - Math.min(r, g, b) < 12
+}
+
+/** 浅色模式灰度主题主按钮实底（Graphite 深灰；白字对比 ~4.7:1，11px 小字达标） */
+const GRAY_PRIMARY_LIGHT = '#2C2C2E'
+/** 深色模式灰度主题主按钮实底（浅灰；深字对比 ~12:1，macOS 深色 Graphite 同款） */
+const GRAY_PRIMARY_DARK = '#E5E5E7'
+
 /**
  * 从 accent + isDark 派生完整配色
  *
@@ -294,8 +310,11 @@ function deriveLightColors(accent: string): DerivedColors {
     muted: hexToRgba(neutral.fg, 0.04),
     mutedForeground: neutral.muted,
 
-    // ── 主色 — 用户选的主题色（🔴 2026-08-13 降饱和 15%：选中态/主按钮实底不抢眼，色相不变）──
-    primary: desaturate(accent, 0.85),
+    // ── 主色 — 用户选的主题色（🔴 2026-08-13 降饱和 15%：选中态/主按钮实底不抢眼，色相不变）
+    // 🔴 2026-08-18 灰度主题修复：灰无可降饱和 → 中灰底白字 ≈ 失效按钮观感
+    // （老大反馈：浅色模式 Graphite 下新建按钮像 disabled）→ 浅色模式主按钮
+    // 实底改 Graphite 深灰（白字 ~10.7:1 对比，实心可用感）
+    primary: isGrayscale(accent) ? GRAY_PRIMARY_LIGHT : desaturate(accent, 0.85),
     // 🔴 2026-08-13 老大指示：主按钮文字/图标统一白色（getReadableOnAccent 对浅色
     // 主题色返回黑字 #1D1D1F，黑字突兀）——白字在任何主题色下视觉统一干净
     primaryForeground: '#FFFFFF',
@@ -312,10 +331,11 @@ function deriveLightColors(accent: string): DerivedColors {
     border: hexToRgba(neutral.fg, 0.08),
     input:  hexToRgba(neutral.fg, 0.06),
 
-    // ── 焦点环 — 主题色 ──
-    ring: accent,
-    midground: accent,
-    composerRing: accent,
+    // ── 焦点环 — 主题色（🔴 2026-08-18 灰度主题同 primary 加重：浅色模式
+    // 浅灰焦点环在浅底上不可见，改 Graphite 深灰）
+    ring: isGrayscale(accent) ? GRAY_PRIMARY_LIGHT : accent,
+    midground: isGrayscale(accent) ? GRAY_PRIMARY_LIGHT : accent,
+    composerRing: isGrayscale(accent) ? GRAY_PRIMARY_LIGHT : accent,
 
     // ── 危险色 ──
     destructive: semantic.red,
@@ -413,7 +433,9 @@ function deriveDarkColors(accent: string): DerivedColors {
     mutedForeground: neutral.muted,
 
     // ── 主色 ──（🔴 2026-08-13 降饱和 15%：与 light 同规则——选中态/主按钮实底收敛）
-    primary: desaturate(adjustedAccent, 0.85),
+    // 🔴 2026-08-18 灰度主题修复：深色模式同样不走降饱和（灰无可降）——
+    // 主按钮实底改浅灰（深字 ~12:1 对比，macOS 深色 Graphite 同款）
+    primary: isGrayscale(adjustedAccent) ? GRAY_PRIMARY_DARK : desaturate(adjustedAccent, 0.85),
     primaryForeground: neutral.backboard,
 
     // ── 次级 ──
@@ -428,10 +450,10 @@ function deriveDarkColors(accent: string): DerivedColors {
     border: hexToRgba(neutral.fg, 0.1),
     input:  hexToRgba(neutral.fg, 0.08),
 
-    // ── 焦点环 ──
-    ring: adjustedAccent,
-    midground: adjustedAccent,
-    composerRing: adjustedAccent,
+    // ── 焦点环 — 主题色（🔴 2026-08-18 灰度主题同 primary：深色模式改浅灰环）
+    ring: isGrayscale(adjustedAccent) ? GRAY_PRIMARY_DARK : adjustedAccent,
+    midground: isGrayscale(adjustedAccent) ? GRAY_PRIMARY_DARK : adjustedAccent,
+    composerRing: isGrayscale(adjustedAccent) ? GRAY_PRIMARY_DARK : adjustedAccent,
 
     // ── 危险色 ──
     destructive: semantic.red,
