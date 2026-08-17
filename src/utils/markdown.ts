@@ -109,7 +109,9 @@ export async function loadMarkdownDeps(): Promise<void> {
         const key = `${isDisplay ? 'd' : 'i'}:${tex}`;
         let html = mathCache.get(key);
         if (html === undefined) {
-          html = katex.renderToString(tex, { displayMode: isDisplay, throwOnError: false, errorColor: '#cc0000' });
+          // 🔴 2026-08-18 主题化：错误色改走主题语义红（原硬编码 #cc0000；
+          // katex 输出 HTML 字符串，CSS 变量在此生效）
+          html = katex.renderToString(tex, { displayMode: isDisplay, throwOnError: false, errorColor: 'var(--ui-red)' });
           mathCache.set(key, html);
           if (mathCache.size > MATH_CACHE_MAX) {
             mathCache.delete(mathCache.keys().next().value as string);

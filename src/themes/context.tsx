@@ -14,10 +14,31 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import * as storage from '../utils/storage'
 import { call } from '../utils/bridge'
-import { deriveColors, ACCENT_COLORS, DEFAULT_ACCENT, DEFAULT_APPEARANCE, hexToRgba, type Appearance, type DerivedColors } from './derive'
+import {
+  deriveColors,
+  ACCENT_COLORS,
+  DEFAULT_ACCENT,
+  DEFAULT_APPEARANCE,
+  DEFAULT_SIDEBAR_TINT,
+  DEFAULT_REDUCE_TRANSPARENCY,
+  DEFAULT_REDUCE_MOTION,
+  DEFAULT_FONT_SCALE,
+  FONT_SCALE_SIZES,
+  neutralSidebarFor,
+  hexToRgba,
+  type Appearance,
+  type DerivedColors,
+  type FontScale,
+  type SidebarTint,
+} from './derive'
 
 const ACCENT_KEY = 'eleve-accent-color'
 const APPEARANCE_KEY = 'eleve-appearance'
+// 🔴 2026-08-18 老大需求：macOS 主题系统完善——新增 4 个持久化项
+const SIDEBAR_TINT_KEY = 'eleve-sidebar-tint'
+const REDUCE_TRANSPARENCY_KEY = 'eleve-reduce-transparency'
+const REDUCE_MOTION_KEY = 'eleve-reduce-motion'
+const FONT_SCALE_KEY = 'eleve-font-scale'
 
 import { emit } from '@tauri-apps/api/event';
 
@@ -62,6 +83,56 @@ function saveAppearance(appearance: Appearance): void {
   storage.save(APPEARANCE_KEY, appearance)
 }
 
+// ── 🔴 2026-08-18 新增设置读写（localStorage 即时缓存 + storage 落盘）──
+
+function loadSidebarTint(): SidebarTint {
+  const v = localStorage.getItem(SIDEBAR_TINT_KEY)
+  if (v !== null) return v === '1'
+  const saved = storage.load(SIDEBAR_TINT_KEY) as boolean | null
+  return saved ?? DEFAULT_SIDEBAR_TINT
+}
+
+function saveSidebarTint(v: SidebarTint): void {
+  localStorage.setItem(SIDEBAR_TINT_KEY, v ? '1' : '0')
+  storage.save(SIDEBAR_TINT_KEY, v)
+}
+
+function loadReduceTransparency(): boolean {
+  const v = localStorage.getItem(REDUCE_TRANSPARENCY_KEY)
+  if (v !== null) return v === '1'
+  const saved = storage.load(REDUCE_TRANSPARENCY_KEY) as boolean | null
+  return saved ?? DEFAULT_REDUCE_TRANSPARENCY
+}
+
+function saveReduceTransparency(v: boolean): void {
+  localStorage.setItem(REDUCE_TRANSPARENCY_KEY, v ? '1' : '0')
+  storage.save(REDUCE_TRANSPARENCY_KEY, v)
+}
+
+function loadReduceMotion(): boolean {
+  const v = localStorage.getItem(REDUCE_MOTION_KEY)
+  if (v !== null) return v === '1'
+  const saved = storage.load(REDUCE_MOTION_KEY) as boolean | null
+  return saved ?? DEFAULT_REDUCE_MOTION
+}
+
+function saveReduceMotion(v: boolean): void {
+  localStorage.setItem(REDUCE_MOTION_KEY, v ? '1' : '0')
+  storage.save(REDUCE_MOTION_KEY, v)
+}
+
+function loadFontScale(): FontScale {
+  const v = localStorage.getItem(FONT_SCALE_KEY) as FontScale | null
+  if (v === 'small' || v === 'medium' || v === 'large') return v
+  const saved = storage.load(FONT_SCALE_KEY) as FontScale | null
+  return saved === 'small' || saved === 'large' ? saved : DEFAULT_FONT_SCALE
+}
+
+function saveFontScale(v: FontScale): void {
+  localStorage.setItem(FONT_SCALE_KEY, v)
+  storage.save(FONT_SCALE_KEY, v)
+}
+
 // ─── 系统明暗检测 ───────────────────────────────────────────────────────────
 
 function getSystemDarkMode(): boolean {
@@ -71,10 +142,28 @@ function getSystemDarkMode(): boolean {
 
 // ─── CSS 注入 ───────────────────────────────────────────────────────────────
 
-export function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: boolean, rawAccent: string) {
+export interface ThemeAppearanceOptions {
+  /** 边栏色调（false = 中性灰边栏，不跟随主题色相） */
+  sidebarTint?: SidebarTint
+  /** 降低透明度（关闭全部 backdrop-filter 玻璃效果） */
+  reduceTransparency?: boolean
+  /** 减弱动态效果（禁用动画/过渡，对齐系统 prefers-reduced-motion） */
+  reduceMotion?: boolean
+  /** 文字大小档位（驱动 --dt-base-size 根字号） */
+  fontScale?: FontScale
+}
+
+export function applyThemeCSS(
+  colors: DerivedColors,
+  isDark: boolean,
+  isGlass: boolean,
+  rawAccent: string,
+  options: ThemeAppearanceOptions = {},
+) {
   if (typeof document === 'undefined') return
 
   const root = document.documentElement
+  const { sidebarTint = true, reduceTransparency = false, reduceMotion = false, fontScale = 'medium' } = options
 
   // 1. Dark class + color-scheme
   root.classList.toggle('dark', isDark)
@@ -210,9 +299,40 @@ export function applyThemeCSS(colors: DerivedColors, isDark: boolean, isGlass: b
     root.style.removeProperty('--glass-bg-input')
     root.style.removeProperty('--glass-border')
   }
+
+  // 4. 🔴 2026-08-18 老大需求：macOS 主题系统完善——外观参数应用
+
+  // 4a. 边栏色调：false → 中性灰边栏（覆盖 --theme-sidebar-background，
+  //    色相与 accent 解耦；macOS「允许墙纸调色」的桌面等价物）
+  root.dataset.sidebarTint = sidebarTint ? 'tinted' : 'plain'
+  if (!sidebarTint) {
+    root.style.setProperty('--theme-sidebar-background', neutralSidebarFor(isDark))
+  } else {
+    root.style.removeProperty('--theme-sidebar-background')
+  }
+
+  // 4b. 降低透明度：关闭全部 backdrop-filter（玻璃表面降级为接近不透明）
+  root.classList.toggle('reduce-transparency', reduceTransparency)
+
+  // 4c. 减弱动态效果：禁用动画/过渡（对齐系统级 reduced-motion 语义）
+  root.classList.toggle('reduce-motion', reduceMotion)
+
+  // 4d. 文字大小：--dt-base-size 驱动根字号（html font-size）
+  root.style.setProperty('--dt-base-size', FONT_SCALE_SIZES[fontScale])
 }
 
 // ─── Boot-time paint ────────────────────────────────────────────────────────
+
+/** 🔴 2026-08-18 读取全部外观选项（边栏色调/降低透明度/减弱动态/文字大小）——
+ *  主窗口 boot paint 与看板独立窗口（KanbanWindowApp）共用，保持多窗口一致 */
+export function loadThemeAppearanceOptions(): ThemeAppearanceOptions {
+  return {
+    sidebarTint: loadSidebarTint(),
+    reduceTransparency: loadReduceTransparency(),
+    reduceMotion: loadReduceMotion(),
+    fontScale: loadFontScale(),
+  }
+}
 
 if (typeof window !== 'undefined') {
   const accent = loadAccent()
@@ -221,7 +341,7 @@ if (typeof window !== 'undefined') {
   const isDark = appearance === 'dark' || (appearance !== 'light' && systemDark)
   const isGlass = appearance === 'glass'
   const colors = deriveColors(accent, isDark)
-  applyThemeCSS(colors, isDark, isGlass, accent)
+  applyThemeCSS(colors, isDark, isGlass, accent, loadThemeAppearanceOptions())
   // 启动时初始化窗口效果（DWM 原生合成）
   call('set_window_effect', { appearance })
     .catch(() => {}) // 静默失败，不阻塞启动
@@ -238,6 +358,15 @@ interface ThemeContextValue {
   setAccent: (color: string) => void
   setAppearance: (appearance: Appearance) => void
   accentColors: typeof ACCENT_COLORS
+  // 🔴 2026-08-18 老大需求：macOS 主题系统完善——新增 4 项
+  sidebarTint: SidebarTint
+  setSidebarTint: (v: SidebarTint) => void
+  reduceTransparency: boolean
+  setReduceTransparency: (v: boolean) => void
+  reduceMotion: boolean
+  setReduceMotion: (v: boolean) => void
+  fontScale: FontScale
+  setFontScale: (v: FontScale) => void
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
@@ -249,6 +378,14 @@ const ThemeContext = createContext<ThemeContextValue>({
   setAccent: () => {},
   setAppearance: () => {},
   accentColors: ACCENT_COLORS,
+  sidebarTint: DEFAULT_SIDEBAR_TINT,
+  setSidebarTint: () => {},
+  reduceTransparency: DEFAULT_REDUCE_TRANSPARENCY,
+  setReduceTransparency: () => {},
+  reduceMotion: DEFAULT_REDUCE_MOTION,
+  setReduceMotion: () => {},
+  fontScale: DEFAULT_FONT_SCALE,
+  setFontScale: () => {},
 })
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -260,6 +397,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   )
   const [systemDark, setSystemDark] = useState(() =>
     typeof window === 'undefined' ? false : getSystemDarkMode()
+  )
+  // 🔴 2026-08-18 老大需求：macOS 主题系统完善——4 项新状态
+  const [sidebarTint, setSidebarTintState] = useState<SidebarTint>(() =>
+    typeof window === 'undefined' ? DEFAULT_SIDEBAR_TINT : loadSidebarTint()
+  )
+  const [reduceTransparency, setReduceTransparencyState] = useState(() =>
+    typeof window === 'undefined' ? DEFAULT_REDUCE_TRANSPARENCY : loadReduceTransparency()
+  )
+  const [reduceMotion, setReduceMotionState] = useState(() =>
+    typeof window === 'undefined' ? DEFAULT_REDUCE_MOTION : loadReduceMotion()
+  )
+  const [fontScale, setFontScaleState] = useState<FontScale>(() =>
+    typeof window === 'undefined' ? DEFAULT_FONT_SCALE : loadFontScale()
   )
 
   // 监听系统明暗变化
@@ -285,8 +435,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   // 应用 CSS
   useEffect(() => {
-    applyThemeCSS(colors, isDark, isGlass, accent)
-  }, [colors, isDark, isGlass])
+    applyThemeCSS(colors, isDark, isGlass, accent, {
+      sidebarTint,
+      reduceTransparency,
+      reduceMotion,
+      fontScale,
+    })
+  }, [colors, isDark, isGlass, accent, sidebarTint, reduceTransparency, reduceMotion, fontScale])
 
   // 设置函数（写入本地 + 后端同步，失败不阻塞 UI）
   const setAccent = useCallback((color: string) => {
@@ -328,8 +483,63 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         setAppearanceState(backendAppearance)
         saveAppearance(backendAppearance)
       }
+      // 🔴 2026-08-18 新增 4 项同规则（本地无值 → 后端填充）
+      if (typeof display?.sidebar_tint === 'boolean' && !localStorage.getItem(SIDEBAR_TINT_KEY)) {
+        setSidebarTintState(display.sidebar_tint as SidebarTint)
+        saveSidebarTint(display.sidebar_tint as SidebarTint)
+      }
+      if (typeof display?.reduce_transparency === 'boolean' && !localStorage.getItem(REDUCE_TRANSPARENCY_KEY)) {
+        setReduceTransparencyState(Boolean(display.reduce_transparency))
+        saveReduceTransparency(Boolean(display.reduce_transparency))
+      }
+      if (typeof display?.reduce_motion === 'boolean' && !localStorage.getItem(REDUCE_MOTION_KEY)) {
+        setReduceMotionState(Boolean(display.reduce_motion))
+        saveReduceMotion(Boolean(display.reduce_motion))
+      }
+      if (typeof display?.font_scale === 'string' && !localStorage.getItem(FONT_SCALE_KEY)) {
+        const fs = display.font_scale as FontScale
+        if (fs === 'small' || fs === 'medium' || fs === 'large') {
+          setFontScaleState(fs)
+          saveFontScale(fs)
+        }
+      }
     }).catch(() => {})
   }, []) // 只在挂载时执行一次
+
+  // 🔴 2026-08-18 老大需求：4 项新设置 setter（本地 + 后端同步，失败不阻塞 UI；
+  // emit theme-changed 让看板等独立窗口经 loadThemeAppearanceOptions 同步）
+  const syncThemeChanged = useCallback(() => {
+    emit('theme-changed', { accent: loadAccent(), appearance: loadAppearance() })
+      .catch(() => console.warn('[Theme] 事件发送失败'))
+  }, [])
+
+  const setSidebarTint = useCallback((v: SidebarTint) => {
+    setSidebarTintState(v)
+    saveSidebarTint(v)
+    call('update_config', { config: { display: { sidebar_tint: v } } }).catch(() => {})
+    syncThemeChanged()
+  }, [syncThemeChanged])
+
+  const setReduceTransparency = useCallback((v: boolean) => {
+    setReduceTransparencyState(v)
+    saveReduceTransparency(v)
+    call('update_config', { config: { display: { reduce_transparency: v } } }).catch(() => {})
+    syncThemeChanged()
+  }, [syncThemeChanged])
+
+  const setReduceMotion = useCallback((v: boolean) => {
+    setReduceMotionState(v)
+    saveReduceMotion(v)
+    call('update_config', { config: { display: { reduce_motion: v } } }).catch(() => {})
+    syncThemeChanged()
+  }, [syncThemeChanged])
+
+  const setFontScale = useCallback((v: FontScale) => {
+    setFontScaleState(v)
+    saveFontScale(v)
+    call('update_config', { config: { display: { font_scale: v } } }).catch(() => {})
+    syncThemeChanged()
+  }, [syncThemeChanged])
 
   const value = useMemo(
     () => ({
@@ -341,8 +551,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       setAccent,
       setAppearance,
       accentColors: ACCENT_COLORS,
+      sidebarTint,
+      setSidebarTint,
+      reduceTransparency,
+      setReduceTransparency,
+      reduceMotion,
+      setReduceMotion,
+      fontScale,
+      setFontScale,
     }),
-    [accent, appearance, isDark, isGlass, colors, setAccent, setAppearance]
+    [accent, appearance, isDark, isGlass, colors, setAccent, setAppearance, sidebarTint, setSidebarTint, reduceTransparency, setReduceTransparency, reduceMotion, setReduceMotion, fontScale, setFontScale]
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>

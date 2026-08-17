@@ -16,6 +16,8 @@ import { generateProjectIdea } from '../lib/llm-oneshot';
 import { renameSessionAction } from '../lib/session-actions';
 import { pickDirectory } from '../utils/directory-picker';
 import { notifySuccess, notifyError } from '../utils/notifications';
+// 🔴 2026-08-18 主题化：色板可读色计算收敛（原内联硬编码 #1D1D1F/#FFFFFF/#007AFF）
+import { useTheme, getReadableOnAccent } from '../themes';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from './ui/dialog';
@@ -44,6 +46,8 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
   const [saving, setSaving] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const desktop = isTauri();
+  // 🔴 2026-08-18 主题化：颜色预览 fallback 用主题主色实值（可读色计算需要 hex）
+  const { colors: themeColors } = useTheme();
 
   useEffect(() => {
     if (open) {
@@ -185,15 +189,10 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
             <div
               className="grid size-8 shrink-0 place-items-center rounded-lg shadow-sm transition-colors"
               style={{
-                background: color || 'var(--dt-primary)',
-                color: (() => {
-                  const bg = color || '#007AFF';
-                  const c = bg.replace('#', '');
-                  const r = parseInt(c.slice(0, 2), 16) / 255;
-                  const g = parseInt(c.slice(2, 4), 16) / 255;
-                  const b = parseInt(c.slice(4, 6), 16) / 255;
-                  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.5 ? '#1D1D1F' : '#FFFFFF';
-                })(),
+                // 🔴 2026-08-18 主题化：fallback 用主题主色实值（原硬编码 #007AFF）；
+                // 可读文字走 getReadableOnAccent（原内联亮度计算 + 硬编码 #1D1D1F/#FFFFFF）
+                background: color || themeColors.primary,
+                color: getReadableOnAccent(color || themeColors.primary),
               }}
             >
               {icon ? (() => { const Ic = projectIconFor(icon); return <Ic size={15} />; })() : <FolderGit size={15} />}

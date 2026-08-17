@@ -32,6 +32,8 @@ import {
   useTerminalFontConfigured,
 } from '@/lib/terminal-font';
 import { writeClipboardText } from '@/components/ui/copy-button';
+// 🔴 2026-08-18 老大需求：终端色板主题化——不再硬编码 macOS 深色板
+import { useTheme, deriveTerminalTheme } from '../themes';
 
 // 🔴 2026-08-13 Phase 2.2：scrollback 配置化起点（内存大头——xterm 每行保留 DOM/buffer；
 // 后端 config.yaml 暂无对应字段，先常量提出便于未来配置接线；对齐 Hermes PERSISTENT_SESSION_SCROLLBACK 语义）
@@ -54,6 +56,20 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
   const unregisterReaderRef = useRef<(() => void) | null>(null);
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
+
+  // 🔴 2026-08-18 终端色板主题化：消费主题派生色（浅色模式获得浅底终端，
+  // 深色/玻璃模式自动跟随；主题色/外观切换即时热更）
+  const { colors, isDark } = useTheme();
+  const termTheme = useMemo(() => deriveTerminalTheme(colors, isDark), [colors, isDark]);
+  const termThemeRef = useRef(termTheme);
+  termThemeRef.current = termTheme;
+
+  // 主题变化 → xterm 热切换 theme（不重建终端/PTY；对齐字体热切换同款节奏）
+  useEffect(() => {
+    const term = terminalRef.current;
+    if (!initializedRef.current || !term) return;
+    term.options.theme = termThemeRef.current;
+  }, [termTheme]);
 
   // ── 字体热切换（对齐 Hermes useTerminalFontController）──
   const configuredFont = useTerminalFontConfigured();
@@ -119,29 +135,9 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
           // OSC 8 hyperlink（gh/cargo/npm/ls --hyperlink）走 opener（Hermes 注释：
           // 默认 window.open 被 Tauri 拒绝 + raw confirm() 死胡同）
           linkHandler: terminalLinkHandler,
-          theme: {
-            background: '#1c1c1e',
-            foreground: '#e5e5e7',
-            cursor: '#0a84ff',
-            cursorAccent: '#1c1c1e',
-            selectionBackground: '#0a84ff40',
-            black: '#1c1c1e',
-            red: '#ff453a',
-            green: '#30d158',
-            yellow: '#ff9f0a',
-            blue: '#0a84ff',
-            magenta: '#bf5af2',
-            cyan: '#5ac8fa',
-            white: '#e5e5e7',
-            brightBlack: '#636366',
-            brightRed: '#ff453a',
-            brightGreen: '#30d158',
-            brightYellow: '#ff9f0a',
-            brightBlue: '#0a84ff',
-            brightMagenta: '#bf5af2',
-            brightCyan: '#5ac8fa',
-            brightWhite: '#f5f5f7',
-          },
+          // 🔴 2026-08-18 主题化：原硬编码 macOS 深色板（#1c1c1e/#e5e5e7/#0a84ff…）
+          // → deriveTerminalTheme(colors, isDark)——16 色 ANSI 全量跟随主题
+          theme: termThemeRef.current,
         });
 
         term.loadAddon(fitAddon);

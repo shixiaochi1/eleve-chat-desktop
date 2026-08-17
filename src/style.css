@@ -72,7 +72,7 @@
     0 0.25rem 1rem var(--theme-shadow-color-heavy),
     0 1rem 2rem -1.5rem var(--theme-shadow-color-heavy);
   --shadow-lg:
-    inset 0 0.0625rem 0 rgba(255, 255, 255, 0.28),
+    inset 0 0.0625rem 0 var(--ui-card-highlight),
     0 0 0 0.0625rem color-mix(in srgb, var(--dt-foreground) 8%, transparent),
     0 0.75rem 2rem var(--theme-shadow-color-heavy);
   --shadow-header:
@@ -218,7 +218,8 @@
     --ui-card-border: var(--theme-border);
     --ui-card-shadow-outer: var(--theme-shadow-color-heavy);
     --ui-card-shadow-inner: var(--theme-shadow-color);
-    --ui-card-highlight: rgba(255, 255, 255, 0.05);
+    /* 🔴 2026-08-18 变量化：内顶高光（浅色卡片上为柔和白高光，深色下提亮） */
+    --ui-card-highlight: rgba(255, 255, 255, 0.28);
     --ui-card-glow-cyan: var(--theme-card-glow-cyan);
     --ui-card-glow-purple: var(--theme-card-glow-purple);
     --ui-card-glow-cyan-mid: color-mix(in srgb, var(--theme-card-glow-cyan) 60%, transparent);
@@ -364,11 +365,11 @@
     --kanban-hover-bg: var(--ui-bg-tertiary);
     --kanban-selected-bg: var(--ui-bg-secondary);
 
-    /* ── 看板优先级色 — Trail 风格冷色系 ── */
-    --priority-0: #ef4444;   /* P0 紧急 — 红 */
-    --priority-1: #f97316;   /* P1 高 — 橙 */
-    --priority-2: #eab308;   /* P2 中 — 黄 */
-    --priority-3: #9ca3af;   /* P3 低 — 灰 */
+    /* ── 看板优先级色 — 🔴 2026-08-18 全部改走主题语义色（原硬编码 Tailwind 色）── */
+    --priority-0: var(--ui-red);                                 /* P0 紧急 */
+    --priority-1: var(--ui-orange);                              /* P1 高 */
+    --priority-2: var(--ui-yellow);                              /* P2 中 */
+    --priority-3: var(--dt-muted-foreground);                    /* P3 低 */
 
     /* ── 看板卡片 ── */
     --kanban-card-radius: 8px;
@@ -432,6 +433,28 @@
       var(--glass-body-top) 0%,
       var(--glass-body-bottom) 100%
     );
+  }
+
+  /* ── 🔴 2026-08-18 老大需求：macOS 主题系统完善 ──
+     「降低透明度」：关闭全部 backdrop-filter 玻璃效果，Glass 模式退化为实色底色 */
+  .reduce-transparency body {
+    background: var(--theme-background);
+  }
+  .reduce-transparency *,
+  .reduce-transparency *::before,
+  .reduce-transparency *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* 「减弱动态效果」：动画/过渡压到瞬时（对齐系统级 prefers-reduced-motion 语义） */
+  .reduce-motion *,
+  .reduce-motion *::before,
+  .reduce-motion *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 
   /* ── 方案C: 噪点纹理层 ── */

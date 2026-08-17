@@ -122,6 +122,84 @@ export const ACCENT_COLORS = [
 export const DEFAULT_ACCENT = '#8E8E93'
 export const DEFAULT_APPEARANCE: Appearance = 'auto'
 
+// ── 🔴 2026-08-18 老大需求：macOS 主题系统完善（System Settings 同级参数）──
+
+/** 文字大小档位（macOS 显示器设置 → 文本大小；驱动 --dt-base-size） */
+export type FontScale = 'small' | 'medium' | 'large'
+
+/** 边栏色调：true = 边栏跟随主题色相（macOS「允许墙纸调色」的桌面等价物）；
+ *  false = 中性灰边栏（色相固定冷蓝灰，换主题色边栏不动） */
+export type SidebarTint = boolean
+
+export const DEFAULT_SIDEBAR_TINT: SidebarTint = true
+export const DEFAULT_REDUCE_TRANSPARENCY = false
+export const DEFAULT_REDUCE_MOTION = false
+export const DEFAULT_FONT_SCALE: FontScale = 'medium'
+
+/** 各档位对应的根字号（html font-size = var(--dt-base-size；medium=1rem
+ *  保持现状基线，small/large 按 ±12.5% 缩放——macOS 文字大小阶梯） */
+export const FONT_SCALE_SIZES: Record<FontScale, string> = {
+  small: '0.875rem',
+  medium: '1rem',
+  large: '1.125rem',
+}
+
+/** 中性边栏底色（sidebarTint=false 时覆盖 --theme-sidebar-background；
+ *  色相固定 220 冷蓝灰，与 accent 解耦——macOS 无色调边栏语义） */
+export function neutralSidebarFor(isDark: boolean): string {
+  return isDark ? hsl(220, 7, 15) : hsl(220, 5, 94)
+}
+
+// ── 🔴 2026-08-18 终端 ANSI 色板主题化 ──────────────────────────────────────
+
+/** 两色线性混合（t=0 → a，t=1 → b；xterm 终端色板派生用） */
+export function mixHex(a: string, b: string, t: number): string {
+  const pa = a.replace('#', '')
+  const pb = b.replace('#', '')
+  const ar = parseInt(pa.slice(0, 2), 16)
+  const ag = parseInt(pa.slice(2, 4), 16)
+  const ab = parseInt(pa.slice(4, 6), 16)
+  const br = parseInt(pb.slice(0, 2), 16)
+  const bg = parseInt(pb.slice(2, 4), 16)
+  const bb = parseInt(pb.slice(4, 6), 16)
+  const toHex = (v: number) => Math.round(v).toString(16).padStart(2, '0')
+  return `#${toHex(ar + (br - ar) * t)}${toHex(ag + (bg - ag) * t)}${toHex(ab + (bb - ab) * t)}`
+}
+
+/** xterm ITheme 派生——终端 16 色 ANSI 色板全量主题化（🔴 2026-08-18 老大需求：
+ *  UI 走主题控制不硬编码；原 useTerminal 写死 macOS 深色板，浅色模式不可用）：
+ *  - 背景/前景/光标 = 主题派生色（浅色模式获得浅底终端）
+ *  - 8 语义色（red/green/yellow/blue/magenta/cyan）= 主题语义色（Light/Dark 独立）
+ *  - 灰阶（black/brightBlack/white/brightWhite）= 前景↔背景混合
+ *  - bright* = 语义色向白混合 35%（标准「亮色 = 同色相更亮」约定） */
+export function deriveTerminalTheme(colors: DerivedColors, isDark: boolean) {
+  const semantic = (c: string) => c
+  const brighten = (c: string) => mixHex(c, '#ffffff', 0.35)
+  return {
+    background: isDark ? colors.background : colors.card,
+    foreground: colors.foreground,
+    cursor: colors.primary,
+    cursorAccent: colors.primaryForeground,
+    selectionBackground: colors.selectionBackground,
+    black: mixHex(colors.foreground, colors.background, 0.22),
+    red: semantic(colors.semanticRed),
+    green: semantic(colors.semanticGreen),
+    yellow: semantic(colors.semanticYellow),
+    blue: semantic(colors.semanticBlue),
+    magenta: semantic(colors.semanticPurple),
+    cyan: semantic(colors.semanticCyan),
+    white: mixHex(colors.foreground, colors.background, 0.9),
+    brightBlack: mixHex(colors.foreground, colors.background, 0.55),
+    brightRed: brighten(colors.semanticRed),
+    brightGreen: brighten(colors.semanticGreen),
+    brightYellow: brighten(colors.semanticYellow),
+    brightBlue: brighten(colors.semanticBlue),
+    brightMagenta: brighten(colors.semanticPurple),
+    brightCyan: brighten(colors.semanticCyan),
+    brightWhite: colors.foreground,
+  }
+}
+
 // ─── macOS 标准语义色 ───────────────────────────────────────────────────────
 
 const SEMANTIC_COLORS = {
@@ -474,8 +552,9 @@ export function isDarkColor(hex: string): boolean {
   return relativeLuminance(hex) <= 0.5
 }
 
-/** 获取主题色上的可读文字颜色 */
-function getReadableOnAccent(accent: string): string {
+/** 获取主题色上的可读文字颜色（🔴 2026-08-18 导出——ProjectDialogs 等
+ *  硬编码 #1D1D1F/#FFFFFF 的调用方统一收敛到此处） */
+export function getReadableOnAccent(accent: string): string {
   return isDarkColor(accent) ? '#FFFFFF' : '#1D1D1F'
 }
 

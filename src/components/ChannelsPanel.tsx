@@ -53,6 +53,10 @@ function platformIcon(platform: string) {
 
 /**
  * 平台 → 标签色彩
+ *
+ * 🔴 2026-08-18 主题铁律说明：此处为**品牌身份色**（数据语义，非 UI chrome）——
+ * 微信绿/Telegram 蓝等是平台商标色，跨主题必须恒定可辨识，不走主题派生；
+ * 未知平台回退主题变量 var(--accent)。
  */
 function platformColor(platform: string): string {
   switch (platform) {

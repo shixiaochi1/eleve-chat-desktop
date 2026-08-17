@@ -810,7 +810,8 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
               {!collapsedSections.diags && (
                 <div className="py-3 flex flex-col gap-2">
                   {diags.map(d => {
-                    const tone = d.severity === 'warning' ? '#fbbf24' : 'var(--ui-red)';
+                    // 🔴 2026-08-18 主题化：原 #fbbf24 硬编码 → 语义色变量
+                    const tone = d.severity === 'warning' ? 'var(--ui-yellow)' : 'var(--ui-red)';
                     return (
                       <div key={`${d.task_id}-${d.title}`} className="flex flex-col gap-1.5 rounded-md p-2.5 text-[0.75rem]"
                         style={{ backgroundColor: `color-mix(in srgb, ${tone} 7%, transparent)`, borderLeft: `2px solid ${tone}` }}>

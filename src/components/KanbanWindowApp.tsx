@@ -16,8 +16,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
 import KanbanPanel from './KanbanPanel';
 import { discoverPort, call } from '../utils/bridge';
-import { deriveColors, type Appearance } from '../themes/derive';
-import { applyThemeCSS } from '../themes/context';
+import { deriveColors, DEFAULT_ACCENT, type Appearance } from '../themes/derive';
+import { applyThemeCSS, loadThemeAppearanceOptions } from '../themes/context';
 import { Loader, Minus, Square, X } from 'lucide-react';
 
 export default function KanbanWindowApp() {
@@ -35,12 +35,13 @@ export default function KanbanWindowApp() {
     setDebug(prev => [...prev, `${new Date().toLocaleTimeString()} ${msg}`]);
   };
 
-  // 应用主题到 CSS
+  // 应用主题到 CSS（🔴 2026-08-18 同步外观选项——降低透明度/减弱动态/文字大小
+  // 与主窗口一致，多窗口主题体验统一）
   const applyTheme = useCallback((accent: string, appearance: Appearance) => {
     const isDark = appearance === 'dark' || (appearance === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
     const isGlass = appearance === 'glass';
     const colors = deriveColors(accent, isDark);
-    applyThemeCSS(colors, isDark, isGlass, accent);
+    applyThemeCSS(colors, isDark, isGlass, accent, loadThemeAppearanceOptions());
   }, []);
 
   useEffect(() => {
@@ -76,7 +77,8 @@ export default function KanbanWindowApp() {
 
         // 从后端读取主题配置
         const cfg = await call('get_config', {}) as { display?: { accent?: string; appearance?: Appearance } } | null;
-        const accent = cfg?.display?.accent || '#6366f1';
+        // 🔴 2026-08-18 主题化：原 #6366f1 硬编码 fallback → DEFAULT_ACCENT（石墨灰）
+        const accent = cfg?.display?.accent || DEFAULT_ACCENT;
         const appearance = cfg?.display?.appearance || 'auto';
         applyTheme(accent, appearance);
         log(`theme loaded: accent=${accent}, appearance=${appearance}`);
