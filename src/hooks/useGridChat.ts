@@ -60,6 +60,16 @@ import { WINDOW_MAX, PAGE_SIZE, FLUSH_MS, emptyState, gridMsgId, type AgentStatu
 // 🔴 2026-08-13 Phase 2 拆分：类型/常量移入 gridChatTypes.ts（re-export 保持消费方零改动）
 export type { AgentStatus, AgentChatState } from './gridChatTypes';
 
+// 🔴 2026-08-17 阶段4：交互类事件不受 slot 守卫约束（后台会话并发轮的
+// 审批/澄清/凭据请求必须可见可响应）。
+const GRID_INTERACTION_EVENTS = new Set([
+  'approval.request',
+  'approval.responded',
+  'clarify.request',
+  'sudo.request',
+  'secret.request',
+])
+
 export function useGridChat(
   active: boolean,
   options?: {
@@ -136,8 +146,10 @@ export function useGridChat(
     sendingRef.current[profile] = false;
     // 🔴 2026-08-13 边界修复：切会话清 pending 槽（新会话无旧审批/澄清卡；
     // loadLatest 不一定建 WS 流 → session.info 可能不推，必须显式清）
+    // 🔴 2026-08-17 阶段4：交互按会话多槽归属——切 slot 不清 interactions
+    // （该会话交互切回时仍在；新 slot 无交互自然不渲染）。只清 slashConfirm。
     patch(profile, (s) => ({ ...s, sessionId, status: 'idle', streamParts: [], activityHint: '',
-      pendingApproval: null, pendingClarify: null, pendingSudo: null, pendingSecret: null, pendingSlashConfirm: null }));
+      pendingSlashConfirm: null }));
     try {
       const res = await call('get_session_messages', { session_id: sessionId, limit: PAGE_SIZE }) as {
         messages?: SessionMessage[]; has_more?: boolean; oldest_id?: number | null;
@@ -323,17 +335,22 @@ export function useGridChat(
   // approval.respond、ClarifyCard 走 HTTP submitClarifyResponse、CredentialCard 由
   // AgentChatCard 提供 sudo_respond 的 onSubmit）——与单视图完全一致的单一权威路径。
   // 本 hook 只负责交互状态管理：卡片完成后调用 clearPending 收起弹窗、恢复 streaming。
-  const clearPending = useCallback((profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm') => {
+  // 🔴 2026-08-17 阶段4：交互按会话关闭（多槽；卡片 onDone/onDismiss 传 sid）。
+  // slash_confirm 仍是当前会话单槽（破坏性命令确认）。
+  const clearPending = useCallback((profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm', sessionId?: string) => {
     // 🔴 Phase 4b #7: status 由权威发送锁决定——锁在 = run 进行中 → streaming；
     // 锁不在 = run 已结束（或 onDismiss/deny 终止 turn）→ idle。
-    // 根治“run 已结束 → 迟到卡片交互误置 streaming 卡死转圈”。
     const next: AgentStatus = sendingRef.current[profile] ? 'streaming' : 'idle';
+    if (kind === 'slash_confirm') {
+      patch(profile, (st) => ({ ...st, pendingSlashConfirm: null, status: next }));
+      return;
+    }
+    const sid = sessionId ?? '';
     patch(profile, (st) => {
-      if (kind === 'approval') return { ...st, pendingApproval: null, status: next };
-      if (kind === 'clarify') return { ...st, pendingClarify: null, status: next };
-      if (kind === 'sudo') return { ...st, pendingSudo: null, status: next };
-      if (kind === 'slash_confirm') return { ...st, pendingSlashConfirm: null, status: next };
-      return { ...st, pendingSecret: null, status: next };
+      if (!sid || !st.interactions[sid]) return { ...st, status: next };
+      const nextInteractions = { ...st.interactions };
+      delete nextInteractions[sid];
+      return { ...st, interactions: nextInteractions, status: next };
     });
   }, [patch]);
 
@@ -467,11 +484,18 @@ export function useGridChat(
       // 并覆盖 sendTo 同步清理尚未镜像到 statesRef（render-phase 镜像）的理论窗口。
       const slotSid = statesRef.current[profile]?.sessionId;
       if (sessionId && slotSid && sessionIdMatchesProfile(slotSid, profile) && sessionId !== slotSid) {
-        if (eventName === 'message.complete' || eventName === 'error') {
-          sendingRef.current[profile] = false;
-          resetAccumulator(acc);
+        // 🔴 2026-08-17 阶段4（per-session 并发轮配套）：交互类事件**不受**
+        // slot 守卫约束——后台会话的审批/澄清/凭据请求必须可见可响应
+        // （被丢弃 = 工具挂到超时）。放行进 switch 按 sid 存多槽。
+        if (GRID_INTERACTION_EVENTS.has(eventName)) {
+          // fall through（不 return）
+        } else {
+          if (eventName === 'message.complete' || eventName === 'error') {
+            sendingRef.current[profile] = false;
+            resetAccumulator(acc);
+          }
+          return;
         }
-        return;
       }
 
       // 🔴 P2-D: 流式累加事件走共享处理器（与单视图 useMessageStream 同一权威路径）
@@ -596,30 +620,51 @@ export function useGridChat(
           break;
         }
         case 'approval.request':
-          // 🔴 run_id 在顶层（params.run_id = session_id），payload 内没有 → 合并进去，
-          // 供 ApprovalCard 调 approval.respond（对齐 useSSE routeWsEvent 的 chunk 构造，
-          // 否则宫格审批会发 session_id:undefined 导致审批失败）
+          // 🔴 2026-08-17 阶段4：按会话多槽存（run_id 在顶层 = session_id，合并进
+          // payload 供 ApprovalCard 调 approval.respond）
           patch(profile, (s) => ({
             ...s,
-            pendingApproval: { ...payload, run_id: (raw.run_id as string) ?? (raw.session_id as string) },
+            interactions: { ...s.interactions, [String(raw.run_id ?? raw.session_id ?? '')]: { kind: 'approval', data: { ...payload, run_id: (raw.run_id as string) ?? (raw.session_id as string) } } },
             status: 'waiting',
             lastActivity: Date.now(),
           }));
           break;
         case 'clarify.request':
-          patch(profile, (s) => ({ ...s, pendingClarify: payload, status: 'waiting', lastActivity: Date.now() }));
+          patch(profile, (s) => ({
+            ...s,
+            interactions: { ...s.interactions, [String(raw.session_id ?? '')]: { kind: 'clarify', data: payload as Record<string, unknown> } },
+            status: 'waiting',
+            lastActivity: Date.now(),
+          }));
           break;
         case 'sudo.request':
-          patch(profile, (s) => ({ ...s, pendingSudo: payload, status: 'waiting', lastActivity: Date.now() }));
+          patch(profile, (s) => ({
+            ...s,
+            interactions: { ...s.interactions, [String(raw.session_id ?? '')]: { kind: 'sudo', data: payload as Record<string, unknown> } },
+            status: 'waiting',
+            lastActivity: Date.now(),
+          }));
           break;
         case 'secret.request':
-          patch(profile, (s) => ({ ...s, pendingSecret: payload, status: 'waiting', lastActivity: Date.now() }));
+          patch(profile, (s) => ({
+            ...s,
+            interactions: { ...s.interactions, [String(raw.session_id ?? '')]: { kind: 'secret', data: payload as Record<string, unknown> } },
+            status: 'waiting',
+            lastActivity: Date.now(),
+          }));
           break;
         // 🔴 P2-D: 审批被其他人/路径响应后收起卡片（对齐单视图 approval.responded）
-        case 'approval.responded':
+        case 'approval.responded': {
           // P2-9: 不硬编码 status，由后续事件（message.delta/complete）驱动真实状态
-          patch(profile, (s) => s.pendingApproval ? { ...s, pendingApproval: null } : s);
+          const respondedSid = String(raw.run_id ?? raw.session_id ?? '');
+          patch(profile, (s) => {
+            if (!respondedSid || !s.interactions[respondedSid]) return s;
+            const next = { ...s.interactions };
+            delete next[respondedSid];
+            return { ...s, interactions: next };
+          });
           break;
+        }
         // 🔴 P2-D: 子 Agent 委托事件（对齐单视图 delegate.start/end）
         case 'delegate.start':
           patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(`▶ 委托子 Agent: ${(payload.goal as string) || payload.task_id || ''}`)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
@@ -836,19 +881,29 @@ export function useGridChat(
           if (pending || siModel || siUsage) {
             // 🔴 2026-08-13 边界修复：session.info 是 pending 快照权威——快照为空时
             // 清空（旧实现 pending=null 不 patch → 切会话后旧 pending 卡残留）
+            // 🔴 2026-08-17 阶段4：快照按 sid 恢复进多槽（快照归属 = 推送它的会话）
+            const infoSid = String(raw.session_id ?? '');
             const hasPending = !!(pending?.approval || pending?.clarify || pending?.sudo || pending?.secret || pending?.slashConfirm);
-            patch(profile, (s) => ({
-              ...s,
-              pendingApproval: pending?.approval ?? null,
-              pendingClarify: pending?.clarify ?? null,
-              pendingSudo: pending?.sudo ?? null,
-              pendingSecret: pending?.secret ?? null,
-              pendingSlashConfirm: pending?.slashConfirm ?? null,
-              ...(hasPending ? { status: 'waiting' as AgentStatus } : {}),
-              ...(siModel ? { modelName: siModel } : {}),
-              ...(siUsage ? { lastUsage: { input: (siUsage.input_tokens as number) || 0, output: (siUsage.output_tokens as number) || 0 } } : {}),
-              lastActivity: Date.now(),
-            }));
+            patch(profile, (s) => {
+              let interactions = s.interactions;
+              if (infoSid) {
+                const next = { ...interactions };
+                if (pending?.approval) next[infoSid] = { kind: 'approval', data: { ...(pending.approval as Record<string, unknown>), run_id: infoSid } };
+                else if (pending?.clarify) next[infoSid] = { kind: 'clarify', data: pending.clarify as Record<string, unknown> };
+                else if (pending?.sudo) next[infoSid] = { kind: 'sudo', data: pending.sudo as Record<string, unknown> };
+                else if (pending?.secret) next[infoSid] = { kind: 'secret', data: pending.secret as Record<string, unknown> };
+                else delete next[infoSid]; // 快照为空 → 清该会话项
+                interactions = next;
+              }
+              return {
+                ...s,
+                interactions,
+                pendingSlashConfirm: pending?.slashConfirm ?? null,
+                ...(hasPending ? { status: 'waiting' as AgentStatus } : {}),
+                ...(siModel ? { modelName: siModel } : {}),
+                ...(siUsage ? { lastUsage: { input: (siUsage.input_tokens as number) || 0, output: (siUsage.output_tokens as number) || 0 } } : {}),
+                lastActivity: Date.now(),
+            }});
           }
           break;
         }

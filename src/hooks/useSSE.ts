@@ -53,11 +53,11 @@ export interface SSECallbacks {
   onProjectsChanged?: () => void
   onNoticeClear?: (data: { key: string }) => void
   onStatusUpdate?: (data: { kind: string; text: string }) => void
-  onClarify?: (data: { clarify_id: string; question: string; choices?: string[] }) => void
+  onClarify?: (data: { session_id?: string; clarify_id: string; question: string; choices?: string[] }) => void
   onApproval?: (data: unknown) => void
   onApprovalResponded?: (data: { run_id: string; choice: string; resolved: number }) => void
-  onSudo?: (data: { request_id: string; prompt?: string }) => void
-  onSecret?: (data: { request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> }) => void
+  onSudo?: (data: { session_id?: string; request_id: string; prompt?: string }) => void
+  onSecret?: (data: { session_id?: string; request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> }) => void
   onSessionInfo?: (data: {
     session_id: string
     run_id: string
@@ -446,7 +446,7 @@ function processEvent(
 
     // ── 交互 ──
     case 'clarify.request':
-      cbs.onClarify?.({ clarify_id: chunk.clarify_id as string, question: chunk.question as string, choices: chunk.choices as string[] | undefined });
+      cbs.onClarify?.({ session_id: chunk.session_id as string | undefined, clarify_id: chunk.clarify_id as string, question: chunk.question as string, choices: chunk.choices as string[] | undefined });
       break;
 
     case 'approval.request':
@@ -458,11 +458,11 @@ function processEvent(
       break;
 
     case 'sudo.request':
-      cbs.onSudo?.({ request_id: chunk.request_id as string, prompt: chunk.prompt as string | undefined });
+      cbs.onSudo?.({ session_id: chunk.session_id as string | undefined, request_id: chunk.request_id as string, prompt: chunk.prompt as string | undefined });
       break;
 
     case 'secret.request':
-      cbs.onSecret?.({ request_id: chunk.request_id as string, prompt: chunk.prompt as string, env_var: chunk.env_var as string, metadata: chunk.metadata as Record<string, unknown> | undefined });
+      cbs.onSecret?.({ session_id: chunk.session_id as string | undefined, request_id: chunk.request_id as string, prompt: chunk.prompt as string, env_var: chunk.env_var as string, metadata: chunk.metadata as Record<string, unknown> | undefined });
       break;
 
     // ── 会话 ──
@@ -601,6 +601,16 @@ function processEvent(
  * WS 和 SSE 路径共用 processEvent()，事件名已统一为 Eleve 标准。
  * 🔴 多 Agent 隔离：routeWsEvent 按 session_id 过滤，非当前会话的事件丢弃（后端已持久化）。
  */
+// 🔴 2026-08-17 阶段4：交互类事件（不受会话过滤约束——后台会话并发轮的
+// 审批/澄清/凭据请求必须可见可响应）。
+const INTERACTION_EVENT_NAMES = new Set([
+  'approval.request',
+  'approval.responded',
+  'clarify.request',
+  'sudo.request',
+  'secret.request',
+])
+
 export function useSSE(
   callbacks: SSECallbacks = {},
   currentSessionIdRef?: React.MutableRefObject<string | null>,
@@ -644,6 +654,13 @@ export function useSSE(
       ...(raw.run_id != null && chunkBase.run_id == null ? { run_id: raw.run_id } : {}),
     };
 
+    // 🔴 2026-08-17 阶段4（per-session 并发轮配套）：交互类事件**先于**会话
+    // 过滤——并发轮架构下后台会话的轮可能发起审批/澄清/凭据请求，被过滤
+    // 丢弃 = 工具挂到超时。交互事件必须直达回调（按 sid 渲染/响应）。
+    if (INTERACTION_EVENT_NAMES.has(eventName)) {
+      processEvent(eventName, chunk, acc, cbs);
+      return;
+    }
     // 🔴 多 Agent 隔离：事件带 session_id 且不匹配当前会话 → 丢弃
     // 不带 session_id 的事件（notification/skin/terminal 等全局广播）→ 放行
     // （2026-08-17 评估：单视图发送锁是全局的，在过滤分支释放会误伤"当前

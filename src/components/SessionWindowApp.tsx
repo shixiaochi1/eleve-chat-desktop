@@ -25,7 +25,7 @@ function cardColor(hex: string) {
 const EMPTY_STATE: AgentChatState = {
   sessionId: null, messages: [], hasMore: false, oldestId: null,
   isLoadingMore: false, status: 'idle',
-  pendingApproval: null, pendingClarify: null, pendingSudo: null, pendingSecret: null,
+  interactions: {},
   pendingSlashConfirm: null, streamParts: [], activityHint: '', sessionTitle: null, modelName: null, lastUsage: null, lastActivity: 0,
 };
 

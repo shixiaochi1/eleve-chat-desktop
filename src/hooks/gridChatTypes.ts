@@ -23,10 +23,10 @@ export interface AgentChatState {
   /** 🔴 Phase 1: 流式 in-flight parts（到达序 segment，累加器 acc.parts 的 30fps flush 镜像）。
    *  完成后经 finalizeAccumulator 并入 messages、清空。与单视图 live parts 同构（同一套 segment 规则）。 */
   streamParts: ChatMessagePart[];
-  pendingApproval: unknown | null;
-  pendingClarify: unknown | null;
-  pendingSudo: unknown | null;
-  pendingSecret: unknown | null;
+  /** 🔴 2026-08-17 阶段4（per-session 并发轮配套）：交互按会话多槽存储——
+   *  后台会话的审批/澄清/凭据请求不被 slot 守卫丢弃；slot 会话交互渲染
+   *  卡片，其他会话交互渲染横幅（点击切卡响应）。key = sessionId。 */
+  interactions: Record<string, GridInteraction>;
   /** 破坏性 slash 命令二次确认（对齐单视图 SlashConfirmCard） */
   pendingSlashConfirm: { confirmId: string; command: string; description: string } | null;
   /** 瞬态活动提示（thinking / tool.progress / delegate.progress，message.complete 清空） */
@@ -40,11 +40,17 @@ export interface AgentChatState {
   lastActivity: number;
 }
 
+/** 🔴 2026-08-17 阶段4：宫格交互载荷（kind 分派 + 原始数据） */
+export interface GridInteraction {
+  kind: 'approval' | 'clarify' | 'sudo' | 'secret'
+  data: Record<string, unknown>
+}
+
 export function emptyState(): AgentChatState {
   return {
     sessionId: null, messages: [], hasMore: false, oldestId: null,
     isLoadingMore: false, status: 'idle', streamParts: [],
-    pendingApproval: null, pendingClarify: null, pendingSudo: null, pendingSecret: null,
+    interactions: {},
     pendingSlashConfirm: null, activityHint: '', sessionTitle: null, modelName: null, lastUsage: null,
     lastActivity: 0,
   };

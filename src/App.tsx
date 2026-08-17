@@ -84,6 +84,11 @@ let tauriWindow: Window | null = null;
 //   - 项目域（path 非空）= 会话 cwd 在 path 下（前缀匹配 + 路径边界，防 C:\projAB 误判属于 C:\projA）
 //   - HOME 域 = 该 Agent workspace 路径（后端注入 Home 桶 path；匹配 workspace 下会话）
 //   按 last_active 降序取最新；无匹配返回 null
+/** 🔴 2026-08-17 阶段4：会话短标签（后台会话交互卡片显示） */
+function shortSessionLabel(sid: string): string {
+  return sid.length > 16 ? `${sid.slice(0, 8)}…${sid.slice(-6)}` : sid
+}
+
 function latestSessionForDomain(
   sessions: Array<{ id: string; cwd?: string | null; last_active: number }>,
   profile: string,
@@ -151,10 +156,26 @@ export default function App() {
   }, [viewMode, focusedGridSessionId]);
   const [deepseekVisible, setDeepseekVisible] = useState<boolean>(false);  // DeepSeek 嵌入 WebView 显隐
   const chatCardRef = useRef<HTMLDivElement>(null);  // DeepSeek WebView 锚点
-  const [activeClarify, setActiveClarify] = useState<{ clarify_id: string; question: string; choices: string[] } | null>(null);
-  const [activeApproval, setActiveApproval] = useState<{ command: string; description: string; pattern: string; choices: string[]; run_id: string } | null>(null);
-  const [activeSudo, setActiveSudo] = useState<{ request_id: string; prompt?: string } | null>(null);
-  const [activeSecret, setActiveSecret] = useState<{ request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> } | null>(null);
+  // 🔴 2026-08-17 阶段4（per-session 并发轮配套）：交互状态从单槽改为
+  // **按会话多槽**（Record<sessionId, interaction>）——后台会话的审批/
+  // 澄清/凭据请求必须可见可响应（单槽覆盖 = 前一个会话的工具挂到超时）。
+  // 当前会话的交互渲染在消息区原位置；其他会话的交互渲染"后台会话交互"区。
+  type PendingInteraction =
+    | { kind: 'approval'; sessionId: string; data: { command: string; description: string; pattern: string; choices: string[]; run_id: string } }
+    | { kind: 'clarify'; sessionId: string; data: { clarify_id: string; question: string; choices: string[] } }
+    | { kind: 'sudo'; sessionId: string; data: { request_id: string; prompt?: string } }
+    | { kind: 'secret'; sessionId: string; data: { request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> } };
+  const [pendingInteractions, setPendingInteractions] = useState<Record<string, PendingInteraction>>({});
+  const upsertInteraction = useCallback((it: PendingInteraction) => {
+    setPendingInteractions((prev) => ({ ...prev, [it.sessionId]: it }));
+  }, []);
+  const removeInteraction = useCallback((sessionId: string) => {
+    setPendingInteractions((prev) => {
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+  }, []);
   const [activeSlashConfirm, setActiveSlashConfirm] = useState<{ confirmId: string; command: string; description: string } | null>(null);
 
   // ── overlay panel state (settings, about) ──
@@ -236,6 +257,20 @@ export default function App() {
 
   // ── session management（必须在 handleProfileChange 之前，切换 Agent 需要重置 session） ──
   const sess = useSessions();
+  // 🔴 2026-08-17 阶段4：当前会话交互（渲染原位置）+ 后台会话交互（独立区）
+  const currentSid = sess.sessionId ?? '';
+  const currentInteraction = currentSid ? pendingInteractions[currentSid] : undefined;
+  const currentClarify = currentInteraction?.kind === 'clarify' ? currentInteraction.data : null;
+  const currentClarifySessionId = currentInteraction?.kind === 'clarify' ? currentInteraction.sessionId : '';
+  const currentApproval = currentInteraction?.kind === 'approval' ? currentInteraction.data : null;
+  const currentApprovalSessionId = currentInteraction?.kind === 'approval' ? currentInteraction.sessionId : '';
+  const currentSudo = currentInteraction?.kind === 'sudo' ? currentInteraction.data : null;
+  const currentSudoSessionId = currentInteraction?.kind === 'sudo' ? currentInteraction.sessionId : '';
+  const currentSecret = currentInteraction?.kind === 'secret' ? currentInteraction.data : null;
+  const currentSecretSessionId = currentInteraction?.kind === 'secret' ? currentInteraction.sessionId : '';
+  const backgroundInteractions = Object.entries(pendingInteractions)
+    .filter(([sid]) => sid !== currentSid)
+    .map(([sid, it]) => ({ sid, it }));
 
   // 🔴 2026-08-13 Phase 2 拆分：启动编排（port/storage/profile/deps 门控）抽离到 useBootstrap。
   const {
@@ -502,10 +537,26 @@ export default function App() {
     setConnectionStatus,
     setDebugToolCalls,
     setMonitorState: setMonitor,
-    setActiveClarify,
-    setActiveApproval,
-    setActiveSudo,
-    setActiveSecret,
+    // 🔴 2026-08-17 阶段4：交互事件带 session_id → 多槽 upsert；
+    // null = 该会话 pending 快照为空（session.info 权威）→ 清该会话项
+    setActiveClarify: (data) => {
+      if (data === null) { if (sess.sessionId) removeInteraction(sess.sessionId); return; }
+      upsertInteraction({ kind: 'clarify', sessionId: data.session_id ?? sess.sessionId ?? '', data: { clarify_id: data.clarify_id, question: data.question, choices: data.choices } });
+    },
+    setActiveApproval: (data) => {
+      if (data === null) { if (sess.sessionId) removeInteraction(sess.sessionId); return; }
+      const sid = data.session_id ?? data.run_id ?? sess.sessionId ?? '';
+      upsertInteraction({ kind: 'approval', sessionId: sid, data: { command: data.command, description: data.description, pattern: data.pattern, choices: data.choices, run_id: data.run_id } });
+    },
+    setActiveSudo: (data) => {
+      if (data === null) { if (sess.sessionId) removeInteraction(sess.sessionId); return; }
+      upsertInteraction({ kind: 'sudo', sessionId: data.session_id ?? sess.sessionId ?? '', data: { request_id: data.request_id, prompt: data.prompt } });
+    },
+    setActiveSecret: (data) => {
+      if (data === null) { if (sess.sessionId) removeInteraction(sess.sessionId); return; }
+      upsertInteraction({ kind: 'secret', sessionId: data.session_id ?? sess.sessionId ?? '', data: { request_id: data.request_id, prompt: data.prompt, env_var: data.env_var, metadata: data.metadata } });
+    },
+    closeApproval: (sessionId) => removeInteraction(sessionId),
     setActiveSlashConfirm,
     setSessionCwd: handleSessionInfoCwd, // 🔴 2026-08-13 问题1：项目钉住期间忽略 session.info 覆盖
     sess,
@@ -521,8 +572,11 @@ export default function App() {
   //  不比异步 sess.sessionId（setState 异步 → .then() 时闭包值陈旧 → 误丢有效历史 → 首次切换丢消息）。
   //  调用前提：调用方必须先 resetStream(targetId) 同步锁定权威 ref。
   const loadSessionIntoView = useCallback((targetId: string) => {
-    // 🔴 P1-3: 切换会话时清空所有 pending 交互卡片（防 A 的审批卡留在 B 视图）
-    setActiveClarify(null); setActiveApproval(null); setActiveSudo(null); setActiveSecret(null); setActiveSlashConfirm(null);
+    // 🔴 P1-3: 切换会话时清空交互卡片（防 A 的审批卡留在 B 视图）。
+    // 2026-08-17 阶段4：多槽交互**按会话归属**——切会话只改变渲染目标，
+    // 不清 interactions（后台会话的审批仍在后端等待，清了 = 工具超时；
+    // 空快照由 session.info pending_prompts 权威清理）。只清 slashConfirm。
+    setActiveSlashConfirm(null);
     sess.setSessionId(targetId);
     persistSessionPointer(targetId);
     sess.setFreshDraftReady(false);
@@ -542,8 +596,9 @@ export default function App() {
 
   // 无历史会话 → 空白草稿（单一权威入口；profile = 要清指针的目标 profile）
   const clearSessionView = useCallback((profile: string) => {
-    // 🔴 P1-3: 同 loadSessionIntoView
-    setActiveClarify(null); setActiveApproval(null); setActiveSudo(null); setActiveSecret(null); setActiveSlashConfirm(null);
+    // 🔴 P1-3: 同 loadSessionIntoView（2026-08-17 阶段4：多槽按会话归属不清；
+    // 空草稿本身无交互，后台会话交互保留可见）
+    setActiveSlashConfirm(null);
     sess.setSessionId(null);
     clearSessionPointer(profile);
     sess.setFreshDraftReady(true);
@@ -815,6 +870,8 @@ export default function App() {
 
   // 🔴 P2-6: 宫格模式侧栏“删除会话”路由进宫格（删后自动加载同 Agent 最新剩余会话，无则显示空态）
   const gridAwareDeleteSession = useCallback((id: string) => {
+    // 🔴 2026-08-17 阶段4：会话删除 → 清该会话的交互项（后端已清 pending）
+    removeInteraction(id);
     handleDeleteSession(id);
     if (viewMode === 'grid') {
       const owner = profileFromSessionId(id);
@@ -830,7 +887,7 @@ export default function App() {
         }
       }
     }
-  }, [viewMode, handleDeleteSession, sess.sessions]);
+  }, [viewMode, handleDeleteSession, sess.sessions, removeInteraction]);
 
   // ── usePromptActions: send/regenerate/abort/queue ──
   const {
@@ -1156,15 +1213,15 @@ export default function App() {
   // 🔴 2026-08-13 Phase 2 拆分：mount 编排（markdown deps + 端口发现 + storage 恢复）、
   // WS 连接管理、beforeunload 落盘已移入 useBootstrap（纯移动，无逻辑变更）。
 
-  // ── clarify done ──
-  const handleClarifyDone = useCallback(() => {
-    setActiveClarify(null);
-  }, []);
+  // ── clarify done（2026-08-17 阶段4：按会话关闭多槽项）──
+  const handleClarifyDone = useCallback((sessionId: string) => {
+    removeInteraction(sessionId);
+  }, [removeInteraction]);
 
-  // ── approval done ──
-  const handleApprovalDone = useCallback(() => {
-    setActiveApproval(null);
-  }, []);
+  // ── approval done（2026-08-17 阶段4：按会话关闭多槽项）──
+  const handleApprovalDone = useCallback((sessionId: string) => {
+    removeInteraction(sessionId);
+  }, [removeInteraction]);
 
   // ── slash confirm done（D1：破坏性命令确认结果处理）──
   const handleSlashConfirmDone = useCallback((choice: string, result?: any) => {
@@ -1191,23 +1248,25 @@ export default function App() {
     }
   }, [sess, genId, setSessionListVersion]);
 
-  // ── sudo done (TODO: implement dialog response) ──
-  const handleSudoDone = useCallback(async (password: string) => {
-    if (!activeSudo) return;
+  // ── sudo done（2026-08-17 阶段4：按会话参数化——request_id 从交互项取）──
+  const handleSudoDone = useCallback(async (sessionId: string, password: string) => {
+    const it = pendingInteractions[sessionId];
+    if (!it || it.kind !== 'sudo') return;
     try {
-      await call('sudo_respond', { request_id: activeSudo.request_id, password });
+      await call('sudo_respond', { request_id: it.data.request_id, password });
     } catch { /* 静默处理 */ }
-    setActiveSudo(null);
-  }, [activeSudo]);
+    removeInteraction(sessionId);
+  }, [pendingInteractions, removeInteraction]);
 
-  // ── secret done
-  const handleSecretDone = useCallback(async (value: string) => {
-    if (!activeSecret) return;
+  // ── secret done（2026-08-17 阶段4：按会话参数化）──
+  const handleSecretDone = useCallback(async (sessionId: string, value: string) => {
+    const it = pendingInteractions[sessionId];
+    if (!it || it.kind !== 'secret') return;
     try {
-      await call('secret_respond', { request_id: activeSecret.request_id, value });
+      await call('secret_respond', { request_id: it.data.request_id, value });
     } catch { /* 静默处理 */ }
-    setActiveSecret(null);
-  }, [activeSecret]);
+    removeInteraction(sessionId);
+  }, [pendingInteractions, removeInteraction]);
 
   // ── command center navigation ──
   const handleNavigate = useCallback((panel: string) => {
@@ -1567,22 +1626,23 @@ export default function App() {
                     </div>
                   )}
                   {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.name} onClose={() => setLightbox(null)} />}
-                  {activeClarify && (
+                  {/* 🔴 2026-08-17 阶段4：当前会话的交互卡片（从多槽取当前 sid） */}
+                  {currentClarify && (
                     <ClarifyCard
-                      clarifyId={activeClarify.clarify_id}
-                      question={activeClarify.question}
-                      choices={activeClarify.choices}
-                      onDone={handleClarifyDone}
+                      clarifyId={currentClarify.clarify_id}
+                      question={currentClarify.question}
+                      choices={currentClarify.choices}
+                      onDone={() => handleClarifyDone(currentClarifySessionId)}
                     />
                   )}
-                  {activeApproval && (
+                  {currentApproval && (
                     <ApprovalCard
-                      command={activeApproval.command}
-                      description={activeApproval.description}
-                      pattern={activeApproval.pattern}
-                      choices={activeApproval.choices}
-                      run_id={activeApproval.run_id}
-                      onDone={handleApprovalDone}
+                      command={currentApproval.command}
+                      description={currentApproval.description}
+                      pattern={currentApproval.pattern}
+                      choices={currentApproval.choices}
+                      run_id={currentApproval.run_id}
+                      onDone={() => handleApprovalDone(currentApprovalSessionId)}
                     />
                   )}
                   {/* SlashConfirmCard — 破坏性斜杠命令确认（D1） */}
@@ -1596,24 +1656,81 @@ export default function App() {
                     />
                   )}
                   {/* SudoCard — 密码输入 */}
-                  {activeSudo && (
+                  {currentSudo && (
                     <CredentialCard
                       type="sudo"
                       title="Sudo 权限请求"
-                      description={activeSudo.prompt || '需要 sudo 密码'}
-                      onSubmit={handleSudoDone}
-                      onDismiss={() => setActiveSudo(null)}
+                      description={currentSudo.prompt || '需要 sudo 密码'}
+                      onSubmit={(pw) => handleSudoDone(currentSudoSessionId, pw)}
+                      onDismiss={() => removeInteraction(currentSudoSessionId)}
                     />
                   )}
                   {/* SecretCard — 凭据输入 */}
-                  {activeSecret && (
+                  {currentSecret && (
                     <CredentialCard
                       type="secret"
                       title="Secret 请求"
-                      description={`环境变量 ${activeSecret.env_var}: ${activeSecret.prompt}`}
-                      onSubmit={handleSecretDone}
-                      onDismiss={() => setActiveSecret(null)}
+                      description={`环境变量 ${currentSecret.env_var}: ${currentSecret.prompt}`}
+                      onSubmit={(v) => handleSecretDone(currentSecretSessionId, v)}
+                      onDismiss={() => removeInteraction(currentSecretSessionId)}
                     />
+                  )}
+                  {/* 🔴 2026-08-17 阶段4：后台会话交互区——per-session 并发轮的
+                      审批/澄清/凭据请求必须可见可响应（被单视图过滤丢弃 =
+                      工具挂到超时）。每个活跃交互一张卡，带会话身份标签。 */}
+                  {backgroundInteractions.length > 0 && (
+                    <div className="flex flex-col gap-2 px-3 pt-2">
+                      {backgroundInteractions.map(({ sid, it }) => (
+                        <div key={sid} className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-2">
+                          <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-amber-600 dark:text-amber-400">
+                            <span className="font-medium">⚡ 后台会话交互 · {shortSessionLabel(sid)}</span>
+                            <button
+                              className="rounded px-1.5 text-foreground/50 hover:text-foreground"
+                              onClick={() => removeInteraction(sid)}
+                              title="忽略（会话恢复时经 pending_prompts 重新提示）"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          {it.kind === 'approval' && (
+                            <ApprovalCard
+                              command={it.data.command}
+                              description={it.data.description}
+                              pattern={it.data.pattern}
+                              choices={it.data.choices}
+                              run_id={it.data.run_id}
+                              onDone={() => handleApprovalDone(sid)}
+                            />
+                          )}
+                          {it.kind === 'clarify' && (
+                            <ClarifyCard
+                              clarifyId={it.data.clarify_id}
+                              question={it.data.question}
+                              choices={it.data.choices}
+                              onDone={() => handleClarifyDone(sid)}
+                            />
+                          )}
+                          {it.kind === 'sudo' && (
+                            <CredentialCard
+                              type="sudo"
+                              title="Sudo 权限请求"
+                              description={it.data.prompt || '需要 sudo 密码'}
+                              onSubmit={(pw) => handleSudoDone(sid, pw)}
+                              onDismiss={() => removeInteraction(sid)}
+                            />
+                          )}
+                          {it.kind === 'secret' && (
+                            <CredentialCard
+                              type="secret"
+                              title="Secret 请求"
+                              description={`环境变量 ${it.data.env_var}: ${it.data.prompt}`}
+                              onSubmit={(v) => handleSecretDone(sid, v)}
+                              onDismiss={() => removeInteraction(sid)}
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   )}
                   <ContextBar sessionId={sess.sessionId} sessionStartedAt={sessionStartedAt} onNewSession={handleNewSessionWithScope} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount} deepseekVisible={deepseekVisible} onToggleDeepSeek={handleToggleDeepSeek} />
                 </>

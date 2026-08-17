@@ -75,7 +75,9 @@ interface AgentChatCardProps {
   onSend: (profile: string, text: string, attachmentDataURLs?: string[], sessionId?: string) => void;
   onLoadMore: (profile: string) => void;
   onAbort: (profile: string) => void;
-  onClearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm') => void;
+  onClearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm', sessionId?: string) => void;
+  /** 🔴 2026-08-17 阶段4：后台会话交互横幅 → 切到该会话响应 */
+  onSwitchSession?: (sessionId: string) => void;
   onExpand: (profile: string) => void;
   /** 新建会话（清空本 Agent 上下文） */
   onNewSession: (profile: string) => void;
@@ -158,7 +160,7 @@ function RobotAvatar({ agentColor, profile }: { agentColor: string; profile?: Ag
 
 export const AgentChatCard = memo(function AgentChatCard({
   profile, state, color, focused, portReady,
-  onSend, onLoadMore, onAbort, onClearPending, onExpand, onNewSession, onCommand, onSlashConfirmDone,
+  onSend, onLoadMore, onAbort, onClearPending, onExpand, onNewSession, onCommand, onSlashConfirmDone, onSwitchSession,
   onSelectModel, onQueueBubbleSync, getNewSessionCwd,
 }: AgentChatCardProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -378,10 +380,15 @@ export const AgentChatCard = memo(function AgentChatCard({
     if (attachedFiles.length > 0) clearFileAttachments();
   }, [onSend, name, clearImages, attachedImages, state.status, uploadUnuploaded, attachedFiles, clearFileAttachments, getNewSessionCwd]);
 
-  const approval = state.pendingApproval as ApprovalPayload | null;
-  const clarify = state.pendingClarify as ClarifyPayload | null;
-  const sudo = state.pendingSudo as SudoPayload | null;
-  const secret = state.pendingSecret as SecretPayload | null;
+  // 🔴 2026-08-17 阶段4：交互按会话多槽——slot 会话交互渲染卡片，
+  // 其他会话交互渲染横幅（点击切卡响应；不被 slot 守卫丢弃）。
+  const slotSid = state.sessionId ?? '';
+  const slotInteraction = slotSid ? state.interactions[slotSid] : undefined;
+  const approval = slotInteraction?.kind === 'approval' ? (slotInteraction.data as unknown as ApprovalPayload) : null;
+  const clarify = slotInteraction?.kind === 'clarify' ? (slotInteraction.data as unknown as ClarifyPayload) : null;
+  const sudo = slotInteraction?.kind === 'sudo' ? (slotInteraction.data as unknown as SudoPayload) : null;
+  const secret = slotInteraction?.kind === 'secret' ? (slotInteraction.data as unknown as SecretPayload) : null;
+  const backgroundInteractions = Object.entries(state.interactions).filter(([sid]) => sid !== slotSid);
   const slashConfirm = state.pendingSlashConfirm;
   const streaming = state.status === 'streaming';
 
@@ -552,6 +559,23 @@ export const AgentChatCard = memo(function AgentChatCard({
         )}
       </div>
 
+      {/* 🔴 2026-08-17 阶段4：后台会话交互横幅（per-session 并发轮——其他
+           会话的审批/澄清/凭据请求可见，点击切到该会话响应） */}
+      {backgroundInteractions.length > 0 && (
+        <div className="flex flex-col gap-1 px-2.5 pt-1.5 shrink-0">
+          {backgroundInteractions.map(([sid, it]) => (
+            <button
+              key={sid}
+              className="flex items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-left text-[11px] text-amber-700 dark:text-amber-300 hover:bg-amber-500/20"
+              onClick={() => onSwitchSession?.(sid)}
+              title={`会话 ${sid} 有待响应交互，点击切换`}
+            >
+              <span className="font-medium">⚡ {it.kind === 'approval' ? '待审批' : it.kind === 'clarify' ? '待澄清' : it.kind === 'sudo' ? '待 sudo' : '待凭据'} · {sid.length > 16 ? `${sid.slice(0, 8)}…${sid.slice(-6)}` : sid}</span>
+              <span className="opacity-70">切换 →</span>
+            </button>
+          ))}
+        </div>
+      )}
       {/* ── 交互弹窗（per-agent，复用单视图组件） ── */}
       {approval && (
         <div className="px-2.5 pb-1.5 shrink-0">
@@ -562,7 +586,7 @@ export const AgentChatCard = memo(function AgentChatCard({
             choices={approval.choices}
             run_id={approval.run_id}
             profile={name}
-            onDone={() => onClearPending(name, 'approval')}
+            onDone={() => onClearPending(name, 'approval', slotSid)}
           />
         </div>
       )}
@@ -573,7 +597,7 @@ export const AgentChatCard = memo(function AgentChatCard({
             question={clarify.question}
             choices={clarify.choices}
             profile={name}
-            onDone={() => onClearPending(name, 'clarify')}
+            onDone={() => onClearPending(name, 'clarify', slotSid)}
           />
         </div>
       )}
@@ -585,9 +609,9 @@ export const AgentChatCard = memo(function AgentChatCard({
             description={sudo.prompt || '需要 sudo 密码'}
             onSubmit={async (password) => {
               await call('sudo_respond', { request_id: sudo.request_id, password, profile: name });
-              onClearPending(name, 'sudo');
+              onClearPending(name, 'sudo', slotSid);
             }}
-            onDismiss={() => onClearPending(name, 'sudo')}
+            onDismiss={() => onClearPending(name, 'sudo', slotSid)}
           />
         </div>
       )}
@@ -599,9 +623,9 @@ export const AgentChatCard = memo(function AgentChatCard({
             description={`环境变量 ${secret.env_var ?? ''}: ${secret.prompt ?? '需要凭据'}`}
             onSubmit={async (value) => {
               await call('secret_respond', { request_id: secret.request_id, value, profile: name });
-              onClearPending(name, 'secret');
+              onClearPending(name, 'secret', slotSid);
             }}
-            onDismiss={() => onClearPending(name, 'secret')}
+            onDismiss={() => onClearPending(name, 'secret', slotSid)}
           />
         </div>
       )}

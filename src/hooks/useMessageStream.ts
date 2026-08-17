@@ -83,10 +83,15 @@ export interface UseMessageStreamProps {
   setConnectionStatus: React.Dispatch<React.SetStateAction<string>>
   setDebugToolCalls: React.Dispatch<React.SetStateAction<DebugToolCall[]>>
   setMonitorState: React.Dispatch<React.SetStateAction<MonitorState>>
-  setActiveClarify: React.Dispatch<React.SetStateAction<{ clarify_id: string; question: string; choices: string[] } | null>>
-  setActiveApproval: React.Dispatch<React.SetStateAction<{ command: string; description: string; pattern: string; choices: string[]; run_id: string } | null>>
-  setActiveSudo?: React.Dispatch<React.SetStateAction<{ request_id: string; prompt?: string } | null>>
-  setActiveSecret?: React.Dispatch<React.SetStateAction<{ request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> } | null>>
+  // 🔴 2026-08-17 阶段4：交互回调改为带 session_id 的值语义（App 侧按会话
+  // 多槽存储——per-session 并发轮架构下后台会话的交互必须可见可响应）
+  // null = 该会话 pending 快照为空（session.info 权威）→ 清该会话项
+  setActiveClarify: (data: { session_id?: string; clarify_id: string; question: string; choices: string[] } | null) => void
+  setActiveApproval: (data: { session_id?: string; command: string; description: string; pattern: string; choices: string[]; run_id: string } | null) => void
+  setActiveSudo?: (data: { session_id?: string; request_id: string; prompt?: string } | null) => void
+  setActiveSecret?: (data: { session_id?: string; request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> } | null) => void
+  /** 🔴 2026-08-17 阶段4：审批被其他路径响应后按会话关闭卡片（run_id = session_id） */
+  closeApproval?: (sessionId: string) => void
   setActiveSlashConfirm?: React.Dispatch<React.SetStateAction<{ confirmId: string; command: string; description: string } | null>>
   /** 🔴 W-7: 会话 cwd 同步（session.info 推送）— 供 PreviewPanel 重启预览等消费 */
   setSessionCwd?: React.Dispatch<React.SetStateAction<string>>
@@ -144,6 +149,7 @@ export function useMessageStream({
   setActiveApproval,
   setActiveSudo,
   setActiveSecret,
+  closeApproval,
   setActiveSlashConfirm,
   setSessionCwd,
   sess,
@@ -666,9 +672,9 @@ export function useMessageStream({
       appendIndependentMessage({ id: genId(), role: 'system' as const, parts: [textPart(`✔ 子 Agent 完成: ${summary || status || 'done'}`)], timestamp: Date.now() });
     },
 
-    onClarify: ({ clarify_id, question, choices }: { clarify_id: string; question: string; choices?: string[] }) => {
+    onClarify: ({ session_id, clarify_id, question, choices }: { session_id?: string; clarify_id: string; question: string; choices?: string[] }) => {
       addDebugEvent('clarify', question.slice(0, 60));
-      setActiveClarify({ clarify_id, question, choices: choices ?? [] });
+      setActiveClarify({ session_id, clarify_id, question, choices: choices ?? [] });
     },
 
     onApproval: (data: unknown) => {
@@ -680,15 +686,16 @@ export function useMessageStream({
     // 🔴 对齐 Hermes: 收到 approval.responded 事件时关闭弹窗
     onApprovalResponded: (data: { run_id: string; choice: string; resolved: number }) => {
       addDebugEvent('approval.responded', `run_id=${data.run_id} choice=${data.choice} resolved=${data.resolved}`);
-      setActiveApproval(null);
+      // 🔴 2026-08-17 阶段4：按会话关闭（多槽交互；run_id = session_id）
+      closeApproval?.(data.run_id);
     },
 
-    onSudo: (data: { request_id: string; prompt?: string }) => {
+    onSudo: (data: { session_id?: string; request_id: string; prompt?: string }) => {
       addDebugEvent('sudo', `request_id=${data.request_id} prompt=${(data.prompt?.slice(0, 40)) ?? ''}`);
       setActiveSudo?.(data);
     },
 
-    onSecret: (data: { request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> }) => {
+    onSecret: (data: { session_id?: string; request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> }) => {
       addDebugEvent('secret', `request_id=${data.request_id} env_var=${data.env_var}`);
       setActiveSecret?.(data);
     },
