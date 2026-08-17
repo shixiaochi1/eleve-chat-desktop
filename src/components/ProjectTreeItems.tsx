@@ -663,13 +663,12 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
           }}
         />
       )}
-      {/* 🔴 2026-08-18 选中常驻边框流光 v2（conic 沿边框顺时针双光带；
-          --flow-color = 主题 primary） */}
+      {/* 🔴 2026-08-18 选中常驻边框流光（复用 arc-border 资产；--arc-c1 = 主题 primary） */}
       {isActiveProject && (
         <div
           aria-hidden
-          className="card-flow"
-          style={{ '--flow-color': 'var(--dt-primary)' } as React.CSSProperties}
+          className="arc-border card-arc"
+          style={{ '--arc-c1': 'var(--dt-primary)' } as React.CSSProperties}
         />
       )}
       {/* 名称行 */}
