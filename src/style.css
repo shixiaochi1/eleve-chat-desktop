@@ -1111,6 +1111,18 @@ canvas {
   to { transform: translateX(330%); }
 }
 
+/* ── 🔴 2026-08-18 选中卡片常驻边框流光（老大选定方案：复用 .arc-border 资产）──
+   内嵌 1px 环（--arc-inset: 0），避免与扫光/卡片的 overflow:hidden 裁剪冲突；
+   流光拖尾色用卡片色（融入卡片）；--arc-c1 由消费方注入选中色
+   （Agent 卡 = agent 主题色 / 项目卡 = 主题 primary）。
+   2.23s 线性循环流动；.reduce-motion / prefers-reduced-motion 自动降级为静态环。 */
+.card-arc {
+  --arc-inset: 0;
+  --arc-width: 0.0625rem;
+  --arc-c2: var(--dt-card);
+  --arc-duration: 2.23s;
+}
+
 /* ── 子 Agent 监控抽屉：从状态栏底边向下滑出，覆盖消息区。
    clip 层自状态栏底边（top:40px = h-10 状态栏高度）开始且 overflow:hidden：
    抽屉收起时上滑被裁剪在状态栏底边处——视觉锚定"从底边弹出/收回"
