@@ -112,6 +112,8 @@ function ProfileCard({
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(profile.name); } }}
       className={cn(
         'group relative w-full text-left px-2.5 py-2 rounded-lg border bg-card shadow-sm transition-all duration-150 cursor-pointer overflow-hidden space-y-1.5 hover:bg-accent/30',
+        // 🔴 2026-08-18 选中态边框呼吸动画（光环 45%↔75% 慢呼吸）
+        active && 'card-selected',
         switching && 'opacity-60'
       )}
       style={{
@@ -121,20 +123,18 @@ function ProfileCard({
         // 🔴 2026-08-18 老大需求：选中态填充同背景色——不再混入 accent 10% 淡底，
         // 选中标识只靠描边 + 光环 + 左侧发光竖条（bg-card 保持）
         background: undefined,
-        // 🔴 选中态背投影（对齐宫格卡片逻辑：细光环 + 明显投影；侧栏卡片小，光环 1px 不显粗）
-        boxShadow: active
-          ? `0 0 0 1px color-mix(in srgb, ${accent} 45%, transparent), 0 6px 18px var(--theme-shadow-color-heavy)`
-          : undefined,
+        // 🔴 2026-08-18 选中边框动画：boxShadow 移交 .card-selected 动画类
+        // （--sel-accent = agent 主题色），静态 45% 环保留给未动画/降级路径
+        '--sel-accent': accent,
       } as React.CSSProperties}
     >
-      {/* 左侧 accent 强调条：仅选中态渲染（实色+发光）；无 color 用主题 primary */}
+      {/* 左侧 accent 强调条：仅选中态渲染（实色+发光呼吸，🔴 2026-08-18 动画） */}
       {active && (
         <span
           aria-hidden
-          className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
+          className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full card-selected-bar"
           style={{
             background: accent,
-            boxShadow: `0 0 8px color-mix(in srgb, ${accent} 65%, transparent)`,
           }}
         />
       )}

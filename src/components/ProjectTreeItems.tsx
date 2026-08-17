@@ -630,16 +630,16 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
         'group/workspace relative w-full text-left px-2.5 py-2 rounded-lg border bg-card shadow-sm transition-all duration-150 cursor-pointer hover:bg-accent/30',
         isDragging && 'opacity-40',
         isDragOver && 'bg-accent/30',
+        // 🔴 2026-08-18 选中态边框呼吸动画（光环 45%↔75% 慢呼吸）
+        isActiveProject && 'card-selected',
       )}
       style={{
         // 描边 = 主题 primary 30% 透明混合（选中/未选中一致；与 Agent 卡片同构）
         borderColor: 'color-mix(in srgb, var(--dt-primary) 30%, transparent)',
         // 🔴 2026-08-18 选中态填充同背景色（bg-card 保持，不再混 primary 10%）
         background: undefined,
-        // 🔴 选中态背投影（对齐宫格卡片逻辑：细光环 + 明显投影；侧栏卡片小，光环 1px 不显粗）
-        boxShadow: isActiveProject
-          ? '0 0 0 1px color-mix(in srgb, var(--dt-primary) 45%, transparent), 0 6px 18px var(--theme-shadow-color-heavy)'
-          : undefined,
+        // 🔴 2026-08-18 选中边框动画：boxShadow 移交 .card-selected 动画类
+        '--sel-accent': 'var(--dt-primary)',
       } as React.CSSProperties}
       onClick={() => onActivate(project)}
       onDoubleClick={() => onDrill(project)}
@@ -650,14 +650,13 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
       onDragEnd={onRowDragEnd}
       title={path && !project.isNoProject ? `${path} — 单击激活（联动消息区/文件面板）· 双击进入项目` : project.isNoProject ? (path ? `${path} — 单击激活 · 双击进入工作区` : '单击激活 · 双击进入工作区') : '单击激活 · 双击进入项目'}
     >
-      {/* 选中发光竖条（主题 primary；与 Agent 卡片同款） */}
+      {/* 选中发光竖条（主题 primary；与 Agent 卡片同款，🔴 2026-08-18 呼吸动画） */}
       {isActiveProject && (
         <span
           aria-hidden
-          className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
+          className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full card-selected-bar"
           style={{
             background: 'var(--dt-primary)',
-            boxShadow: '0 0 8px color-mix(in srgb, var(--dt-primary) 65%, transparent)',
           }}
         />
       )}

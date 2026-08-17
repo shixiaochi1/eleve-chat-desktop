@@ -1079,6 +1079,38 @@ canvas {
   37.5%, 100% { opacity: 0.15; }
 }
 
+/* ── 🔴 2026-08-18 选中态边框呼吸动画（老大需求：选中边框加简单动画）──
+   柔和呼吸光环：1px 环在 accent 45%↔75% 间 2.4s 慢呼吸 + 投影轻微加深，
+   左侧发光竖条同步呼吸（glow 65%↔90%）。
+   --sel-accent 由消费方注入（Agent 卡 = agent 主题色 / 项目卡 = 主题 primary）。
+   .reduce-motion 全局禁用动画 → 自动回退静态选中态。 */
+.card-selected {
+  animation: card-selected-breathe 2.4s ease-in-out infinite;
+}
+@keyframes card-selected-breathe {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--sel-accent, var(--dt-primary)) 45%, transparent),
+      0 6px 18px var(--theme-shadow-color-heavy);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--sel-accent, var(--dt-primary)) 78%, transparent),
+      0 6px 21px var(--theme-shadow-color-heavy);
+  }
+}
+.card-selected-bar {
+  animation: card-selected-bar-breathe 2.4s ease-in-out infinite;
+}
+@keyframes card-selected-bar-breathe {
+  0%, 100% {
+    box-shadow: 0 0 8px color-mix(in srgb, var(--sel-accent, var(--dt-primary)) 65%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 14px color-mix(in srgb, var(--sel-accent, var(--dt-primary)) 92%, transparent);
+  }
+}
+
 /* ── 子 Agent 监控抽屉：从状态栏底边向下滑出，覆盖消息区。
    clip 层自状态栏底边（top:40px = h-10 状态栏高度）开始且 overflow:hidden：
    抽屉收起时上滑被裁剪在状态栏底边处——视觉锚定"从底边弹出/收回"
