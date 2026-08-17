@@ -148,15 +148,15 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
       // 仅切 Agent 后的首次加载（profileSwitchPendingRef）——有 active 项目 → 恢复
       // scope + 文件面板到激活项目根；无 active（或 active 无 path）→ 清面板（最终态
       // 占位，2026-08-14 补：避免旧面板残留）。不动消息区（会话指针恢复由 handleProfileChange 管）。
+      // 🔴 2026-08-17 选中态闭合（老大模型）：后端保证 active_id 恒非空——缺失或
+      // 指向已删除/归档项目 → 归一化为 HOME（__no_project__）。HOME path = 该 Agent
+      // workspace（inject_home_workspace）→ scope/面板切 workspace（HOME = 默认项目
+      // = Agent workspace 入口）；点选过项目 → 恢复该项目。
       if (profileSwitchPendingRef.current) {
         profileSwitchPendingRef.current = false;
-        if (result?.active_id) {
-          const active = result.projects?.find((p: ProjectNode) => p.id === result.active_id);
-          if (active?.path) onProjectScopeRestored?.(active.path);
-          else onProjectScopeRestored?.(null);
-        } else {
-          onProjectScopeRestored?.(null);
-        }
+        const activeId = result?.active_id || '__no_project__';
+        const active = result.projects?.find((p: ProjectNode) => p.id === activeId);
+        onProjectScopeRestored?.(active?.path || null);
       }
       // 🔴 v2：fetchTree 不写 selectedId（见 state 注释）——任何刷新不得覆盖用户点选
     } catch (e: any) {
@@ -287,7 +287,10 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
     // 🔴 2026-08-13：用户点选 = 意图明确，取消切 Agent 自动恢复（防覆盖用户刚点的选择）
     profileSwitchPendingRef.current = false;
     setSelectedId(project.id);
-    if (!project.isAuto && !project.isNoProject && project.id) {
+    // 🔴 2026-08-17 选中态闭合（老大模型）：HOME（__no_project__）也是可持久化
+    // 的选中态（后端 projects.set_active 特判放行）——"上次选中 HOME"跨切
+    // AGENT 恢复；auto 项目无 db 记录仍跳过（set_active 会 5062）。
+    if (!project.isAuto && project.id) {
       void call('projects_set_active', { id: project.id, profile: currentProfile })
         .then(() => void fetchTree(true))
         .catch(() => {});
@@ -652,7 +655,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                       onCopyPath={handleCopyPath}
                       onDelete={setDeleting}
                       onDismiss={handleDismiss}
-                      isActiveProject={(selectedId ?? tree.active_id) === p.id}
+                      isActiveProject={(selectedId ?? tree.active_id ?? '__no_project__') === p.id}
                       desktop={desktop}
                       isDragging={dragId === p.id}
                       isDragOver={dragOverId === p.id}
