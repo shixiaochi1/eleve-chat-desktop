@@ -176,7 +176,10 @@ export async function getDelegationStatus(sessionId: string): Promise<{
 }
 
 /** 中断子 Agent（带 subagent_id = 精准中断单个；不带 = 兼容旧语义中断父会话） */
-export async function interruptSubagent(sessionId: string, subagentId?: string): Promise<{ status: string }> {
+export async function interruptSubagent(
+  sessionId: string,
+  subagentId?: string,
+): Promise<{ status: string; interrupted?: boolean }> {
   const params: Record<string, unknown> = { session_id: sessionId };
   if (subagentId) params.subagent_id = subagentId;
   return call('subagent_interrupt', params);

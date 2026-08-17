@@ -34,7 +34,7 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 🔴 2026-08-15 监控面板开合：按钮在状态栏内，新任务到达自动展开
-  const { tasks: monitorTasks, runningCount } = useSubagentTasks();
+  const { tasks: monitorTasks, runningCount } = useSubagentTasks(sessionId);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const prevRunningRef = useRef(0);
   useEffect(() => {

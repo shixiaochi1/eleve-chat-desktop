@@ -46,6 +46,8 @@ export interface DelegateTask {
   parentId?: string
   model?: string
   childSessionId?: string
+  /** 🔴 2026-08-17 审计 E-F3：父会话 sid（事件携带；监控按会话过滤渲染） */
+  sessionId?: string
   toolName?: string
   thinkingText?: string
   progressSummary?: string

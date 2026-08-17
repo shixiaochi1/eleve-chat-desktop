@@ -650,21 +650,21 @@ export function useMessageStream({
       }
     },
 
-    onDelegateStart: ({ taskId, goal, model }: { taskId: string; goal?: string; model?: string }) => {
+    onDelegateStart: ({ taskId, goal, model, sessionId }: { taskId: string; goal?: string; model?: string; sessionId?: string }) => {
       addDebugEvent('delegate', `start: ${goal?.slice(0, 50)}`);
       setMonitorState((prev) => ({
         ...prev,
-        delegateTasks: { ...((prev.delegateTasks as Record<string, unknown>) || {}), [taskId]: { id: taskId, goal, model, status: 'running', startTs: Date.now() } },
+        delegateTasks: { ...((prev.delegateTasks as Record<string, unknown>) || {}), [taskId]: { id: taskId, goal, model, status: 'running', startTs: Date.now(), sessionId } },
       }));
       // 🔴 Phase 2: 独立 system 消息（对齐宫格 useGridChat delegate.start）
       appendIndependentMessage({ id: genId(), role: 'system' as const, parts: [textPart(`▶ 委托子 Agent: ${goal || taskId}`)], timestamp: Date.now() });
     },
 
-    onDelegateEnd: ({ taskId, status, summary, model, tokensInput, tokensOutput, duration }: { taskId: string; status?: string; summary?: string; model?: string; tokensInput?: number; tokensOutput?: number; duration?: number }) => {
+    onDelegateEnd: ({ taskId, status, summary, model, tokensInput, tokensOutput, duration, sessionId }: { taskId: string; status?: string; summary?: string; model?: string; tokensInput?: number; tokensOutput?: number; duration?: number; sessionId?: string }) => {
       setMonitorState((prev) => {
         const next = { ...((prev.delegateTasks as Record<string, unknown>) || {}) };
         if (next[taskId]) {
-          next[taskId] = { ...(next[taskId] as Record<string, unknown>), status, summary, tokensInput, tokensOutput, duration };
+          next[taskId] = { ...(next[taskId] as Record<string, unknown>), status, summary, tokensInput, tokensOutput, duration, sessionId };
         }
         return { ...prev, delegateTasks: next };
       });
@@ -1023,6 +1023,7 @@ export function useMessageStream({
       goal?: string; toolName?: string; toolArgs?: Record<string, unknown>; toolPreview?: string; thinkingText?: string
       progressSummary?: string; depth?: number
       parentId?: string; model?: string; toolsets?: string[]; childSessionId?: string; toolCount?: number
+      sessionId?: string
       status?: string; durationSeconds?: number; summary?: string
       inputTokens?: number; outputTokens?: number; reasoningTokens?: number; apiCalls?: number
       filesRead?: string[]; filesWritten?: string[]; outputTail?: unknown[]; costUsd?: number; exitReason?: string
@@ -1068,6 +1069,7 @@ export function useMessageStream({
           tasks[data.subagentId!] = {
             ...prior,
             id: data.subagentId,
+            sessionId: data.sessionId,
             goal: data.goal,
             eventType: data.eventType,
             taskIndex: data.taskIndex,

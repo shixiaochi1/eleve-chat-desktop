@@ -137,7 +137,13 @@ function TaskCard({ task, sessionId }: TaskCardProps) {
     if (!text || sending) return;
     setSending(true);
     try {
-      const res = await steerSubagent(sessionId ?? '', task.id, text);
+      // 🔴 2026-08-17 审计 E-F1（P0）：寻址键 = registry 键（子会话 id）——
+      // 旧实现传 task.id（进度事件展示身份 sa-{i}-{uuid8}），后端 registry 无
+      // 此键 → is_authorized_controller false → steer 恒「未送达」（监控面板
+      // 对运行中子 Agent 的指令全路径失效）。ACP/降级占位无 childSessionId
+      // （其 registry 键 = 展示 id）→ fallback task.id。
+      const targetId = task.childSessionId || task.id;
+      const res = await steerSubagent(sessionId ?? '', targetId, text);
       if (res.status === 'injected') {
         notifySuccess('指令已注入子 Agent（下个工具调用边界生效）');
         setInstruction('');
@@ -151,16 +157,24 @@ function TaskCard({ task, sessionId }: TaskCardProps) {
     } finally {
       setSending(false);
     }
-  }, [instruction, sending, task.id]);
+  }, [instruction, sending, task.childSessionId, task.id, sessionId]);
 
   const handleKill = useCallback(async () => {
     try {
-      await interruptSubagent(sessionId ?? '', task.id);
-      notifySuccess('中断请求已发送');
+      // 🔴 2026-08-17 审计 E-F1（P0）：同 steer——registry 键 = 子会话 id；
+      // 且消费 RPC 响应（旧实现忽略响应恒报「已发送」——ACP 占位/已结束目标
+      // 返回 not_found 时是假成功）。
+      const targetId = task.childSessionId || task.id;
+      const res = await interruptSubagent(sessionId ?? '', targetId);
+      if (res.status === 'ok' && res.interrupted !== false) {
+        notifySuccess('中断请求已发送');
+      } else {
+        notifyError(new Error('子 Agent 已结束或不可中断（ACP 子进程不支持中断）'), '中断失败');
+      }
     } catch (e) {
       notifyError(e, '中断失败');
     }
-  }, [sessionId, task.id]);
+  }, [sessionId, task.childSessionId, task.id]);
 
   return (
     <div className="rounded border border-border bg-background/60 px-2.5 py-2 space-y-1.5">
@@ -180,6 +194,18 @@ function TaskCard({ task, sessionId }: TaskCardProps) {
             )}
             {task.apiCalls !== undefined && task.apiCalls > 0 && (
               <span className="text-[10px] text-muted-foreground/60">· {task.apiCalls} API</span>
+            )}
+            {/* 🔴 2026-08-17 审计 E-F4：F6 字段补全的数据已到 store，补渲染
+                 token（输入/输出）与成本（F6 修复要服务的监控需求） */}
+            {(task.inputTokens !== undefined || task.outputTokens !== undefined) && (
+              <span className="text-[10px] text-muted-foreground/60">
+                · {task.inputTokens ?? 0}→{task.outputTokens ?? 0} tok
+              </span>
+            )}
+            {typeof task.costUsd === 'number' && task.costUsd > 0 && (
+              <span className="text-[10px] text-muted-foreground/60">
+                · ${task.costUsd.toFixed(4)}
+              </span>
             )}
           </div>
           <div className="text-[11px] text-foreground/90 truncate max-w-full" title={task.goal}>
@@ -323,18 +349,22 @@ function taskStatus(task: DelegateTask): string {
   return task.status ?? (task.eventType === 'subagent.complete' ? 'completed' : 'running');
 }
 
-/** 任务列表 + 运行中计数：ToolStatusBar 按钮徽章与面板共用单一数据源 */
-export function useSubagentTasks(): { tasks: DelegateTask[]; runningCount: number } {
+/** 任务列表 + 运行中计数：ToolStatusBar 按钮徽章与面板共用单一数据源。
+ *  🔴 2026-08-17 审计 E-F3：按会话过滤——delegate.* 事件恒带父会话 sid
+ *  （现已不过滤存储），面板/徽章只渲染当前会话的任务，杜绝跨会话串显；
+ *  无 sessionId 的旧任务仅在没有会话上下文时显示（兼容兜底）。 */
+export function useSubagentTasks(sessionId?: string | null): { tasks: DelegateTask[]; runningCount: number } {
   const rawTasks = useMonitorDelegateTasks();
   const tasks = useMemo(() => {
-    const list = Object.values(rawTasks).filter((t) => t && typeof t === 'object') as DelegateTask[];
+    const list = (Object.values(rawTasks).filter((t) => t && typeof t === 'object') as DelegateTask[])
+      .filter((t) => (sessionId ? t.sessionId === sessionId : !t.sessionId));
     if (list.length === 0) return [];
     return list.slice().sort((a, b) => {
       const sa = taskStatus(a) === 'running' ? 0 : 1;
       const sb = taskStatus(b) === 'running' ? 0 : 1;
       return sa - sb;
     });
-  }, [rawTasks]);
+  }, [rawTasks, sessionId]);
   const runningCount = useMemo(
     () => tasks.filter((t) => taskStatus(t) === 'running').length,
     [tasks],
@@ -343,7 +373,7 @@ export function useSubagentTasks(): { tasks: DelegateTask[]; runningCount: numbe
 }
 
 export default function SubagentMonitor({ sessionId, onClose }: { sessionId?: string | null; onClose?: () => void }) {
-  const { tasks, runningCount } = useSubagentTasks();
+  const { tasks, runningCount } = useSubagentTasks(sessionId);
 
   if (tasks.length === 0) return null;
 

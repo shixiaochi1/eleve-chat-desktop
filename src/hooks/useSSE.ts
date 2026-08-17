@@ -37,13 +37,14 @@ export interface SSECallbacks {
   onModelName?: (name: string) => void
   onRunStart?: (sessionId: string) => void
   onRunComplete?: (data: { sessionId: string; completed?: boolean; interrupted?: boolean; usage?: unknown }) => void
-  onDelegateStart?: (data: { taskId: string; goal?: string; model?: string }) => void
-  onDelegateEnd?: (data: { taskId: string; status?: string; summary?: string; model?: string; tokensInput?: number; tokensOutput?: number; duration?: number }) => void
+  onDelegateStart?: (data: { taskId: string; goal?: string; model?: string; sessionId?: string }) => void
+  onDelegateEnd?: (data: { taskId: string; status?: string; summary?: string; model?: string; tokensInput?: number; tokensOutput?: number; duration?: number; sessionId?: string }) => void
   onDelegateProgress?: (data: {
     subagentId?: string; eventType?: string; taskIndex?: number; taskCount?: number
     goal?: string; toolName?: string; toolArgs?: Record<string, unknown>; toolPreview?: string; thinkingText?: string
     progressSummary?: string; depth?: number
     parentId?: string; model?: string; toolsets?: string[]; childSessionId?: string; toolCount?: number
+    sessionId?: string
     status?: string; durationSeconds?: number; summary?: string
     inputTokens?: number; outputTokens?: number; reasoningTokens?: number; apiCalls?: number
     filesRead?: string[]; filesWritten?: string[]; outputTail?: unknown[]; costUsd?: number; exitReason?: string
@@ -313,7 +314,7 @@ function processEvent(
 
     // ── 委托 ──
     case 'delegate.start':
-      cbs.onDelegateStart?.({ taskId: chunk.task_id as string, goal: chunk.goal as string | undefined, model: chunk.model as string | undefined });
+      cbs.onDelegateStart?.({ taskId: chunk.task_id as string, goal: chunk.goal as string | undefined, model: chunk.model as string | undefined, sessionId: chunk.session_id as string | undefined });
       break;
 
     case 'delegate.end':
@@ -325,6 +326,7 @@ function processEvent(
         tokensInput: chunk.tokens_input as number | undefined,
         tokensOutput: chunk.tokens_output as number | undefined,
         duration: chunk.duration_secs as number | undefined,
+        sessionId: chunk.session_id as string | undefined,
       });
       break;
 
@@ -360,6 +362,7 @@ function processEvent(
         outputTail: chunk.output_tail as unknown[] | undefined,
         costUsd: chunk.cost_usd as number | undefined,
         exitReason: chunk.exit_reason as string | undefined,
+        sessionId: chunk.session_id as string | undefined,
       });
       break;
 
@@ -603,12 +606,19 @@ function processEvent(
  */
 // 🔴 2026-08-17 阶段4：交互类事件（不受会话过滤约束——后台会话并发轮的
 // 审批/澄清/凭据请求必须可见可响应）。
+// 🔴 2026-08-17 审计 E-F3：delegate.* 同属不过滤集合——子 Agent 事件恒带
+// 父会话 sid，切到别的会话查看时若被过滤丢弃，切回后监控卡片永久停在
+// running（无补发）；存储按 sid 分桶，监控面板按当前会话渲染（见
+// SubagentMonitor useSubagentTasks 的 sessionId 过滤）。
 const INTERACTION_EVENT_NAMES = new Set([
   'approval.request',
   'approval.responded',
   'clarify.request',
   'sudo.request',
   'secret.request',
+  'delegate.start',
+  'delegate.end',
+  'delegate.progress',
 ])
 
 export function useSSE(
