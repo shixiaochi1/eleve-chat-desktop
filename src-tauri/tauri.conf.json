@@ -47,6 +47,7 @@
     "resources": [
       "binaries/agent-browser-win32-x64.exe",
       "binaries/eleved.exe",
+      "binaries/canvas/ai-infinite-canvas.exe",
       "binaries/rg.exe",
       "binaries/tirith.exe",
       "resources/wakewords/hey_eleve.onnx",

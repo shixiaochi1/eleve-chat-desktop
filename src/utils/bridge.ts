@@ -191,6 +191,10 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   queue_steer:            'queue.steer',
   // F3: 输入增强（后端已就绪）
   complete_path:          'complete.path',
+  // 🔴 2026-08-18 画布 × ELEVE 集成：画布按钮 → canvas.open RPC
+  // （后端 launch_canvas 统一解析生产 exe（安装包资源位）/ dev start.vbs，
+  // 与 canvas_open 插件工具同源）
+  canvas_open:            'canvas.open',
   // F4: 信息面板（后端已就绪）
   learning_frames:        'learning.frames',
   learning_detail:        'learning.detail',

@@ -106,11 +106,8 @@ function latestSessionForDomain(
 }
 
 // 🔴 2026-08-18 画布 × ELEVE 集成（P2 交接）：画布 = ELEVE 的可拔插能力。
-// 桌面入口常量：.dev-port 是画布 vite dev server 启动时写入的端口文件
-// （infinite-canvas/frontend/vite.config.ts write-dev-port 插件）；
-// start.vbs 是画布应用一键启动脚本（npm run tauri dev 弹画布窗口）。
-const CANVAS_DEV_PORT_FILE = 'C:\\Users\\Administrator\\infinite-canvas\\frontend\\.dev-port';
-const CANVAS_START_VBS = 'C:\\Users\\Administrator\\infinite-canvas\\start.vbs';
+// 启动解析在后端统一处理（WS RPC canvas.open → plugins::canvas::launch_canvas：
+// 生产找安装包资源位 binaries/canvas/ai-infinite-canvas.exe，dev 回退 start.vbs）。
 
 export default function App() {
   // 🔴 2026-08-13 Phase 2 拆分：三栏布局状态抽离到 usePanelLayout（纯移动，无逻辑变更）
@@ -166,46 +163,15 @@ export default function App() {
   const chatCardRef = useRef<HTMLDivElement>(null);  // DeepSeek WebView 锚点
 
   // 🔴 2026-08-18 画布 × ELEVE 集成：弹出 infinite-canvas 应用。
-  // 画布是独立进程（client_type=canvas WS 注册为 ELEVE 能力），此处是
-  // 桌面入口：探测 dev server → 在跑则 openUrl 弹出浏览器版；
-  // 未跑则 openPath(start.vbs) 启动画布应用（npm run tauri dev 弹画布窗口）。
-  // 权限面：opener:allow-open-path（**）+ shell:allow-open（http://*）既有。
+  // 启动解析在**后端**统一完成（WS RPC canvas.open → plugins::canvas::
+  // launch_canvas）：生产形态找 ELEVE 安装包资源位
+  // （<安装目录>/binaries/canvas/ai-infinite-canvas.exe，部署形态 B），
+  // dev 回退 start.vbs——前端零路径知识，与 canvas_open 插件工具同源。
   const handleOpenCanvas = useCallback(async () => {
     try {
-      // 1) 探测画布 dev server（读 vite 写入的 .dev-port + HTTP 探活；
-      //    端口随机，.dev-port 是唯一可靠来源）
-      let devUrl: string | null = null;
-      try {
-        const { readTextFile } = await import('@tauri-apps/plugin-fs');
-        const content = await readTextFile(CANVAS_DEV_PORT_FILE);
-        const url = content.trim();
-        if (/^https?:\/\/127\.0\.0\.1:\d+$/.test(url)) {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 1500);
-          try {
-            await fetch(url, { mode: 'no-cors', signal: controller.signal });
-            devUrl = url;
-          } catch {
-            /* dev server 未响应 → 走启动路径 */
-          } finally {
-            clearTimeout(timer);
-          }
-        }
-      } catch {
-        /* .dev-port 缺失/不可读（画布从未跑过 dev）→ 走启动路径 */
-      }
-
-      if (devUrl) {
-        const { openUrl } = await import('@tauri-apps/plugin-opener');
-        await openUrl(devUrl);
-        notifyInfo('画布已在运行，已打开到浏览器');
-      } else {
-        // 未运行 → 启动画布应用（start.vbs 弹画布窗口；首次启动含 Rust
-        // 编译需等待，窗口弹出即连接 ELEVE gateway）
-        const { openPath } = await import('@tauri-apps/plugin-opener');
-        await openPath(CANVAS_START_VBS);
-        notifyInfo('正在启动画布…首次启动需编译，请稍候');
-      }
+      const result = await call('canvas_open', {});
+      const msg = typeof result === 'string' ? result : '画布应用已启动';
+      notifyInfo(msg);
     } catch (e) {
       notifyError(e, '打开画布失败');
     }
