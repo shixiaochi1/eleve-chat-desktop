@@ -34,6 +34,8 @@ mod preview_file_watch;
 mod preview_webview;
 mod pty;
 mod clipboard;
+// 画布插件化 S5（2026-08-18）：画布窗口单例 + 图片处理 + 状态持久化
+mod canvas_commands;
 
 pub use preview_console::PreviewConsoleState;
 pub use preview_file_watch::PreviewFileWatchManager;
@@ -335,6 +337,35 @@ fn mark_restarting(state: tauri::State<'_, TauriAppState>) -> Result<(), String>
     state.restarting.store(true, Ordering::SeqCst);
     eprintln!("[TAURI] 标记重启中：eleved 退出后自动拉起新进程");
     Ok(())
+}
+
+/// 解析 gateway 端口（带缓存，供画布窗口等内部调用复用）——
+/// 与 get_gateway_port 命令同源语义（画布插件化 S5，2026-08-18）。
+/// 0 = gateway 未就绪 → 返回 Err。
+pub(crate) async fn resolve_gateway_port_cached(
+    _app: &tauri::AppHandle,
+    state: &TauriAppState,
+) -> Result<u16, String> {
+    let cached = state.gateway_port.load(Ordering::SeqCst);
+    if cached != 0 {
+        if let Ok(stream) = std::net::TcpStream::connect_timeout(
+            &format!("127.0.0.1:{}", cached).parse().unwrap(),
+            std::time::Duration::from_millis(500),
+        ) {
+            drop(stream);
+            return Ok(cached);
+        }
+        eprintln!("[TAURI] Cached port {} is stale, re-discovering...", cached);
+    }
+    let eleve_home = resolve_eleve_home();
+    match discover_gateway_port(&eleve_home) {
+        Ok(port) => {
+            state.gateway_port.store(port, Ordering::SeqCst);
+            eprintln!("[TAURI] Re-discovered gateway port: {}", port);
+            Ok(port)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// 监控 eleved 子进程生命周期（递归：重启后继续监控新进程）
@@ -1212,6 +1243,18 @@ pub fn run() {
             create_deepseek_webview,
             deepseek_webview_close,
             toggle_kanban_window,
+            // 画布插件化 S5（2026-08-18）：画布窗口单例 + 图片处理 + 状态持久化
+            // （命令名与画布 src-tauri 原命令一致，前端 invoke 零改动）
+            canvas_commands::toggle_canvas_window,
+            canvas_commands::open_canvas_window,
+            canvas_commands::close_canvas_window,
+            canvas_commands::save_state_to_file,
+            canvas_commands::load_state_from_file,
+            canvas_commands::image_compress,
+            canvas_commands::image_crop_grid,
+            canvas_commands::image_merge,
+            canvas_commands::drawing_composite,
+            canvas_commands::imgbb_upload,
             mark_restarting,
             // 预览控制台：子 Webview 生命周期 + console 缓冲治理
             preview_console::preview_console_push,

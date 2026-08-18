@@ -7,6 +7,7 @@ import { discoverPort } from '../utils/bridge';
 import { loadConnection, isRemoteMode, applyConnection } from '../lib/connection';
 import { getActiveProfile, fetchProfiles } from '../utils/api';
 import { getWsClient, setWsActiveProfile } from '../services/ws-client';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { getMessages } from '../store/messages';
 import { loadDisplaySettings } from '../store/display-settings';
 import type { ChatMessage } from '../types';
@@ -202,6 +203,32 @@ export function useBootstrap({ sess }: { sess: ReturnType<typeof useSessions> })
       // App unmount 时不 disconnect，WS 长连接跨组件
     };
   }, [portReady, sess.sessionId]);
+
+  // ── shell.* 帧监听（画布插件化 S5，2026-08-18）──
+  // gateway 经 WS 推 shell.open_canvas / shell.close_canvas（控制面文档
+  // infinite-canvas-control-plane-20260818.md 帧协议）→ 壳执行窗口命令。
+  // 🔴 红线：窗口生命周期归壳，gateway 只发意图帧。
+  useEffect(() => {
+    if (!portReady) return;
+    const wsClient = getWsClient();
+    const unsub = wsClient.addEventListener((event, data) => {
+      if (!isTauri()) return; // remote/浏览器模式无 Tauri 壳，帧无落地目标
+      if (event === 'shell.open_canvas') {
+        console.log('[Shell] open_canvas frame', data);
+        invoke('open_canvas_window').then(
+          (r) => console.log('[Shell] canvas opened:', r),
+          (e) => console.error('[Shell] open_canvas failed:', e),
+        );
+      } else if (event === 'shell.close_canvas') {
+        console.log('[Shell] close_canvas frame', data);
+        invoke('close_canvas_window').then(
+          (r) => console.log('[Shell] canvas closed:', r),
+          (e) => console.error('[Shell] close_canvas failed:', e),
+        );
+      }
+    });
+    return unsub;
+  }, [portReady]);
 
   // ── beforeunload: 用 ref 拿最新 messages，避免依赖 [messages] 导致白屏 ──
   useEffect(() => {
