@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useDeferredValue, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo, useDeferredValue, useRef, useLayoutEffect } from 'react';
 import { ThinkingIcon, CopyIcon, CheckIcon, ExpandIcon } from './Icons';
 import ActivityTimerText from './ActivityTimerText';
 import { useElapsedSeconds } from '@/hooks/useActivityTimer';
@@ -26,8 +26,12 @@ interface ReasoningBlockProps {
  *   - 思考过程中默认折叠，漏出前两行预览（Hermes overflow-hidden 同款截断语义）
  *   - 🔴 2026-08-18 老大调整 v2：折叠+思考中 = 滚动预览容器（恰好 2 行高，
  *     内容随流滚动、长思考可见文字滚动，不再定格前两行）；滚动位置恒吸附
- *     到行网格（整行吸附）——不管怎么滚、何时停，静止态必显示整行；
- *     静止态保持 line-clamp-2 静态预览
+ *     到行网格（整行吸附）——不管怎么滚、何时停，静止态必显示整行
+ *   - 🔴 2026-08-18 老大调整 v3（长推理结束叠加修复）：折叠态不再切 line-clamp-2
+ *     （-webkit-box 截断 + 滚动残留 scrollTop 互相干扰 → 行盒错位、文字叠加），
+ *     思考中与思考后统一用 .reasoning-preview 2 行滚动窗口：
+ *     思考中顶边吸附行网格（v2 语义），思考结束 flush 到底——
+ *     窗口底边贴内容底，恰好显示最底部两行（收尾可见）
  *   - 想看 → 点击预览区或标题"思考"展开；首次手动 toggle 后永久生效
  *   - 折叠/打开方向：caret 箭头收起 ▶ 朝右、展开 ▼ 朝下（rotate-90），
  *     静止淡显 0.4（Hermes thinking 专用 --disclosure-caret-rest）、hover/展开 0.8
@@ -60,25 +64,39 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
   // 渲染降级：思考流每 token 重渲染，useDeferredValue 降为低优先级（对齐 Hermes DeferStreamingText）
   const deferredClean = useDeferredValue(cleanText);
 
-  // 🔴 2026-08-18 老大需求 v2：折叠态思考流滚动预览——长思考可见文字滚动。
+  // 🔴 2026-08-18 老大需求 v2→v3：折叠态思考流滚动预览——长思考可见文字滚动。
   // v1 平滑滚动（scroll-behavior:smooth + 每 token 写 scrollTop）被流式打断后
   // 停在中途任意像素位 → 半行/相互覆盖观感。v2 改「整行吸附」：
   // ① 无动画直跳（去掉 smooth，不再有滚动动画中间态）；
   // ② 滚动位置吸附到行网格（1.65 × font-size，与 .reasoning-preview 强制
   //    行高一致）→ 视口上下边缘恒落在行边界上，不管怎么滚、何时停，
-  //    静止态必显示整行。仅 pending+折叠 生效；展开态/静止态保持原语义。
+  //    静止态必显示整行。
+  // 🔴 v3（2026-08-18 老大实测：长推理结束后折叠文字叠加）根因：思考结束瞬间
+  // 容器从 .reasoning-preview 切到 line-clamp-2（-webkit-box + -webkit-line-clamp
+  // 截断）时，滚动残留 scrollTop 与截断布局互相干扰 → 行盒错位、文字相互叠加。
+  // 修复：折叠态（思考中/思考后）统一用 .reasoning-preview 2 行滚动窗口——
+  // 思考中顶边吸附行网格（v2 语义）；思考结束 flush 到底（窗口底边贴内容底，
+  // 恰好显示最底部两行）。仅展开态（open）不做任何滚动干预。
   const previewRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!pending || open) return;
+  // useLayoutEffect：绘制前同步设置 scrollTop——静止折叠块（历史消息/思考刚结束）
+  // 首帧即停在正确位置，无「先显示头部再跳到底部」的闪现。
+  useLayoutEffect(() => {
+    if (open) return;
     const el = previewRef.current;
     if (!el) return;
-    // 行高 = .prose 强制 1.65 × 容器 font-size（text-xs=12px → 19.8px）
-    const fs = parseFloat(getComputedStyle(el).fontSize);
-    const lh = (Number.isFinite(fs) && fs > 0 ? fs : 12) * 1.65;
-    // 最大可滚位向下取整到行网格：视口恒为 2 整行（clientHeight=2×lh）
+    // 最大可滚位：内容底 - 窗口高（窗口恒为 2 行）
     const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
-    const snapped = Math.floor(maxTop / lh) * lh;
-    if (Math.abs(el.scrollTop - snapped) > 0.5) el.scrollTop = snapped;
+    if (pending) {
+      // 思考中：行高 = .prose 强制 1.65 × 容器 font-size（text-xs=12px → 19.8px）
+      const fs = parseFloat(getComputedStyle(el).fontSize);
+      const lh = (Number.isFinite(fs) && fs > 0 ? fs : 12) * 1.65;
+      // 最大可滚位向下取整到行网格：视口恒为 2 整行（clientHeight=2×lh）
+      const snapped = Math.floor(maxTop / lh) * lh;
+      if (Math.abs(el.scrollTop - snapped) > 0.5) el.scrollTop = snapped;
+    } else {
+      // 思考结束：flush 到底——窗口底边贴内容底，恰好显示最底部两行
+      if (Math.abs(el.scrollTop - maxTop) > 0.5) el.scrollTop = maxTop;
+    }
   }, [deferredClean, pending, open]);
 
   const handleCopy = useCallback(() => {
@@ -148,25 +166,22 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
           裸奔反引号与围栏标记；走与主气泡相同的 StreamBlocks 管线（merge → autolink →
           repair → split → marked）→ 行内 code 样式化、代码围栏变代码卡片、强调/列表正常排版。
           pending（流式）时尾块延迟高亮 + useDeferredValue 降载（对齐 Hermes defer）。
-          🔴 折叠态 = 漏两行预览（line-clamp-2 硬截断，Hermes overflow-hidden 同款截断语义），
-          点击预览区展开；展开态无 max-h 无内部滚动条 → 自然撑开跟随页面滚动。
-          🔴 2026-08-18 折叠+思考中 v2：line-clamp 换整行吸附滚动容器——
+          🔴 折叠态 = 2 行滚动窗口（v3 起思考中/思考后统一，不再用 line-clamp-2）：
           .reasoning-preview（CSS 侧 3.3em=恰好两行 + 内容行网格强制 1.65 +
-          块间距归零），JS 侧滚动位置吸附行网格——内容持续滚到底部且静止必整行。 */}
+          块间距归零），JS 侧思考中滚动吸附行网格、思考结束 flush 到底——
+          内容持续滚到底部且静止必整行；思考结束后窗口显示最底部两行。
+          点击预览区展开；展开态无 max-h 无内部滚动条 → 自然撑开跟随页面滚动。 */}
       <div
-        ref={!open && pending ? previewRef : undefined}
+        ref={!open ? previewRef : undefined}
         className={cn(
           // 🔴 字体颜色（老大 2026-08-05 定调 + 2026-08-09 三次调淡）：推理过程文字
           // 必须比回复正文淡很多。2026-08-09 12:14 定位：内联 color 被子元素覆盖，
           // 改用 .reasoning-content !important 规则（style.css）强制压制所有子元素。
           'reasoning-content text-xs leading-snug break-words select-text transition-colors',
-          // 折叠态：漏两行 + 光标提示可点击展开
+          // 折叠态：2 行滚动窗口 + 光标提示可点击展开（思考中/思考后统一——
+          // v3 修复：切 line-clamp-2 会与残留 scrollTop 互相干扰导致文字叠加）
           !open && 'cursor-pointer',
-          // 静止折叠：line-clamp-2 硬截断前两行
-          !open && !pending && 'line-clamp-2',
-          // 🔴 2026-08-18 折叠+思考中：整行吸附滚动预览容器（与 line-clamp-2
-          // 互斥——后者 display:-webkit-box 会锁死滚动）
-          !open && pending && 'reasoning-preview'
+          !open && 'reasoning-preview'
         )}
         onClick={(e) => {
           if (open) return;
