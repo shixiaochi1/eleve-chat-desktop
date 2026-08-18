@@ -199,6 +199,7 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   learning_frames:        'learning.frames',
   learning_detail:        'learning.detail',
   learning_delete:        'learning.delete',
+  learning_edit:          'learning.edit',
   rollback_list:          'rollback.list',
   rollback_diff:          'rollback.diff',
   rollback_restore:       'rollback.restore',

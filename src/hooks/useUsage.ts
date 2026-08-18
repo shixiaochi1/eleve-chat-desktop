@@ -40,6 +40,16 @@ interface AnalyticsUsageResponse {
   totals?: AnalyticsTotals;
   /** 模型维度聚合（{model, sessions, input_tokens, output_tokens}） */
   by_model?: Array<{ model?: string | null; sessions?: number }>;
+  /** 🔴 2026-08-18 每会话用量明细（后端 usage_analytics 新增；服务端单一真相源） */
+  by_session?: Array<{
+    session_id?: string;
+    title?: string | null;
+    model?: string | null;
+    input_tokens?: number;
+    output_tokens?: number;
+    started_at?: number;
+    last_active?: number;
+  }>;
   total_tokens_in?: number;
   total_tokens_out?: number;
   total_sessions?: number;
@@ -295,21 +305,51 @@ export function useUsage({
   }
 
   // Build per-session breakdown list (sorted by most recent first)
-  const sessionUsage: SessionUsageItem[] = sessionIds
-    .map((id) => {
-      const s = bySession[id];
-      const sess = sessions.find((x: { id?: string } & Record<string, unknown>) => (x.id || x) === id);
-      const title = sessionTitles[id] || (sess && sess.title) || id?.slice(0, 8) || '—';
-      const updatedAt = s.updatedAt || 0;
-      return {
-        sessionId: id,
-        title,
-        model: s.model || '—',
-        tokensIn: s.tokensIn || 0,
-        tokensOut: s.tokensOut || 0,
-        date: new Date(updatedAt),
-      };
-    })
+  // 🔴 2026-08-18 断线修复：明细表改服务端 by_session 优先（对齐 Hermes 服务端
+  // 单一真相源——旧实现只有本地 localStorage 会话碎片，历史会话明细恒空），
+  // 本地缓存仅作缺口补丁（服务端未覆盖的会话）+ token 新鲜值覆盖。
+  const serverRows = serverAvailable && serverSummary?.by_session?.length
+    ? serverSummary.by_session
+    : [];
+  const merged = new Map<string, SessionUsageItem>();
+  for (const r of serverRows) {
+    const id = r.session_id || '';
+    if (!id) continue;
+    const sess = sessions.find((x: { id?: string } & Record<string, unknown>) => (x.id || x) === id);
+    merged.set(id, {
+      sessionId: id,
+      title: r.title || sessionTitles[id] || (sess && sess.title) || id?.slice(0, 8) || '—',
+      model: r.model || '—',
+      tokensIn: r.input_tokens || 0,
+      tokensOut: r.output_tokens || 0,
+      date: new Date((r.last_active || r.started_at || 0) * 1000),
+    });
+  }
+  for (const id of sessionIds) {
+    const s = bySession[id];
+    const sess = sessions.find((x: { id?: string } & Record<string, unknown>) => (x.id || x) === id);
+    const item: SessionUsageItem = {
+      sessionId: id,
+      title: sessionTitles[id] || (sess && sess.title) || id?.slice(0, 8) || '—',
+      model: s.model || '—',
+      tokensIn: s.tokensIn || 0,
+      tokensOut: s.tokensOut || 0,
+      date: new Date(s.updatedAt || 0),
+    };
+    const existing = merged.get(id);
+    if (!existing) {
+      merged.set(id, item);
+    } else {
+      merged.set(id, {
+        ...existing,
+        tokensIn: Math.max(existing.tokensIn, item.tokensIn),
+        tokensOut: Math.max(existing.tokensOut, item.tokensOut),
+        // 时间取较新者（本地 updatedAt 可能领先服务端）
+        date: existing.date.getTime() >= item.date.getTime() ? existing.date : item.date,
+      });
+    }
+  }
+  const sessionUsage: SessionUsageItem[] = [...merged.values()]
     .sort((a, b) => b.date.getTime() - a.date.getTime());
 
   // Build model distribution

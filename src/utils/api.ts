@@ -239,7 +239,12 @@ export async function completePath(word: string, cwd?: string): Promise<{ items:
 
 /** 学习时间线 */
 export async function getLearningFrames(): Promise<{ nodes: Array<{ id: string; modified: number }>; [k: string]: unknown }> {
-  return call('learning_frames', {});
+  const res = await call('learning_frames', {});
+  // 🔴 2026-08-18 断线修复：后端 learning.frames 返回 { frames: [...] }（对齐 Hermes
+  // 时间线帧命名），旧前端读 res.nodes → 恒空 → 面板永远"暂无学习节点"。
+  // 统一归一为 nodes，兼容两种键，存量消费方（LearningPanel）零改动。
+  const frames = (res && (res.frames || res.nodes)) || [];
+  return { ...(res || {}), nodes: Array.isArray(frames) ? frames : [] };
 }
 
 /** 学习节点详情 */
@@ -250,6 +255,11 @@ export async function getLearningDetail(id: string): Promise<{ ok: boolean; id: 
 /** 删除学习节点 */
 export async function deleteLearning(id: string): Promise<{ ok: boolean; id: string }> {
   return call('learning_delete', { id });
+}
+
+/** 编辑学习节点（对齐 Hermes learning.edit → 更新 skill/memory 内容） */
+export async function updateLearning(id: string, content: string): Promise<{ ok: boolean; id: string; error?: string }> {
+  return call('learning_edit', { id, content });
 }
 
 /** Checkpoint 列表（对齐 Hermes rollback.list：{enabled, checkpoints}）。
@@ -471,7 +481,22 @@ export async function checkHealth(): Promise<boolean> {
 
 // ====== 用量分析 ======
 
-export async function fetchAnalyticsUsage(days = 30): Promise<any> {
+export async function fetchAnalyticsUsage(days = 30): Promise<{
+  daily?: Array<Record<string, unknown>>;
+  by_model?: Array<Record<string, unknown>>;
+  /** 🔴 2026-08-18 每会话用量明细（后端 usage_analytics 新增；服务端单一真相源） */
+  by_session?: Array<{
+    session_id?: string;
+    title?: string | null;
+    model?: string | null;
+    input_tokens?: number;
+    output_tokens?: number;
+    started_at?: number;
+    last_active?: number;
+  }>;
+  totals?: Record<string, unknown>;
+  [k: string]: unknown;
+}> {
   return call('analytics_usage', { days });
 }
 
