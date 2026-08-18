@@ -9,7 +9,7 @@ import {
   PaletteIcon, ToolIcon,
   UsageIcon, ChannelsIcon, KanbanIcon, AgentIcon,
 } from './Icons';
-import { FolderGit, BookOpen } from 'lucide-react';
+import { FolderGit, BookOpen, Shapes } from 'lucide-react';
 // 🔴 2026-08-16（平台受限项 d1 P0-5 闭合）：看板在飞计数（对齐 Hermes
 //   KanbanCount）——IconBar kanban 图标右上角 running+ready 角标
 import { useKanbanActiveCount } from '../hooks/useKanbanActiveCount';
@@ -32,9 +32,11 @@ interface IconBarProps {
   onOpenOverlay?: (id: string) => void;
   gatewayOnline?: boolean;
   onToggleFiles?: () => void;
+  /** 画布按钮自定义点击（弹出 infinite-canvas 应用，不参与 panel 切换） */
+  onOpenCanvas?: () => void;
 }
 
-export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gatewayOnline, onToggleFiles }: IconBarProps) {
+export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gatewayOnline, onToggleFiles, onOpenCanvas }: IconBarProps) {
   // 🔴 2026-08-16（d1 P0-5 闭合）：在飞计数——gateway 在线才轮询；
   //   计数仅作角标展示，点击行为仍走 kanban 项既有切换逻辑
   const { running, ready, active } = useKanbanActiveCount(Boolean(gatewayOnline));
@@ -44,6 +46,10 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
     //   文件浏览器图标换成原项目图标（FolderGit），行为不变（开右侧文件抽屉）
     { id: 'files',    icon: FolderGit,  label: '文件浏览器', onClick: onToggleFiles },
     { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true, badge: active },
+    // 🔴 2026-08-18 画布 × ELEVE 集成：画布按钮——点击弹出 infinite-canvas
+    //   应用（独立进程，client_type=canvas WS 注册为 ELEVE 能力，见
+    //   docs/refactor/plugin/infinite-canvas-handover-p2-20260818.md）
+    { id: 'canvas',   icon: Shapes,     label: '画布', onClick: onOpenCanvas },
     { id: 'cron',     icon: CronIcon,     label: '定时任务' },
     { id: 'tools',    icon: ToolIcon,     label: '工具' },
     { id: 'learning', icon: BookOpen,    label: '学习' },
