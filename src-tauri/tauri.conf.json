@@ -47,14 +47,14 @@
     "resources": [
       "binaries/agent-browser-win32-x64.exe",
       "binaries/eleved.exe",
-      "binaries/canvas/ai-infinite-canvas.exe",
       "binaries/rg.exe",
       "binaries/tirith.exe",
       "resources/wakewords/hey_eleve.onnx",
       "resources/wakewords/sherpa/encoder-epoch-12-avg-2-chunk-16-left-64.onnx",
       "resources/wakewords/sherpa/decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
       "resources/wakewords/sherpa/joiner-epoch-12-avg-2-chunk-16-left-64.onnx",
-      "resources/wakewords/sherpa/tokens.txt"
+      "resources/wakewords/sherpa/tokens.txt",
+      "plugins/canvas"
     ],
     "windows": {
       "nsis": {
