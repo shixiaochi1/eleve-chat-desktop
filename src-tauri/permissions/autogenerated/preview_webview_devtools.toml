@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preview-webview-devtools"
+description = "Enables the preview_webview_devtools command without any pre-configured scope."
+commands.allow = ["preview_webview_devtools"]
+
+[[permission]]
+identifier = "deny-preview-webview-devtools"
+description = "Denies the preview_webview_devtools command without any pre-configured scope."
+commands.deny = ["preview_webview_devtools"]

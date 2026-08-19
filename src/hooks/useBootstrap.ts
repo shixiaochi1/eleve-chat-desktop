@@ -8,6 +8,7 @@ import { loadConnection, isRemoteMode, applyConnection } from '../lib/connection
 import { getActiveProfile, fetchProfiles } from '../utils/api';
 import { getWsClient, setWsActiveProfile } from '../services/ws-client';
 import { invoke, isTauri } from '@tauri-apps/api/core';
+import { notifyInfo } from '../utils/notifications';
 import { getMessages } from '../store/messages';
 import { loadDisplaySettings } from '../store/display-settings';
 import type { ChatMessage } from '../types';
@@ -204,10 +205,14 @@ export function useBootstrap({ sess }: { sess: ReturnType<typeof useSessions> })
     };
   }, [portReady, sess.sessionId]);
 
-  // ── shell.* 帧监听（画布插件化 S5，2026-08-18）──
-  // gateway 经 WS 推 shell.open_canvas / shell.close_canvas（控制面文档
-  // infinite-canvas-control-plane-20260818.md 帧协议）→ 壳执行窗口命令。
-  // 🔴 红线：窗口生命周期归壳，gateway 只发意图帧。
+  // ── shell.* / canvas.* 帧监听（画布插件化 S5 + 2026-08-19 根治修订）──
+  // gateway 经 WS 推 shell.open_canvas / shell.toggle_canvas / shell.close_canvas
+  // （控制面文档 infinite-canvas-control-plane-20260818.md 帧协议）→ 壳执行
+  // 窗口命令（open=ensure 单例开窗；toggle=按可见性隐藏/显示，2026-08-19
+  // 按钮切换需求；close=销毁）；canvas.ready / canvas.closed（注册表状态
+  // 转换事件，事件驱动）→ 壳提示。
+  // 🔴 红线：窗口生命周期归壳，gateway 只发意图帧；单例由 canvas 唯一
+  // label 硬约束，任何意图绝不新建第二个窗口。
   useEffect(() => {
     if (!portReady) return;
     const wsClient = getWsClient();
@@ -225,6 +230,22 @@ export function useBootstrap({ sess }: { sess: ReturnType<typeof useSessions> })
           (r) => console.log('[Shell] canvas closed:', r),
           (e) => console.error('[Shell] close_canvas failed:', e),
         );
+      } else if (event === 'shell.toggle_canvas') {
+        // 🔴 2026-08-19 按钮切换语义：画布已连时按钮意图 = 切换可见性
+        // （可见→隐藏 / 隐藏→显示），单例由 toggle_canvas_window 的
+        // get_webview_window("canvas") 唯一 label 硬约束，绝不新建第二个
+        console.log('[Shell] toggle_canvas frame', data);
+        invoke('toggle_canvas_window').then(
+          (r) => console.log('[Shell] canvas toggled:', r),
+          (e) => console.error('[Shell] toggle_canvas failed:', e),
+        );
+      } else if (event === 'canvas.ready') {
+        // 画布 WS 注册表空→非空（窗口弹出 + WS 建连完成）——事件驱动，无轮询
+        console.log('[Shell] canvas.ready frame', data);
+        notifyInfo('画布已连接 ELEVE');
+      } else if (event === 'canvas.closed') {
+        // 画布 WS 注册表→空（窗口关闭/断连）
+        console.log('[Shell] canvas.closed frame', data);
       }
     });
     return unsub;

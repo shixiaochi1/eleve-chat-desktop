@@ -105,9 +105,11 @@ function latestSessionForDomain(
   return matches.sort((a, b) => b.last_active - a.last_active)[0] ?? null;
 }
 
-// 🔴 2026-08-18 画布 × ELEVE 集成（P2 交接）：画布 = ELEVE 的可拔插能力。
-// 启动解析在后端统一处理（WS RPC canvas.open → plugins::canvas::launch_canvas：
-// 生产找安装包资源位 binaries/canvas/ai-infinite-canvas.exe，dev 回退 start.vbs）。
+// 🔴 2026-08-18 画布 × ELEVE 集成 + 2026-08-19 根治修订：
+// 画布 = ELEVE 的可拔插插件（浏览器半，由 gateway 同源装载）。
+// 启动解析全部在后端统一完成（WS RPC canvas.open → rpc_canvas::canvas_open_intent
+// 意图语义：已连则幂等；未连则推 shell.open_canvas 帧给壳开窗并立即返回）。
+// 就绪以 canvas.ready 事件（壳 toast「画布已连接 ELEVE」）与 canvas_query 为准。
 
 export default function App() {
   // 🔴 2026-08-13 Phase 2 拆分：三栏布局状态抽离到 usePanelLayout（纯移动，无逻辑变更）
@@ -162,18 +164,27 @@ export default function App() {
   const [deepseekVisible, setDeepseekVisible] = useState<boolean>(false);  // DeepSeek 嵌入 WebView 显隐
   const chatCardRef = useRef<HTMLDivElement>(null);  // DeepSeek WebView 锚点
 
-  // 🔴 2026-08-18 画布 × ELEVE 集成：弹出 infinite-canvas 应用。
-  // 启动解析在**后端**统一完成（WS RPC canvas.open → plugins::canvas::
-  // launch_canvas）：生产形态找 ELEVE 安装包资源位
-  // （<安装目录>/binaries/canvas/ai-infinite-canvas.exe，部署形态 B），
-  // dev 回退 start.vbs——前端零路径知识，与 canvas_open 插件工具同源。
+  // 🔴 2026-08-18 画布 × ELEVE 集成 + 2026-08-19 根治修订 + toggle 改造：
+  // 画布 = ELEVE 的可拔插插件（浏览器半，由 gateway 同源装载）。
+  // 按钮 = **切换语义**（2026-08-19 需求：再点收起，不无限新开）：WS RPC
+  // canvas.toggle → rpc_canvas::canvas_toggle_intent —— 画布已连 → 推
+  // shell.toggle_canvas 帧给壳（可见→隐藏 / 隐藏→显示，不新开窗口）；未连
+  // → 推 shell.open_canvas 帧开窗。单例硬约束在壳（canvas 唯一 label），
+  // agent 工具 canvas_open 走 canvas.open 幂等（已连 → already_open），
+  // 任何路径都不可能开第二个窗口。
   const handleOpenCanvas = useCallback(async () => {
     try {
-      const result = await call('canvas_open', {});
-      const msg = typeof result === 'string' ? result : '画布应用已启动';
-      notifyInfo(msg);
+      const result = await call('canvas_toggle', {});
+      const status = (result as { status?: string } | null)?.status;
+      if (status === 'toggled') {
+        notifyInfo('画布窗口已切换');
+      } else if (status === 'opening') {
+        notifyInfo('已发出打开画布指令，窗口即将弹出');
+      } else {
+        notifyInfo('画布指令已发出');
+      }
     } catch (e) {
-      notifyError(e, '打开画布失败');
+      notifyError(e, '操作画布窗口失败');
     }
   }, []);
   // 🔴 2026-08-17 阶段4（per-session 并发轮配套）：交互状态从单槽改为

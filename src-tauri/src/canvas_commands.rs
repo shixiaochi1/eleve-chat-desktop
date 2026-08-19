@@ -34,16 +34,18 @@ async fn ensure_canvas_visible(
     app: &tauri::AppHandle,
     state: &tauri::State<'_, crate::TauriAppState>,
 ) -> Result<String, String> {
+    tracing::warn!("[CANVAS] ensure_canvas_visible entered");
     if let Some(w) = app.get_webview_window(CANVAS_LABEL) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
-        eprintln!("[TAURI] canvas ensure: show+focus");
+        tracing::warn!("[CANVAS] ensure: window exists → show+focus");
         return Ok("shown".to_string());
     }
 
     // 不存在 → 新建。gateway 端口必须就绪（画布资产由 gateway 提供，同源装载）
     let port = crate::resolve_gateway_port_cached(app, state).await?;
+    tracing::warn!("[CANVAS] resolved gateway port={}", port);
     let url = format!("http://127.0.0.1:{}/plugins/canvas/index.html", port);
 
     // 与主窗口同 additional_browser_args，防 0x8007139F（kanban 同款教训）
@@ -62,12 +64,12 @@ async fn ensure_canvas_visible(
     .additional_browser_args(crate::ELEVE_WEBVIEW_ARGS);
 
     let w = builder.build().map_err(|e| {
-        eprintln!("[TAURI] canvas window create FAILED: {}", e);
+        tracing::error!("[CANVAS] window create FAILED: {}", e);
         format!("canvas window create failed: {}", e)
     })?;
     let _ = w.show();
     let _ = w.set_focus();
-    eprintln!("[TAURI] canvas window created + shown (port {})", port);
+    tracing::warn!("[CANVAS] window created + shown (port {})", port);
     Ok("created-shown".to_string())
 }
 
@@ -77,10 +79,13 @@ pub async fn open_canvas_window(
     app: tauri::AppHandle,
     state: tauri::State<'_, crate::TauriAppState>,
 ) -> Result<String, String> {
+    tracing::warn!("[CANVAS] open_canvas_window invoked");
     ensure_canvas_visible(&app, &state).await
 }
 
-/// 打开/切换画布窗口（toggle 语义，单例）——壳 UI 按钮用。
+/// 打开/切换画布窗口（toggle 语义，单例）——`shell.toggle_canvas` 帧的落地命令
+/// （2026-08-19 按钮切换需求：壳画布按钮 → canvas.toggle RPC → 本命令按
+/// 可见性 隐藏/显示，绝不新建第二个窗口；窗口不存在才 ensure 新建）。
 ///
 /// URL = gateway 插件资产：`http://127.0.0.1:<port>/plugins/canvas/index.html`
 /// （画布插件化 S2 静态路由）。端口来自 TauriAppState.gateway_port
@@ -92,7 +97,7 @@ pub async fn toggle_canvas_window(
     app: tauri::AppHandle,
     state: tauri::State<'_, crate::TauriAppState>,
 ) -> Result<String, String> {
-    // 已存在 → toggle（同 kanban 语义）
+    // 已存在 → toggle（可见→隐藏；隐藏/最小化→显示；单例硬约束，不新开）
     if let Some(w) = app.get_webview_window(CANVAS_LABEL) {
         let visible = w.is_visible().unwrap_or(false);
         if visible {

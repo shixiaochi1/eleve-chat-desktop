@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-deepseek-webview-close"
+description = "Enables the deepseek_webview_close command without any pre-configured scope."
+commands.allow = ["deepseek_webview_close"]
+
+[[permission]]
+identifier = "deny-deepseek-webview-close"
+description = "Denies the deepseek_webview_close command without any pre-configured scope."
+commands.deny = ["deepseek_webview_close"]

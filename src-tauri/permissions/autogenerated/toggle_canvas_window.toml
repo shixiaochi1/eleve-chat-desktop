@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-toggle-canvas-window"
+description = "Enables the toggle_canvas_window command without any pre-configured scope."
+commands.allow = ["toggle_canvas_window"]
+
+[[permission]]
+identifier = "deny-toggle-canvas-window"
+description = "Denies the toggle_canvas_window command without any pre-configured scope."
+commands.deny = ["toggle_canvas_window"]

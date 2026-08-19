@@ -1,0 +1,27 @@
+{
+  "identifier": "canvas",
+  "description": "Canvas plugin webview window (gateway same-origin page) capability — allows canvas state persistence and image ops commands invoked by the canvas page; ACL root fix 2026-08-19 (open_canvas_window was rejected by ACL, breaking the canvas button)",
+  "windows": [
+    "canvas"
+  ],
+  "webviews": [
+    "canvas"
+  ],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:*/*",
+      "http://localhost:*/*"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "allow-save-state-to-file",
+    "allow-load-state-from-file",
+    "allow-image-compress",
+    "allow-imgbb-upload",
+    "allow-image-crop-grid",
+    "allow-image-merge",
+    "allow-drawing-composite"
+  ]
+}

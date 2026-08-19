@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mark-restarting"
+description = "Enables the mark_restarting command without any pre-configured scope."
+commands.allow = ["mark_restarting"]
+
+[[permission]]
+identifier = "deny-mark-restarting"
+description = "Denies the mark_restarting command without any pre-configured scope."
+commands.deny = ["mark_restarting"]

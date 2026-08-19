@@ -2379,6 +2379,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the close_canvas_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-close-canvas-window",
+          "markdownDescription": "Enables the close_canvas_window command without any pre-configured scope."
+        },
+        {
           "description": "Enables the create_deepseek_webview command without any pre-configured scope.",
           "type": "string",
           "const": "allow-create-deepseek-webview",
@@ -2389,6 +2395,12 @@
           "type": "string",
           "const": "allow-deepseek-webview-close",
           "markdownDescription": "Enables the deepseek_webview_close command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the drawing_composite command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-drawing-composite",
+          "markdownDescription": "Enables the drawing_composite command without any pre-configured scope."
         },
         {
           "description": "Enables the get_auto_start command without any pre-configured scope.",
@@ -2403,10 +2415,46 @@
           "markdownDescription": "Enables the get_gateway_port command without any pre-configured scope."
         },
         {
+          "description": "Enables the image_compress command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-image-compress",
+          "markdownDescription": "Enables the image_compress command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the image_crop_grid command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-image-crop-grid",
+          "markdownDescription": "Enables the image_crop_grid command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the image_merge command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-image-merge",
+          "markdownDescription": "Enables the image_merge command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the imgbb_upload command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-imgbb-upload",
+          "markdownDescription": "Enables the imgbb_upload command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the load_state_from_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-load-state-from-file",
+          "markdownDescription": "Enables the load_state_from_file command without any pre-configured scope."
+        },
+        {
           "description": "Enables the mark_restarting command without any pre-configured scope.",
           "type": "string",
           "const": "allow-mark-restarting",
           "markdownDescription": "Enables the mark_restarting command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_canvas_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-canvas-window",
+          "markdownDescription": "Enables the open_canvas_window command without any pre-configured scope."
         },
         {
           "description": "Enables the preview_console_push command without any pre-configured scope.",
@@ -2499,16 +2547,34 @@
           "markdownDescription": "Enables the pty_write command without any pre-configured scope."
         },
         {
+          "description": "Enables the save_state_to_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-save-state-to-file",
+          "markdownDescription": "Enables the save_state_to_file command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_auto_start command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-auto-start",
           "markdownDescription": "Enables the set_auto_start command without any pre-configured scope."
         },
         {
+          "description": "Enables the toggle_canvas_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-toggle-canvas-window",
+          "markdownDescription": "Enables the toggle_canvas_window command without any pre-configured scope."
+        },
+        {
           "description": "Enables the toggle_kanban_window command without any pre-configured scope.",
           "type": "string",
           "const": "allow-toggle-kanban-window",
           "markdownDescription": "Enables the toggle_kanban_window command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the close_canvas_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-close-canvas-window",
+          "markdownDescription": "Denies the close_canvas_window command without any pre-configured scope."
         },
         {
           "description": "Denies the create_deepseek_webview command without any pre-configured scope.",
@@ -2523,6 +2589,12 @@
           "markdownDescription": "Denies the deepseek_webview_close command without any pre-configured scope."
         },
         {
+          "description": "Denies the drawing_composite command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-drawing-composite",
+          "markdownDescription": "Denies the drawing_composite command without any pre-configured scope."
+        },
+        {
           "description": "Denies the get_auto_start command without any pre-configured scope.",
           "type": "string",
           "const": "deny-get-auto-start",
@@ -2535,10 +2607,46 @@
           "markdownDescription": "Denies the get_gateway_port command without any pre-configured scope."
         },
         {
+          "description": "Denies the image_compress command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-image-compress",
+          "markdownDescription": "Denies the image_compress command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the image_crop_grid command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-image-crop-grid",
+          "markdownDescription": "Denies the image_crop_grid command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the image_merge command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-image-merge",
+          "markdownDescription": "Denies the image_merge command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the imgbb_upload command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-imgbb-upload",
+          "markdownDescription": "Denies the imgbb_upload command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the load_state_from_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-load-state-from-file",
+          "markdownDescription": "Denies the load_state_from_file command without any pre-configured scope."
+        },
+        {
           "description": "Denies the mark_restarting command without any pre-configured scope.",
           "type": "string",
           "const": "deny-mark-restarting",
           "markdownDescription": "Denies the mark_restarting command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_canvas_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-canvas-window",
+          "markdownDescription": "Denies the open_canvas_window command without any pre-configured scope."
         },
         {
           "description": "Denies the preview_console_push command without any pre-configured scope.",
@@ -2631,10 +2739,22 @@
           "markdownDescription": "Denies the pty_write command without any pre-configured scope."
         },
         {
+          "description": "Denies the save_state_to_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-save-state-to-file",
+          "markdownDescription": "Denies the save_state_to_file command without any pre-configured scope."
+        },
+        {
           "description": "Denies the set_auto_start command without any pre-configured scope.",
           "type": "string",
           "const": "deny-set-auto-start",
           "markdownDescription": "Denies the set_auto_start command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the toggle_canvas_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-toggle-canvas-window",
+          "markdownDescription": "Denies the toggle_canvas_window command without any pre-configured scope."
         },
         {
           "description": "Denies the toggle_kanban_window command without any pre-configured scope.",

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-toggle-kanban-window"
+description = "Enables the toggle_kanban_window command without any pre-configured scope."
+commands.allow = ["toggle_kanban_window"]
+
+[[permission]]
+identifier = "deny-toggle-kanban-window"
+description = "Denies the toggle_kanban_window command without any pre-configured scope."
+commands.deny = ["toggle_kanban_window"]

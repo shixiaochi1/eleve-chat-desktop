@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preview-file-unwatch"
+description = "Enables the preview_file_unwatch command without any pre-configured scope."
+commands.allow = ["preview_file_unwatch"]
+
+[[permission]]
+identifier = "deny-preview-file-unwatch"
+description = "Denies the preview_file_unwatch command without any pre-configured scope."
+commands.deny = ["preview_file_unwatch"]

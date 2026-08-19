@@ -191,9 +191,11 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   queue_steer:            'queue.steer',
   // F3: 输入增强（后端已就绪）
   complete_path:          'complete.path',
-  // 🔴 2026-08-18 画布 × ELEVE 集成：画布按钮 → canvas.open RPC
-  // （后端 launch_canvas 统一解析生产 exe（安装包资源位）/ dev start.vbs，
-  // 与 canvas_open 插件工具同源）
+  // 🔴 2026-08-18 画布 × ELEVE 集成 + 2026-08-19 根治修订：画布按钮 →
+  // canvas.toggle RPC（后端 canvas_toggle_intent 切换语义：画布已连 → 推
+  // shell.toggle_canvas 帧给壳按可见性隐藏/显示，不新开窗口；未连 → 推
+  // shell.open_canvas 帧开窗。单例硬约束在壳，绝不无限开窗）
+  canvas_toggle:           'canvas.toggle',
   canvas_open:            'canvas.open',
   // F4: 信息面板（后端已就绪）
   learning_frames:        'learning.frames',

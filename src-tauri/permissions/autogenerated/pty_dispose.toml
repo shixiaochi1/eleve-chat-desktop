@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pty-dispose"
+description = "Enables the pty_dispose command without any pre-configured scope."
+commands.allow = ["pty_dispose"]
+
+[[permission]]
+identifier = "deny-pty-dispose"
+description = "Denies the pty_dispose command without any pre-configured scope."
+commands.deny = ["pty_dispose"]
