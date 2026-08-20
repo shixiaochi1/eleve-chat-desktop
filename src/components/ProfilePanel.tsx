@@ -406,19 +406,21 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
         <div className="mx-3 mb-1 px-2 py-1 text-[11px] text-destructive bg-destructive/5 rounded border border-destructive/20 shrink-0">{error}</div>
       )}
 
-      {/* Agent 卡片列表（绝对定位 + transform 槽位，拖拽排序；pt/pb 并入 sortable padTop/
-          容器高度，[scrollbar-gutter:stable] 恒预留滚动条位与项目列表宽度对齐）
-          🔴 data-agent-list：AgentsPanel 高度测量锚点（scrollHeight = 内容总高，不受容器裁剪影响）
-          🔴 2026-08-20 塌缩修复：去掉 flex-1（flex-basis:0% 覆盖 style height →
-          自然高度父容器下塌缩为 0，项目区 flex-1 占满）。改为纯固定高度 =
-          内容总高（卡片多时由 AgentsPanel 上部 max-h-[42%] 压缩 + 本容器 overflow 滚动）。 */}
+      {/* Agent 卡片列表（拖拽排序：absolute 卡片 + transform 槽位）
+          🔴 2026-08-20 高度方案（用户要求内容驱动）：容器不给固定高度——
+          内部放"占位撑高层"（高度 = 卡片总高 + padding），容器自然高度由
+          占位层撑开 → Agent 区高度 = 卡片数量总高（内容驱动），卡片少时
+          项目区自动上移（AgentsPanel 下部 flex-1）；卡片多时由 AgentsPanel
+          上部 max-h-[42%] 压缩 + 本容器 overflow-y-auto 滚动。
+          🔴 data-agent-list：AgentsPanel 高度测量锚点（scrollHeight = 内容总高） */}
       <div
         data-agent-list
         ref={sortable.containerRef}
         onPointerDown={sortable.onPointerDown}
-        className="relative overflow-y-auto px-3 shrink-0 min-h-0 [scrollbar-gutter:stable]"
-        style={{ height: sortable.contentHeight() + 12 }}
+        className="relative overflow-y-auto px-3 min-h-0 [scrollbar-gutter:stable]"
       >
+        {/* 占位撑高：absolute 卡片的"流内"锚点——容器自然高度 = 卡片总高 */}
+        <div aria-hidden className="w-full" style={{ height: sortable.contentHeight() + 12 }} />
         {loading && profiles.length === 0 ? (
           <div className="flex items-center justify-center py-6 text-xs text-muted-foreground">加载中...</div>
         ) : (

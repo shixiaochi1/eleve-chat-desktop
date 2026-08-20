@@ -623,9 +623,12 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
               <div
                 ref={sortable.containerRef}
                 onPointerDown={sortable.onPointerDown}
-                className="relative overflow-y-auto px-3 pb-2 shrink-0 min-h-0 [scrollbar-gutter:stable] [overflow-anchor:none]"
-                style={{ height: sortable.contentHeight() + 14 }}
+                className="relative overflow-y-auto px-3 pb-2 min-h-0 [scrollbar-gutter:stable] [overflow-anchor:none]"
               >
+                {/* 🔴 2026-08-20 高度方案（用户要求内容驱动）：占位撑高——容器自然
+                    高度 = 项目行总高（不固定 height），项目区 flex-1 拿剩余空间；
+                    行多时由项目区容器压缩 + 本容器 overflow-y-auto 滚动 */}
+                <div aria-hidden className="w-full" style={{ height: sortable.contentHeight() + 14 }} />
                 {tree.projects.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-3 p-4">
                     <div className="w-10 h-10 rounded-xl bg-muted/40 flex items-center justify-center">
