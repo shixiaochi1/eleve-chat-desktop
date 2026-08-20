@@ -46,6 +46,37 @@ export function getHttpBase(): string {
 }
 
 /**
+ * 🔴 2026-08-20：通用 gateway HTTP 调用（媒体凭据等无 WS 方法的端点走 HTTP）。
+ * 自动：桌面端 discoverPort（未发现时抛错）→ profile 前缀（非 default 加 /p/<profile>/）→
+ * GET/DELETE 无 body、其余 JSON。返回解析后的 JSON（非 2xx 抛 Error 带后端 message）。
+ */
+export async function httpJson(path: string, method = 'GET', body?: unknown): Promise<any> {
+  if (isDesktop() && !_httpBaseSet) {
+    const ok = await discoverPort();
+    if (!ok) {
+      throw new Error('[bridge] Gateway port not discovered. Backend may not be running.');
+    }
+  }
+  const { getWsActiveProfile } = await import('../services/ws-client');
+  const profile = getWsActiveProfile();
+  const profilePrefix = profile ? `/p/${profile}` : '';
+  const url = `${_httpBase}${profilePrefix}${path}`;
+  const options: RequestInit = {
+    method,
+    headers: { 'Content-Type': 'application/json' } as Record<string, string>,
+  };
+  if (body !== undefined && !['GET', 'DELETE'].includes(method)) {
+    options.body = JSON.stringify(body);
+  }
+  const resp = await fetch(url, options);
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+    throw new Error(err?.error?.message || err?.error || `HTTP ${resp.status}`);
+  }
+  return resp.json();
+}
+
+/**
  * 通过 Tauri IPC 发现网关端口，设置 _httpBase
  * 桌面模式启动时调用一次（Kanban + 配置类 HTTP 需要）
  */

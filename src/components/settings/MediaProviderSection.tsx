@@ -1,13 +1,25 @@
 import { useEffect, useState, useCallback } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, KeyRound, X } from 'lucide-react';
 import {
   getProvidersDirectory,
   selectMediaProvider,
   getMediaConfigValue,
   setMediaConfigValue,
+  getMediaCredentials,
+  saveMediaCredential,
+  removeMediaCredential,
   type ProvidersDirectoryResponse,
   type DirectoryProviderEntry,
+  type MediaCredentialStatus,
 } from '../../utils/settings-store';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+} from '../ui/dialog';
 
 /**
  * MediaProviderSection — 媒体生成服务商（生图 / 生视频，分域选择）
@@ -15,16 +27,17 @@ import {
  * 架构（2026-08-20 服务商统一视图 + 底层分域隔离）：
  * - 数据源：WS providers.directory（聚合 LLM 池 + 生图 + 生视频 三源，只读）
  * - 只展示 image / video 域服务商（与上方 LLM 聊天服务商卡片墙物理分区）
- * - 同一服务商跨域（如 eleve 同时提供生图+生视频）→ 按域徽标分组展示，各自独立选择
  * - 选择：WS media.provider.select 分域写入 config（image_gen.provider / video_gen.provider）
  * - available 标记 = 凭据是否就绪（key 配在 ELEVE 侧，前端零密钥）
  *
- * 🔴 ELEVE 媒体生成卡片展开（2026-08-20 用户要求，MXAPI 官网 api-guide 对齐）：
- * - 点击卡片头展开：显示 MXAPI 通道分类「能力全览」（MXAPI_CHANNELS：Nano 系列 /
- *   即梦绘图 / 基础·Pro 绘图 / 即梦视频 / Veo 视频 / Suno 音乐，含端点与实现状态，
- *   implemented=false 灰显「待接入」）
- * - 设置区：生图模型（nano/nano-pro/nano2）+ X-Channel 通道（default/premium）→
- *   config.set 单键写入 image_gen.mxapi.model / image_gen.mxapi.channel
+ * 🔴 ELEVE 媒体生成卡片弹窗（2026-08-20 用户要求，MXAPI 官网 api-guide 对齐）：
+ * 点击卡片 → Dialog 弹窗，包含：
+ * 1. **API Key 输入**：MXAPI_API_KEY 保存到 ELEVE（HTTP /v1/media/credentials，
+ *    与画布 ApiSettingsModal 同端点同契约，key 存 profile .env，只回 masked）
+ * 2. **引擎**：生图 / 生视频「设为引擎」（WS media.provider.select）
+ * 3. **MXAPI 模型分类预设**：图片 / 视频 / 音乐 三大类，组内按通道子分组；
+ *    implemented=true 可点选（写 image_gen.mxapi.model），false 灰显「待接入」
+ * 4. **设置**：X-Channel 通道（default/premium）→ config.set 单键写入
  */
 export default function MediaProviderSection() {
   const [dir, setDir] = useState<ProvidersDirectoryResponse | null>(null);
@@ -32,8 +45,12 @@ export default function MediaProviderSection() {
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // ── 卡片展开 + MXAPI 设置 ──
-  const [expanded, setExpanded] = useState(false);
+  // ── 弹窗 + MXAPI 设置 ──
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [credStatus, setCredStatus] = useState<Record<string, MediaCredentialStatus>>({});
+  const [keyDraft, setKeyDraft] = useState('');
+  const [savingKey, setSavingKey] = useState(false);
+  const [removingKey, setRemovingKey] = useState(false);
   const [mxModel, setMxModel] = useState('nano');
   const [mxChannel, setMxChannel] = useState('default');
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -46,13 +63,22 @@ export default function MediaProviderSection() {
     setLoading(false);
   }, []);
 
+  const loadCreds = useCallback(async () => {
+    const list = await getMediaCredentials();
+    const map: Record<string, MediaCredentialStatus> = {};
+    for (const p of list) map[p.id] = p;
+    setCredStatus(map);
+  }, []);
+
   useEffect(() => {
     void load();
   }, [load]);
 
-  // 展开时加载当前 mxapi 子配置
+  // 弹窗打开时：加载凭据状态 + mxapi 子配置
   useEffect(() => {
-    if (!expanded || settingsLoaded) return;
+    if (!dialogOpen) return;
+    void loadCreds();
+    if (settingsLoaded) return;
     let cancelled = false;
     (async () => {
       const model = await getMediaConfigValue('image_gen.mxapi.model');
@@ -63,7 +89,7 @@ export default function MediaProviderSection() {
       setSettingsLoaded(true);
     })();
     return () => { cancelled = true; };
-  }, [expanded, settingsLoaded]);
+  }, [dialogOpen, settingsLoaded, loadCreds]);
 
   const pick = async (usage: 'image' | 'video', provider: string) => {
     setSaving(`${usage}:${provider}`);
@@ -78,11 +104,54 @@ export default function MediaProviderSection() {
     }
   };
 
+  const handleSaveKey = async () => {
+    const key = keyDraft.trim();
+    if (!key) return;
+    setSavingKey(true);
+    setError(null);
+    try {
+      await saveMediaCredential('mxapi', key);
+      setKeyDraft('');
+      await loadCreds();
+      await load(); // 刷新 available 标记
+    } catch (e: any) {
+      setError(e?.message || '保存 API Key 失败（请确认 ELEVE 服务已启动）');
+    } finally {
+      setSavingKey(false);
+    }
+  };
+
+  const handleRemoveKey = async () => {
+    setRemovingKey(true);
+    setError(null);
+    try {
+      await removeMediaCredential('mxapi');
+      await loadCreds();
+      await load();
+    } catch (e: any) {
+      setError(e?.message || '解除 API Key 失败');
+    } finally {
+      setRemovingKey(false);
+    }
+  };
+
+  const pickMxModel = async (modelId: string) => {
+    setSettingSaving(true);
+    setError(null);
+    try {
+      await setMediaConfigValue('image_gen.mxapi.model', modelId);
+      setMxModel(modelId);
+    } catch (e: any) {
+      setError(e?.message || '保存模型失败');
+    } finally {
+      setSettingSaving(false);
+    }
+  };
+
   const saveMxSettings = async () => {
     setSettingSaving(true);
     setError(null);
     try {
-      await setMediaConfigValue('image_gen.mxapi.model', mxModel);
       await setMediaConfigValue('image_gen.mxapi.channel', mxChannel);
       setSettingsLoaded(true);
     } catch (e: any) {
@@ -95,128 +164,96 @@ export default function MediaProviderSection() {
   const mediaProviders = (dir?.providers || []).filter(
     (p) => p.domains.image.length > 0 || p.domains.video.length > 0,
   );
+  const eleveProvider = mediaProviders.find((p) => p.id === 'eleve') || null;
+  const mxapiStatus = credStatus['mxapi'];
 
-  const renderDomain = (
-    p: DirectoryProviderEntry,
+  // ── 弹窗内渲染：引擎（生图/生视频 设为引擎）──
+  const renderEngineRow = (
     usage: 'image' | 'video',
     label: string,
     models: DirectoryProviderEntry['domains']['image'],
-    current: string,
   ) => {
+    if (!eleveProvider) return null;
     if (models.length === 0) return null;
-    const isCurrent = current === p.id;
-    // 可用性取首个模型标记（同一 provider 内一致）
+    const isCurrent = (dir?.current as any)?.[usage] === 'eleve';
     const available = models[0]?.available ?? false;
     return (
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-3 py-2">
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-muted-foreground">{label}</span>
-            {available ? (
-              <span className="flex items-center gap-1 text-[10px] text-emerald-600">
-                <span className="size-1.5 rounded-full bg-emerald-500" /> key 已配
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 text-[10px] text-amber-600">
-                <span className="size-1.5 rounded-full bg-amber-500" /> 未配 key
-              </span>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-1 mt-0.5">
-            {models.slice(0, 3).map((m) => (
-              <span key={m.id} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground truncate max-w-[8rem]">
-                {/* 无模型目录的 provider → 占位条目（video 域 ELEVE 通道待接入） */}
-                {usage === 'video' && m.id === p.id ? '视频通道待接入' : m.display || m.id}
-              </span>
-            ))}
-            {models.length > 3 && (
-              <span className="text-[10px] text-muted-foreground">+{models.length - 3}</span>
-            )}
+          <div className="text-xs font-medium">{label}</div>
+          <div className="text-[10px] text-muted-foreground mt-0.5">
+            {available ? 'MXAPI key 已配置' : '未配置 key — 先在上方保存 API Key'}
           </div>
         </div>
         <button
           type="button"
-          onClick={() => pick(usage, p.id)}
+          onClick={() => void pick(usage, eleveProvider.id)}
           disabled={saving !== null}
-          className={`shrink-0 px-2 py-1 rounded-md text-[11px] border transition-colors disabled:opacity-50 ${
+          className={`shrink-0 px-2.5 py-1 rounded-md text-[11px] border transition-colors disabled:opacity-50 ${
             isCurrent
               ? 'bg-primary/10 text-primary border-primary/30'
               : 'border-border text-muted-foreground hover:bg-accent/40'
           }`}
         >
-          {saving === `${usage}:${p.id}` ? '保存中…' : isCurrent ? '当前引擎' : '设为引擎'}
+          {saving === `${usage}:eleve` ? '保存中…' : isCurrent ? '当前引擎' : '设为引擎'}
         </button>
       </div>
     );
   };
 
-  /** MXAPI 能力分类全览（implemented=false → 灰显「待接入」） */
-  const renderMxapiChannels = (p: DirectoryProviderEntry) => {
-    const channels = p.mxapi?.channels || [];
+  // ── 弹窗内渲染：MXAPI 模型分类预设 ──
+  const renderMxapiChannels = () => {
+    const channels = eleveProvider?.mxapi?.channels || [];
     if (channels.length === 0) return null;
+    const categories = ['图片', '视频', '音乐'];
     return (
-      <div className="space-y-2">
-        <div className="text-[11px] font-medium text-foreground">MXAPI 通道分类（能力全览）</div>
-        {channels.map((g) => (
-          <div key={g.group}>
-            <div className="text-[10px] text-muted-foreground">{g.group}</div>
-            <div className="flex flex-wrap gap-1 mt-0.5">
-              {g.models.map((m) => (
-                <span
-                  key={m.id}
-                  title={`${m.display} — ${m.apiPath}${m.implemented ? '' : '（后端待接入）'}`}
-                  className={`text-[10px] px-1.5 py-0.5 rounded truncate max-w-[11rem] ${
-                    m.implemented
-                      ? 'bg-primary/10 text-primary'
-                      : 'bg-muted/60 text-muted-foreground/60 line-through decoration-muted-foreground/40'
-                  }`}
-                >
-                  {m.display}
-                  {!m.implemented && <span className="ml-1 no-underline">待接入</span>}
+      <div className="space-y-3">
+        {categories.map((cat) => {
+          const catGroups = channels.filter((g) => g.category === cat);
+          if (catGroups.length === 0) return null;
+          const all = catGroups.flatMap((g) => g.models);
+          const implementedCount = all.filter((m) => m.implemented).length;
+          return (
+            <div key={cat} className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] px-2 py-0.5 rounded-md bg-primary/10 text-primary font-semibold">{cat}</span>
+                <span className="text-[10px] text-muted-foreground/60">
+                  {implementedCount} 个已实现 / {all.length} 个通道
                 </span>
+              </div>
+              {catGroups.map((g) => (
+                <div key={g.group} className="space-y-1">
+                  <div className="text-[10px] text-muted-foreground">{g.group}</div>
+                  <div className="flex flex-wrap gap-1">
+                    {g.models.map((m) => {
+                      const active = mxModel === m.id;
+                      const implemented = m.implemented;
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          disabled={!implemented || settingSaving}
+                          onClick={() => void pickMxModel(m.id)}
+                          title={implemented ? `${m.display} — ${m.apiPath}` : `${m.display}（后端待接入）— ${m.apiPath}`}
+                          className={`text-[10px] px-2 py-1 rounded-md border transition-colors ${
+                            active && implemented
+                              ? 'border-primary bg-primary/10 text-primary font-medium'
+                              : implemented
+                                ? 'border-border text-foreground hover:bg-accent/40 cursor-pointer'
+                                : 'border-border/40 text-muted-foreground/50 line-through decoration-muted-foreground/40 cursor-not-allowed'
+                          }`}
+                        >
+                          {m.display}
+                          {!implemented && <span className="ml-1 no-underline">待接入</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               ))}
             </div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  /** MXAPI 设置区（生图模型 + X-Channel 通道 → config.set 单键写入） */
-  const renderMxapiSettings = () => {
-    return (
-      <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end border-t border-border pt-2.5">
-        <div className="grid gap-1">
-          <label className="text-[10px] text-muted-foreground">生图模型（image_gen.mxapi.model）</label>
-          <select
-            className="flex h-7 w-full items-center rounded-md border border-input bg-transparent px-2 py-1 text-[11px] text-foreground outline-none"
-            value={mxModel}
-            onChange={(e) => setMxModel(e.target.value)}
-          >
-            <option value="nano">nano — Nano (gemini-2.5-flash)</option>
-            <option value="nano-pro">nano-pro — Nano Pro (gemini-3-pro)</option>
-            <option value="nano2">nano2 — Nano2 (gemini-3.1-flash)</option>
-          </select>
-        </div>
-        <div className="grid gap-1">
-          <label className="text-[10px] text-muted-foreground">通道 X-Channel（image_gen.mxapi.channel）</label>
-          <select
-            className="flex h-7 w-full items-center rounded-md border border-input bg-transparent px-2 py-1 text-[11px] text-foreground outline-none"
-            value={mxChannel}
-            onChange={(e) => setMxChannel(e.target.value)}
-          >
-            <option value="default">default（默认通道）</option>
-            <option value="premium">premium（优质通道）</option>
-          </select>
-        </div>
-        <button
-          type="button"
-          onClick={() => void saveMxSettings()}
-          disabled={settingSaving}
-          className="shrink-0 h-7 px-3 rounded-md text-[11px] border border-primary/30 text-primary bg-primary/10 transition-colors disabled:opacity-50"
-        >
-          {settingSaving ? '保存中…' : '保存设置'}
-        </button>
+          );
+        })}
       </div>
     );
   };
@@ -229,7 +266,7 @@ export default function MediaProviderSection() {
           {mediaProviders.length} 家
         </span>
         <span className="text-[10px] text-muted-foreground">
-          与聊天服务商分域隔离；「未配 key」= 需在画布 API 设置保存 MXAPI API Key
+          与聊天服务商分域隔离；「未配 key」= 需在卡片弹窗内保存 MXAPI API Key
         </span>
       </div>
 
@@ -240,45 +277,172 @@ export default function MediaProviderSection() {
       )}
 
       <div className="grid gap-2 sm:grid-cols-2">
-        {mediaProviders.map((p) => (
-          <div
-            key={p.id}
-            className={`rounded-xl border border-border bg-card p-3 space-y-2 transition-all ${expanded ? 'sm:col-span-2' : ''}`}
-          >
-            {/* 卡片头：点击展开/收起 */}
+        {mediaProviders.map((p) => {
+          const available = p.domains.image[0]?.available ?? false;
+          return (
             <button
+              key={p.id}
               type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="w-full flex items-center justify-between gap-2 cursor-pointer"
+              onClick={() => { setDialogOpen(true); setError(null); }}
+              className="rounded-xl border border-border bg-card p-3 text-left transition-all hover:border-primary/40 hover:bg-accent/20 cursor-pointer"
             >
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-xs font-medium">{p.name}</span>
-                <span className="text-[10px] font-mono text-muted-foreground">{p.id}</span>
-                {p.mxapi && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                    点击查看 MXAPI 设置与分类
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs font-medium">{p.name}</span>
+                  <span className="text-[10px] font-mono text-muted-foreground">{p.id}</span>
+                  {available ? (
+                    <span className="flex items-center gap-1 text-[10px] text-emerald-600">
+                      <span className="size-1.5 rounded-full bg-emerald-500" /> key 已配
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-[10px] text-amber-600">
+                      <span className="size-1.5 rounded-full bg-amber-500" /> 未配 key
+                    </span>
+                  )}
+                </div>
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0">
+                  <KeyRound size={11} /> 配置与分类
+                  <ChevronDown size={13} className="text-muted-foreground" />
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {p.domains.image.slice(0, 3).map((m) => (
+                  <span key={m.id} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground truncate max-w-[8rem]">
+                    {m.display || m.id}
+                  </span>
+                ))}
+                {p.domains.video.length > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">生视频：待接入</span>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ═══ ELEVE 媒体生成配置弹窗（2026-08-20：API Key + 引擎 + MXAPI 模型分类 + 设置） ═══ */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              ELEVE 媒体生成
+              <span className="text-[10px] font-mono text-muted-foreground">eleve · MXAPI 通道</span>
+            </DialogTitle>
+            <DialogDescription>
+              凭据与设置保存在 ELEVE 侧（画布共用）；模型按 MXAPI 通道分类预设，标「待接入」的后端尚未实现。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* ── 1. API Key ── */}
+            <section className="rounded-xl border border-border/60 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium">API Key（MXAPI_API_KEY）</span>
+                {mxapiStatus?.configured ? (
+                  <span className="flex items-center gap-1 text-[10px] text-emerald-600">
+                    <span className="size-1.5 rounded-full bg-emerald-500" />
+                    已配置：{mxapiStatus.masked}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-[10px] text-amber-600">
+                    <span className="size-1.5 rounded-full bg-amber-500" />
+                    未配置
                   </span>
                 )}
               </div>
-              <ChevronDown
-                size={15}
-                className={`shrink-0 text-muted-foreground transition-transform ${expanded ? 'rotate-180' : ''}`}
-              />
-            </button>
-
-            {renderDomain(p, 'image', '生图', p.domains.image, dir?.current?.image || '')}
-            {renderDomain(p, 'video', '生视频', p.domains.video, dir?.current?.video || '')}
-
-            {/* 展开区：MXAPI 能力分类 + 设置 */}
-            {expanded && (
-              <div className="space-y-2.5 pt-1">
-                {renderMxapiChannels(p)}
-                {renderMxapiSettings()}
+              <div className="flex items-center gap-2">
+                <input
+                  type="password"
+                  className="flex h-8 flex-1 min-w-0 items-center rounded-md border border-input bg-transparent px-2 py-1 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+                  placeholder="粘贴 MXAPI access_key（open.mxapi.org 商户后台创建）"
+                  value={keyDraft}
+                  onChange={(e) => setKeyDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void handleSaveKey(); }}
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleSaveKey()}
+                  disabled={savingKey || !keyDraft.trim()}
+                  className="shrink-0 h-8 px-3 rounded-md text-[11px] bg-primary text-primary-foreground transition-colors disabled:opacity-50"
+                >
+                  {savingKey ? '保存中…' : '保存到 ELEVE'}
+                </button>
+                {mxapiStatus?.configured && (
+                  <button
+                    type="button"
+                    onClick={() => void handleRemoveKey()}
+                    disabled={removingKey}
+                    className="shrink-0 h-8 px-2.5 rounded-md text-[11px] border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors disabled:opacity-50"
+                  >
+                    {removingKey ? '解除中…' : '解除'}
+                  </button>
+                )}
               </div>
-            )}
+              <p className="text-[10px] text-muted-foreground/60">
+                key 加密写入 ELEVE profile .env（CredentialScope），画布与桌面端共用；明文永不下发前端。
+              </p>
+            </section>
+
+            {/* ── 2. 引擎（生图 / 生视频） ── */}
+            <section className="space-y-2">
+              <span className="text-xs font-medium">引擎</span>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {renderEngineRow('image', '生图（ELEVE 媒体生成）', eleveProvider?.domains.image || [])}
+                {renderEngineRow('video', '生视频（通道待接入）', eleveProvider?.domains.video || [])}
+              </div>
+            </section>
+
+            {/* ── 3. MXAPI 模型分类预设 ── */}
+            <section className="space-y-2">
+              <span className="text-xs font-medium">MXAPI 模型（分类预设）</span>
+              <p className="text-[10px] text-muted-foreground/60 -mt-1.5">
+                点击已实现模型即切换生图模型（写入 image_gen.mxapi.model）
+              </p>
+              {renderMxapiChannels()}
+            </section>
+
+            {/* ── 4. 设置（X-Channel） ── */}
+            <section className="rounded-xl border border-border/60 p-3 space-y-2">
+              <div className="flex items-end gap-2">
+                <div className="grid gap-1 flex-1">
+                  <label className="text-[10px] text-muted-foreground">通道 X-Channel（image_gen.mxapi.channel）</label>
+                  <select
+                    className="flex h-7 w-full items-center rounded-md border border-input bg-transparent px-2 py-1 text-[11px] text-foreground outline-none"
+                    value={mxChannel}
+                    onChange={(e) => setMxChannel(e.target.value)}
+                  >
+                    <option value="default">default（默认通道）</option>
+                    <option value="premium">premium（优质通道）</option>
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void saveMxSettings()}
+                  disabled={settingSaving}
+                  className="shrink-0 h-7 px-3 rounded-md text-[11px] border border-primary/30 text-primary bg-primary/10 transition-colors disabled:opacity-50"
+                >
+                  {settingSaving ? '保存中…' : '保存设置'}
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground/60">
+                当前生图模型：{mxModel}（nano 系列，Nano (gemini-2.5-flash) / Nano Pro (gemini-3-pro) / Nano2 (gemini-3.1-flash)）
+              </p>
+            </section>
           </div>
-        ))}
-      </div>
+
+          <div className="flex justify-end pt-1">
+            <DialogClose asChild>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 h-8 px-4 rounded-md text-xs border border-border text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors cursor-pointer"
+              >
+                <X size={13} /> 关闭
+              </button>
+            </DialogClose>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

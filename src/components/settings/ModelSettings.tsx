@@ -109,7 +109,7 @@ export default function ModelSettings({
     { key: 'aux', label: '辅助任务', icon: Cog },
     { key: 'delegation', label: '子 Agent', icon: Users },
     { key: 'moa', label: 'MoA', icon: GitMerge },
-    { key: 'image', label: '图像生成', icon: ImageIcon },
+    { key: 'image', label: '媒体生成', icon: ImageIcon },
   ] as const;
   const [tab, setTab] = useState<(typeof TABS)[number]['key']>('fallback');
 
@@ -794,37 +794,50 @@ export default function ModelSettings({
         </div>
       )}
 
-      {/* ══════════ 图像生成（对齐 Hermes ModelCatalogPicker：后端目录 + 点击即存） ══════════ */}
+      {/* ══════════ 媒体生成（对齐 Hermes ModelCatalogPicker：后端目录 + 点击即存） ══════════ */}
       {/* 🔴 2026-08-20：ELEVE 媒体生成（MXAPI）分类化目录——按图片/视频/音乐分类，
           取消 FLUX/FAL；implemented=false 的通道灰显「待接入」不可选 */}
       {tab === 'image' && (
-        <div className="space-y-2.5">
-          <p className="text-xs text-muted-foreground/70 leading-relaxed">
-            Agent 调用媒体生成工具时使用的模型（ELEVE 媒体生成 · MXAPI 后端）。点击卡片即切换并保存；标「待接入」的通道后端尚未实现，不可选。
-          </p>
+        <div className="space-y-3">
+          <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Agent 调用<b className="text-foreground">媒体生成</b>工具时使用的模型（ELEVE 媒体生成 · MXAPI 后端）。
+              点击卡片即切换并保存；标「待接入」的通道后端尚未实现，不可选。
+            </p>
+          </div>
           {imageLoading ? (
             <p className="text-xs text-muted-foreground/60">加载模型目录…</p>
           ) : !imageGen || !imageGen.has_models ? (
             <p className="text-xs text-muted-foreground/60">该工具集暂无可用模型目录。</p>
           ) : (
             <>
-              {['图片', '视频', '音乐'].map((cat) => {
+              {['图片', '视频', '音乐'].map((cat, catIdx) => {
                 const catModels = (imageGen.models as ToolsetModelEntry[]).filter((m) => m.category === cat);
                 if (catModels.length === 0) return null;
                 const groups = Array.from(new Set(catModels.map((m) => m.group || ''))).filter(Boolean);
+                const implementedCount = catModels.filter((m) => m.implemented !== false).length;
                 return (
                   <div key={cat} className="space-y-2">
-                    <div className="flex items-center gap-1.5 pt-1">
-                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted text-foreground font-medium">{cat}</span>
+                    {/* 分类头：大区块视觉（色条 + 名称 + 统计） */}
+                    <div className="flex items-center gap-2 pt-1 border-t border-border/40 first:border-t-0">
+                      <span
+                        className={`size-1.5 rounded-full ${
+                          cat === '图片' ? 'bg-sky-500' : cat === '视频' ? 'bg-violet-500' : 'bg-rose-500'
+                        }`}
+                      />
+                      <span className="text-xs font-semibold text-foreground">{cat}</span>
                       <span className="text-[10px] text-muted-foreground/60">
-                        {catModels.filter((m) => m.implemented !== false).length} 个已实现 / {catModels.length} 个通道
+                        {implementedCount} 个已实现 / {catModels.length} 个通道
+                        {catIdx === 0 && <span className="ml-1.5 text-primary/70">（点击已实现模型切换生图模型）</span>}
                       </span>
                     </div>
                     {groups.map((g) => (
                       <div key={g} className="space-y-1.5">
                         <div className="text-[10px] text-muted-foreground">{g}</div>
                         <div className="grid gap-2 sm:grid-cols-2">
-                          {catModels.filter((m) => m.group === g).map((m) => {
+                          {/* 已实现模型在前，待接入在后 */}
+                          {[...catModels.filter((m) => m.group === g && m.implemented !== false),
+                            ...catModels.filter((m) => m.group === g && m.implemented === false)].map((m) => {
                             const implemented = m.implemented !== false;
                             const active = imageGen.current === m.id;
                             const saving = imageSaving === m.id;
@@ -874,9 +887,12 @@ export default function ModelSettings({
                   </div>
                 );
               })}
-              <p className="text-[11px] text-muted-foreground/60">
-                当前：{imageGen.models.find((m: any) => m.id === imageGen.current)?.display || imageGen.current}
-              </p>
+              <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-1.5">
+                <span className="text-[11px] text-muted-foreground">当前生效模型</span>
+                <span className="text-[11px] font-medium text-foreground">
+                  {imageGen.models.find((m: any) => m.id === imageGen.current)?.display || imageGen.current}
+                </span>
+              </div>
             </>
           )}
         </div>

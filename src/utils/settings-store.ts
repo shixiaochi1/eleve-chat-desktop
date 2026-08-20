@@ -6,7 +6,7 @@
  * 
  * 所有 HTTP 调用已替换为 bridge.call()
  */
-import { call } from './bridge';
+import { call, httpJson } from './bridge';
 import * as storage from './storage';
 
 const STORAGE_KEY = 'settings';
@@ -363,10 +363,42 @@ export async function setMediaConfigValue(
   return res as { ok: boolean; key: string };
 }
 
-/** MXAPI 通道分类（directory 附加元数据，卡片展开「能力全览」） */
+/** MXAPI 通道分类（directory 附加元数据，卡片弹窗「能力全览」） */
 export interface MxapiChannelGroup {
   group: string;
+  category: string; // 图片 / 视频 / 音乐
   models: { id: string; display: string; apiPath: string; implemented: boolean }[];
+}
+
+// =============================================================================
+// 媒体凭据（2026-08-20：ELEVE 媒体生成卡片弹窗 API Key 输入；HTTP /v1/media/credentials，
+// 与画布 ApiSettingsModal 同端点同契约——key 存 ELEVE 侧 profile .env，只回 masked）
+// =============================================================================
+
+export interface MediaCredentialStatus {
+  id: string;
+  configured: boolean;
+  masked: string;
+}
+
+/** 读取媒体凭据配置状态（只回 masked） */
+export async function getMediaCredentials(): Promise<MediaCredentialStatus[]> {
+  try {
+    const d = await httpJson('/v1/media/credentials');
+    return (d.platforms || []) as MediaCredentialStatus[];
+  } catch {
+    return [];
+  }
+}
+
+/** 保存媒体凭据（写 profile .env + CredentialScope，回 masked） */
+export async function saveMediaCredential(platform: string, key: string): Promise<void> {
+  await httpJson('/v1/media/credentials', 'POST', { platform, key });
+}
+
+/** 解除媒体凭据（删 .env 行 + scope，幂等） */
+export async function removeMediaCredential(platform: string): Promise<void> {
+  await httpJson(`/v1/media/credentials?platform=${encodeURIComponent(platform)}`, 'DELETE');
 }
 
 // =============================================================================
