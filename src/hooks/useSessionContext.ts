@@ -39,6 +39,9 @@ export function useSessionContext(
 
   useEffect(() => {
     if (!sessionId) { setCtx(null); return; }
+    // 🔴 2026-08-20：切换会话立即清空旧数据——否则新会话数据回来前
+    // 一直显示旧会话的上下文（用户实测：切 AGENT/项目后数据不跟着变）。
+    setCtx(null);
     let cancelled = false;
     let seq = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -47,10 +50,14 @@ export function useSessionContext(
       const mySeq = ++seq;
       try {
         const data = await fetchSessionContext(sessionId);
-        if (!cancelled && mySeq === seq && data) {
-          setCtx(data as SessionContextData);
-        }
-      } catch { /* 静默：会话可能不存在 */ }
+        if (cancelled || mySeq !== seq) return;
+        // 后端无数据 → 清空（显示"不可用"），不保留过期值
+        setCtx((data ? data : null) as SessionContextData | null);
+      } catch {
+        // 🔴 2026-08-20：轮询失败（WS 断线/会话不可达）→ 清空而非冻结旧值——
+        // 原实现静默保留旧 ctx，长时间运行后断线窗口内数据永久显示旧会话旧值。
+        if (!cancelled && mySeq === seq) setCtx(null);
+      }
       if (cancelled) return;
       timer = setTimeout(poll, active ? activeIntervalMs : idleIntervalMs);
     };
