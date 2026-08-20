@@ -16,7 +16,7 @@
 //!   - navigate：切 URL 前清空该 label 缓冲（新页面新会话，对齐方案）
 //!   - close：先注销/清缓冲，再销毁 webview
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
@@ -27,6 +27,14 @@ use crate::preview_console::PreviewConsoleState;
 pub struct PreviewWebviewManager {
     labels: Mutex<HashSet<String>>,
     counter: AtomicU64,
+}
+
+/// read_preview 事件回传状态：label → oneshot（页面文本经子 webview
+/// `__TAURI_INTERNALS__.invoke('preview_text_received')` 发回后 resolve）。
+/// 对齐 Hermes read_preview_tool.py 的阻塞读取语义（同步拿文本）。
+#[derive(Default)]
+pub struct PreviewReadState {
+    pending: Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>,
 }
 
 impl PreviewWebviewManager {
@@ -139,19 +147,51 @@ pub async fn preview_webview_close(
 }
 
 /// 读取子 webview 页面文本（🔴 2026-08-20 对齐 Hermes read_preview / preview-reader.ts）：
-/// wry evaluate_script 同步返回 `{title, text}`（text = body.innerText，上限 200K 字符）。
+/// 子 webview 内 `document.body.innerText`（上限 200K 字符），经
+/// `__TAURI_INTERNALS__.invoke('preview_text_received')` 事件回传后阻塞返回。
+/// （PlatformWebview 无同步 evaluate_script API——Tauri v2 的 `Webview::eval` 是
+///  fire-and-forget，返回值必须走 IPC 回传，这是 wry/WebView2 的架构约束。）
 /// 供前端 preview.read.request 处理：read_preview 工具 → WS 桥 → 前端 invoke 本命令。
 #[tauri::command]
-pub fn preview_webview_read_text(window: tauri::Window, label: String) -> Result<String, String> {
+pub async fn preview_webview_read_text(
+    window: tauri::Window,
+    state: tauri::State<'_, PreviewReadState>,
+    label: String,
+) -> Result<String, String> {
     let webview = window
         .webviews()
         .into_iter()
         .find(|w| w.label() == label)
         .ok_or_else(|| "preview_webview_read_text: webview not found".to_string())?;
-    let js = r#"(function(){try{var d=document;return JSON.stringify({title:d.title,text:d.body?d.body.innerText.slice(0,200000):''})}catch(e){return JSON.stringify({title:'',text:'',error:String(e)})}})()"#;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state.pending.lock().unwrap().insert(label.clone(), tx);
+    let js = format!(
+        r#"(function(){{try{{var t=(document.body&&document.body.innerText)||'';var text=t.slice(0,200000);if(typeof window.__TAURI_INTERNALS__!=='undefined'&&window.__TAURI_INTERNALS__.invoke){{window.__TAURI_INTERNALS__.invoke('preview_text_received',{{requestId:{:?},text:text}})}}}}catch(e){{}}}})()"#,
+        label
+    );
     webview
-        .with_webview(|wv| wv.evaluate_script(js).map_err(|e| e.to_string()))
-        .map_err(|e| format!("preview_webview_read_text: {}", e))
+        .eval(&js)
+        .map_err(|e| format!("preview_webview_read_text eval: {}", e))?;
+    tokio::time::timeout(std::time::Duration::from_secs(5), rx)
+        .await
+        .map_err(|_| "preview_webview_read_text: timeout waiting for page text".to_string())?
+        .map_err(|_| "preview_webview_read_text: channel closed".to_string())
+}
+
+/// 子 webview 页面文本回传（read_preview 内部，不对外暴露）：
+/// requestId = webview label（一次一个 pending read，无需自增 id）
+#[tauri::command]
+pub fn preview_text_received(
+    state: tauri::State<'_, PreviewReadState>,
+    request_id: String,
+    text: String,
+) -> Result<(), String> {
+    if let Some(tx) = state.pending.lock().unwrap().remove(&request_id) {
+        let _ = tx.send(text);
+        Ok(())
+    } else {
+        Err("preview_text_received: no pending read for request_id".into())
+    }
 }
 
 /// 位置/大小同步（前端 rAF 节流后调用，position+size 合并传）

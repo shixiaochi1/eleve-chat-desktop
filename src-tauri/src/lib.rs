@@ -39,7 +39,7 @@ mod canvas_commands;
 
 pub use preview_console::PreviewConsoleState;
 pub use preview_file_watch::PreviewFileWatchManager;
-pub use preview_webview::PreviewWebviewManager;
+pub use preview_webview::{PreviewReadState, PreviewWebviewManager};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TAURI STATE — 仅存端口、子进程句柄、关闭标志
@@ -1269,6 +1269,7 @@ pub fn run() {
             preview_webview::preview_webview_visible,
             preview_webview::preview_webview_devtools,
             preview_webview::preview_webview_read_text,
+            preview_webview::preview_text_received,
             // 交互式 PTY（右栏用户终端真实 shell，对齐 Hermes terminalApi）
             pty::pty_start,
             pty::pty_write,
@@ -1358,6 +1359,7 @@ pub fn run() {
                 preview_console.spawn_flusher(app.handle().clone());
                 app.manage(preview_console);
                 app.manage(PreviewWebviewManager::default());
+                app.manage(PreviewReadState::default());
                 app.manage(PreviewFileWatchManager::default());
                 return Ok(());
             }
@@ -1433,6 +1435,7 @@ pub fn run() {
             preview_console.spawn_flusher(app.handle().clone());
             app.manage(preview_console);
             app.manage(PreviewWebviewManager::default());
+            app.manage(PreviewReadState::default());
             // 预览文件 watcher 注册表（文件变化 → preview-file-changed 事件）
             app.manage(PreviewFileWatchManager::default());
 
