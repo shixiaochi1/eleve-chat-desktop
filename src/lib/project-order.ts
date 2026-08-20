@@ -68,7 +68,10 @@ export function sortProjectsForOverview<T extends OrderableProject>(
   return homeFirst(sorted);
 }
 
-/** 手排 order 覆盖在确定性排序之上（对齐 Hermes orderProjectsByIds） */
+/** 手排 order 覆盖在确定性排序之上（对齐 Hermes orderProjectsByIds）。
+ * 🔴 2026-08-20 老大决策：**Home 桶参与手排**（去掉 homeFirst 强制置顶）——
+ * 拖动 Home 卡片即可改变其位置（此前 Home 恒首，拖了松手被拉回第一）。
+ * 默认排序（order 为空）仍 Home 首（首次固化的初始状态）；用户拖走后按新 order。 */
 export function orderProjectsByIds<T extends OrderableProject>(
   projects: T[],
   orderIds: string[],
@@ -83,12 +86,12 @@ export function orderProjectsByIds<T extends OrderableProject>(
   const fresh = projects.filter(p => !seen.has(p.id));
 
   if (!fresh.length) {
-    return homeFirst(ordered);
+    return ordered;
   }
 
   // 🔴 2026-08-14：新项目确定性排序**追加底部**（不按会话数自动置顶——老大：顺序手动）
-  return homeFirst([
+  return [
     ...ordered,
     ...sortProjectsForOverview(fresh),
-  ]);
+  ];
 }
