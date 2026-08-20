@@ -1594,3 +1594,46 @@ canvas {
   12%  { opacity: 1; }
   100% { opacity: 0; transform: translate(var(--sway, 12px), -260px) scale(1.15) rotate(8deg); }
 }
+
+/* ── AGENT 运行状态栏动画（2026-08-21 方案 C：脉冲灯 + 尾随跳动点，纯 CSS 零 JS）──
+   用法：外层容器设 color（currentColor 继承）——脉冲灯/跳动点自动取该色
+   （Agent 卡片传 color.dot，各 Agent 状态灯颜色与其身份色一致）；
+   文字保持 muted 不受影响。prefers-reduced-motion 全局禁用降级为静态。 */
+.agent-status-ping {
+  background: currentColor;
+  border-radius: 9999px;
+  animation: agent-status-ping 1.2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+.agent-status-core {
+  background: currentColor;
+  border-radius: 9999px;
+  animation: agent-status-core 1.2s ease-in-out infinite;
+}
+.agent-status-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.4;
+  animation: agent-status-dot-bounce 1s ease-in-out infinite;
+}
+@keyframes agent-status-ping {
+  0% { transform: scale(1); opacity: 0.8; }
+  80%, 100% { transform: scale(2.4); opacity: 0; }
+}
+@keyframes agent-status-core {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 0.4; }
+}
+@keyframes agent-status-dot-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-3px); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-status-ping,
+  .agent-status-core,
+  .agent-status-dot {
+    animation: none;
+    opacity: 0.8;
+  }
+}

@@ -198,14 +198,15 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
               {icon ? (() => { const Ic = projectIconFor(icon); return <Ic size={15} />; })() : <FolderGit size={15} />}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-semibold">{name.trim() || '未命名项目'}</div>
+              <div className="truncate text-[13px] font-semibold">{name.trim() || (initial ? '未命名项目' : '未选择文件夹')}</div>
               <div className="text-[10px] text-muted-foreground">
                 {initial ? (initial.isAuto ? '设为显式项目后可自定义外观' : '编辑项目外观与文件夹') : '新项目将以此外观创建'}
               </div>
             </div>
           </div>
 
-          {/* ② 项目名称：新建 = 自动取所选文件夹名（老大 2026-08-13，无手写栏）；编辑 = 可手写 */}
+          {/* ② 项目名称（编辑模式可手写）/ 项目文件夹（新建模式——🔴 2026-08-21 老大：
+              名称自动取所选文件夹名，名称输入框整体移除，文件夹框移到此原名称位置） */}
           {initial ? (
             <div>
               <label className="mb-1 block text-[11px] font-medium text-muted-foreground">项目名称</label>
@@ -219,10 +220,55 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
             </div>
           ) : (
             <div>
-              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">项目名称（自动取所选文件夹名）</label>
-              <div className="h-8 w-full rounded-lg border border-border bg-muted/30 px-2.5 text-sm leading-8 text-foreground/70 truncate">
-                {name.trim() || '未选择文件夹'}
-              </div>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                项目文件夹（项目名自动取所选文件夹名）
+              </label>
+              {folders.length === 0 ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="flex-1 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                    未选择文件夹
+                  </span>
+                  <button
+                    className="h-7 shrink-0 rounded-md border border-border px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+                    onClick={pickFolder}
+                    disabled={!desktop}
+                    title={desktop ? '原生文件夹选择' : '仅桌面端可用'}
+                  >
+                    选择
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {folders.map((f, i) => (
+                    <div key={f} className="flex items-center gap-1.5">
+                      <span
+                        className="flex-1 truncate rounded-md border border-border bg-muted/30 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground"
+                        title={f}
+                      >
+                        {f}
+                      </span>
+                      {i === 0 && (
+                        <span className="shrink-0 rounded bg-primary/15 px-1 py-0.5 text-[9px] text-primary">主</span>
+                      )}
+                      <button
+                        className="shrink-0 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        onClick={() => setFolders(prev => prev.filter(x => x !== f))}
+                        title="移除文件夹"
+                      >
+                        移除
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    className="self-start rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+                    onClick={pickFolder}
+                    disabled={!desktop}
+                    title={desktop ? '原生文件夹选择' : '仅桌面端可用'}
+                  >
+                    + 添加文件夹
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -274,12 +320,13 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
             </div>
           </div>
 
-          {/* 文件夹（对齐 Hermes project-dialog：新建多文件夹列表 + primary badge + 移除） */}
-          <div>
-            <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
-              {initial ? '主文件夹' : '项目文件夹'}
-            </label>
-            {initial ? (
+          {/* ④ 主文件夹（仅编辑模式——🔴 2026-08-21 新建模式已并入上方②：
+              名称自动取所选文件夹名，文件夹框在名称位；此处仅编辑模式保留） */}
+          {initial && (
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                主文件夹
+              </label>
               <div className="flex items-center gap-1.5">
                 <span
                   className="flex-1 truncate rounded-md border border-border bg-muted/30 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground"
@@ -296,53 +343,8 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
                   更换
                 </button>
               </div>
-            ) : folders.length === 0 ? (
-              <div className="flex items-center gap-1.5">
-                <span className="flex-1 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-                  未选择文件夹 — 可稍后从项目菜单添加
-                </span>
-                <button
-                  className="h-7 shrink-0 rounded-md border border-border px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
-                  onClick={pickFolder}
-                  disabled={!desktop}
-                  title={desktop ? '原生文件夹选择' : '仅桌面端可用'}
-                >
-                  选择
-                </button>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-1">
-                {folders.map((f, i) => (
-                  <div key={f} className="flex items-center gap-1.5">
-                    <span
-                      className="flex-1 truncate rounded-md border border-border bg-muted/30 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground"
-                      title={f}
-                    >
-                      {f}
-                    </span>
-                    {i === 0 && (
-                      <span className="shrink-0 rounded bg-primary/15 px-1 py-0.5 text-[9px] text-primary">主</span>
-                    )}
-                    <button
-                      className="shrink-0 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                      onClick={() => setFolders(prev => prev.filter(x => x !== f))}
-                      title="移除文件夹"
-                    >
-                      移除
-                    </button>
-                  </div>
-                ))}
-                <button
-                  className="self-start rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
-                  onClick={pickFolder}
-                  disabled={!desktop}
-                  title={desktop ? '原生文件夹选择' : '仅桌面端可用'}
-                >
-                  + 添加文件夹
-                </button>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* 项目 Idea（对齐 Hermes project-dialog：textarea + AI 生成 + 模板 chips + shuffle；仅新建） */}
           {!initial && (

@@ -551,10 +551,21 @@ export const AgentChatCard = memo(function AgentChatCard({
           />
         )}
 
-        {/* ── 活动提示（thinking / tool.progress / delegate.progress / goal）── */}
+        {/* ── 活动提示（thinking / tool.progress / delegate.progress / goal）──
+            🔴 2026-08-21 方案 C 动画：脉冲状态灯（Agent 身份色）+ 尾随跳动点，
+            纯 CSS（agent-status-* 类，prefers-reduced-motion 自动降级静态） */}
         {state.activityHint && streaming && (
-          <div className="px-3 py-1 text-[10px] text-muted-foreground/50 italic truncate" title={state.activityHint}>
-            {state.activityHint}
+          <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] truncate" title={state.activityHint}>
+            <span aria-hidden className="relative shrink-0 w-[6px] h-[6px]" style={{ color: color.dot }}>
+              <span className="agent-status-ping absolute inset-0" />
+              <span className="agent-status-core absolute inset-0" />
+            </span>
+            <span className="truncate text-muted-foreground/50">{state.activityHint}</span>
+            <span aria-hidden className="flex shrink-0 items-end gap-[2px]" style={{ color: color.dot }}>
+              <span className="agent-status-dot" />
+              <span className="agent-status-dot" style={{ animationDelay: '0.15s' }} />
+              <span className="agent-status-dot" style={{ animationDelay: '0.3s' }} />
+            </span>
           </div>
         )}
       </div>
