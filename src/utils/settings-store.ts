@@ -284,6 +284,54 @@ export async function selectToolsetModel(toolset: string, model: string): Promis
   return res as { ok: boolean; name: string; model: string };
 }
 
+// ====== 服务商聚合目录（2026-08-20：LLM 池 + 生图 + 生视频 三源按域）======
+
+export interface DirectoryModelEntry {
+  id: string;
+  display?: string;
+  available?: boolean;
+  supports_edit?: boolean;
+  upscale?: boolean;
+  context_length?: number;
+  max_output?: number;
+  supports_vision?: boolean | null;
+  modalities?: string[];
+}
+
+export interface DirectoryProviderEntry {
+  id: string;
+  name: string;
+  domains: {
+    chat: DirectoryModelEntry[];
+    image: DirectoryModelEntry[];
+    video: DirectoryModelEntry[];
+  };
+}
+
+export interface ProvidersDirectoryResponse {
+  providers: DirectoryProviderEntry[];
+  current: { image: string; video: string };
+}
+
+/** 服务商聚合目录（WS providers.directory；三源按域：chat=LLM 池 / image+video=媒体 registry） */
+export async function getProvidersDirectory(): Promise<ProvidersDirectoryResponse | null> {
+  try {
+    const res = await call('providers.directory', {});
+    return res as ProvidersDirectoryResponse;
+  } catch {
+    return null;
+  }
+}
+
+/** 媒体 provider 选择（WS media.provider.select；分域写 config image_gen.provider / video_gen.provider） */
+export async function selectMediaProvider(
+  usage: 'image' | 'video',
+  provider: string,
+): Promise<{ ok: boolean; usage: string; provider: string }> {
+  const res = await call('media.provider.select', { usage, provider });
+  return res as { ok: boolean; usage: string; provider: string };
+}
+
 // =============================================================================
 // Phase P5: 全局 Provider 池 CRUD（经 WS RPC，对齐 P3 后端端点）
 // =============================================================================

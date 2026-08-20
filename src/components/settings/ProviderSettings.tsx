@@ -1,5 +1,6 @@
 import { Plus } from 'lucide-react';
 import ProviderCard from '../ProviderCard';
+import MediaProviderSection from './MediaProviderSection';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import type { ProviderModel } from '../../utils/settings-store';
@@ -218,6 +219,9 @@ export default function ProviderSettings({
         </div>
         )}
       </div>
+
+      {/* 媒体生成服务商（生图/生视频，分域选择；2026-08-20 服务商统一视图） */}
+      <MediaProviderSection />
     </div>
   );
 }
