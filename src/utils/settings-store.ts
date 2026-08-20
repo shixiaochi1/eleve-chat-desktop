@@ -306,6 +306,8 @@ export interface DirectoryProviderEntry {
     image: DirectoryModelEntry[];
     video: DirectoryModelEntry[];
   };
+  /** ELEVE 媒体生成预设的 MXAPI 通道分类元数据（卡片展开「能力全览」） */
+  mxapi?: { channels: MxapiChannelGroup[] };
 }
 
 export interface ProvidersDirectoryResponse {
@@ -330,6 +332,36 @@ export async function selectMediaProvider(
 ): Promise<{ ok: boolean; usage: string; provider: string }> {
   const res = await call('media.provider.select', { usage, provider });
   return res as { ok: boolean; usage: string; provider: string };
+}
+
+// =============================================================================
+// 媒体 provider 子配置读写（2026-08-20：ELEVE 媒体生成卡片展开设置）
+// 读：config.get（key 点号 → JSON pointer）；写：config.set（单键 update_value）
+// 键示例：image_gen.mxapi.model / image_gen.mxapi.channel / image_gen.mxapi.base_url
+// =============================================================================
+
+/** 读取媒体 provider 子配置（如 image_gen.mxapi.model；返回 JSON 值或 null） */
+export async function getMediaConfigValue(key: string): Promise<unknown> {
+  try {
+    return await call('config.get', { key });
+  } catch {
+    return null;
+  }
+}
+
+/** 写入媒体 provider 子配置（单键原子更新：内存 + 磁盘 + notify） */
+export async function setMediaConfigValue(
+  key: string,
+  value: unknown,
+): Promise<{ ok: boolean; key: string }> {
+  const res = await call('config.set', { key, value });
+  return res as { ok: boolean; key: string };
+}
+
+/** MXAPI 通道分类（directory 附加元数据，卡片展开「能力全览」） */
+export interface MxapiChannelGroup {
+  group: string;
+  models: { id: string; display: string; apiPath: string; implemented: boolean }[];
 }
 
 // =============================================================================
