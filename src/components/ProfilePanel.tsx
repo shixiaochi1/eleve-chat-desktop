@@ -6,7 +6,7 @@
  * 底部操作栏：新建 Agent（内联表单）+ 刷新 + 统计。
  * 删除：非 default 卡片 hover 显示垃圾桶 → 输名字强确认 → 移入回收站（可恢复）。
  */
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useLayoutEffect } from 'react';
 import { fetchProfiles, deleteProfile, getProfileAvatar } from '../utils/api';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { getWsClient } from '../services/ws-client';
@@ -260,6 +260,16 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardH]);
 
+  // 🔴 2026-08-20 拖拽排序修复：absolute 卡片靠 transform 槽位定位，
+  // 必须经 settleAll 归位（初始渲染 + ids/卡片高度变化时）——否则所有卡片
+  // transform 为空叠在 top-0（"默认卡片消失"根因）。
+  // 无动画模式：初始渲染直接定位无闪烁；拖拽中的让位/归位动画由 hook
+  // 内部（onWindowMove setSlot(true) + onWindowUp requestAnimationFrame）负责。
+  const { settleAll } = sortable;
+  useLayoutEffect(() => {
+    settleAll(undefined, false);
+  }, [settleAll, orderedProfiles.length, cardH]);
+
   // ── 对话框状态（新建/删除均为独立弹窗，不与卡片列表混排） ──
   const [createOpen, setCreateOpen] = useState(false);
   const [deletingTarget, setDeletingTarget] = useState<string | null>(null);
@@ -398,12 +408,15 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
 
       {/* Agent 卡片列表（绝对定位 + transform 槽位，拖拽排序；pt/pb 并入 sortable padTop/
           容器高度，[scrollbar-gutter:stable] 恒预留滚动条位与项目列表宽度对齐）
-          🔴 data-agent-list：AgentsPanel 高度测量锚点（scrollHeight = 内容总高，不受容器裁剪影响） */}
+          🔴 data-agent-list：AgentsPanel 高度测量锚点（scrollHeight = 内容总高，不受容器裁剪影响）
+          🔴 2026-08-20 塌缩修复：去掉 flex-1（flex-basis:0% 覆盖 style height →
+          自然高度父容器下塌缩为 0，项目区 flex-1 占满）。改为纯固定高度 =
+          内容总高（卡片多时由 AgentsPanel 上部 max-h-[42%] 压缩 + 本容器 overflow 滚动）。 */}
       <div
         data-agent-list
         ref={sortable.containerRef}
         onPointerDown={sortable.onPointerDown}
-        className="relative flex-1 overflow-y-auto px-3 min-h-0 [scrollbar-gutter:stable]"
+        className="relative overflow-y-auto px-3 shrink-0 min-h-0 [scrollbar-gutter:stable]"
         style={{ height: sortable.contentHeight() + 12 }}
       >
         {loading && profiles.length === 0 ? (

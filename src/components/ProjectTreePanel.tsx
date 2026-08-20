@@ -11,7 +11,7 @@
  * 管理：显式项目可新建/编辑（名称+主题色）/添加文件夹/归档——接线后端
  *   projects.create/update/add_folder/set_primary/archive CRUD（对齐 Hermes 桌面端项目管理）。
  */
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import { Home, Plus, RefreshCw, FolderGit, ChevronRight } from 'lucide-react';
 import { isTauri } from '@tauri-apps/api/core';
 import { call } from '../utils/bridge';
@@ -111,6 +111,15 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   });
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  // 🔴 2026-08-20 拖拽排序修复：absolute 项目行靠 transform 槽位定位，
+  // 必须经 settleAll 归位（初始渲染 + 项目列表/行高变化时）——否则所有行
+  // transform 为空叠在 top-0（与 ProfilePanel 同根因）。
+  // 无动画模式：初始定位无闪烁；拖拽让位/归位动画由 hook 内部负责。
+  const { settleAll: settleAllProjects } = sortable;
+  useLayoutEffect(() => {
+    settleAllProjects(undefined, false);
+  }, [settleAllProjects, orderedProjects.length]);
 
   const fetchTree = useCallback(async (silent = false) => {
     try {
@@ -614,7 +623,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
               <div
                 ref={sortable.containerRef}
                 onPointerDown={sortable.onPointerDown}
-                className="flex-1 overflow-y-auto px-3 pb-2 min-h-0 [scrollbar-gutter:stable] [overflow-anchor:none]"
+                className="relative overflow-y-auto px-3 pb-2 shrink-0 min-h-0 [scrollbar-gutter:stable] [overflow-anchor:none]"
                 style={{ height: sortable.contentHeight() + 14 }}
               >
                 {tree.projects.length === 0 ? (
