@@ -156,7 +156,10 @@ export function usePromptActions({
 
   // ── send message ──
   const handleSend = useCallback(async (text: string, attachmentDataURLs?: string[]) => {
-    if (!text.trim()) return;
+    // 🔴 2026-08-20：纯图片（无文字）放行——attachmentDataURLs 非空即有图
+    //（对齐 Hermes 图片独立提交；后端 prompt.submit 对空文本+attached_images 已放行）。
+    // 此前 `if (!text.trim()) return` 直接丢弃纯图片消息 → 消息区不显示 + agent 不回复。
+    if (!text.trim() && !(attachmentDataURLs && attachmentDataURLs.length > 0)) return;
 
     if (!storage.isReady()) {
       console.warn('[handleSend] Storage not ready, waiting...');
