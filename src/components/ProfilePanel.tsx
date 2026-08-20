@@ -6,11 +6,12 @@
  * 底部操作栏：新建 Agent（内联表单）+ 刷新 + 统计。
  * 删除：非 default 卡片 hover 显示垃圾桶 → 输名字强确认 → 移入回收站（可恢复）。
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { fetchProfiles, deleteProfile, getProfileAvatar } from '../utils/api';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { getWsClient } from '../services/ws-client';
 import { cn } from '@/lib/utils';
+import { useSortableList } from '../hooks/useSortableList';
 import {
   Bot, Cpu, Plug, Package, Star, Loader,
   Plus, Trash2,
@@ -204,6 +205,21 @@ function ProfileCard({
 }
 
 // ── 主面板 ──
+// 🔴 2026-08-20：Agent 卡片手动拖拽排序（对齐项目面板 order 模式：
+// localStorage 持久化，用户拖拽覆盖后端顺序，新 Agent 追加底部）
+const AGENT_ORDER_KEY = 'eleve.sidebarAgentOrder.v1';
+function loadAgentOrder(): string[] {
+  try {
+    const raw = localStorage.getItem(AGENT_ORDER_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [];
+  } catch { return []; }
+}
+function saveAgentOrder(ids: string[]): void {
+  try { localStorage.setItem(AGENT_ORDER_KEY, JSON.stringify(ids)); } catch { /* ignore */ }
+}
+
 export default function ProfilePanel({ currentProfile, onProfileChange, onProfilesChange, onDisplayNamesChange, onColorsChange, onAvatarKeysChange, onEditAgent, refreshSignal }: ProfilePanelProps) {
   const [profiles, setProfiles] = useState<ProfileCardData[]>([]);
   // 🔴 高亮唯一权威源 = App 的 currentProfile（UI 焦点 ①），经 prop 下发，不读后端 active_profile（③）。
@@ -212,6 +228,37 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
+  // 手排顺序：用户拖拽覆盖后端顺序；新 Agent（未在 order）追加底部
+  const [agentOrder, setAgentOrder] = useState<string[]>(() => loadAgentOrder());
+  // Agent 卡片实际高度（测量校准；初始估算 = 标题行 + 元信息行 + padding）
+  const [cardH, setCardH] = useState(68);
+
+  // 渲染顺序：order 优先 + 新增追加（对齐项目 orderProjectsByIds 语义）
+  const orderedProfiles = useMemo(() => {
+    const known = new Set(agentOrder);
+    const kept = agentOrder
+      .map((n) => profiles.find((p) => p.name === n))
+      .filter((p): p is ProfileCardData => !!p);
+    const added = profiles.filter((p) => !known.has(p.name));
+    return [...kept, ...added];
+  }, [profiles, agentOrder]);
+
+  // 拖拽排序 hook（指针跟手 + FLIP 让位动画）
+  const sortable = useSortableList({
+    ids: orderedProfiles.map((p) => p.name),
+    onReorder: (ids) => { setAgentOrder(ids); saveAgentOrder(ids); },
+    itemHeight: cardH,
+    gap: 6,
+    padTop: 6,
+  });
+  // 首张卡测量实际高度（校准槽位间距）
+  const measureFirstCard = useCallback((el: HTMLDivElement | null) => {
+    if (el && cardH === 68) {
+      const h = el.getBoundingClientRect().height;
+      if (h > 20 && Math.abs(h - 68) > 2) setCardH(h);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardH]);
 
   // ── 对话框状态（新建/删除均为独立弹窗，不与卡片列表混排） ──
   const [createOpen, setCreateOpen] = useState(false);
@@ -349,23 +396,42 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
         <div className="mx-3 mb-1 px-2 py-1 text-[11px] text-destructive bg-destructive/5 rounded border border-destructive/20 shrink-0">{error}</div>
       )}
 
-      {/* Agent 卡片列表（内部滚动，高度由 AgentsPanel 上限约束；pt-1.5 防首卡选中阴影被裁剪；
-          scrollbar-gutter 恒预留滚动条位，与项目列表宽度对齐）
+      {/* Agent 卡片列表（绝对定位 + transform 槽位，拖拽排序；pt/pb 并入 sortable padTop/
+          容器高度，[scrollbar-gutter:stable] 恒预留滚动条位与项目列表宽度对齐）
           🔴 data-agent-list：AgentsPanel 高度测量锚点（scrollHeight = 内容总高，不受容器裁剪影响） */}
-      <div data-agent-list className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0 [scrollbar-gutter:stable]">
+      <div
+        data-agent-list
+        ref={sortable.containerRef}
+        onPointerDown={sortable.onPointerDown}
+        className="relative flex-1 overflow-y-auto px-3 min-h-0 [scrollbar-gutter:stable]"
+        style={{ height: sortable.contentHeight() + 12 }}
+      >
         {loading && profiles.length === 0 ? (
           <div className="flex items-center justify-center py-6 text-xs text-muted-foreground">加载中...</div>
         ) : (
-          profiles.map(p => (
-            <ProfileCard
+          orderedProfiles.map((p, i) => (
+            <div
               key={p.name}
-              profile={p}
-              active={p.name === activeName}
-              switching={switching === p.name}
-              onSelect={handleSelect}
-              onEdit={onEditAgent}
-              onDelete={(name) => { setDeletingTarget(name); setDeleteConfirmName(''); }}
-            />
+              ref={(el) => {
+                sortable.registerItem(p.name, el);
+                if (i === 0) measureFirstCard(el);
+              }}
+              data-sortable-id={p.name}
+              className="absolute top-0 left-0"
+              style={{ width: 'calc(100% - 24px)', height: cardH }}
+            >
+              {/* 整卡可拖（4px 阈值区分点击=聚焦/拖动=换位；按钮/输入已排除） */}
+              <div data-drag-handle className="h-full cursor-grab active:cursor-grabbing">
+                <ProfileCard
+                  profile={p}
+                  active={p.name === activeName}
+                  switching={switching === p.name}
+                  onSelect={handleSelect}
+                  onEdit={onEditAgent}
+                  onDelete={(name) => { setDeletingTarget(name); setDeleteConfirmName(''); }}
+                />
+              </div>
+            </div>
           ))
         )}
       </div>

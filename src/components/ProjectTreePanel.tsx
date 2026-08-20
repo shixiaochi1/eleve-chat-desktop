@@ -20,6 +20,7 @@ import { getDismissedAutoProjectIds, dismissAutoProject } from '../lib/dismissed
 import { mergeWorktreeLanes } from '../lib/worktree-lanes';
 import { getDismissedWorktrees, dismissWorktree } from '../lib/dismissed-worktrees';
 import { getProjectOrderIds, setProjectOrderIds, orderProjectsByIds } from '../lib/project-order';
+import { useSortableList } from '../hooks/useSortableList';
 import { deleteSessionAction, toggleArchiveSession } from '../lib/session-actions';
 import { undoSessionTurn, compressSession, branchSession, getSessionUsage } from '../utils/api';
 import { gitWorktreeList, gitWorktreeRemove, type HermesGitWorktree } from '../lib/git';
@@ -69,10 +70,9 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   const [editing, setEditing] = useState<ProjectNode | null>(null);
   const [deleting, setDeleting] = useState<ProjectNode | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
-  // 拖拽排序（对齐 Hermes $sidebarProjectOrderIds + orderProjectsByIds）
+  // 拖拽排序（2026-08-20：HTML5 DnD → useSortableList 指针拖拽 + 让位动画，
+  // 对齐 Hermes $sidebarProjectOrderIds + orderProjectsByIds 持久化语义）
   const [projectOrder, setProjectOrder] = useState<string[]>(() => getProjectOrderIds());
-  const [dragId, setDragId] = useState<string | null>(null);
-  const [dragOverId, setDragOverId] = useState<string | null>(null);
   // 会话行操作（对齐 Hermes session-actions-menu）
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => loadPinnedIds());
   const [renameTarget, setRenameTarget] = useState<SessionPreview | null>(null);
@@ -97,31 +97,20 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tree]);
 
-  // ── 拖拽排序 handlers（对齐 Hermes setOrderIds：手排 order 持久化）──
-  const handleRowDragStart = useCallback((id: string) => setDragId(id), []);
-  const handleRowDragOver = useCallback((id: string) => setDragOverId(id), []);
-  const handleRowDrop = useCallback((targetId: string) => {
-    setDragOverId(null);
-    if (!dragId || dragId === targetId) {
-      setDragId(null);
-      return;
-    }
-    // 基准 = 当前 order（无则当前渲染顺序）——首次拖拽从确定性排序起步
-    const base = projectOrder.length ? projectOrder : orderedProjects.map(p => p.id);
-    const ids = [...base];
-    const from = ids.indexOf(dragId);
-    if (from >= 0) ids.splice(from, 1);
-    const to = ids.indexOf(targetId);
-    if (to >= 0) ids.splice(to, 0, dragId);
-    else ids.push(dragId);
-    setProjectOrder(ids);
-    setProjectOrderIds(ids);
-    setDragId(null);
-  }, [dragId, projectOrder, orderedProjects]);
-  const handleRowDragEnd = useCallback(() => {
-    setDragId(null);
-    setDragOverId(null);
-  }, []);
+  // ── 拖拽排序 handlers（useSortableList 指针拖拽：松手提交手排 order 持久化）──
+  // 🔴 2026-08-14 老大：项目顺序完全手动——不传 active_id（激活不再置顶/重排）
+  const sortable = useSortableList({
+    ids: orderedProjects.map((p) => p.id),
+    onReorder: (ids) => { setProjectOrder(ids); setProjectOrderIds(ids); },
+    gap: 6,
+    padTop: 6,
+    onDragStateChange: ({ activeId, overId }) => {
+      setDraggingId(activeId);
+      setDragOverId(overId);
+    },
+  });
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const fetchTree = useCallback(async (silent = false) => {
     try {
@@ -622,7 +611,12 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                   树内容替换（切 Agent）时浏览器会尝试保持“锚定元素”位置自动调整
                   scrollTop → 项目卡片“往下走到中间然后消失”的抖动根因
                   （对齐聊天线程既有用法 style.css [data-slot='aui_thread-viewport']） */}
-              <div className="flex-1 overflow-y-auto px-3 pb-2 pt-1.5 space-y-1.5 min-h-0 [scrollbar-gutter:stable] [overflow-anchor:none]">
+              <div
+                ref={sortable.containerRef}
+                onPointerDown={sortable.onPointerDown}
+                className="flex-1 overflow-y-auto px-3 pb-2 min-h-0 [scrollbar-gutter:stable] [overflow-anchor:none]"
+                style={{ height: sortable.contentHeight() + 14 }}
+              >
                 {tree.projects.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-3 p-4">
                     <div className="w-10 h-10 rounded-xl bg-muted/40 flex items-center justify-center">
@@ -638,33 +632,39 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                     </button>
                   </div>
                 ) : (
-                  // 🔴 总览排序（对齐 Hermes orderProjectsByIds：手排 order + 确定性排序兜底）
+                  // 🔴 总览排序（useSortableList 指针拖拽：手排 order + 确定性排序兜底）
                   orderedProjects.map(p => (
-                    <ProjectItem
+                    <div
                       key={p.id}
-                      project={p}
-                      sessionId={sessionId}
-                      onSwitchSession={onSwitchSession}
-                      onSessionRowActivate={handleSessionRowActivate}
-                      onDrill={handleDrill}
-                      onActivate={handleActivate}
-                      onEdit={handleEdit}
-                      onAddFolder={handleAddFolder}
-                      onSetActive={handleSetActive}
-                      onReveal={handleReveal}
-                      onCopyPath={handleCopyPath}
-                      onDelete={setDeleting}
-                      onDismiss={handleDismiss}
-                      isActiveProject={(selectedId ?? tree.active_id ?? '__no_project__') === p.id}
-                      desktop={desktop}
-                      isDragging={dragId === p.id}
-                      isDragOver={dragOverId === p.id}
-                      onRowDragStart={handleRowDragStart}
-                      onRowDragOver={handleRowDragOver}
-                      onRowDrop={handleRowDrop}
-                      onRowDragEnd={handleRowDragEnd}
-                      sessionActions={sessionActions}
-                    />
+                      ref={(el) => sortable.registerItem(p.id, el)}
+                      data-sortable-id={p.id}
+                      className="absolute top-0 left-0"
+                      style={{ width: 'calc(100% - 24px)' }}
+                    >
+                      {/* 项目行整体可拖（4px 阈值区分点击/拖动；按钮/输入已排除） */}
+                      <div data-drag-handle className="h-full cursor-grab active:cursor-grabbing">
+                        <ProjectItem
+                          project={p}
+                          sessionId={sessionId}
+                          onSwitchSession={onSwitchSession}
+                          onSessionRowActivate={handleSessionRowActivate}
+                          onDrill={handleDrill}
+                          onActivate={handleActivate}
+                          onEdit={handleEdit}
+                          onAddFolder={handleAddFolder}
+                          onSetActive={handleSetActive}
+                          onReveal={handleReveal}
+                          onCopyPath={handleCopyPath}
+                          onDelete={setDeleting}
+                          onDismiss={handleDismiss}
+                          isActiveProject={(selectedId ?? tree.active_id ?? '__no_project__') === p.id}
+                          desktop={desktop}
+                          isDragging={draggingId === p.id}
+                          isDragOver={dragOverId === p.id}
+                          sessionActions={sessionActions}
+                        />
+                      </div>
+                    </div>
                   ))
                 )}
               </div>

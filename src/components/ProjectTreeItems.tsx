@@ -645,11 +645,9 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
       } as React.CSSProperties}
       onClick={() => onActivate(project)}
       onDoubleClick={() => onDrill(project)}
-      draggable={!!onRowDragStart && !project.isNoProject}
-      onDragStart={(e) => { if (onRowDragStart) { e.dataTransfer.effectAllowed = 'move'; onRowDragStart(project.id); } }}
-      onDragOver={(e) => { if (onRowDragOver) { e.preventDefault(); onRowDragOver(project.id); } }}
-      onDrop={(e) => { if (onRowDrop) { e.preventDefault(); onRowDrop(project.id); } }}
-      onDragEnd={onRowDragEnd}
+      // 🔴 2026-08-20：拖拽改由外层 useSortableList 指针拖拽接管（HTML5 DnD
+      // 无让位动画，手感生硬）；draggable 移除，本行保留视觉态（isDragging
+      // 透明度 / isDragOver 高亮）供外层传入
       title={path && !project.isNoProject ? `${path} — 单击激活（联动消息区/文件面板）· 双击进入项目` : project.isNoProject ? (path ? `${path} — 单击激活 · 双击进入工作区` : '单击激活 · 双击进入工作区') : '单击激活 · 双击进入项目'}
     >
       {/* 选中发光竖条（主题 primary；与 Agent 卡片同款） */}
