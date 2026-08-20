@@ -219,7 +219,12 @@ export function useSortableList({
     const id = item.dataset.sortableId
     if (!id || !idsRef.current.includes(id)) return
 
-    try { (handle as HTMLElement).setPointerCapture(e.pointerId) } catch { /* ignore */ }
+    // 🔴 2026-08-20 点击失灵修复：**不用 setPointerCapture**——捕获会把
+    // pointerup 的 target 拉到 handle（外层包裹 div），click 事件的 target
+    // 变为"按下/抬起元素最近共同祖先"= handle，只向祖先冒泡 → handle 内部
+    // 卡片（ProfileCard onClick=onSelect）收不到 click → 点击切换失灵。
+    // 拖出元素/窗口的移动与松手已由 window 级监听覆盖（onWindowMove/
+    // onWindowUp/onWindowCancel），capture 纯多余。
 
     const rect = item.getBoundingClientRect()
     dragRef.current = {
