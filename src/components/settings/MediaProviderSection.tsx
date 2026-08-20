@@ -155,7 +155,7 @@ export default function MediaProviderSection() {
       await setMediaConfigValue('image_gen.mxapi.channel', mxChannel);
       setSettingsLoaded(true);
     } catch (e: any) {
-      setError(e?.message || '保存 MXAPI 设置失败');
+      setError(e?.message || '保存 ELEVE 媒体生成设置失败');
     } finally {
       setSettingSaving(false);
     }
@@ -182,7 +182,7 @@ export default function MediaProviderSection() {
         <div className="min-w-0">
           <div className="text-xs font-medium">{label}</div>
           <div className="text-[10px] text-muted-foreground mt-0.5">
-            {available ? 'MXAPI key 已配置' : '未配置 key — 先在上方保存 API Key'}
+            {available ? 'ELEVE 媒体生成 key 已配置' : '未配置 key — 先在上方保存 API Key'}
           </div>
         </div>
         <button
@@ -266,7 +266,7 @@ export default function MediaProviderSection() {
           {mediaProviders.length} 家
         </span>
         <span className="text-[10px] text-muted-foreground">
-          与聊天服务商分域隔离；「未配 key」= 需在卡片弹窗内保存 MXAPI API Key
+          与聊天服务商分域隔离；「未配 key」= 需在卡片弹窗内保存 ELEVE 媒体生成 API Key
         </span>
       </div>
 
@@ -326,10 +326,10 @@ export default function MediaProviderSection() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               ELEVE 媒体生成
-              <span className="text-[10px] font-mono text-muted-foreground">eleve · MXAPI 通道</span>
+              <span className="text-[10px] font-mono text-muted-foreground">eleve · 预设通道</span>
             </DialogTitle>
             <DialogDescription>
-              凭据与设置保存在 ELEVE 侧（画布共用）；模型按 MXAPI 通道分类预设，标「待接入」的后端尚未实现。
+              凭据与设置保存在 ELEVE 侧（画布共用）；模型按通道分类预设，标「待接入」的后端尚未实现。
             </DialogDescription>
           </DialogHeader>
 
@@ -354,7 +354,7 @@ export default function MediaProviderSection() {
                 <input
                   type="password"
                   className="flex h-8 flex-1 min-w-0 items-center rounded-md border border-input bg-transparent px-2 py-1 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
-                  placeholder="粘贴 MXAPI access_key（open.mxapi.org 商户后台创建）"
+                  placeholder="粘贴 ELEVE 媒体生成 API Key（open.mxapi.org 商户后台创建）"
                   value={keyDraft}
                   onChange={(e) => setKeyDraft(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') void handleSaveKey(); }}
@@ -395,7 +395,7 @@ export default function MediaProviderSection() {
 
             {/* ── 3. MXAPI 模型分类预设 ── */}
             <section className="space-y-2">
-              <span className="text-xs font-medium">MXAPI 模型（分类预设）</span>
+              <span className="text-xs font-medium">ELEVE 媒体生成模型（分类预设）</span>
               <p className="text-[10px] text-muted-foreground/60 -mt-1.5">
                 点击已实现模型即切换生图模型（写入 image_gen.mxapi.model）
               </p>

@@ -801,7 +801,7 @@ export default function ModelSettings({
         <div className="space-y-3">
           <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
             <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Agent 调用<b className="text-foreground">媒体生成</b>工具时使用的模型（ELEVE 媒体生成 · MXAPI 后端）。
+              Agent 调用<b className="text-foreground">媒体生成</b>工具时使用的模型（ELEVE 媒体生成后端）。
               点击卡片即切换并保存；标「待接入」的通道后端尚未实现，不可选。
             </p>
           </div>
