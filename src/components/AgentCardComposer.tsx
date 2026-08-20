@@ -142,7 +142,8 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
 
   const handleSend = useCallback(() => {
     const text = value.trim();
-    if (!text) return;
+    // 🔴 2026-08-20：纯图片（无文字）也可发送——有附件即放行（对齐 Hermes 图片独立提交）
+    if (!text && attachedImages.length === 0) return;
     // 拦截 `/` 开头 → 走命令路径（与单视图 handleSend 同语义；prompt.submit 不解析 slash）
     if (text.startsWith('/')) {
       const cmd = text.replace(/^\//, '').split(/\s/)[0].toLowerCase();
@@ -512,7 +513,7 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
           )}
           title={isStreaming ? '停止生成' : '发送 (Enter)'}
           aria-label={isStreaming ? '停止生成' : '发送'}
-          disabled={!isStreaming && !hasText}
+          disabled={!isStreaming && !hasText && attachedImages.length === 0}
           onClick={isStreaming ? onAbort : handleSend}
         >
           {isStreaming ? (

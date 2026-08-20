@@ -42,20 +42,19 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
       const text = m.parts.filter((p): p is Extract<ChatMessagePart, { type: 'text' }> => p.type === 'text').map(p => p.text).join('')
       return (
         <div data-message-id={m.id} className="flex justify-end px-4 mb-1">
-          <div className="flex flex-col items-end gap-1 max-w-[80%] min-w-0">
-            <MessageBubble type="user" content={text} messageId={m.id} onDelete={onDelete} />
-            {/* 🔴 2026-08-08 图片附件缩略图（对齐 Hermes user-message.tsx：
-                attachmentRefs 渲染在气泡下方，-mt-3 mb-2 flex-wrap gap-1；
-                图片 refs = data URL 直接 <img>，其它引用文本降级 chip） */}
+          <div className="flex flex-col items-end gap-1.5 max-w-[80%] min-w-0">
+            {/* 🔴 2026-08-20 布局修正：图片在上、文字在下（对齐主流 IM 语义）；
+                纯图片消息不渲染空文字气泡（原实现 text='' 时气泡空壳 + 图片在
+                气泡下方 -mt-3 负边距 hack，视觉别扭） */}
             {m.attachmentRefs && m.attachmentRefs.length > 0 && (
-              <div className="flex flex-wrap justify-end gap-1 -mt-3 mb-2">
+              <div className="flex flex-wrap justify-end gap-1">
                 {m.attachmentRefs.map((ref, i) =>
                   ref.startsWith('data:') ? (
                     <img
                       key={`${m.id}-att-${i}`}
                       src={ref}
                       alt="attachment"
-                      className="w-16 h-16 object-cover rounded-md border border-border cursor-zoom-in"
+                      className="w-20 h-20 object-cover rounded-lg border border-border cursor-zoom-in"
                       draggable={false}
                       onClick={() => setLightbox({ src: ref })}
                     />
@@ -67,6 +66,9 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
                 )}
               </div>
             )}
+            {text.trim() ? (
+              <MessageBubble type="user" content={text} messageId={m.id} onDelete={onDelete} />
+            ) : null}
             {/* 图片大图预览（对齐 Hermes ImageLightbox：Esc/遮罩关闭 + 下载） */}
             {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.name} onClose={() => setLightbox(null)} />}
           </div>

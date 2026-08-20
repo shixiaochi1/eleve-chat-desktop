@@ -38,6 +38,8 @@ interface InputAreaProps {
   onAddImage?: (file: File) => Promise<void>;
   /** 添加图片（Tauri 本地路径，image.attach 快路径 / remote attach_bytes） */
   onAddImageFromPath?: (path: string) => Promise<void>;
+  /** 🔴 2026-08-20：是否已挂载图片附件——纯图片（无文字）也可发送（对齐 Hermes：图片可独立提交） */
+  hasAttachments?: boolean;
   /** 当前会话 ID — 附件 RPC 显式传参（禁止 fallback ws-client 全局，profile 切换瞬间全局可能是目标 Agent） */
   sessionId?: string | null;
   /** 🔴 W-6：会话 cwd（session.info 推送）— 透传给 complete.path 作补全基准目录 */
@@ -79,6 +81,7 @@ function InputArea({
   onAddImageFromPath,
   sessionId,
   sessionCwd,
+  hasAttachments,
 }: InputAreaProps) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   // `/` 命令补全 — 共享 hook（与宫格 AgentCardComposer 同一权威源）
@@ -210,7 +213,8 @@ function InputArea({
 
   const handleSend = useCallback(() => {
     const text = inputRef.current?.value || '';
-    if (!text.trim()) return;
+    // 🔴 2026-08-20：纯图片（无文字）也可发送——有附件即放行（对齐 Hermes 图片独立提交）
+    if (!text.trim() && !hasAttachments) return;
     onSend?.(text);
     if (inputRef.current) {
       inputRef.current.value = '';
@@ -218,7 +222,7 @@ function InputArea({
     }
     setHasText(false);
     slash.close();
-  }, [onSend, slash]);
+  }, [onSend, slash, hasAttachments]);
 
   const handleCommandExec = useCallback((cmdName: string, args = '') => {
     if (inputRef.current) {
@@ -808,7 +812,7 @@ function InputArea({
                 id="send-btn"
                 title={isStreaming ? '停止生成' : '发送'}
                 aria-label={isStreaming ? 'Stop generation' : 'Send message'}
-                disabled={!isStreaming && !hasText}
+                disabled={!isStreaming && !hasText && !hasAttachments}
                 onClick={isStreaming ? onAbort : handleSend}
               >
                 {isStreaming ? (

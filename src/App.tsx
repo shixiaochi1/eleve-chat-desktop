@@ -1783,6 +1783,7 @@ export default function App() {
                 onAddImage={handleAddImage}
                 onAddImageFromPath={handleAddImageFromPath}
                 sessionId={sess.sessionId}
+                hasAttachments={attachedImages.length > 0}
               />
             </main>
             </div>
