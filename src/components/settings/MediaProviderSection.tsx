@@ -354,7 +354,9 @@ export default function MediaProviderSection() {
                 <input
                   type="password"
                   className="flex h-8 flex-1 min-w-0 items-center rounded-md border border-input bg-transparent px-2 py-1 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
-                  placeholder="粘贴 ELEVE 媒体生成 API Key（open.mxapi.org 商户后台创建）"
+                  // 🔴 2026-08-21：已配置时输入框显示 ******** 占位（key 明文永不下发前端，
+                  // 保存后草稿清空 → 占位提示已配置；重新输入即覆盖）
+                  placeholder={mxapiStatus?.configured ? '********' : '粘贴 ELEVE 媒体生成 API Key（open.mxapi.org 商户后台创建）'}
                   value={keyDraft}
                   onChange={(e) => setKeyDraft(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') void handleSaveKey(); }}
