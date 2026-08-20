@@ -211,10 +211,12 @@ export function useSortableList({
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement
-    if (target.closest('button') || target.closest('input') || target.closest('a')) return
-    const handle = target.closest('[data-drag-handle]') as HTMLElement | null
-    if (!handle) return
-    const item = handle.closest('[data-sortable-id]') as HTMLElement | null
+    // 🔴 2026-08-20 对齐 Hermes overview-row 行级 listeners：整行可拖，仅排除
+    // 交互元素（按钮/输入/链接/行操作区/专用把手）。此前依赖 data-drag-handle
+    // 包裹层——项目卡片 item 无固定高度时 handle（h-full）可能塌陷为 0，
+    // closest 永远找不到 → 完全不能拖（AGENT 区 item 有固定 height 所以正常）。
+    if (target.closest('button, input, a, [data-reorder-handle], [data-row-actions]')) return
+    const item = target.closest('[data-sortable-id]') as HTMLElement | null
     if (!item) return
     const id = item.dataset.sortableId
     if (!id || !idsRef.current.includes(id)) return
