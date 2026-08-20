@@ -21,6 +21,16 @@ export interface SessionContextData {
   total_tokens?: number;
   context_limit?: number;
   percentage?: number;
+  /** 会话累计纯输入 token（disjoint，不含 cache） */
+  input_tokens?: number;
+  /** 会话累计输出 token */
+  output_tokens?: number;
+  /** 会话累计缓存读 token（DSH cacheReadTokens） */
+  cache_read_tokens?: number;
+  /** 会话累计缓存写 token（DSH cacheWriteTokens） */
+  cache_write_tokens?: number;
+  /** 缓存命中率 0-100（DSH cacheHitPercent 公式，后端已算好） */
+  cache_hit_percent?: number;
   [key: string]: unknown;
 }
 

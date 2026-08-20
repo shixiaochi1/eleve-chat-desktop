@@ -90,6 +90,13 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
   const over95 = pct >= 95;
   const barColor = over95 ? 'color-mix(in srgb, var(--ui-red) 70%, white)' : over80 ? 'color-mix(in srgb, var(--ui-yellow) 70%, white)' : 'color-mix(in srgb, var(--ui-green) 70%, white)';
 
+  // 🔴 2026-08-20 缓存命中率（对齐 DSH StatsLine cacheHitPercent）：
+  // billedInput = input + cacheRead + cacheWrite > 0 才展示真实命中率（后端已算）；
+  // 无任何 API 调用（billed=0）→ 不显示（0% 会误导"没数据"为"真 0%"）。
+  const billedInput = (ctx?.input_tokens ?? 0) + (ctx?.cache_read_tokens ?? 0) + (ctx?.cache_write_tokens ?? 0);
+  const hasCacheData = billedInput > 0;
+  const cacheHit = hasCacheData ? (ctx?.cache_hit_percent ?? 0) : null;
+
   return (
     <div>
       {/* 信息行：按钮左 + 监控数据右
@@ -140,6 +147,15 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
             {fmtNum(total_tokens)} / {fmtNum(context_limit)} tokens
           </span>
           <span className="font-medium" style={{ color: barColor }}>{pct.toFixed(1)}%</span>
+          {/* 缓存命中率（对齐 DSH stats.cacheHit「缓存命中 {percent}%」；有真实调用才显示） */}
+          {cacheHit !== null && (
+            <span
+              className={`px-1.5 py-0.5 rounded-md font-medium ${cacheHit >= 80 ? 'bg-primary/10 text-primary' : cacheHit >= 40 ? 'bg-muted text-foreground' : 'bg-muted/60 text-muted-foreground'}`}
+              title={`缓存命中 ${cacheHit}% — 读 ${(ctx?.cache_read_tokens ?? 0).toLocaleString()} · 写 ${(ctx?.cache_write_tokens ?? 0).toLocaleString()} · 纯输入 ${(ctx?.input_tokens ?? 0).toLocaleString()}`}
+            >
+              缓存命中 {cacheHit}%
+            </span>
+          )}
           {sessionStartedAt && (
             <span ref={elapsedRef} className="text-muted-foreground/50">开始: 0秒前</span>
           )}

@@ -65,6 +65,14 @@ export async function fetchSessionContext(sessionId: string | null | undefined):
       estimated_total: data.estimated_total,
       categories: data.categories,
       compression_count: data.compression_count,
+      // 🔴 2026-08-20 缓存命中数据（对齐 DSH cacheHitPercent：
+      // 会话级累计真实 usage——conversation_loop 逐次 API 响应累计，
+      // cache_hit_percent = cache_read / (input + cache_read + cache_write)）
+      input_tokens: data.input_tokens ?? 0,
+      output_tokens: data.output_tokens ?? 0,
+      cache_read_tokens: data.cache_read_tokens ?? 0,
+      cache_write_tokens: data.cache_write_tokens ?? 0,
+      cache_hit_percent: data.cache_hit_percent ?? 0,
     };
   } catch {
     return null;
