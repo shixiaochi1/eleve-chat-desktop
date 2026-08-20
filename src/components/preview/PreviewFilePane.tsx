@@ -29,6 +29,7 @@ import { notifyWorkspaceChanged } from '@/lib/workspace-events';
 import { CodeEditor } from '@/components/chat/code-editor';
 import DiffLines from '@/components/DiffLines';
 import ModeSwitcher from '@/components/preview/ModeSwitcher';
+import ImageLightbox from '@/components/ImageLightbox';
 import WindowedSourceView from '@/components/preview/WindowedSourceView';
 import { enhanceRichFences } from '@/lib/rich-fence';
 import { isDesktop, call } from '@/utils/bridge';
@@ -70,6 +71,8 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 🔴 2026-08-21：全屏图片查看（图片点击 → ImageLightbox）
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [binary, setBinary] = useState(false);
   const [byteSize, setByteSize] = useState(0);
   const [text, setText] = useState<string | null>(null);
@@ -593,7 +596,13 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
         ) : isImage && imageUrl ? (
           <div className="flex-1 min-h-0 overflow-auto">
             <div className="flex items-center justify-center h-full p-2">
-              <img src={imageUrl} alt={basename(path)} className="max-w-full max-h-full object-contain" />
+              {/* 🔴 2026-08-21：点击图片打开全屏查看（ImageLightbox 滚轮缩放/拖拽平移） */}
+              <img
+                src={imageUrl}
+                alt={basename(path)}
+                className="max-w-full max-h-full object-contain cursor-zoom-in"
+                onClick={() => setLightboxSrc(imageUrl)}
+              />
             </div>
           </div>
         ) : (
@@ -642,6 +651,10 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
           </div>
         )}
       </div>
+      {/* 🔴 2026-08-21：全屏图片查看（滚轮缩放/拖拽平移，ImageLightbox 增强版） */}
+      {lightboxSrc && (
+        <ImageLightbox src={lightboxSrc} alt={basename(path)} onClose={() => setLightboxSrc(null)} />
+      )}
     </div>
   );
 }

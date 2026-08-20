@@ -14,8 +14,9 @@ import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { readFile, stat } from '@tauri-apps/plugin-fs';
 import {
-  ExternalLink, FileText, FolderOpen, Image as ImageIcon, Link2, Loader2, Maximize2, RefreshCw, X,
+  ExternalLink, FileText, FolderOpen, Image as ImageIcon, Link2, Loader2, Maximize2, RefreshCw,
 } from 'lucide-react';
+import ImageLightbox from '@/components/ImageLightbox';
 import { notifyError, notifySuccess } from '@/utils/notifications';
 import { cn } from '@/lib/utils';
 import {
@@ -316,30 +317,10 @@ export default function ArtifactsGallery({
         )}
       </div>
 
-      {/* 图片放大预览（Hermes ZoomableImage 等价） */}
+      {/* 图片放大预览（🔴 2026-08-21 统一复用 ImageLightbox 增强版：
+          滚轮缩放/拖拽平移，与消息区/预览面板同一组件不重复造轮子） */}
       {zoomArtifact && (
-        <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
-          onClick={() => setZoomArtifact(null)}
-        >
-          <div
-            className="max-h-[90vh] max-w-[92vw] overflow-auto rounded-2xl border border-border/60 bg-card p-3 shadow-2xl animate-in zoom-in-95 duration-200"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-2 flex items-center justify-between gap-4 px-1">
-              <span className="truncate text-xs font-medium text-foreground">{zoomArtifact.label}</span>
-              <button
-                type="button"
-                onClick={() => setZoomArtifact(null)}
-                className="grid size-6 shrink-0 place-items-center rounded-full bg-muted/50 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                title="关闭 (Esc)"
-              >
-                <X size={13} />
-              </button>
-            </div>
-            <ZoomedImage artifact={zoomArtifact} onClose={() => setZoomArtifact(null)} />
-          </div>
-        </div>
+        <ZoomedImage artifact={zoomArtifact} onClose={() => setZoomArtifact(null)} />
       )}
     </div>
     </TooltipProvider>
@@ -529,14 +510,14 @@ function ZoomedImage({ artifact, onClose }: { artifact: GalleryArtifact; onClose
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [artifact.id, artifact.href, artifact.value]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  if (!src) return <Loader2 size={20} className="m-6 animate-spin text-muted-foreground/40" />;
-  return <img src={src} alt={artifact.label} className="max-h-[76vh] max-w-full rounded-lg object-contain" />;
+  if (!src) {
+    return (
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60">
+        <Loader2 size={20} className="animate-spin text-muted-foreground/40" />
+      </div>
+    );
+  }
+  return <ImageLightbox src={src} alt={artifact.label} onClose={onClose} />;
 }
 
 /** 文件/链接行（Hermes ArtifactTable 等价：整行可点击打开 + 会话跳转） */
