@@ -256,6 +256,11 @@ export interface ToolsetModelEntry {
   supports_edit?: boolean;
   max_reference_images?: number;
   upscale?: boolean;
+  /** 🔴 2026-08-20：ELEVE 媒体生成（MXAPI）分类化目录字段 */
+  group?: string;
+  category?: string; // 图片 / 视频 / 音乐
+  api_path?: string;
+  implemented?: boolean; // false = 后端待接入（前端灰显不可选）
 }
 
 export interface ToolsetModelsResponse {

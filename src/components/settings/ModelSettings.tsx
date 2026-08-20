@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, X, GitBranch, Cog, Users, AlertTriangle, GitMerge, Image as ImageIcon, Check, ChevronDown, Trash2 } from 'lucide-react';
 import { AUX_TASKS, getProviderModels, lookupModelCapabilities, getToolsetModels, selectToolsetModel } from '../../utils/settings-store';
-import type { AuxTaskEntry, ToolsetModelsResponse } from '../../utils/settings-store';
+import type { AuxTaskEntry, ToolsetModelsResponse, ToolsetModelEntry } from '../../utils/settings-store';
 import type { ProviderEntry } from '../../utils/settings-store';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -795,10 +795,12 @@ export default function ModelSettings({
       )}
 
       {/* ══════════ 图像生成（对齐 Hermes ModelCatalogPicker：后端目录 + 点击即存） ══════════ */}
+      {/* 🔴 2026-08-20：ELEVE 媒体生成（MXAPI）分类化目录——按图片/视频/音乐分类，
+          取消 FLUX/FAL；implemented=false 的通道灰显「待接入」不可选 */}
       {tab === 'image' && (
         <div className="space-y-2.5">
           <p className="text-xs text-muted-foreground/70 leading-relaxed">
-            Agent 调用图像生成工具时使用的模型（FAL.ai 后端）。点击卡片即切换并保存。
+            Agent 调用媒体生成工具时使用的模型（ELEVE 媒体生成 · MXAPI 后端）。点击卡片即切换并保存；标「待接入」的通道后端尚未实现，不可选。
           </p>
           {imageLoading ? (
             <p className="text-xs text-muted-foreground/60">加载模型目录…</p>
@@ -806,45 +808,74 @@ export default function ModelSettings({
             <p className="text-xs text-muted-foreground/60">该工具集暂无可用模型目录。</p>
           ) : (
             <>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {imageGen.models.map(m => {
-                  const active = imageGen.current === m.id;
-                  const saving = imageSaving === m.id;
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      disabled={saving}
-                      onClick={() => void pickImageModel(m.id)}
-                      className={`rounded-xl border p-3 text-left transition-all cursor-pointer bg-transparent ${
-                        active
-                          ? 'border-primary bg-primary/5'
-                          : 'border-border/60 hover:border-border hover:bg-muted/30'
-                      } ${saving ? 'opacity-60' : ''}`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-foreground truncate">{m.display}</span>
-                        {active && <Check size={13} className="shrink-0 text-primary" />}
-                        {saving && <span className="text-[10px] text-muted-foreground shrink-0">保存中…</span>}
+              {['图片', '视频', '音乐'].map((cat) => {
+                const catModels = (imageGen.models as ToolsetModelEntry[]).filter((m) => m.category === cat);
+                if (catModels.length === 0) return null;
+                const groups = Array.from(new Set(catModels.map((m) => m.group || ''))).filter(Boolean);
+                return (
+                  <div key={cat} className="space-y-2">
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted text-foreground font-medium">{cat}</span>
+                      <span className="text-[10px] text-muted-foreground/60">
+                        {catModels.filter((m) => m.implemented !== false).length} 个已实现 / {catModels.length} 个通道
+                      </span>
+                    </div>
+                    {groups.map((g) => (
+                      <div key={g} className="space-y-1.5">
+                        <div className="text-[10px] text-muted-foreground">{g}</div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {catModels.filter((m) => m.group === g).map((m) => {
+                            const implemented = m.implemented !== false;
+                            const active = imageGen.current === m.id;
+                            const saving = imageSaving === m.id;
+                            return (
+                              <button
+                                key={m.id}
+                                type="button"
+                                disabled={saving || !implemented}
+                                onClick={() => void pickImageModel(m.id)}
+                                title={implemented ? `${m.display} — ${m.api_path || ''}` : `${m.display}（后端待接入）— ${m.api_path || ''}`}
+                                className={`rounded-xl border p-3 text-left transition-all bg-transparent ${
+                                  active
+                                    ? 'border-primary bg-primary/5'
+                                    : implemented
+                                      ? 'border-border/60 hover:border-border hover:bg-muted/30 cursor-pointer'
+                                      : 'border-border/40 opacity-55 cursor-not-allowed'
+                                } ${saving ? 'opacity-60' : ''}`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-xs font-semibold truncate ${implemented ? 'text-foreground' : 'text-muted-foreground/70 line-through'}`}>
+                                    {m.display}
+                                  </span>
+                                  {active && <Check size={13} className="shrink-0 text-primary" />}
+                                  {saving && <span className="text-[10px] text-muted-foreground shrink-0">保存中…</span>}
+                                  {!implemented && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted/60 text-muted-foreground/70 shrink-0 no-underline">待接入</span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] font-mono text-muted-foreground/60 truncate mt-0.5">{m.id}</div>
+                                <div className="flex flex-wrap gap-1 mt-1.5">
+                                  {implemented && m.supports_edit && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">可编辑</span>
+                                  )}
+                                  {implemented && !!m.max_reference_images && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">参考图 {m.max_reference_images} 张</span>
+                                  )}
+                                  {m.api_path && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium font-mono">{m.api_path}</span>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <div className="text-[10px] font-mono text-muted-foreground/60 truncate mt-0.5">{m.id}</div>
-                      <div className="flex flex-wrap gap-1 mt-1.5">
-                        {m.supports_edit && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">可编辑</span>
-                        )}
-                        {!!m.max_reference_images && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">参考图 {m.max_reference_images} 张</span>
-                        )}
-                        {m.upscale && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">可放大</span>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+                    ))}
+                  </div>
+                );
+              })}
               <p className="text-[11px] text-muted-foreground/60">
-                当前：{imageGen.models.find(m => m.id === imageGen.current)?.display || imageGen.current}
+                当前：{imageGen.models.find((m: any) => m.id === imageGen.current)?.display || imageGen.current}
               </p>
             </>
           )}
