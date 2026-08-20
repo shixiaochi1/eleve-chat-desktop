@@ -185,15 +185,21 @@ export function useSortableList({
   const onWindowUp = useCallback(() => {
     const d = dragRef.current
     if (d && d.active) {
-      // 提交投影 → 调用方持久化 + 被拖项弹性归位（下一帧过渡）
-      onReorder([...projectedRef.current])
+      const proj = [...projectedRef.current]
+      // 提交投影 → 调用方持久化 + React 重排（异步）
+      onReorder(proj)
       const el = d.el
       el.style.zIndex = ''
       el.style.boxShadow = ''
-      // 等 React 重排完成（useLayoutEffect settleAll 已定新槽位）→ 过渡归位
+      // 🔴 2026-08-20 修复（从上往下拖两张卡叠加根因）：被拖项归位到
+      // **投影新槽位**，不再清空 transform——清空会让它回落 absolute top-0
+      // 与让位卡叠加（从下往上拖碰巧正确，从上往下拖必现）。
+      // 等高槽位 slotTop(projIndex) 精确；动态高度（项目行）由调用方
+      // settleAll（依赖顺序变化重跑）最终兜底纠正。
+      const newIdx = proj.indexOf(d.id)
       requestAnimationFrame(() => {
         el.style.transition = `transform ${ease} 0.3s`
-        el.style.transform = ''
+        setSlot(d.id, newIdx, true)
       })
     }
     dragRef.current = null
@@ -201,7 +207,7 @@ export function useSortableList({
     window.removeEventListener('pointermove', onWindowMove)
     window.removeEventListener('pointerup', onWindowUp)
     window.removeEventListener('pointercancel', onWindowUp)
-  }, [onWindowMove, onReorder, ease, onDragStateChange])
+  }, [onWindowMove, onReorder, ease, setSlot, onDragStateChange])
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement

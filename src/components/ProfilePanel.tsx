@@ -264,11 +264,13 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
   // 必须经 settleAll 归位（初始渲染 + ids/卡片高度变化时）——否则所有卡片
   // transform 为空叠在 top-0（"默认卡片消失"根因）。
   // 无动画模式：初始渲染直接定位无闪烁；拖拽中的让位/归位动画由 hook
-  // 内部（onWindowMove setSlot(true) + onWindowUp requestAnimationFrame）负责。
+  // 内部（onWindowMove setSlot(true) + onWindowUp setSlot 投影槽位）负责。
+  // 🔴 2026-08-20 叠加修复：依赖加 orderedProfiles（顺序引用）——拖拽提交
+  // 后长度不变但顺序变了，只依赖 length 不会重跑 → 被拖项残留脏 transform。
   const { settleAll } = sortable;
   useLayoutEffect(() => {
     settleAll(undefined, false);
-  }, [settleAll, orderedProfiles.length, cardH]);
+  }, [settleAll, orderedProfiles, cardH]);
 
   // ── 对话框状态（新建/删除均为独立弹窗，不与卡片列表混排） ──
   const [createOpen, setCreateOpen] = useState(false);

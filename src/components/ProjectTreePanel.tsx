@@ -116,10 +116,12 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   // 必须经 settleAll 归位（初始渲染 + 项目列表/行高变化时）——否则所有行
   // transform 为空叠在 top-0（与 ProfilePanel 同根因）。
   // 无动画模式：初始定位无闪烁；拖拽让位/归位动画由 hook 内部负责。
+  // 🔴 2026-08-20 叠加修复：依赖加 orderedProjects（顺序引用）——拖拽提交
+  // 后长度不变但顺序变了，只依赖 length 不会重跑 → 被拖行残留脏 transform。
   const { settleAll: settleAllProjects } = sortable;
   useLayoutEffect(() => {
     settleAllProjects(undefined, false);
-  }, [settleAllProjects, orderedProjects.length]);
+  }, [settleAllProjects, orderedProjects]);
 
   const fetchTree = useCallback(async (silent = false) => {
     try {
