@@ -59,14 +59,28 @@ export default function MediaProviderSection() {
   ) => {
     if (models.length === 0) return null;
     const isCurrent = current === p.id;
+    // 可用性取首个模型标记（同一 provider 内一致）
+    const available = models[0]?.available ?? false;
     return (
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <span className="text-[10px] text-muted-foreground">{label}</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-muted-foreground">{label}</span>
+            {available ? (
+              <span className="flex items-center gap-1 text-[10px] text-emerald-600">
+                <span className="size-1.5 rounded-full bg-emerald-500" /> key 已配
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-[10px] text-amber-600">
+                <span className="size-1.5 rounded-full bg-amber-500" /> 未配 key
+              </span>
+            )}
+          </div>
           <div className="flex flex-wrap gap-1 mt-0.5">
             {models.slice(0, 3).map((m) => (
               <span key={m.id} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground truncate max-w-[8rem]">
-                {m.display || m.id}
+                {/* 无模型目录的 provider → 占位条目（video 域 ELEVE 通道待接入） */}
+                {usage === 'video' && m.id === p.id ? '视频通道待接入' : m.display || m.id}
               </span>
             ))}
             {models.length > 3 && (
@@ -98,7 +112,7 @@ export default function MediaProviderSection() {
           {mediaProviders.length} 家
         </span>
         <span className="text-[10px] text-muted-foreground">
-          与聊天服务商分域隔离；未标「可用」= 需在画布 API 设置保存 key
+          与聊天服务商分域隔离；「未配 key」= 需在画布 API 设置保存 MXAPI API Key
         </span>
       </div>
 

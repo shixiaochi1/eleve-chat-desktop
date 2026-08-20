@@ -142,6 +142,10 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   // 🔴 2026-08-10 图像生成目录（并行开发者漏注册 → call 抛 No WS/HTTP mapping → 空态）
   toolset_models:         'toolset.models',
   toolset_model_select:   'toolset.model.select',
+  // 🔴 2026-08-20 服务商聚合目录 + 媒体 provider 选择（并行开发者漏注册 →
+  //    媒体生成区域永远空态 + 设为引擎失败；后端 WS 方法已存在）
+  'providers.directory':   'providers.directory',
+  'media.provider.select': 'media.provider.select',
   list_memories:          'memory.list',
   delete_memory:          'memory.delete',
   reset_memory:           'memory.reset',
