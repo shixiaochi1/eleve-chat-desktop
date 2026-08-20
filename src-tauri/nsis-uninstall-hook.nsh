@@ -37,7 +37,11 @@ Var KEEP_DATA
   ;   写注册表不广播 → Explorer 环境快照不刷新 → 安装器直接启动的应用无 env、
   ;   重启电脑后才有 env，且若存在历史残留值（旧 setx）会先命中 env 分支 →
   ;   home 漂移分裂（重启后数据"消失"事故根因之一）。广播后当前会话立即一致。
-  System::Call 'user32::SendMessageTimeout(i 0xFFFF, i 0x001A, i 0, t "Environment", i 0x0002, i 5000, *i r0)'
+  ; 🔴 2026-08-20 安装提速（用户反馈：安装到「创建文件夹: E:\Eleve\data」处长时间卡住）：
+  ;   超时 5000→500ms——SendMessageTimeout 是同步等待，Explorer 消息队列繁忙/无响应时
+  ;   会阻塞安装收尾（每次安装固定开销）；广播是"尽力而为"通知，500ms 未响应即可放弃，
+  ;   不影响 env 生效（注册表已写，重启后必然生效；广播仅用于当前会话即时一致性）。
+  System::Call 'user32::SendMessageTimeout(i 0xFFFF, i 0x001A, i 0, t "Environment", i 0x0002, i 500, *i r0)'
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
