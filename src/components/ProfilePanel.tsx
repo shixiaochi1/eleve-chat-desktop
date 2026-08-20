@@ -434,8 +434,8 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
                 if (i === 0) measureFirstCard(el);
               }}
               data-sortable-id={p.name}
-              className="absolute top-0 left-0"
-              style={{ width: 'calc(100% - 24px)', height: cardH }}
+              className="absolute top-0"
+              style={{ left: 4, width: 'calc(100% - 8px)', height: cardH }}
             >
               {/* 整卡可拖（4px 阈值区分点击=聚焦/拖动=换位；按钮/输入已排除） */}
               <div data-drag-handle className="h-full cursor-grab active:cursor-grabbing">

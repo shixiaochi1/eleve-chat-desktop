@@ -652,8 +652,8 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                       key={p.id}
                       ref={(el) => sortable.registerItem(p.id, el)}
                       data-sortable-id={p.id}
-                      className="absolute top-0 left-0"
-                      style={{ width: 'calc(100% - 24px)' }}
+                      className="absolute top-0"
+                      style={{ left: 4, width: 'calc(100% - 8px)' }}
                     >
                       {/* 项目行整体可拖（4px 阈值区分点击/拖动；按钮/输入已排除） */}
                       <div data-drag-handle className="h-full cursor-grab active:cursor-grabbing">
