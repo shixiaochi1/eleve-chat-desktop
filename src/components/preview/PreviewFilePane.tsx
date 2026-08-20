@@ -62,7 +62,10 @@ interface PreviewFilePaneProps {
 export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   const path = tab.target.url;
   const ext = extension(path);
-  const isImage = IMAGE_EXTENSIONS.has(ext);
+  // 🔴 2026-08-20 对齐 Hermes PreviewTarget.dataUrl：内联图片（粘贴/拖拽截图，
+  //   磁盘副本不可靠）→ 直接渲染 data URL，不走文件读取
+  const inlineDataUrl = tab.target.dataUrl;
+  const isImage = IMAGE_EXTENSIONS.has(ext) || !!inlineDataUrl;
   const isMarkdown = MARKDOWN_EXTENSIONS.has(ext);
 
   const [loading, setLoading] = useState(true);
@@ -142,7 +145,10 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
         setByteSize(size);
 
         if (isImage) {
-          if (isFsRemoteMode()) {
+          if (inlineDataUrl) {
+            // 🔴 dataUrl 内联：renderer 已持有字节，直接渲染（不持久化、不读盘）
+            setImageUrl(inlineDataUrl);
+          } else if (isFsRemoteMode()) {
             const mime = ext === '.svg' ? 'image/svg+xml' : `image/${ext.slice(1)}`;
             const { dataUrl } = await remoteReadDataUrl(path, mime);
             if (cancelled) return;

@@ -244,12 +244,17 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
   }, [profiles, agentOrder]);
 
   // 拖拽排序 hook（指针跟手 + FLIP 让位动画）
+  // 🔴 2026-08-20 滚动条修复：拖拽中被拖卡 transform 超出容器边界 → absolute 溢出
+  // 撑大 scrollHeight → 内容未超限也闪滚动条。拖拽期间容器 overflow-hidden（边缘
+  // 自动滚动仍走 scrollTop 编程设置，overflow:hidden 下有效），松手恢复 auto。
+  const [draggingAgent, setDraggingAgent] = useState(false);
   const sortable = useSortableList({
     ids: orderedProfiles.map((p) => p.name),
     onReorder: (ids) => { setAgentOrder(ids); saveAgentOrder(ids); },
     itemHeight: cardH,
     gap: 6,
     padTop: 6,
+    onDragStateChange: ({ activeId }) => setDraggingAgent(!!activeId),
   });
   // 首张卡测量实际高度（校准槽位间距）
   const measureFirstCard = useCallback((el: HTMLDivElement | null) => {
@@ -419,7 +424,13 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
         data-agent-list
         ref={sortable.containerRef}
         onPointerDown={sortable.onPointerDown}
-        className="relative overflow-y-auto px-3 min-h-0 [scrollbar-gutter:stable]"
+        className={cn(
+          'relative overflow-y-auto px-3 min-h-0 [scrollbar-gutter:stable]',
+          // 🔴 2026-08-20 拖拽滚动条修复：拖拽中 absolute 卡片溢出撑大 scrollHeight
+          // → 内容未超限也闪滚动条；overflow-hidden 期间边缘自动滚动（scrollTop 编程）
+          // 仍有效，松手恢复 auto
+          draggingAgent && 'overflow-y-hidden'
+        )}
       >
         {/* 占位撑高：absolute 卡片的"流内"锚点——容器自然高度 = 卡片总高 */}
         <div aria-hidden className="w-full" style={{ height: sortable.contentHeight() + 12 }} />

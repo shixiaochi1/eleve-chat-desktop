@@ -18,6 +18,12 @@ interface ContextData {
   total_tokens?: number;
   context_limit?: number;
   percentage?: number;
+  /** 🔴 2026-08-20 缓存命中链路：对齐 SessionContextData 字段（后端 context_breakdown 透出） */
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  cache_hit_percent?: number;
 }
 interface ContextBarProps {
   sessionId?: string | null;

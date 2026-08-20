@@ -590,6 +590,11 @@ function processEvent(
       cbs.onDone?.(newSid ?? null, failure);
       return 'done';
 
+    case 'gateway.ready':
+      // 🔴 2026-08-20 静默：gateway 启动就绪信号（网关端口已由 bridge 发现，
+      // 无业务处理）——此前落 default 每次启动刷一条 "Unknown event" 告警。
+      return 'ignored';
+
     default:
       console.warn('[useSSE] Unknown event:', eventName, chunk);
       break;

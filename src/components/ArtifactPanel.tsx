@@ -1,8 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, Copy, Check, ExternalLink, Download, Loader2, Maximize2, Minimize2, RefreshCw, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Check, ExternalLink, Download, Eye, Loader2, Maximize2, Minimize2, RefreshCw, Search } from 'lucide-react';
 import { ContextFileIcon, WebWindowIcon, ImageIcon } from './Icons';
 import { cn } from '@/lib/utils';
+import { openPreview } from '@/store/preview';
+import { composeArtifactHtml } from '@/lib/artifact-render';
 import {
   useArtifacts,
   useOpenArtifact,
@@ -38,18 +40,6 @@ const KIND_LABEL = {
   html: 'HTML',
   svg: 'SVG',
 } as const;
-
-/** 包装 HTML 片段为最小文档壳（完整文档原样通过，对齐 Hermes composeArtifactHtml） */
-function composeArtifactHtml(content: string): string {
-  if (/<html[\s>]|<!doctype\s+html/i.test(content)) return content;
-  return [
-    '<!doctype html>',
-    '<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
-    '<style>body{margin:0;font-family:system-ui,sans-serif}</style></head><body>',
-    content,
-    '</body></html>',
-  ].join('\n');
-}
 
 /** 预览视图模式（对齐 Hermes ArtifactPreview：html/svg = rendered/source，code = 仅 source） */
 type ArtifactViewMode = 'rendered' | 'source';
@@ -275,16 +265,34 @@ const ArtifactPanel = memo(function ArtifactPanel({
                     >
                       <Download size={13} />
                     </button>
-                    {activeForRender.record.kind === 'html' && (
+                    {(activeForRender.record.kind === 'html' || activeForRender.record.kind === 'svg') && (
                       <>
+                        {/* 🔴 2026-08-20 对齐 Hermes：产物显示在预览区（预览中心 artifact tab） */}
                         <button
                           type="button"
-                          onClick={openExternal}
-                          title="浏览器打开"
+                          onClick={() =>
+                            openPreview({
+                              kind: 'artifact',
+                              url: activeForRender.record.id,
+                              artifactId: activeForRender.record.id,
+                              label: activeForRender.record.title,
+                            })
+                          }
+                          title="在预览中打开"
                           className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
                         >
-                          <ExternalLink size={13} />
+                          <Eye size={13} />
                         </button>
+                        {activeForRender.record.kind === 'html' && (
+                          <button
+                            type="button"
+                            onClick={openExternal}
+                            title="浏览器打开"
+                            className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                          >
+                            <ExternalLink size={13} />
+                          </button>
+                        )}
                         {/* 🔴 全屏预览（老大要求） */}
                         <button
                           type="button"

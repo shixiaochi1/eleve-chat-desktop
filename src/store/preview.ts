@@ -13,15 +13,21 @@
 import { useSyncExternalStore } from 'react'
 import type { ListenerCallback, Unsubscribe } from '@/types'
 
-export type PreviewTargetKind = 'url' | 'file'
+export type PreviewTargetKind = 'url' | 'file' | 'artifact'
 
 export interface PreviewTarget {
   kind: PreviewTargetKind
-  /** url target = 加载地址；file target = 文件绝对路径 */
+  /** url target = 加载地址；file target = 文件绝对路径；artifact target = artifact registry id */
   url: string
   label?: string
   /** file target 文件名（tab 标签兜底） */
   name?: string
+  /** 🔴 2026-08-20 对齐 Hermes preview-artifact：artifact target 的 registry id
+   *  （= `${sessionId}:${slug}`，内容由 store/artifacts 持有） */
+  artifactId?: string
+  /** 🔴 2026-08-20 对齐 Hermes PreviewTarget.dataUrl：内联图片字节（粘贴/拖拽截图，
+   *   磁盘副本不可靠重读时直接渲染，不持久化） */
+  dataUrl?: string
 }
 
 export interface PreviewTab {

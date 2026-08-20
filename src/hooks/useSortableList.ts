@@ -259,7 +259,7 @@ export function useSortableList({
   }
 }
 
-function useCleanup(...cleanups: Array<() => void>) {
+function useCleanup(...cleanups: Array<(..._args: any[]) => void>) {
   const ref = useRef(cleanups)
   ref.current = cleanups
   useUnmount(() => {

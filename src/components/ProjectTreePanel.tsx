@@ -13,6 +13,7 @@
  */
 import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import { Home, Plus, RefreshCw, FolderGit, ChevronRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { isTauri } from '@tauri-apps/api/core';
 import { call } from '../utils/bridge';
 import { getWsClient } from '../services/ws-client';
@@ -625,7 +626,16 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
               <div
                 ref={sortable.containerRef}
                 onPointerDown={sortable.onPointerDown}
-                className="relative overflow-y-auto px-3 pb-2 min-h-0 [scrollbar-gutter:stable] [overflow-anchor:none]"
+                className={cn(
+                  // 🔴 2026-08-20 底部固定修复：flex-1 min-h-0 —— 项目区占满 Agent 区
+                  // 决定的剩余空间（此前无 flex-1 → 高度=内容 → 项目少时底部空出、
+                  // 卡片多时撑高，与 Agent 区一样随内容伸缩）。容器高度固定后，
+                  // 占位撑高层决定 scrollHeight → 超出内部滚动，不超底部留白。
+                  // 🔴 2026-08-20 拖拽滚动条修复：同 ProfilePanel——absolute 项目行
+                  // transform 溢出撑大 scrollHeight → 拖拽中 overflow-hidden。
+                  'relative flex-1 overflow-y-auto px-3 pb-2 min-h-0 [scrollbar-gutter:stable] [overflow-anchor:none]',
+                  draggingId && 'overflow-y-hidden'
+                )}
               >
                 {/* 🔴 2026-08-20 高度方案（用户要求内容驱动）：占位撑高——容器自然
                     高度 = 项目行总高（不固定 height），项目区 flex-1 拿剩余空间；

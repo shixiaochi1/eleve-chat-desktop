@@ -492,9 +492,21 @@ export interface SessionMessage {
  *  本地模式后端 native 路由把图片读成 data URL（image_routing.rs file_to_data_url），
  *  恢复时可直接 <img> 渲染。 */
 export function extractImageUrlsFromContent(content: unknown, max = 8): string[] {
-  if (!Array.isArray(content)) return []
+  // 🔴 2026-08-20 修复（用户图片附件"显示一串路径字母"根因）：后端 api_content/
+  // content 落库为 JSON 字符串（序列化数组），恢复时若直接 Array.isArray 判定
+  // → false → 图片附件提取不到 → 用户消息只显示 "[Image attached at: path]" 文本。
+  // 兼容字符串输入：先 JSON.parse 再按数组处理（对齐 Hermes history image parts）。
+  let arr = content
+  if (typeof content === 'string' && content.trim().startsWith('[')) {
+    try {
+      arr = JSON.parse(content)
+    } catch {
+      return []
+    }
+  }
+  if (!Array.isArray(arr)) return []
   const urls: string[] = []
-  for (const item of content) {
+  for (const item of arr) {
     if (urls.length >= max) break
     if (!item || typeof item !== 'object') continue
     const row = item as Record<string, unknown>
@@ -544,16 +556,25 @@ function displayContentForMessage(role: string, content: unknown): string {
   const textContent = textFromUnknown(content)
   if (role !== 'user') return textContent
 
+  // 🔴 2026-08-20 附件占位剥离（对齐 Hermes：附件走 attachmentRefs 图片/文件 UI，
+  // 不把后端 image_routing 生成的 "[Image attached at: C:\...\xxx.png]" 长路径
+  // 占位文本留在正文——历史恢复后图片已渲染，正文仍显示一串路径字母）。
+  // 纯图片消息剥离后正文为空 → MessageRow 不渲染文字气泡（图片在上，符合纯图语义）。
+  const textNoAttach = textContent
+    .replace(/\[Image attached(?: at)?: [^\]]+\]/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
   const CONTEXT_MARKER_RE = /(?:^|\n)--- Attached Context ---\s*\n/
   const CONTEXT_WARNINGS_RE = /(?:^|\n)--- Context Warnings ---[\s\S]*$/
-  const marker = textContent.match(CONTEXT_MARKER_RE)
+  const marker = textNoAttach.match(CONTEXT_MARKER_RE)
 
   if (!marker || marker.index === undefined) {
-    return textContent.replace(CONTEXT_WARNINGS_RE, '').trim()
+    return textNoAttach.replace(CONTEXT_WARNINGS_RE, '').trim()
   }
 
-  const visibleText = textContent.slice(0, marker.index).replace(CONTEXT_WARNINGS_RE, '').trim()
-  return visibleText || textContent.replace(CONTEXT_WARNINGS_RE, '').trim()
+  const visibleText = textNoAttach.slice(0, marker.index).replace(CONTEXT_WARNINGS_RE, '').trim()
+  return visibleText || textNoAttach.replace(CONTEXT_WARNINGS_RE, '').trim()
 }
 
 // ── display_kind timeline 处理（1:1 对标 Hermes desktop chat-messages.ts

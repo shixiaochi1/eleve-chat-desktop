@@ -28,6 +28,7 @@ import { fetchAnalyticsUsage } from '../utils/api';
 const USAGE_CACHE_KEY = 'usage_stats';
 
 interface DailyEntry {
+  day?: string;
   tokens_in?: number;
   tokens_out?: number;
   sessions?: number;

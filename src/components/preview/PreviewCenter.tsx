@@ -27,6 +27,7 @@ import {
 } from '@/store/preview';
 import PreviewWebPane from './PreviewWebPane';
 import PreviewFilePane from './PreviewFilePane';
+import ArtifactPreviewPane from './ArtifactPreviewPane';
 
 interface PreviewCenterProps {
   sessionId?: string | null;
@@ -160,6 +161,10 @@ export default function PreviewCenter({ sessionId, cwd }: PreviewCenterProps) {
              PreviewWebPane 内部按 target.url 决定（同 URL 切 tab 保留，
              URL 变才重建）。url/file 组件类型不同，React 自动卸载/挂载。 */
           <PreviewWebPane tab={activeTab} sessionId={sessionId} cwd={cwd} />
+        ) : activeTab.target.kind === 'artifact' ? (
+          /* 🔴 2026-08-20 对齐 Hermes preview-artifact：生成的 HTML/SVG 产物
+             显示在预览区（ArtifactPanel 管产物管理，本处只渲染） */
+          <ArtifactPreviewPane tab={activeTab} />
         ) : (
           <PreviewFilePane tab={activeTab} />
         )

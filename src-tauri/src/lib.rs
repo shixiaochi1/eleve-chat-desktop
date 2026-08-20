@@ -1268,6 +1268,7 @@ pub fn run() {
             preview_webview::preview_webview_reload,
             preview_webview::preview_webview_visible,
             preview_webview::preview_webview_devtools,
+            preview_webview::preview_webview_read_text,
             // 交互式 PTY（右栏用户终端真实 shell，对齐 Hermes terminalApi）
             pty::pty_start,
             pty::pty_write,

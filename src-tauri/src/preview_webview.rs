@@ -138,6 +138,22 @@ pub async fn preview_webview_close(
     Ok(())
 }
 
+/// 读取子 webview 页面文本（🔴 2026-08-20 对齐 Hermes read_preview / preview-reader.ts）：
+/// wry evaluate_script 同步返回 `{title, text}`（text = body.innerText，上限 200K 字符）。
+/// 供前端 preview.read.request 处理：read_preview 工具 → WS 桥 → 前端 invoke 本命令。
+#[tauri::command]
+pub fn preview_webview_read_text(window: tauri::Window, label: String) -> Result<String, String> {
+    let webview = window
+        .webviews()
+        .into_iter()
+        .find(|w| w.label() == label)
+        .ok_or_else(|| "preview_webview_read_text: webview not found".to_string())?;
+    let js = r#"(function(){try{var d=document;return JSON.stringify({title:d.title,text:d.body?d.body.innerText.slice(0,200000):''})}catch(e){return JSON.stringify({title:'',text:'',error:String(e)})}})()"#;
+    webview
+        .with_webview(|wv| wv.evaluate_script(js).map_err(|e| e.to_string()))
+        .map_err(|e| format!("preview_webview_read_text: {}", e))
+}
+
 /// 位置/大小同步（前端 rAF 节流后调用，position+size 合并传）
 #[tauri::command]
 pub async fn preview_webview_update(

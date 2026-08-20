@@ -36,6 +36,7 @@ import {
   usePreviewStore,
 } from '@/store/preview';
 import { notifySuccess, notifyError } from '@/utils/notifications';
+import { registerActivePreviewWebview } from '@/lib/preview-reader';
 
 interface PreviewWebPaneProps {
   tab: PreviewTab;
@@ -153,6 +154,15 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   }, [tab.target.url, isTauri]);
 
   // ── 布局同步：ResizeObserver → rAF 节流 → update（对齐方案：前端 rAF 节流上报）──
+  // 🔴 2026-08-20 read_preview 注册：webview label 就绪 → 注册为活跃读取目标
+  //（preview-events 处理 preview.read.request 时经它取 label 读页面文本）；
+  // 卸载/URL 变化 → 注销。多个 pane 只有当前激活 tab 的组件挂载，天然唯一。
+  useEffect(() => {
+    if (!webviewLabel || !isTauri) return;
+    registerActivePreviewWebview(webviewLabel);
+    return () => registerActivePreviewWebview(null);
+  }, [webviewLabel, isTauri]);
+
   useEffect(() => {
     if (!webviewLabel || !isTauri) return;
     const container = containerRef.current;

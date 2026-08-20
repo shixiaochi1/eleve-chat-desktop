@@ -27,6 +27,11 @@ export interface GalleryArtifact {
 
 const MARKDOWN_IMAGE_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g
 const MARKDOWN_LINK_RE = /\[([^\]]+)\]\(([^)\s]+)\)/g
+// 🔴 2026-08-20 对齐 Hermes artifact-utils.ts：MEDIA: 标签与 Windows 盘符路径
+// 产物提取（ELEVE 此前缺失——生图回显 MEDIA:E:\...\media\generated\img-*.png
+// 在产物库提取不到，用户"预览区域看不到生图产物"根因）
+const MEDIA_RE = /[`"']?MEDIA:\s*(`[^`\n]+`|"[^"\n]+"|'[^'\n]+'|\S+)[`"']?/g
+const WINDOWS_PATH_RE = /(^|[\s("'`])([A-Za-z]:[\\/][^\s"'`<>]+(?:\.[a-z0-9]{1,8})?)/gi
 const URL_RE = /https?:\/\/[^\s<>"')]+/g
 const PATH_RE = /(^|[\s("'`])((?:\/|~\/|\.\.?\/)[^\s"'`<>\\]+(?:\.[a-z0-9]{1,8})?)/gi
 const IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp)(?:\?.*)?$/i
@@ -40,6 +45,29 @@ function artifactSessionTitle(session: { title?: string | null; preview?: string
 
 function normalizeValue(value: string): string {
   return value.trim().replace(/[),.;]+$/, '')
+}
+
+/** Windows 盘符路径（对齐 Hermes isWindowsPath：C:\... / UNC \\...） */
+function isWindowsPath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('\\\\')
+}
+
+/** 剥引号 + 尾部 markdown 修饰符（对齐 Hermes unquoteMediaValue） */
+function unquoteMediaValue(value: string): string {
+  let trimmed = value.trim()
+  const quote = trimmed[0]
+  if (quote && quote === trimmed.at(-1) && ['"', "'", '`'].includes(quote)) {
+    return trimmed.slice(1, -1)
+  }
+  trimmed = trimmed.replace(/[`"'*_]{1,3}$/, '')
+  return trimmed
+}
+
+/** MEDIA: 标签提取（对齐 Hermes collectMediaValues） */
+function collectMediaValues(text: string, pushValue: (value: string) => void): void {
+  for (const match of text.matchAll(MEDIA_RE)) {
+    pushValue(unquoteMediaValue(match[1] || ''))
+  }
 }
 
 function parseMaybeJson(value: string): unknown {
@@ -60,7 +88,8 @@ function looksLikePathOrUrl(value: string): boolean {
     value.startsWith('/') ||
     value.startsWith('./') ||
     value.startsWith('../') ||
-    value.startsWith('~/')
+    value.startsWith('~/') ||
+    isWindowsPath(value)
   )
 }
 
@@ -77,7 +106,8 @@ function artifactKind(value: string): ArtifactKind {
     value.startsWith('./') ||
     value.startsWith('../') ||
     value.startsWith('~/') ||
-    value.startsWith('file://')
+    value.startsWith('file://') ||
+    isWindowsPath(value)
   ) {
     return 'file'
   }
@@ -147,6 +177,8 @@ function collectStringValues(
 }
 
 function collectArtifactsFromText(text: string, pushValue: (value: string) => void): void {
+  // 🔴 2026-08-20 对齐 Hermes：MEDIA: 标签优先提取（生图回显 E:\...\media\generated\*.png）
+  collectMediaValues(text, pushValue)
   for (const match of text.matchAll(MARKDOWN_IMAGE_RE)) {
     pushValue(match[2] || '')
   }
@@ -161,6 +193,10 @@ function collectArtifactsFromText(text: string, pushValue: (value: string) => vo
     if (looksLikeArtifact(value)) pushValue(value)
   }
   for (const match of text.matchAll(PATH_RE)) {
+    pushValue(match[2] || '')
+  }
+  // 🔴 2026-08-20 对齐 Hermes：Windows 盘符路径（C:\...）产物
+  for (const match of text.matchAll(WINDOWS_PATH_RE)) {
     pushValue(match[2] || '')
   }
 }

@@ -12,6 +12,8 @@
 
 import { getWsClient } from '@/services/ws-client'
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
+import { getActivePreviewWebview } from '@/lib/preview-reader'
+import { getPreviewStoreState } from '@/store/preview'
 import { notifyWorkspaceChanged, toolMayMutateFiles, toolChangedPath } from '@/lib/workspace-events'
 import {
   beginPreviewRestart,
@@ -30,6 +32,93 @@ export interface PreviewEventsOptions {
 
 function asRecord(payload: unknown): Record<string, unknown> {
   return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+}
+
+/** 🔴 2026-08-20 read_preview 应答（对齐 Hermes _respond：WS RPC preview.read.respond） */
+async function respondPreviewRead(requestId: string, text: string): Promise<void> {
+  try {
+    const ws = getWsClient()
+    await ws.sendRpc('preview.read.respond', { request_id: requestId, text })
+  } catch {
+    /* 工具侧已超时/连接断开，忽略 */
+  }
+}
+
+/** 🔴 2026-08-20 read_preview 请求处理：读活跃 url tab 页面文本（webview eval）→ respond */
+async function handlePreviewReadRequest(payload: Record<string, unknown>): Promise<void> {
+  const requestId = typeof payload.request_id === 'string' ? payload.request_id : ''
+  if (!requestId) return
+  const start = typeof payload.start === 'number' ? payload.start : undefined
+  const count = typeof payload.count === 'number' ? payload.count : undefined
+
+  const state = getPreviewStoreState()
+  const active = state.tabs.find((t) => t.id === state.activeId) ?? state.tabs[0] ?? null
+  if (!active) {
+    void respondPreviewRead(
+      requestId,
+      JSON.stringify({ kind: 'none', url: '', title: '', text: '', start: 0, end: 0, total_chars: 0, note: 'No preview tab is open.' }),
+    )
+    return
+  }
+  if (active.target.kind !== 'url') {
+    // file tab：只回身份（对齐 Hermes preview-reader：文件用 read_file 直读）
+    void respondPreviewRead(
+      requestId,
+      JSON.stringify({ kind: 'file', url: active.target.url, title: '', text: '', start: 0, end: 0, total_chars: 0, note: 'File tab — read the file with read_file.' }),
+    )
+    return
+  }
+
+  const label = getActivePreviewWebview()
+  if (!label) {
+    void respondPreviewRead(
+      requestId,
+      JSON.stringify({ kind: 'url', url: active.target.url, title: '', text: '', start: 0, end: 0, total_chars: 0, note: 'No browser webview is active.' }),
+    )
+    return
+  }
+
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const raw = await invoke<string>('preview_webview_read_text', { label })
+    let parsed: { title?: string; text?: string; error?: string }
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      parsed = { text: raw }
+    }
+    const fullText = parsed.text ?? ''
+    const total = fullText.length
+    const startIdx = typeof start === 'number' && start >= 0 ? start : 0
+    const countN = typeof count === 'number' && count > 0 ? count : 4000
+    const text = fullText.slice(startIdx, startIdx + countN)
+    void respondPreviewRead(
+      requestId,
+      JSON.stringify({
+        kind: 'url',
+        url: active.target.url,
+        title: parsed.title ?? '',
+        text,
+        start: startIdx,
+        end: startIdx + text.length,
+        total_chars: total,
+      }),
+    )
+  } catch (e) {
+    void respondPreviewRead(
+      requestId,
+      JSON.stringify({
+        kind: 'url',
+        url: active.target.url,
+        title: '',
+        text: '',
+        start: 0,
+        end: 0,
+        total_chars: 0,
+        note: `Failed to read preview: ${e instanceof Error ? e.message : String(e)}`,
+      }),
+    )
+  }
 }
 
 export function initPreviewEvents(options: PreviewEventsOptions): () => void {
@@ -52,6 +141,12 @@ export function initPreviewEvents(options: PreviewEventsOptions): () => void {
       case 'preview.restart.complete': {
         const taskId = payload.task_id as string
         if (taskId) completePreviewRestart(taskId, (payload.text as string) || '')
+        return
+      }
+
+      case 'preview.read.request': {
+        // 🔴 2026-08-20 对齐 Hermes read_preview：agent 读取预览活跃 tab 内容
+        void handlePreviewReadRequest(payload)
         return
       }
 
