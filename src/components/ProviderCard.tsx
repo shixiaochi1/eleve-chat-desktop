@@ -255,7 +255,9 @@ export default function ProviderCard({
               <Input
                 type={keyVisible ? 'text' : 'password'}
                 className={cn('h-7.5 text-xs')}
-                value={provider.apiKey || ''}
+                // 🔴 2026-08-21：后端脱敏不返回明文 key——已配 Key 的 provider 显示掩码占位
+                // （非空白，用户一眼可见"已配置"）；保存时 isPlaceholder 跳过掩码不覆盖后端凭证。
+                value={provider.hasKey && !provider.apiKey ? 'sk-••••••••' : (provider.apiKey || '')}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => onUpdate(provider.id, 'apiKey', e.target.value)}
                 placeholder="输入 API Key"
                 autoComplete="off"

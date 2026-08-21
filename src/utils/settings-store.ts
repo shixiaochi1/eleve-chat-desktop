@@ -78,7 +78,7 @@ export interface SettingsV2 {
 export const PROVIDER_REGISTRY: ProviderEntry[] = [
   { id: 'aliyun-bailian', name: '阿里云百炼', baseUrl: 'https://coding.dashscope.aliyuncs.com/v1', keyEnv: 'DASHSCOPE_API_KEY',
     models: [
-    { name: 'qwen3.7-plus', context_length: 128000, max_output: 16384 },
+    { name: 'qwen3.7-plus', context_length: 1000000, max_output: 16384 }, // 1M 上下文（百炼规格）
     ],
   },
   // 🔴 Hermes 对齐：DeepSeek 官方（api.deepseek.com，OpenAI 兼容）
