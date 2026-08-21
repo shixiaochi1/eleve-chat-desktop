@@ -22,6 +22,7 @@
     "core:window:allow-unmaximize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
+    "core:window:allow-start-dragging",
     "allow-save-state-to-file",
     "allow-load-state-from-file",
     "allow-image-compress",
