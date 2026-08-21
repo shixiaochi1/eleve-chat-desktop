@@ -145,6 +145,22 @@ export function useImageAttachments(options?: {
     try {
       const wsClient = getWsClient();
       const sessionId = getSessionIdRef.current?.() ?? undefined;
+      // 🔴 2026-08-21 修复：无会话时不立即上传——后端没有 session 可挂，
+      // 传空 session_id 会报 "session not found"（重启后会话恢复完成前点选图片必现）。
+      // 改为暂存待传（uploaded:false），handleSend 发送前会先懒创建会话再
+      // uploadUnuploaded 补传（对齐 Hermes submit 时序，与 addImage 粘贴路径一致）。
+      if (!sessionId) {
+        const pending: AttachedImage = {
+          id: crypto.randomUUID(),
+          path: '',
+          name,
+          preview: dataUrl,
+          size: fileSize,
+          uploaded: false,
+        };
+        setAttachedImages((prev) => [...prev, pending]);
+        return pending;
+      }
       let result: ImageAttachResponse;
       if (isRemoteMode(loadConnection())) {
         // remote：后端看不到客户端路径 → 字节上传（Hermes readImageForRemoteAttach 语义）
