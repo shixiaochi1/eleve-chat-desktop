@@ -16,6 +16,12 @@
   "permissions": [
     "core:default",
     "core:event:default",
+    "core:window:allow-minimize",
+    "core:window:allow-unminimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
     "allow-save-state-to-file",
     "allow-load-state-from-file",
     "allow-image-compress",
