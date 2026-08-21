@@ -59,7 +59,7 @@ async fn ensure_canvas_visible(
     .min_inner_size(800.0, 600.0)
     .center()
     .resizable(true)
-    .decorations(true)
+    .decorations(false)
     .visible(false)
     .additional_browser_args(crate::ELEVE_WEBVIEW_ARGS);
 
