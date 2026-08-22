@@ -33,9 +33,6 @@ fn main() {
             "pty_resize",
             "pty_dispose",
             // 局部重绘编辑器（2026-08-21 聊天缩略图编辑）
-            "open_image_editor_window",
-            "editor_result_set",
-            "editor_result_get",
         ]),
     );
     if let Err(e) = tauri_build::try_build(attributes) {

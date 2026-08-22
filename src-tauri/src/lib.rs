@@ -1296,9 +1296,6 @@ pub fn run() {
             // （命令名与画布 src-tauri 原命令一致，前端 invoke 零改动）
             canvas_commands::toggle_canvas_window,
             canvas_commands::open_canvas_window,
-            canvas_commands::open_image_editor_window,
-            canvas_commands::editor_result_set,
-            canvas_commands::editor_result_get,
             canvas_commands::close_canvas_window,
             canvas_commands::save_state_to_file,
             canvas_commands::load_state_from_file,

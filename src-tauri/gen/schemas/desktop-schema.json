@@ -2403,18 +2403,6 @@
           "markdownDescription": "Enables the drawing_composite command without any pre-configured scope."
         },
         {
-          "description": "Enables the editor_result_get command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-editor-result-get",
-          "markdownDescription": "Enables the editor_result_get command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the editor_result_set command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-editor-result-set",
-          "markdownDescription": "Enables the editor_result_set command without any pre-configured scope."
-        },
-        {
           "description": "Enables the get_auto_start command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-auto-start",
@@ -2467,12 +2455,6 @@
           "type": "string",
           "const": "allow-open-canvas-window",
           "markdownDescription": "Enables the open_canvas_window command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the open_image_editor_window command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-open-image-editor-window",
-          "markdownDescription": "Enables the open_image_editor_window command without any pre-configured scope."
         },
         {
           "description": "Enables the preview_console_push command without any pre-configured scope.",
@@ -2613,18 +2595,6 @@
           "markdownDescription": "Denies the drawing_composite command without any pre-configured scope."
         },
         {
-          "description": "Denies the editor_result_get command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-editor-result-get",
-          "markdownDescription": "Denies the editor_result_get command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the editor_result_set command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-editor-result-set",
-          "markdownDescription": "Denies the editor_result_set command without any pre-configured scope."
-        },
-        {
           "description": "Denies the get_auto_start command without any pre-configured scope.",
           "type": "string",
           "const": "deny-get-auto-start",
@@ -2677,12 +2647,6 @@
           "type": "string",
           "const": "deny-open-canvas-window",
           "markdownDescription": "Denies the open_canvas_window command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the open_image_editor_window command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-open-image-editor-window",
-          "markdownDescription": "Denies the open_image_editor_window command without any pre-configured scope."
         },
         {
           "description": "Denies the preview_console_push command without any pre-configured scope.",
