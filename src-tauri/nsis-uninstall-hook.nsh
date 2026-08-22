@@ -42,6 +42,37 @@ Var KEEP_DATA
   ;   会阻塞安装收尾（每次安装固定开销）；广播是"尽力而为"通知，500ms 未响应即可放弃，
   ;   不影响 env 生效（注册表已写，重启后必然生效；广播仅用于当前会话即时一致性）。
   System::Call 'user32::SendMessageTimeout(i 0xFFFF, i 0x001A, i 0, t "Environment", i 0x0002, i 500, *i r0)'
+
+  IfFileExists "$PROGRAMFILES64\Git\bin\bash.exe" 0 +2
+  Goto skip_bundled_git
+  IfFileExists "$PROGRAMFILES32\Git\bin\bash.exe" 0 +2
+  Goto skip_bundled_git
+  IfFileExists "$LOCALAPPDATA\Programs\Git\bin\bash.exe" 0 +2
+  Goto skip_bundled_git
+  Goto prompt_git
+  prompt_git:
+  IfSilent skip_bundled_git
+  MessageBox MB_YESNO|MB_ICONINFORMATION "ELEVE 需要 Git Bash 才能正常执行工具命令。未检测到 Git Bash，强烈建议安装（自动下载约 56MB）。是否现在安装？"
+  Pop $0
+  IntCmp $0 6 do_download_git skip_bundled_git skip_bundled_git
+  do_download_git:
+  DetailPrint "Downloading Git Bash (about 56MB)..."
+  NSISdl::download "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.5/PortableGit-2.55.0.5-64-bit.7z.exe" "$TEMP\eleve_portablegit.exe"
+  Pop $0
+  StrCmp $0 "success" extract_bundled_git download_git_failed
+  extract_bundled_git:
+  DetailPrint "Extracting Git to $INSTDIR\vendor ..."
+  SetDetailsPrint lastused
+  ExecWait '"$TEMP\eleve_portablegit.exe" -o"$INSTDIR\vendor" -y' $1
+  SetDetailsPrint both
+  Delete "$TEMP\eleve_portablegit.exe"
+  IntCmp $1 0 skip_bundled_git
+  MessageBox MB_OK|MB_ICONEXCLAMATION "Git Bash extract failed. Install Git for Windows manually later."
+  Goto skip_bundled_git
+  download_git_failed:
+  MessageBox MB_OK|MB_ICONEXCLAMATION "Git Bash download failed. Install Git for Windows manually later."
+  Goto skip_bundled_git
+  skip_bundled_git:
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL

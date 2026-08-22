@@ -20,7 +20,7 @@ export interface ArtifactsGalleryState {
   refresh: () => Promise<void>;
 }
 
-export function useArtifactsGallery(): ArtifactsGalleryState {
+export function useArtifactsGallery(profile?: string | null): ArtifactsGalleryState {
   const [artifacts, setArtifacts] = useState<GalleryArtifact[] | null>(null);
   const [query, setQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -28,7 +28,10 @@ export function useArtifactsGallery(): ArtifactsGalleryState {
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const data = (await call('list_sessions', { limit: 30 })) as { sessions?: Array<{
+      // 🔴 2026-08-22 修复：传 profile——产物库按当前 Agent 过滤（对齐 Hermes
+      // app/artifacts per-profile 语义）。此前不传 → session.list 返回全 profile
+      // 会话 → 切 Agent/项目时产物库不跟随。
+      const data = (await call('list_sessions', { limit: 30, profile: profile ?? undefined })) as { sessions?: Array<{
         id: string; title?: string | null; preview?: string | null;
         started_at?: unknown; last_active?: unknown;
       }> };
@@ -43,14 +46,24 @@ export function useArtifactsGallery(): ArtifactsGalleryState {
       results.forEach((result) => {
         if (result.status === 'fulfilled') next.push(...result.value);
       });
-      setArtifacts(next.sort((a, b) => b.timestamp - a.timestamp));
+      // 🔴 2026-08-22 修复：跨会话按 value 去重——同一图片/文件被多个会话引用时
+      // 产物库只显示一份（对齐 Hermes artifacts 聚合）。会话内去重已由
+      // collectArtifactsForSession 的 sessionId:value key 保证，此处补跨会话层。
+      const byValue = new Map<string, GalleryArtifact>();
+      for (const a of next) {
+        const k = a.value;
+        const existing = byValue.get(k);
+        if (!existing || (a.timestamp ?? 0) > (existing.timestamp ?? 0)) byValue.set(k, a);
+      }
+      setArtifacts(Array.from(byValue.values()).sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0)));
     } catch (err) {
       console.error('[artifacts-gallery] load failed:', err);
       setArtifacts([]);
     } finally {
       setRefreshing(false);
     }
-  }, []);
+    // 🔴 2026-08-22：profile 变化 → 重新加载（切 Agent/项目时产物库跟随）
+  }, [profile]);
 
   // 首次进入产物库视图时加载一次（组件挂载）
   useEffect(() => {

@@ -427,8 +427,21 @@ export class GatewayWsClient {
         return
       }
 
-      // WS 未连接且不在重连中：reject
-      reject(new RpcError(`WebSocket not connected (state=${this._state})`, -1))
+      // 🔴 2026-08-22 启动宽限修复：WS 未连接且不在重连中——不再立即 reject
+      // （冷启动 gateway 未就绪时，立即 reject 会让各组件 mount 的 sendRpc 闪现
+      // "WebSocket not connected (state=disconnected)" 错误横幅，稍等即连上）。
+      // 改为排队等待连接（与 connecting 同队列，连接后 flush），真超时才报错。
+      if (this._state === 'disconnected') {
+        const timeoutMs = method === 'prompt.submit' ? 1_800_000 : 60_000
+        const timer = setTimeout(() => {
+          // 超时：从队列移除并 reject
+          const idx = this.pendingQueue.findIndex(e => e.method === method && e.resolve === resolve)
+          if (idx >= 0) this.pendingQueue.splice(idx, 1)
+          reject(new RpcError(`RPC timeout waiting for connection: ${method}`, -1))
+        }, timeoutMs)
+        this.pendingQueue.push({ method, params, resolve, reject, timer })
+        return
+      }
     })
   }
 

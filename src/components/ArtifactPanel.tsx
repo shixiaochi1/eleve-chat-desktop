@@ -27,6 +27,8 @@ import WindowedSourceView from '@/components/preview/WindowedSourceView';
 import ArtifactsGallery from '@/components/ArtifactsGallery';
 import { TextTab, TextTabMeta } from '@/components/ui/text-tab';
 import { useArtifactsGallery } from '@/lib/useArtifactsGallery';
+import { collectArtifactsForSession, type GalleryArtifact } from '@/lib/artifacts-gallery';
+import { call } from '@/utils/bridge';
 import DOMPurify from 'dompurify';
 
 const KIND_ICON = {
@@ -53,15 +55,40 @@ type ArtifactViewMode = 'rendered' | 'source';
  */
 const ArtifactPanel = memo(function ArtifactPanel({
   sessionId,
+  profile,
   onSwitchSession,
 }: {
   sessionId: string | null | undefined;
+  /** 当前 Agent（profile）——产物库按此过滤，切换时跟随（对齐 Hermes per-profile artifacts） */
+  profile?: string | null;
   /** 产物库视图：跳转会话（Hermes openChat 语义） */
   onSwitchSession?: (sessionId: string) => void;
 }) {
   const registry = useArtifacts();
   // 产物库数据（搜索/刷新状态由本面板持有，渲染在视图切换条右侧）
-  const gallery = useArtifactsGallery();
+  const gallery = useArtifactsGallery(profile);
+  // 🔴 2026-08-22 修复：本会话产物 = 从会话消息提取（collectArtifactsForSession，
+  // 与产物库同源）——覆盖图片/文件/链接，而非仅运行期 ArtifactCard 注册的
+  // code/html/svg（此前本会话几乎恒空，用户只见产物库）。
+  const [sessionExtracted, setSessionExtracted] = useState<GalleryArtifact[] | null>(null);
+  useEffect(() => {
+    if (!sessionId) { setSessionExtracted(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const hist = (await call('get_session_messages', { session_id: sessionId })) as { messages?: unknown[] };
+        if (cancelled) return;
+        setSessionExtracted(collectArtifactsForSession(
+          { id: sessionId },
+          (hist.messages ?? []) as Parameters<typeof collectArtifactsForSession>[1],
+        ));
+      } catch (err) {
+        console.error('[artifact-panel] session extract failed:', err);
+        if (!cancelled) setSessionExtracted([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [sessionId]);
   // 视图：本会话产物 / 产物库（跨会话画廊，Hermes app/artifacts）
   const [view, setView] = useState<'session' | 'gallery'>('session');
   const openState = useOpenArtifact();
@@ -71,6 +98,15 @@ const ArtifactPanel = memo(function ArtifactPanel({
   // 视图模式：渲染/源码（对齐 Hermes ArtifactPreview userMode；切换 artifact 重置）
   const [userMode, setUserMode] = useState<ArtifactViewMode | null>(null);
   useEffect(() => { setUserMode(null); }, [openState?.id]);
+  // 🔴 2026-08-22 修复：切换会话时关闭预览（对齐 Hermes：右栏跟随当前会话，
+  // 旧会话的 openState 残留会让切会话后仍显示上个会话的产物）
+  const prevSessionRef = useRef(sessionId);
+  useEffect(() => {
+    if (prevSessionRef.current !== sessionId) {
+      prevSessionRef.current = sessionId;
+      closeArtifact();
+    }
+  }, [sessionId]);
   // 🔴 面板内缩放适配：量容器实际宽，HTML iframe 固定设计宽后 transform scale 缩放到容器宽
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [containerW, setContainerW] = useState(0);
@@ -209,32 +245,17 @@ const ArtifactPanel = memo(function ArtifactPanel({
         />
       ) : (
       <>
-      {/* 列表头 */}
-      <div className="shrink-0 border-b border-border px-3 py-2 text-xs font-medium text-muted-foreground">
-        产物 {sessionRecords.length > 0 && <span className="tabular-nums">({sessionRecords.length})</span>}
-      </div>
+      {/* 🔴 2026-08-22 修复：本会话列表 = 从会话消息提取的产物（含图片/文件/链接/code，
+          与产物库同渲染）——此前仅运行期 ArtifactCard 注册的 code/html/svg（几乎恒空） */}
+      <ArtifactsGallery
+        artifacts={sessionExtracted}
+        query={gallery.query}
+        onQueryChange={gallery.setQuery}
+        refreshing={false}
+        onRefresh={() => {}}
+      />
 
-      {empty ? (
-        <div className="flex flex-1 items-center justify-center px-4 py-8 text-center text-xs text-muted-foreground/70">
-          消息里的 HTML / SVG / 大代码块会在这里列出
-        </div>
-      ) : (
-        <>
-          {/* artifact 列表 */}
-          <div className="shrink-0 overflow-x-auto border-b border-border p-1.5">
-            <div className="flex gap-1.5">
-              {sessionRecords.map((record) => (
-                <ArtifactListItem
-                  key={record.id}
-                  record={record}
-                  active={openState?.id === record.id}
-                  onSelect={() => openArtifact(record.id)}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* 预览区 */}
+          {/* 预览区（openState：消息内卡片点击 → code/html/svg 版本预览） */}
           <div className="flex min-h-0 flex-1 flex-col">
             {activeForRender ? (
               <>
@@ -338,8 +359,6 @@ const ArtifactPanel = memo(function ArtifactPanel({
               </div>
             )}
           </div>
-        </>
-      )}
 
       {/* 🔴 全屏预览浮层（portal 到 body）：HTML 产物大画面查看 */}
       {fullscreen && activeForRender && activeForRender.record.kind === 'html' && (
