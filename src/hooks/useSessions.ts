@@ -15,6 +15,8 @@ export function useSessions(): {
   titles: Record<string, string>
   freshDraftReady: boolean
   setFreshDraftReady: React.Dispatch<React.SetStateAction<boolean>>
+  sessionReady: boolean
+  setSessionReady: React.Dispatch<React.SetStateAction<boolean>>
   pendingTitle: string | null
   setPendingTitle: React.Dispatch<React.SetStateAction<string | null>>
   refresh: () => Promise<void>
@@ -35,6 +37,11 @@ export function useSessions(): {
   // ── freshDraftReady — 对齐 Eleve startFreshSessionDraft 懒创建标记
   // true = 用户点了"新建会话"但还没发首条消息，后端 session 尚未创建
   const [freshDraftReady, setFreshDraftReady] = useState<boolean>(false);
+  // 🔴 2026-08-22 架构修复：会话就绪门禁（对齐 Hermes ensure_session 语义）。
+  // sessionId 被设置 ≠ 后端已就绪——dev 重启/切换后 loadHistory 完成才 ready。
+  // ready 前 UI（发送/附件）必须等待，否则 attach/submit 打未就绪会话 =
+  // "session not found"（架构缺陷的根，此前一直在失败后补救）。
+  const [sessionReady, setSessionReady] = useState<boolean>(false);
   // ── pendingTitle — 对齐 Eleve /new <title> 暂存标题，懒创建后 set_session_title
   const [pendingTitle, setPendingTitle] = useState<string | null>(null);
 
@@ -150,6 +157,7 @@ export function useSessions(): {
   return {
     sessionId, setSessionId, sessions, msgCache, titles,
     freshDraftReady, setFreshDraftReady,
+    sessionReady, setSessionReady,
     pendingTitle, setPendingTitle,
     refresh, create, reset, remove, switchTo,
     setTitle, getTitle, saveCache, saveTitles, loadHistory,

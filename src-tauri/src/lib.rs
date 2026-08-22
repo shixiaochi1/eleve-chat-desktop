@@ -346,6 +346,38 @@ pub(crate) async fn resolve_gateway_port_cached(
     _app: &tauri::AppHandle,
     state: &TauriAppState,
 ) -> Result<u16, String> {
+    // 🔴 2026-08-22 修复残留旧进程抢占：gateway 每次启动随机端口，若旧 eleved
+    // 进程残留（占旧端口），TCP 探测会"连上旧进程"→ 用错端口 → 旧 gateway
+    // 无新端点返回 502。gateway_state.json 由新实例启动即写（新端口），
+    // 故优先读文件拿最新端口，缓存仅作兜底。
+    let eleve_home = resolve_eleve_home();
+    let state_file = eleve_home.join("runtime").join("gateway_state.json");
+    if let Ok(content) = std::fs::read_to_string(&state_file) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(raw_port) = json
+                .get("gateway_port")
+                .or_else(|| json.get("port"))
+                .and_then(|v| v.as_u64())
+            {
+                // 范围判断在 u64 阶段（u16 恒 ≤65535，避免 unused_comparisons）
+                if raw_port > 0 && raw_port <= 65535 {
+                    let port = raw_port as u16;
+                    // 新文件端口也做连通性验证（防读到半写文件）
+                    if std::net::TcpStream::connect_timeout(
+                        &format!("127.0.0.1:{}", port).parse().unwrap(),
+                        std::time::Duration::from_millis(500),
+                    )
+                    .is_ok()
+                    {
+                        state.gateway_port.store(port, Ordering::SeqCst);
+                        return Ok(port);
+                    }
+                    eprintln!("[TAURI] state file port {} not reachable, fallback...", port);
+                }
+            }
+        }
+    }
+
     let cached = state.gateway_port.load(Ordering::SeqCst);
     if cached != 0 {
         if let Ok(stream) = std::net::TcpStream::connect_timeout(
@@ -357,7 +389,6 @@ pub(crate) async fn resolve_gateway_port_cached(
         }
         eprintln!("[TAURI] Cached port {} is stale, re-discovering...", cached);
     }
-    let eleve_home = resolve_eleve_home();
     match discover_gateway_port(&eleve_home) {
         Ok(port) => {
             state.gateway_port.store(port, Ordering::SeqCst);
@@ -648,9 +679,11 @@ async fn toggle_kanban_window(app: tauri::AppHandle) -> Result<String, String> {
 /// 
 /// 策略（优先级递减）：
 /// 1. ELEVED_PATH 环境变量
-/// 2. 当前 exe 同目录（Release 模式：eleved.exe 作为资源已打包在同目录）
-/// 3. Dev 模式：从当前 exe 路径向上遍历查找 workspace root（含 Cargo.toml），
-///    然后在 target/debug/ 下找 eleved
+/// 2. 🔴 2026-08-22 修复：Dev 模式（exe 在 target 下）优先 workspace 编译产物
+///    （EleveAgent/target/debug/eleved.exe，cargo build 自动更新）——此前
+///    target/debug/binaries/eleved.exe（tauri build 打包复制品）优先级更高，
+///    导致 dev 一直拉起旧版 gateway（新端点 502 的终极根因）。
+/// 3. Release 模式：当前 exe 同目录 / 同目录/binaries/（打包资源）
 fn find_eleved_binary() -> Option<PathBuf> {
     // 0. 环境变量优先（方便开发调试）
     if let Ok(path) = std::env::var("ELEVED_PATH") {
@@ -668,6 +701,22 @@ fn find_eleved_binary() -> Option<PathBuf> {
 
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
+            // 🔴 Dev 模式判定：exe 在 .../target/... 下（tauri dev / cargo run）。
+            // 优先 workspace 编译产物（最新），绕开被打包复制的旧 binaries/eleved.exe
+            let exe_str = exe.to_string_lossy();
+            if exe_str.contains("/target/") || exe_str.contains("\\target\\") {
+                if let Some(workspace_root) = find_workspace_root(dir) {
+                    let dev_path = workspace_root.join("target/debug").join(name);
+                    if dev_path.exists() {
+                        return Some(std::fs::canonicalize(&dev_path).unwrap_or(dev_path));
+                    }
+                    let release_path = workspace_root.join("target/release").join(name);
+                    if release_path.exists() {
+                        return Some(std::fs::canonicalize(&release_path).unwrap_or(release_path));
+                    }
+                }
+            }
+
             // Release 模式：同目录
             let candidate = dir.join(name);
             if candidate.exists() {
@@ -680,7 +729,7 @@ fn find_eleved_binary() -> Option<PathBuf> {
                 return Some(binaries_candidate);
             }
 
-            // Dev 模式：从 exe 目录向上查找 workspace root（含 Cargo.toml）
+            // Dev 模式（fallback）：从 exe 目录向上查找 workspace root（含 Cargo.toml）
             // 然后去 target/debug/ 下找 eleved
             if let Some(workspace_root) = find_workspace_root(dir) {
                 let dev_path = workspace_root.join("target/debug").join(name);
@@ -1247,6 +1296,9 @@ pub fn run() {
             // （命令名与画布 src-tauri 原命令一致，前端 invoke 零改动）
             canvas_commands::toggle_canvas_window,
             canvas_commands::open_canvas_window,
+            canvas_commands::open_image_editor_window,
+            canvas_commands::editor_result_set,
+            canvas_commands::editor_result_get,
             canvas_commands::close_canvas_window,
             canvas_commands::save_state_to_file,
             canvas_commands::load_state_from_file,

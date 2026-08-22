@@ -143,46 +143,22 @@ export function useImageAttachments(options?: {
     const name = path.split(/[\\/]/).pop() || 'image';
     setUploading((n) => n + 1);
     try {
-      const wsClient = getWsClient();
-      const sessionId = getSessionIdRef.current?.() ?? undefined;
-      // 🔴 2026-08-21 修复：无会话时不立即上传——后端没有 session 可挂，
-      // 传空 session_id 会报 "session not found"（重启后会话恢复完成前点选图片必现）。
-      // 改为暂存待传（uploaded:false），handleSend 发送前会先懒创建会话再
-      // uploadUnuploaded 补传（对齐 Hermes submit 时序，与 addImage 粘贴路径一致）。
-      if (!sessionId) {
-        const pending: AttachedImage = {
-          id: crypto.randomUUID(),
-          path: '',
-          name,
-          preview: dataUrl,
-          size: fileSize,
-          uploaded: false,
-        };
-        setAttachedImages((prev) => [...prev, pending]);
-        return pending;
-      }
-      let result: ImageAttachResponse;
-      if (isRemoteMode(loadConnection())) {
-        // remote：后端看不到客户端路径 → 字节上传（Hermes readImageForRemoteAttach 语义）
-        result = await wsClient.imageAttachBytes(base64FromDataURL(dataUrl), name, sessionId);
-      } else {
-        // 本地快路径：路径引用，后端直接读原文件（Hermes image.attach 语义）
-        result = await wsClient.imageAttach(path, sessionId);
-      }
-      if (!result.attached || !result.path) {
-        setError((result as unknown as { error?: string }).error || '后端未确认附件');
-        return null;
-      }
-      const newImage: AttachedImage = {
+      // 🔴 2026-08-21 修复（二次）：统一暂存待传——不再 eager 上传。
+      // 原逻辑 sessionId 非空即立即上传，但 dev 重启后会话恢复是异步的，
+      // 期间 sessionId 可能是持久化旧值（非空）而后端引擎未加载该会话 →
+      // image.attach 报 "session not found"。与 addImage（粘贴/拖拽）一致：
+      // 全部在 submit 时由 uploadUnuploaded() 统一 image.attach_bytes 上传
+      // （届时 handleSend 已确保会话就绪/懒创建）。
+      const pending: AttachedImage = {
         id: crypto.randomUUID(),
-        path: result.path,
+        path: '',
         name,
         preview: dataUrl,
-        size: result.bytes ?? fileSize,
-        uploaded: true,
+        size: fileSize,
+        uploaded: false,
       };
-      setAttachedImages((prev) => [...prev, newImage]);
-      return newImage;
+      setAttachedImages((prev) => [...prev, pending]);
+      return pending;
     } catch (err) {
       setError(`图片上传失败: ${err instanceof Error ? err.message : String(err)}`);
       return null;
@@ -213,9 +189,10 @@ export function useImageAttachments(options?: {
   /** submit 时上传所有本地暂存（uploaded=false）的图片 — 对齐 Hermes syncAttachmentsForSubmit。
    * 调用方（App.handleSend）须先确保会话存在（无则 session.create 懒创建），再传入 sessionId。
    * @returns { ok: true=全部成功；false=有失败（已 setError，调用方应中止发送）; paths: 本次上传的
-   *   后端路径（调用方在"上传期间会话已切换"时用于 detach 清理残留，防旧会话下次 submit 幽灵 drain） }
+   *   后端路径（调用方在"上传期间会话已切换"时用于 detach 清理残留，防旧会话下次 submit 幽灵 drain）;
+   *   error: 最后一条错误信息（🔴 2026-08-22 新增：供调用方识别 session not found 后重建会话重试） }
    */
-  const uploadUnuploaded = useCallback(async (sessionId: string): Promise<{ ok: boolean; paths: string[] }> => {
+  const uploadUnuploaded = useCallback(async (sessionId: string): Promise<{ ok: boolean; paths: string[]; error?: string }> => {
     const pending = attachedImages.filter((img) => !img.uploaded);
     if (pending.length === 0) return { ok: true, paths: [] };
 
@@ -225,6 +202,7 @@ export function useImageAttachments(options?: {
     const wsClient = getWsClient();
     const updatedPaths = new Map<string, string>();
     let allOk = true;
+    let lastError: string | undefined;
 
     for (const img of pending) {
       try {
@@ -238,11 +216,14 @@ export function useImageAttachments(options?: {
           updatedPaths.set(img.id, result.path);
         } else {
           allOk = false;
-          setError(`图片上传失败: ${img.name}（后端未确认附件）`);
+          const msg = (result as unknown as { error?: string }).error || `后端未确认附件`;
+          lastError = msg;
+          setError(`图片上传失败: ${img.name}（${msg}）`);
         }
       } catch (err) {
         allOk = false;
         const msg = err instanceof Error ? err.message : String(err);
+        lastError = msg;
         setError(`图片上传失败: ${msg}`);
       }
     }
@@ -260,7 +241,7 @@ export function useImageAttachments(options?: {
       );
     }
 
-    return { ok: allOk, paths: [...updatedPaths.values()] };
+    return { ok: allOk, paths: [...updatedPaths.values()], error: lastError };
   }, [attachedImages]);
 
   const clearImages = useCallback(() => {
@@ -273,12 +254,32 @@ export function useImageAttachments(options?: {
     setError(null);
   }, []);
 
+  /** 🔴 2026-08-21：外部编辑器产出的图片直接入附件（uploaded:false，发送时统一上传） */
+  const addExternalImage = useCallback((preview: string, name: string): void => {
+    setAttachedImages((prev) => {
+      if (prev.length >= MAX_IMAGES) {
+        setError(`最多附加 ${MAX_IMAGES} 张图片`);
+        return prev;
+      }
+      return [...prev, {
+        id: crypto.randomUUID(),
+        path: '',
+        name: name || 'edited-image.png',
+        preview,
+        size: 0,
+        uploaded: false,
+      }];
+    });
+    setError(null);
+  }, []);
+
   return {
     attachedImages,
     uploading,
     error,
     addImage,
     addImageFromPath,
+    addExternalImage,
     removeImage,
     clearImages,
     clearError,

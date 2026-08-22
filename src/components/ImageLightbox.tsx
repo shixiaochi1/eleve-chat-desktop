@@ -17,6 +17,8 @@ interface ImageLightboxProps {
   /** 图片名（下载文件名 + 无障碍标签） */
   alt?: string
   onClose: () => void
+  /** 🔴 2026-08-21：局部重绘编辑回调（点击编辑按钮 → 关闭预览并打开编辑器） */
+  onEdit?: () => void
 }
 
 const MIN_SCALE = 0.5
@@ -24,7 +26,7 @@ const MAX_SCALE = 8
 const ZOOM_STEP = 1.15
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
-export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
+export function ImageLightbox({ src, alt, onClose, onEdit }: ImageLightboxProps) {
   const [scale, setScale] = useState(1)
   const [pos, setPos] = useState({ x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
@@ -144,6 +146,20 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
           title="复位 100%"
         >
           复位
+        </button>
+      )}
+      {/* 🔴 2026-08-21：局部重绘编辑（涂抹标记要修改的区域 → 发给 ELEVE） */}
+      {onEdit && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onEdit()
+          }}
+          className="absolute top-4 right-24 rounded-md bg-amber-500/90 px-3 py-1.5 text-sm font-medium text-white backdrop-blur transition-colors hover:bg-amber-500"
+          title="局部重绘编辑：涂抹标记要修改的区域"
+          aria-label="局部重绘编辑"
+        >
+          ✏️ 编辑
         </button>
       )}
       <button

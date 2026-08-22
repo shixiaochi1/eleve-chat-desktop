@@ -19,6 +19,7 @@ import ToolEntry, { type ToolCallItem } from './ToolEntry'
 import HoistedTodoPanel, { todosFromMessageParts } from './HoistedTodoPanel'
 import StreamStallIndicator from './StreamStallIndicator'
 import ImageLightbox from './ImageLightbox'
+import { useImageEditor } from '@/store/image-editor'
 import type { ChatMessage, ChatMessagePart } from '@/types'
 
 interface MessageRowProps {
@@ -56,7 +57,7 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
                       alt="attachment"
                       className="w-20 h-20 object-cover rounded-lg border border-border cursor-zoom-in"
                       draggable={false}
-                      onClick={() => setLightbox({ src: ref })}
+                      onClick={() => setLightbox({ src: ref, name: `image-${i + 1}` })}
                     />
                   ) : (
                     <span key={`${m.id}-att-${i}`} className="max-w-[160px] truncate rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -69,8 +70,19 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
             {text.trim() ? (
               <MessageBubble type="user" content={text} messageId={m.id} onDelete={onDelete} />
             ) : null}
-            {/* 图片大图预览（对齐 Hermes ImageLightbox：Esc/遮罩关闭 + 下载） */}
-            {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.name} onClose={() => setLightbox(null)} />}
+            {/* 图片大图预览（对齐 Hermes ImageLightbox：Esc/遮罩关闭 + 下载 + 编辑） */}
+            {lightbox && (
+              <ImageLightbox
+                src={lightbox.src}
+                alt={lightbox.name}
+                onClose={() => setLightbox(null)}
+                // 🔴 2026-08-22：消息区图片也可局部重绘编辑（Context 入口，无 prop 透传）
+                onEdit={() => {
+                  setLightbox(null)
+                  useImageEditor().openImageEditor(lightbox.src, lightbox.name)
+                }}
+              />
+            )}
           </div>
         </div>
       )

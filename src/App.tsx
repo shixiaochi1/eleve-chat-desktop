@@ -23,7 +23,7 @@ import { setActiveSessionOverride } from './store/session-status';
 import { onWakeDetected } from './lib/wake-events';
 import useModels from './hooks/useModels';
 import * as storage from './utils/storage';
-import { call, isDesktop, discoverPort } from './utils/bridge';
+import { call, isDesktop, discoverPort, getHttpBase } from './utils/bridge';
 import { loadConnection, isRemoteMode } from './lib/connection';
 import { getRememberedWorkspaceCwd, rememberWorkspaceCwd } from './lib/workspace-cwd';
 import { getActiveProfile } from './utils/api';
@@ -57,6 +57,8 @@ import FileBrowserPanel from './components/FileBrowserPanel';
 import TerminalPanel from './components/TerminalPanel';
 import PreviewCenter from './components/preview/PreviewCenter';
 import ImageLightbox from './components/ImageLightbox';
+import ImageEditorModal from './components/ImageEditorModal';
+import { ImageEditorContext, type ImageEditorTarget, type ImageEditorApi } from './store/image-editor';
 import { initPreviewEvents } from '@/lib/preview-events';
 import { usePaneOpenRequest, getPreviewStoreState, closeTab as closePreviewTab } from '@/store/preview';
 import ArtifactPanel from './components/ArtifactPanel';
@@ -609,6 +611,8 @@ export default function App() {
     // 空快照由 session.info pending_prompts 权威清理）。只清 slashConfirm。
     setActiveSlashConfirm(null);
     sess.setSessionId(targetId);
+    // 🔴 2026-08-22：切换/恢复会话 → 后端确认前不可发送（门禁）
+    sess.setSessionReady(false);
     persistSessionPointer(targetId);
     sess.setFreshDraftReady(false);
     getWsClient().switchSession(targetId);
@@ -622,6 +626,9 @@ export default function App() {
         storeSetMessages(msgs as ChatMessage[]);
         sess.saveCache((c) => ({ ...c, [targetId]: msgs }));
       }
+      // 🔴 2026-08-22 门禁释放：后端已确认该会话（加载完成）→ 会话就绪，
+      // 恢复期间缓存命中（msgCache 已回填），发送/附件可安全进行
+      sess.setSessionReady(true);
     });
   }, [sess, currentSessionIdRef]);
 
@@ -631,6 +638,8 @@ export default function App() {
     // 空草稿本身无交互，后台会话交互保留可见）
     setActiveSlashConfirm(null);
     sess.setSessionId(null);
+    // 🔴 2026-08-22：空草稿（无历史会话）随时可发——会话在发送时创建
+    sess.setSessionReady(true);
     clearSessionPointer(profile);
     sess.setFreshDraftReady(true);
     getWsClient().switchSession('');
@@ -1100,11 +1109,24 @@ export default function App() {
     error: imageError,
     addImage,
     addImageFromPath,
+    addExternalImage,
     removeImage,
     clearImages,
     clearError: clearImageError,
     uploadUnuploaded,
   } = useImageAttachments({ getSessionId: () => sess.sessionId });
+
+  // 🔴 2026-08-22 重构：聊天图片局部重绘 = 主窗口内嵌编辑器（壳独立能力，
+  // 与画布插件零耦合，不弹新窗口）。Context 提供全局入口：
+  // - 输入区附件编辑带 originalId → 确认后【替换】原附件
+  // - 消息区图片编辑不带 originalId → 标注图作为新附件
+  // 编辑都在标注图副本上进行，不影响原图。
+  const [imageEditorTarget, setImageEditorTarget] = useState<ImageEditorTarget | null>(null);
+  const imageEditorApi = useMemo<ImageEditorApi>(() => ({
+    target: imageEditorTarget,
+    openImageEditor: (src: string, name?: string, originalId?: string) => setImageEditorTarget({ src, name, originalId }),
+    closeImageEditor: () => setImageEditorTarget(null),
+  }), [imageEditorTarget]);
 
   // 🔴 2026-08-09 文件附件状态管理（右侧文件树拖文件到聊天区 → 附件条 pill）：
   // 对齐 Hermes uploadComposerAttachment 文件分支——file.attach staging + ref_text
@@ -1124,7 +1146,21 @@ export default function App() {
   clearFilesAttachmentRef.current = clearFilesAttachment;
 
   // 图片大图预览（对齐 Hermes ImageLightbox：聊天区缩略图点击 → 遮罩大图 + 下载）
-  const [lightbox, setLightbox] = useState<{ src: string; name?: string } | null>(null);
+  const [lightbox, setLightbox] = useState<{ src: string; name?: string; onEdit?: () => void } | null>(null);
+
+  // 🔴 2026-08-22 会话就绪门禁辅助：等待恢复完成（读 ref 拿最新状态，
+  // interval 闭包不能依赖渲染快照）
+  const sessionReadyRef = useRef(sess.sessionReady);
+  sessionReadyRef.current = sess.sessionReady;
+  const waitSessionReady = useCallback((timeoutMs = 10000): Promise<boolean> =>
+    new Promise((resolve) => {
+      if (sessionReadyRef.current) { resolve(true); return; }
+      const start = Date.now();
+      const timer = setInterval(() => {
+        if (sessionReadyRef.current) { clearInterval(timer); resolve(true); }
+        else if (Date.now() - start > timeoutMs) { clearInterval(timer); resolve(false); }
+      }, 120);
+    }), []);
 
   // 包装 handleSend — 附件排队归属 + 发送后清空预览
   // 🔴 对齐 Hermes entry 级附件归属：busy 时排队附件 base64 暂存内存 + 从 session 分离
@@ -1135,6 +1171,18 @@ export default function App() {
     getWsClient().voiceTtsStop().catch(() => {});
     const wasBusy = isSendingRef.current;
     const images = [...attachedImages];
+
+    // 🔴 2026-08-22 架构修复（会话就绪门禁，对齐 Hermes ensure_session）：
+    // dev 重启/会话切换后，sessionId 被设置 ≠ 后端已就绪（loadHistory 完成才 ready）。
+    // 就绪前发送/attach 必然打未就绪会话 → session not found / 消息丢失。
+    // 门禁：等待恢复（缓存命中原会话）→ 超时才提示，绝不重建覆盖指针（防丢历史）。
+    if (!sess.sessionReady) {
+      const ready = await waitSessionReady(10000);
+      if (!ready) {
+        alert('会话正在恢复中，请稍候片刻再发送');
+        return;
+      }
+    }
 
     // 🔴 新会话图片附件 submit 时序（对齐 Hermes submit.ts: createBackendSessionForSend → syncAttachmentsForSubmit → prompt.submit）
     // 无会话时 addImage 仅本地暂存（uploaded=false）；此处发送前懒创建会话并上传，
@@ -1167,7 +1215,12 @@ export default function App() {
         }
       }
       const synced = await uploadUnuploaded(sid);
-      if (!synced.ok) return; // 对齐 Hermes: 附件同步失败 → 中止发送
+      // 🔴 2026-08-22：会话就绪门禁（上方）已保证 sid 对后端就绪——正常不再
+      // 出现 session not found；若仍失败（非会话类错误），明确提示，不静默。
+      if (!synced.ok) {
+        alert(`图片上传失败：${synced.error || '未知错误'}，请重试`);
+        return; // 对齐 Hermes: 附件同步失败 → 中止发送
+      }
       // 🔴 2026-08-13 深度审查竞态修复：上传 await 期间用户可能切 Agent/会话——
       // 旧附件（图片内容/文件引用）不得发到新会话（跨 Agent 内容串台）。
       // 中止发送 + 已上传图片从旧会话 detach（防残留 → 旧会话下次 submit 幽灵 drain 误发）。
@@ -1397,6 +1450,7 @@ export default function App() {
 
   return (
     <ThemeProvider>
+      <ImageEditorContext.Provider value={imageEditorApi}>
       <ModelProvider value={modelContextValue}>
       <AppShell
         titlebar={titlebarEl}
@@ -1578,8 +1632,18 @@ export default function App() {
                                 alt={img.name}
                                 className="w-12 h-12 object-cover rounded-md border border-border cursor-zoom-in"
                                 draggable={false}
-                                onClick={() => setLightbox({ src: img.preview, name: img.name })}
+                                onClick={() => setLightbox({ src: img.preview, name: img.name, onEdit: () => { setLightbox(null); imageEditorApi.openImageEditor(img.preview, img.name, img.id); } })}
                               />
+                              {/* 🔴 2026-08-21：局部重绘编辑（hover 显示，不常显）——
+                                  2026-08-22 重构：主窗口内嵌编辑器，确认后替换原图 */}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); imageEditorApi.openImageEditor(img.preview, img.name, img.id); }}
+                                className="absolute -bottom-1.5 -right-1.5 w-5 h-5 bg-primary text-primary-foreground rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary/90"
+                                title="局部重绘编辑（涂抹标记要修改的区域）"
+                                aria-label={`Edit ${img.name}`}
+                              >
+                                ✏️
+                              </button>
                               <button
                                 onClick={() => { void handleRemoveImage(img.id); }}
                                 className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive text-primary-foreground rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/90"
@@ -1656,7 +1720,23 @@ export default function App() {
                       )}
                     </div>
                   )}
-                  {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.name} onClose={() => setLightbox(null)} />}
+                  {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.name} onClose={() => setLightbox(null)} onEdit={lightbox.onEdit} />}
+                  {/* 🔴 2026-08-22：局部重绘编辑器（主窗口内嵌全屏层，壳独立能力）——
+                      确认后按 originalId 替换原附件 / 无则新增；编辑不影响原图 */}
+                  {imageEditorTarget && (
+                    <ImageEditorModal
+                      src={imageEditorTarget.src}
+                      name={imageEditorTarget.name}
+                      onCancel={imageEditorApi.closeImageEditor}
+                      onConfirm={(dataUrl, n) => {
+                        if (imageEditorTarget.originalId) {
+                          void removeImage(imageEditorTarget.originalId);
+                        }
+                        imageEditorApi.closeImageEditor();
+                        addExternalImage(dataUrl, n);
+                      }}
+                    />
+                  )}
                   {/* 🔴 2026-08-17 阶段4：当前会话的交互卡片（从多槽取当前 sid） */}
                   {currentClarify && (
                     <ClarifyCard
@@ -1912,6 +1992,7 @@ export default function App() {
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </ModelProvider>
+    </ImageEditorContext.Provider>
     </ThemeProvider>
   );
 }
