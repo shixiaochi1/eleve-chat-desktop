@@ -27,6 +27,7 @@ import { getRememberedWorkspaceCwd } from '../lib/workspace-cwd';
 import MessageRow from './MessageRow';
 import ApprovalCard from './ApprovalCard';
 import ClarifyCard from './ClarifyCard';
+import ClarifyBatchCard, { BatchQuestionWire } from './ClarifyBatchCard';
 import CredentialCard from './CredentialCard';
 import AgentCardComposer from './AgentCardComposer';
 import ModelPill from './ModelPill';
@@ -75,7 +76,7 @@ interface AgentChatCardProps {
   onSend: (profile: string, text: string, attachmentDataURLs?: string[], sessionId?: string) => void;
   onLoadMore: (profile: string) => void;
   onAbort: (profile: string) => void;
-  onClearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm', sessionId?: string) => void;
+  onClearPending: (profile: string, kind: 'approval' | 'clarify' | 'clarify_batch' | 'sudo' | 'secret' | 'slash_confirm', sessionId?: string) => void;
   /** 🔴 2026-08-17 阶段4：后台会话交互横幅 → 切到该会话响应 */
   onSwitchSession?: (sessionId: string) => void;
   onExpand: (profile: string) => void;
@@ -99,6 +100,8 @@ interface AgentChatCardProps {
 // ── pending 交互 payload 形状（与单视图 activeApproval/activeClarify/activeSudo 一致）──
 interface ApprovalPayload { command?: string; description?: string; pattern?: string; choices?: string[]; run_id?: string }
 interface ClarifyPayload { clarify_id?: string; question?: string; choices?: string[] }
+// 🔴 批量澄清 payload（对齐 Hermes questions batch：一次表单多题）
+interface ClarifyBatchPayload { clarify_id?: string; title?: string | null; questions?: BatchQuestionWire[] }
 interface SudoPayload { request_id?: string; prompt?: string }
 interface SecretPayload { request_id?: string; prompt?: string; env_var?: string }
 
@@ -330,9 +333,10 @@ export const AgentChatCard = memo(function AgentChatCard({
 
     // 🔴 新会话图片附件 submit 时序（对齐 Hermes submit.ts，与主视图 App.handleSend 同构）：
     // 无会话时 addImage 仅本地暂存（uploaded=false）；发送前懒创建会话并上传，经 explicitSessionId 穿透到 sendTo。
-    // 仅直接发送路径（!wasBusy）需要；busy 排队路径由 useGridChat drain 时附着（会话必然存在）。
+    // 🔴 2026-08-22 修复：移除 !wasBusy——对齐 Hermes syncAttachmentsForSubmit【无条件】执行：
+    // busy（排队）时也先 sync 附件，否则图片不进 session → Queue 快照空 → LLM 收不到图。
     let explicitSid: string | undefined;
-    if (!wasBusy && images.some((img) => !img.uploaded)) {
+    if (images.some((img) => !img.uploaded)) {
       const ws = getWsClient();
       let sid = stateRef.current.sessionId ?? undefined;
       if (!sid) {
@@ -386,6 +390,7 @@ export const AgentChatCard = memo(function AgentChatCard({
   const slotInteraction = slotSid ? state.interactions[slotSid] : undefined;
   const approval = slotInteraction?.kind === 'approval' ? (slotInteraction.data as unknown as ApprovalPayload) : null;
   const clarify = slotInteraction?.kind === 'clarify' ? (slotInteraction.data as unknown as ClarifyPayload) : null;
+  const clarifyBatch = slotInteraction?.kind === 'clarify_batch' ? (slotInteraction.data as unknown as ClarifyBatchPayload) : null;
   const sudo = slotInteraction?.kind === 'sudo' ? (slotInteraction.data as unknown as SudoPayload) : null;
   const secret = slotInteraction?.kind === 'secret' ? (slotInteraction.data as unknown as SecretPayload) : null;
   const backgroundInteractions = Object.entries(state.interactions).filter(([sid]) => sid !== slotSid);
@@ -609,6 +614,17 @@ export const AgentChatCard = memo(function AgentChatCard({
             choices={clarify.choices}
             profile={name}
             onDone={() => onClearPending(name, 'clarify', slotSid)}
+          />
+        </div>
+      )}
+      {clarifyBatch && (
+        <div className="px-2.5 pb-1.5 shrink-0">
+          <ClarifyBatchCard
+            clarifyId={clarifyBatch.clarify_id ?? ''}
+            title={clarifyBatch.title}
+            questions={clarifyBatch.questions ?? []}
+            profile={name}
+            onDone={() => onClearPending(name, 'clarify_batch', slotSid)}
           />
         </div>
       )}

@@ -66,6 +66,7 @@ const GRID_INTERACTION_EVENTS = new Set([
   'approval.request',
   'approval.responded',
   'clarify.request',
+  'clarify.batch.request',
   'sudo.request',
   'secret.request',
 ])
@@ -89,7 +90,7 @@ export function useGridChat(
   loadMore: (profile: string) => Promise<void>;
   sendTo: (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachmentDataURLs?: string[]; explicitSessionId?: string }) => Promise<void>;
   abortAgent: (profile: string) => Promise<void>;
-  clearPending: (profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm') => void;
+  clearPending: (profile: string, kind: 'approval' | 'clarify' | 'clarify_batch' | 'sudo' | 'secret' | 'slash_confirm') => void;
   /** 新建会话：清空本 Agent 上下文，下条 sendTo 后端自动建新 session */
   resetAgent: (profile: string) => void;
   /** per-agent slash 命令执行（路由到本 Agent 的 session） */
@@ -337,7 +338,7 @@ export function useGridChat(
   // 本 hook 只负责交互状态管理：卡片完成后调用 clearPending 收起弹窗、恢复 streaming。
   // 🔴 2026-08-17 阶段4：交互按会话关闭（多槽；卡片 onDone/onDismiss 传 sid）。
   // slash_confirm 仍是当前会话单槽（破坏性命令确认）。
-  const clearPending = useCallback((profile: string, kind: 'approval' | 'clarify' | 'sudo' | 'secret' | 'slash_confirm', sessionId?: string) => {
+  const clearPending = useCallback((profile: string, kind: 'approval' | 'clarify' | 'clarify_batch' | 'sudo' | 'secret' | 'slash_confirm', sessionId?: string) => {
     // 🔴 Phase 4b #7: status 由权威发送锁决定——锁在 = run 进行中 → streaming；
     // 锁不在 = run 已结束（或 onDismiss/deny 终止 turn）→ idle。
     const next: AgentStatus = sendingRef.current[profile] ? 'streaming' : 'idle';
@@ -633,6 +634,15 @@ export function useGridChat(
           patch(profile, (s) => ({
             ...s,
             interactions: { ...s.interactions, [String(raw.session_id ?? '')]: { kind: 'clarify', data: payload as Record<string, unknown> } },
+            status: 'waiting',
+            lastActivity: Date.now(),
+          }));
+          break;
+        // 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch）
+        case 'clarify.batch.request':
+          patch(profile, (s) => ({
+            ...s,
+            interactions: { ...s.interactions, [String(raw.session_id ?? '')]: { kind: 'clarify_batch', data: payload as Record<string, unknown> } },
             status: 'waiting',
             lastActivity: Date.now(),
           }));

@@ -87,6 +87,13 @@ export interface UseMessageStreamProps {
   // 多槽存储——per-session 并发轮架构下后台会话的交互必须可见可响应）
   // null = 该会话 pending 快照为空（session.info 权威）→ 清该会话项
   setActiveClarify: (data: { session_id?: string; clarify_id: string; question: string; choices: string[] } | null) => void
+  /** 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch） */
+  setActiveClarifyBatch?: (data: {
+    session_id?: string
+    clarify_id: string
+    title?: string | null
+    questions: { qid: string; id?: string | null; question: string; choices?: string[] | null; multi_select?: boolean }[]
+  } | null) => void
   setActiveApproval: (data: { session_id?: string; command: string; description: string; pattern: string; choices: string[]; run_id: string } | null) => void
   setActiveSudo?: (data: { session_id?: string; request_id: string; prompt?: string } | null) => void
   setActiveSecret?: (data: { session_id?: string; request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> } | null) => void
@@ -149,6 +156,7 @@ export function useMessageStream({
   setActiveApproval,
   setActiveSudo,
   setActiveSecret,
+  setActiveClarifyBatch,
   closeApproval,
   setActiveSlashConfirm,
   setSessionCwd,
@@ -680,6 +688,12 @@ export function useMessageStream({
     onClarify: ({ session_id, clarify_id, question, choices }: { session_id?: string; clarify_id: string; question: string; choices?: string[] }) => {
       addDebugEvent('clarify', question.slice(0, 60));
       setActiveClarify({ session_id, clarify_id, question, choices: choices ?? [] });
+    },
+
+    // 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch）
+    onClarifyBatch: ({ session_id, clarify_id, title, questions }: { session_id?: string; clarify_id: string; title?: string | null; questions: { qid: string; id?: string | null; question: string; choices?: string[] | null; multi_select?: boolean }[] }) => {
+      addDebugEvent('clarify.batch', `q=${questions.length} ${title ?? ''}`.slice(0, 60));
+      setActiveClarifyBatch?.({ session_id, clarify_id, title, questions });
     },
 
     onApproval: (data: unknown) => {

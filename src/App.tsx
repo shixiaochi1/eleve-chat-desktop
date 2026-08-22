@@ -49,6 +49,7 @@ import InputArea from './components/InputArea';
 import ContextBar from './components/ContextBar';
 import TodoPanel from './components/TodoPanel';
 import ClarifyCard from './components/ClarifyCard';
+import ClarifyBatchCard from './components/ClarifyBatchCard';
 import ApprovalCard from './components/ApprovalCard';
 import SlashConfirmCard from './components/SlashConfirmCard';
 import AppShell from './components/AppShell';
@@ -196,6 +197,8 @@ export default function App() {
   type PendingInteraction =
     | { kind: 'approval'; sessionId: string; data: { command: string; description: string; pattern: string; choices: string[]; run_id: string } }
     | { kind: 'clarify'; sessionId: string; data: { clarify_id: string; question: string; choices: string[] } }
+    // 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch）
+    | { kind: 'clarify_batch'; sessionId: string; data: { clarify_id?: string; title?: string | null; questions?: { qid: string; id?: string | null; question: string; choices?: string[] | null; multi_select?: boolean }[] } }
     | { kind: 'sudo'; sessionId: string; data: { request_id: string; prompt?: string } }
     | { kind: 'secret'; sessionId: string; data: { request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> } };
   const [pendingInteractions, setPendingInteractions] = useState<Record<string, PendingInteraction>>({});
@@ -295,6 +298,9 @@ export default function App() {
   const currentInteraction = currentSid ? pendingInteractions[currentSid] : undefined;
   const currentClarify = currentInteraction?.kind === 'clarify' ? currentInteraction.data : null;
   const currentClarifySessionId = currentInteraction?.kind === 'clarify' ? currentInteraction.sessionId : '';
+  // 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch）
+  const currentClarifyBatch = currentInteraction?.kind === 'clarify_batch' ? currentInteraction.data : null;
+  const currentClarifyBatchSessionId = currentInteraction?.kind === 'clarify_batch' ? currentInteraction.sessionId : '';
   const currentApproval = currentInteraction?.kind === 'approval' ? currentInteraction.data : null;
   const currentApprovalSessionId = currentInteraction?.kind === 'approval' ? currentInteraction.sessionId : '';
   const currentSudo = currentInteraction?.kind === 'sudo' ? currentInteraction.data : null;
@@ -575,6 +581,11 @@ export default function App() {
     setActiveClarify: (data) => {
       if (data === null) { if (sess.sessionId) removeInteraction(sess.sessionId); return; }
       upsertInteraction({ kind: 'clarify', sessionId: data.session_id ?? sess.sessionId ?? '', data: { clarify_id: data.clarify_id, question: data.question, choices: data.choices } });
+    },
+    // 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch）
+    setActiveClarifyBatch: (data) => {
+      if (data === null) { if (sess.sessionId) removeInteraction(sess.sessionId); return; }
+      upsertInteraction({ kind: 'clarify_batch', sessionId: data.session_id ?? sess.sessionId ?? '', data: { clarify_id: data.clarify_id, title: data.title ?? null, questions: data.questions ?? [] } });
     },
     setActiveApproval: (data) => {
       if (data === null) { if (sess.sessionId) removeInteraction(sess.sessionId); return; }
@@ -1148,20 +1159,6 @@ export default function App() {
   // 图片大图预览（对齐 Hermes ImageLightbox：聊天区缩略图点击 → 遮罩大图 + 下载）
   const [lightbox, setLightbox] = useState<{ src: string; name?: string; onEdit?: () => void } | null>(null);
 
-  // 🔴 2026-08-22 会话就绪门禁辅助：等待恢复完成（读 ref 拿最新状态，
-  // interval 闭包不能依赖渲染快照）
-  const sessionReadyRef = useRef(sess.sessionReady);
-  sessionReadyRef.current = sess.sessionReady;
-  const waitSessionReady = useCallback((timeoutMs = 10000): Promise<boolean> =>
-    new Promise((resolve) => {
-      if (sessionReadyRef.current) { resolve(true); return; }
-      const start = Date.now();
-      const timer = setInterval(() => {
-        if (sessionReadyRef.current) { clearInterval(timer); resolve(true); }
-        else if (Date.now() - start > timeoutMs) { clearInterval(timer); resolve(false); }
-      }, 120);
-    }), []);
-
   // 包装 handleSend — 附件排队归属 + 发送后清空预览
   // 🔴 对齐 Hermes entry 级附件归属：busy 时排队附件 base64 暂存内存 + 从 session 分离
   const handleSend = useCallback(async (text: string) => {
@@ -1172,23 +1169,21 @@ export default function App() {
     const wasBusy = isSendingRef.current;
     const images = [...attachedImages];
 
-    // 🔴 2026-08-22 架构修复（会话就绪门禁，对齐 Hermes ensure_session）：
-    // dev 重启/会话切换后，sessionId 被设置 ≠ 后端已就绪（loadHistory 完成才 ready）。
-    // 就绪前发送/attach 必然打未就绪会话 → session not found / 消息丢失。
-    // 门禁：等待恢复（缓存命中原会话）→ 超时才提示，绝不重建覆盖指针（防丢历史）。
-    if (!sess.sessionReady) {
-      const ready = await waitSessionReady(10000);
-      if (!ready) {
-        alert('会话正在恢复中，请稍候片刻再发送');
-        return;
-      }
-    }
+    // 🔴 2026-08-22 移除会话就绪门禁（严重消息流转 BUG 修复）：
+    // 原门禁（waitSessionReady + alert）会误挡——新装/无历史会话时 sessionReady
+    // 永不置位（启动恢复只有 if(targetId) 分支，无历史不触发 loadSessionIntoView），
+    // 导致每条消息都弹"正在恢复会话"+丢消息。
+    // 对齐 Hermes：发送前 ensure session（无会话才创建），不阻塞等待——
+    // 会话未加载由后端 get_or_create 兜底恢复（resolve_attach_session），
+    // 消息绝不因等待被吞。
 
     // 🔴 新会话图片附件 submit 时序（对齐 Hermes submit.ts: createBackendSessionForSend → syncAttachmentsForSubmit → prompt.submit）
     // 无会话时 addImage 仅本地暂存（uploaded=false）；此处发送前懒创建会话并上传，
     // 保证图片进入后端 session.attached_images，随后 prompt.submit 被后端 drain 消费。
-    // 仅直接发送路径（!wasBusy）需要；busy 排队路径由 drain 时附着（会话必然存在）。
-    if (!wasBusy && images.some((img) => !img.uploaded)) {
+    // 🔴 2026-08-22 修复：移除 !wasBusy 条件——busy（上一条还在处理）时也先 attach，
+    // 否则图片不进 session → Queue 快照 attached_images 为空 → ELEVE 收不到图
+    // （只收到文字）。busy 与 idle 统一：先 attach 再提交，附件归属后端权威。
+    if (images.some((img) => !img.uploaded)) {
       const ws = getWsClient();
       let sid = sess.sessionId ?? undefined;
       if (!sid) {
@@ -1748,6 +1743,14 @@ export default function App() {
                       onDone={() => handleClarifyDone(currentClarifySessionId)}
                     />
                   )}
+                  {currentClarifyBatch && (
+                    <ClarifyBatchCard
+                      clarifyId={currentClarifyBatch.clarify_id ?? ''}
+                      title={currentClarifyBatch.title}
+                      questions={currentClarifyBatch.questions ?? []}
+                      onDone={() => handleClarifyDone(currentClarifyBatchSessionId)}
+                    />
+                  )}
                   {currentApproval && (
                     <ApprovalCard
                       command={currentApproval.command}
@@ -1823,6 +1826,14 @@ export default function App() {
                               onDone={() => handleClarifyDone(sid)}
                             />
                           )}
+                          {it.kind === 'clarify_batch' && (
+                            <ClarifyBatchCard
+                              clarifyId={it.data.clarify_id ?? ''}
+                              title={it.data.title}
+                              questions={it.data.questions ?? []}
+                              onDone={() => handleClarifyDone(sid)}
+                            />
+                          )}
                           {it.kind === 'sudo' && (
                             <CredentialCard
                               type="sudo"
@@ -1891,7 +1902,7 @@ export default function App() {
                   <PreviewCenter sessionId={sess.sessionId} cwd={sessionCwd} />
                 )}
                 {rightTab === 'artifacts' && (
-                  <ArtifactPanel sessionId={sess.sessionId} onSwitchSession={handleSwitchSession} />
+                  <ArtifactPanel sessionId={sess.sessionId} profile={currentProfile} onSwitchSession={handleSwitchSession} />
                 )}
               </>
             )}

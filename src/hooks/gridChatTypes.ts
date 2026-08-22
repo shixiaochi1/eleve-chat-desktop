@@ -42,7 +42,7 @@ export interface AgentChatState {
 
 /** 🔴 2026-08-17 阶段4：宫格交互载荷（kind 分派 + 原始数据） */
 export interface GridInteraction {
-  kind: 'approval' | 'clarify' | 'sudo' | 'secret'
+  kind: 'approval' | 'clarify' | 'clarify_batch' | 'sudo' | 'secret'
   data: Record<string, unknown>
 }
 

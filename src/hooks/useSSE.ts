@@ -55,6 +55,13 @@ export interface SSECallbacks {
   onNoticeClear?: (data: { key: string }) => void
   onStatusUpdate?: (data: { kind: string; text: string }) => void
   onClarify?: (data: { session_id?: string; clarify_id: string; question: string; choices?: string[] }) => void
+  /** 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch） */
+  onClarifyBatch?: (data: {
+    session_id?: string
+    clarify_id: string
+    title?: string | null
+    questions: { qid: string; id?: string | null; question: string; choices?: string[] | null; multi_select?: boolean }[]
+  }) => void
   onApproval?: (data: unknown) => void
   onApprovalResponded?: (data: { run_id: string; choice: string; resolved: number }) => void
   onSudo?: (data: { session_id?: string; request_id: string; prompt?: string }) => void
@@ -452,6 +459,16 @@ function processEvent(
       cbs.onClarify?.({ session_id: chunk.session_id as string | undefined, clarify_id: chunk.clarify_id as string, question: chunk.question as string, choices: chunk.choices as string[] | undefined });
       break;
 
+    // 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch）
+    case 'clarify.batch.request':
+      cbs.onClarifyBatch?.({
+        session_id: chunk.session_id as string | undefined,
+        clarify_id: chunk.clarify_id as string,
+        title: (chunk.title as string | null) ?? undefined,
+        questions: (chunk.questions as any[]) ?? [],
+      });
+      break;
+
     case 'approval.request':
       cbs.onApproval?.(chunk);
       break;
@@ -619,6 +636,7 @@ const INTERACTION_EVENT_NAMES = new Set([
   'approval.request',
   'approval.responded',
   'clarify.request',
+  'clarify.batch.request',
   'sudo.request',
   'secret.request',
   'delegate.start',
