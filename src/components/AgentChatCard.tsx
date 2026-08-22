@@ -99,7 +99,7 @@ interface AgentChatCardProps {
 
 // ── pending 交互 payload 形状（与单视图 activeApproval/activeClarify/activeSudo 一致）──
 interface ApprovalPayload { command?: string; description?: string; pattern?: string; choices?: string[]; run_id?: string }
-interface ClarifyPayload { clarify_id?: string; question?: string; choices?: string[] }
+interface ClarifyPayload { clarify_id?: string; question?: string; choices?: string[]; multi_select?: boolean }
 // 🔴 批量澄清 payload（对齐 Hermes questions batch：一次表单多题）
 interface ClarifyBatchPayload { clarify_id?: string; title?: string | null; questions?: BatchQuestionWire[] }
 interface SudoPayload { request_id?: string; prompt?: string }
@@ -612,6 +612,7 @@ export const AgentChatCard = memo(function AgentChatCard({
             clarifyId={clarify.clarify_id}
             question={clarify.question}
             choices={clarify.choices}
+            multiSelect={clarify.multi_select}
             profile={name}
             onDone={() => onClearPending(name, 'clarify', slotSid)}
           />

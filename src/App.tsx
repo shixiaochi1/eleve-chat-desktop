@@ -196,7 +196,7 @@ export default function App() {
   // 当前会话的交互渲染在消息区原位置；其他会话的交互渲染"后台会话交互"区。
   type PendingInteraction =
     | { kind: 'approval'; sessionId: string; data: { command: string; description: string; pattern: string; choices: string[]; run_id: string } }
-    | { kind: 'clarify'; sessionId: string; data: { clarify_id: string; question: string; choices: string[] } }
+    | { kind: 'clarify'; sessionId: string; data: { clarify_id: string; question: string; choices: string[]; multi_select?: boolean } }
     // 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch）
     | { kind: 'clarify_batch'; sessionId: string; data: { clarify_id?: string; title?: string | null; questions?: { qid: string; id?: string | null; question: string; choices?: string[] | null; multi_select?: boolean }[] } }
     | { kind: 'sudo'; sessionId: string; data: { request_id: string; prompt?: string } }
@@ -580,7 +580,7 @@ export default function App() {
     // null = 该会话 pending 快照为空（session.info 权威）→ 清该会话项
     setActiveClarify: (data) => {
       if (data === null) { if (sess.sessionId) removeInteraction(sess.sessionId); return; }
-      upsertInteraction({ kind: 'clarify', sessionId: data.session_id ?? sess.sessionId ?? '', data: { clarify_id: data.clarify_id, question: data.question, choices: data.choices } });
+      upsertInteraction({ kind: 'clarify', sessionId: data.session_id ?? sess.sessionId ?? '', data: { clarify_id: data.clarify_id, question: data.question, choices: data.choices, multi_select: data.multi_select } });
     },
     // 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch）
     setActiveClarifyBatch: (data) => {
@@ -1740,6 +1740,7 @@ export default function App() {
                       clarifyId={currentClarify.clarify_id}
                       question={currentClarify.question}
                       choices={currentClarify.choices}
+                      multiSelect={currentClarify.multi_select}
                       onDone={() => handleClarifyDone(currentClarifySessionId)}
                     />
                   )}
@@ -1823,6 +1824,7 @@ export default function App() {
                               clarifyId={it.data.clarify_id}
                               question={it.data.question}
                               choices={it.data.choices}
+                              multiSelect={it.data.multi_select}
                               onDone={() => handleClarifyDone(sid)}
                             />
                           )}

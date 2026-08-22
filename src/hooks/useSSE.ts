@@ -54,7 +54,7 @@ export interface SSECallbacks {
   onProjectsChanged?: () => void
   onNoticeClear?: (data: { key: string }) => void
   onStatusUpdate?: (data: { kind: string; text: string }) => void
-  onClarify?: (data: { session_id?: string; clarify_id: string; question: string; choices?: string[] }) => void
+  onClarify?: (data: { session_id?: string; clarify_id: string; question: string; choices?: string[]; multi_select?: boolean }) => void
   /** 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch） */
   onClarifyBatch?: (data: {
     session_id?: string
@@ -456,7 +456,7 @@ function processEvent(
 
     // ── 交互 ──
     case 'clarify.request':
-      cbs.onClarify?.({ session_id: chunk.session_id as string | undefined, clarify_id: chunk.clarify_id as string, question: chunk.question as string, choices: chunk.choices as string[] | undefined });
+      cbs.onClarify?.({ session_id: chunk.session_id as string | undefined, clarify_id: chunk.clarify_id as string, question: chunk.question as string, choices: chunk.choices as string[] | undefined, multi_select: chunk.multi_select as boolean | undefined });
       break;
 
     // 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch）

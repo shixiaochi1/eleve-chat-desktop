@@ -86,7 +86,7 @@ export interface UseMessageStreamProps {
   // 🔴 2026-08-17 阶段4：交互回调改为带 session_id 的值语义（App 侧按会话
   // 多槽存储——per-session 并发轮架构下后台会话的交互必须可见可响应）
   // null = 该会话 pending 快照为空（session.info 权威）→ 清该会话项
-  setActiveClarify: (data: { session_id?: string; clarify_id: string; question: string; choices: string[] } | null) => void
+  setActiveClarify: (data: { session_id?: string; clarify_id: string; question: string; choices: string[]; multi_select?: boolean } | null) => void
   /** 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch） */
   setActiveClarifyBatch?: (data: {
     session_id?: string
@@ -685,9 +685,9 @@ export function useMessageStream({
       appendIndependentMessage({ id: genId(), role: 'system' as const, parts: [textPart(`✔ 子 Agent 完成: ${summary || status || 'done'}`)], timestamp: Date.now() });
     },
 
-    onClarify: ({ session_id, clarify_id, question, choices }: { session_id?: string; clarify_id: string; question: string; choices?: string[] }) => {
+    onClarify: ({ session_id, clarify_id, question, choices, multi_select }: { session_id?: string; clarify_id: string; question: string; choices?: string[]; multi_select?: boolean }) => {
       addDebugEvent('clarify', question.slice(0, 60));
-      setActiveClarify({ session_id, clarify_id, question, choices: choices ?? [] });
+      setActiveClarify({ session_id, clarify_id, question, choices: choices ?? [], multi_select });
     },
 
     // 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch）
