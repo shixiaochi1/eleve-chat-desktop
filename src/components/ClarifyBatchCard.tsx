@@ -160,7 +160,7 @@ export default function ClarifyBatchCard({ clarifyId, title, questions, profile,
         </div>
 
         {hasChoices && (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="space-y-1">
             {q.choices!.map((c) => {
               const flag = isMulti
                 ? Array.isArray(sel) && sel.includes(c)
@@ -171,13 +171,28 @@ export default function ClarifyBatchCard({ clarifyId, title, questions, profile,
                   type="button"
                   disabled={submitting || submitted}
                   onClick={() => pickOption(q.qid, c, isMulti, currentIdx)}
-                  className={`px-2.5 py-1 rounded-md text-xs border transition-colors ${
+                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-xs transition-colors ${
                     flag
-                      ? 'border-primary/70 bg-primary/15 text-foreground'
-                      : 'border-border/60 text-muted-foreground hover:border-border'
+                      ? 'bg-primary/10 text-foreground'
+                      : 'text-muted-foreground hover:bg-background'
                   }`}
                 >
-                  {c}
+                  {/* 单选圆点 / 多选方块 */}
+                  <span
+                    className={`w-3.5 h-3.5 shrink-0 flex items-center justify-center border transition-colors ${
+                      isMulti ? 'rounded-[3px]' : 'rounded-full'
+                    } ${flag ? 'border-primary bg-primary' : 'border-border/80 bg-transparent'}`}
+                  >
+                    {flag &&
+                      (isMulti ? (
+                        <svg viewBox="0 0 12 12" className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M2.5 6.5 L5 9 L9.5 3.5" />
+                        </svg>
+                      ) : (
+                        <span className="w-1 h-1 rounded-full bg-white" />
+                      ))}
+                  </span>
+                  <span className="truncate">{c}</span>
                 </button>
               );
             })}
