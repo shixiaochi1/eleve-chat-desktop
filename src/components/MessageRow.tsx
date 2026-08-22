@@ -51,14 +51,19 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
               <div className="flex flex-wrap justify-end gap-1">
                 {m.attachmentRefs.map((ref, i) =>
                   ref.startsWith('data:') ? (
-                    <img
-                      key={`${m.id}-att-${i}`}
-                      src={ref}
-                      alt="attachment"
-                      className="w-20 h-20 object-cover rounded-lg border border-border cursor-zoom-in"
-                      draggable={false}
-                      onClick={() => setLightbox({ src: ref, name: `image-${i + 1}` })}
-                    />
+                    <div key={`${m.id}-att-${i}`} className="relative">
+                      <img
+                        src={ref}
+                        alt="attachment"
+                        className="w-20 h-20 object-cover rounded-lg border border-border cursor-zoom-in"
+                        draggable={false}
+                        onClick={() => setLightbox({ src: ref, name: `image-${i + 1}` })}
+                      />
+                      {/* 🔴 2026-08-22：消息图片"图N"角标（与附件/LLM 编号一致） */}
+                      <span className="absolute -bottom-1 -right-1 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] leading-none text-white">
+                        图{i + 1}
+                      </span>
+                    </div>
                   ) : (
                     <span key={`${m.id}-att-${i}`} className="max-w-[160px] truncate rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                       {ref}

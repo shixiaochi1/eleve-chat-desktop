@@ -1625,7 +1625,7 @@ export default function App() {
                     <div className="px-3 pt-2 flex flex-col gap-1.5">
                       {attachedImages.length > 0 && (
                         <div className="flex gap-2 flex-wrap items-start">
-                          {attachedImages.map((img) => (
+                          {attachedImages.map((img, index) => (
                             <div key={img.id} className="relative group">
                               <img
                                 src={img.preview}
@@ -1652,8 +1652,10 @@ export default function App() {
                               >
                                 ✕
                               </button>
+                              {/* 🔴 2026-08-22：附件显示"图N"（实时编号，用户可明确指代；
+                                  后端 attach text 同序号 → LLM 分清图1/图2/图3） */}
                               <div className="text-xs text-muted-foreground truncate mt-1 max-w-[48px]" title={img.name}>
-                                {img.name}
+                                图{index + 1}
                               </div>
                             </div>
                           ))}
