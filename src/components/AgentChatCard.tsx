@@ -607,7 +607,7 @@ export const AgentChatCard = memo(function AgentChatCard({
         </div>
       )}
       {clarify && (
-        <div className="px-2.5 pb-1.5 shrink-0">
+        <div className="pb-1.5 shrink-0">
           <ClarifyCard
             clarifyId={clarify.clarify_id}
             question={clarify.question}
@@ -619,7 +619,7 @@ export const AgentChatCard = memo(function AgentChatCard({
         </div>
       )}
       {clarifyBatch && (
-        <div className="px-2.5 pb-1.5 shrink-0">
+        <div className="pb-1.5 shrink-0">
           <ClarifyBatchCard
             clarifyId={clarifyBatch.clarify_id ?? ''}
             title={clarifyBatch.title}
