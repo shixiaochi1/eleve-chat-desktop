@@ -39,8 +39,14 @@ export default function StreamStallIndicator({ text }: StreamStallIndicatorProps
       role="status"
       aria-live="polite"
     >
-      <span className="inline-block size-2.5 rounded-[2px] bg-muted-foreground/60 animate-pulse" aria-hidden="true" />
       <span>Eleve 正在思考</span>
+      {/* 🔴 2026-08-23：静态方块点 → 宫格同款尾随跳动点（agent-status-dot），
+          与思考动画统一，不再出现"静态点 + 动态点"重复 */}
+      <span aria-hidden className="flex shrink-0 items-end gap-[2px]">
+        <span className="agent-status-dot" />
+        <span className="agent-status-dot" style={{ animationDelay: '0.15s' }} />
+        <span className="agent-status-dot" style={{ animationDelay: '0.3s' }} />
+      </span>
       <ActivityTimerText seconds={elapsed} />
     </div>
   );

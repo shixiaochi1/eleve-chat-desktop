@@ -154,6 +154,15 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
               ? 'Agent 运行中'
               : '就绪'}
         </span>
+        {/* 🔴 2026-08-23：执行任务中（Agent/子 Agent 运行）加尾随跳动点动画，
+            与消息区思考中的波浪点同款（agent-status-dot）；就绪/暂停不显示 */}
+        {((hasSubagents && !paused) || isStreaming) && (
+          <span aria-hidden className="flex shrink-0 items-end gap-[2px] text-muted-foreground/60">
+            <span className="agent-status-dot" />
+            <span className="agent-status-dot" style={{ animationDelay: '0.15s' }} />
+            <span className="agent-status-dot" style={{ animationDelay: '0.3s' }} />
+          </span>
+        )}
 
         {/* 🔴 2026-08-18 老大反馈修复：右端单一控制簇——ml-auto 只出现一次，
             杜绝原先「监控按钮 + chips 区」双 ml-auto 把按钮挤到中间错位；
