@@ -143,9 +143,14 @@ export default function ApprovalCard({ command, description, pattern, choices, r
             <span className="relative inline-flex size-2 rounded-full bg-warning" />
           </span>
           <span>
-            {isDesktopAction
-              ? 'ELEVE 想操作你的桌面（点击/输入），请在下方选择批准方式'
-              : '等待你审批——不响应将在超时后自动拒绝'}
+            {isDesktopAction ? (
+              <>
+                ELEVE 想操作你的桌面（点击/输入），请在下方选择批准方式——
+                <span className="font-medium">建议选「批准此会话」</span>，本会话内同类操作不再弹窗
+              </>
+            ) : (
+              '等待你审批——不响应将在超时后自动拒绝'
+            )}
           </span>
         </div>
 
