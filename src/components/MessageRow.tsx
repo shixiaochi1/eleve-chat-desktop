@@ -17,7 +17,6 @@ import ChangedFilesCard from './ChangedFilesCard'
 import ReasoningBlock from './ReasoningBlock'
 import ToolEntry, { type ToolCallItem } from './ToolEntry'
 import HoistedTodoPanel, { todosFromMessageParts } from './HoistedTodoPanel'
-import StreamStallIndicator from './StreamStallIndicator'
 import ImageLightbox from './ImageLightbox'
 import { useImageEditor } from '@/store/image-editor'
 import type { ChatMessage, ChatMessagePart } from '@/types'
@@ -106,8 +105,6 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
       const renderItems: RenderItem[] = []
       let textOrdinal = 0
       let reasoningOrdinal = 0
-      // 流式文本（最后一个 text part）— 供 StreamStallIndicator 做进展检测
-      let streamText = ''
 
       for (let pi = 0; pi < m.parts.length; pi++) {
         const part = m.parts[pi]
@@ -131,7 +128,6 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
           renderItems.push({ kind: 'reasoning', key: `r-${m.id}-${reasoningOrdinal}`, text: part.text, done: part.done, idx: reasoningOrdinal })
           reasoningOrdinal++
         } else if (part.type === 'text') {
-          streamText = part.text
           renderItems.push({ kind: 'text', key: `t-${m.id}-${textOrdinal}`, text: part.text, isLast: pi === m.parts.length - 1 })
           textOrdinal++
         }
@@ -166,8 +162,9 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
             }
           })}
           {m.error && <MessageBubble type="error" content={m.error} />}
-          {/* 流式停滞提示（对齐 Hermes StreamStallIndicator）：12s 无进展显示“正在思考” */}
-          {m.pending && <StreamStallIndicator text={streamText} />}
+          {/* 🔴 2026-08-23 老大拍板：流式停滞提示（StreamStallIndicator）整行取消——
+              "Eleve 正在思考"+跳动点与思考气泡（BrailleSpinner+计时器）重复，
+              思考进度由气泡单一承载，不再双动画并存 */}
           {/* 🔴 ChangedFilesCard（对齐 Hermes）：仅最后一条已落定 assistant 消息显示，
               收尾本轮“N 个文件已修改”；发送下一条消息即退休（卡片描述的工作树已成历史） */}
           {isLast && !m.pending && <ChangedFilesCard parts={m.parts} />}

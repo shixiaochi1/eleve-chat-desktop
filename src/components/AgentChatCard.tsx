@@ -556,23 +556,10 @@ export const AgentChatCard = memo(function AgentChatCard({
           />
         )}
 
-        {/* ── 活动提示（thinking / tool.progress / delegate.progress / goal）──
-            🔴 2026-08-21 方案 C 动画：脉冲状态灯（Agent 身份色）+ 尾随跳动点，
-            纯 CSS（agent-status-* 类，prefers-reduced-motion 自动降级静态） */}
-        {state.activityHint && streaming && (
-          <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] truncate" title={state.activityHint}>
-            <span aria-hidden className="relative shrink-0 w-[6px] h-[6px]" style={{ color: color.dot }}>
-              <span className="agent-status-ping absolute inset-0" />
-              <span className="agent-status-core absolute inset-0" />
-            </span>
-            <span className="truncate text-muted-foreground/50">{state.activityHint}</span>
-            <span aria-hidden className="flex shrink-0 items-end gap-[2px]" style={{ color: color.dot }}>
-              <span className="agent-status-dot" />
-              <span className="agent-status-dot" style={{ animationDelay: '0.15s' }} />
-              <span className="agent-status-dot" style={{ animationDelay: '0.3s' }} />
-            </span>
-          </div>
-        )}
+        {/* ── 活动提示行已取消（🔴 2026-08-23 老大拍板）：宫格底部不再用
+            脉冲灯+跳动点重复显示 thinking 内容——思考由流式气泡（ReasoningBlock
+            原动画 BrailleSpinner）单一承载，工具进度由流式消息里的 ToolEntry 展示，
+            activityHint 行整行移除（与思考气泡动画重复） */}
       </div>
 
       {/* 🔴 2026-08-17 阶段4：后台会话交互横幅（per-session 并发轮——其他
@@ -582,7 +569,7 @@ export const AgentChatCard = memo(function AgentChatCard({
           {backgroundInteractions.map(([sid, it]) => (
             <button
               key={sid}
-              className="flex items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-left text-[11px] text-amber-700 dark:text-amber-300 hover:bg-amber-500/20"
+              className="flex items-center justify-between gap-2 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-left text-[11px] text-warning hover:bg-warning/20"
               onClick={() => onSwitchSession?.(sid)}
               title={`会话 ${sid} 有待响应交互，点击切换`}
             >

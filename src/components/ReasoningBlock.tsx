@@ -6,6 +6,7 @@ import { useShowReasoning } from '@/store/display-settings';
 import { cleanThinkingText } from '@/lib/thinking-text';
 import { cn } from '@/lib/utils';
 import StreamBlocks from './StreamBlocks';
+import { BrailleSpinner } from './ui/braille-spinner';
 
 interface ReasoningBlockProps {
   text?: string;
@@ -37,9 +38,9 @@ interface ReasoningBlockProps {
  *   - 滚动形式：展开态无 max-h 无内部滚动条，内容自然撑开跟随页面滚动（Hermes 同款）
  *   - 字体颜色比回复正文淡（muted-foreground × 半透明），hover 提升可读性
  *   - pending 时静态浅色 + "思考了 Xs" 计时器（无呼吸动画，老大要求取消）
- *   - 🔴 2026-08-23 思考中标题图标：BrailleSpinner 盲文点阵 → 宫格同款
- *     agent-status 脉冲灯 + 尾随跳动点（与宫格 activityHint 动画一致，
- *     契合主题色），静止态保持 Brain 静态图标
+ *   - 🔴 2026-08-18 老大需求：思考中标题图标换成动态 braille spinner
+ *     （对齐 Hermes 桌面/TUI THINK 集 helix，BrailleSpinner 同源镜像），
+ *     静止态保持 Brain 静态图标
  *   - 🔴 禁止 scrollIntoView — 虚拟化列表中会造成反馈循环
  */
 export default function ReasoningBlock({ text, visible, messageId, blockIndex, pending }: ReasoningBlockProps) {
@@ -121,21 +122,15 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
           onClick={() => setUserOpen(!open)}
           aria-expanded={open}
         >
-          {/* 🔴 2026-08-23 思考中图标：BrailleSpinner 盲文点阵 → 宫格同款
-              agent-status 脉冲灯 + 尾随跳动点（方案 C 动画，纯 CSS，契合主题色）；
-              静止态保持 Brain 静态图标 */}
+          {/* 🔴 2026-08-18 老大需求：思考过程中图标换成动态图标（对齐 Hermes
+              桌面端思考 spinner——TUI thinking.tsx THINK 集首项 helix，
+              BrailleSpinner 同源镜像）；静止态保持 Brain 静态图标 */}
           {pending ? (
-            <span aria-label="思考中" className="inline-flex items-center gap-[3px] shrink-0 text-primary">
-              <span aria-hidden className="relative shrink-0 w-1.5 h-1.5">
-                <span className="agent-status-ping absolute inset-0" />
-                <span className="agent-status-core absolute inset-0" />
-              </span>
-              <span aria-hidden className="flex shrink-0 items-end gap-[2px]">
-                <span className="agent-status-dot" />
-                <span className="agent-status-dot" style={{ animationDelay: '0.15s' }} />
-                <span className="agent-status-dot" style={{ animationDelay: '0.3s' }} />
-              </span>
-            </span>
+            <BrailleSpinner
+              spinner="helix"
+              ariaLabel="思考中"
+              className="shrink-0 text-[13px] text-primary"
+            />
           ) : (
             <ThinkingIcon size={12} className="inline-block shrink-0" />
           )}

@@ -1798,8 +1798,8 @@ export default function App() {
                   {backgroundInteractions.length > 0 && (
                     <div className="flex flex-col gap-2 px-3 pt-2">
                       {backgroundInteractions.map(({ sid, it }) => (
-                        <div key={sid} className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-2">
-                          <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-amber-600 dark:text-amber-400">
+                        <div key={sid} className="rounded-lg border border-warning/40 bg-warning/5 p-2">
+                          <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-warning">
                             <span className="font-medium">⚡ 后台会话交互 · {shortSessionLabel(sid)}</span>
                             <button
                               className="rounded px-1.5 text-foreground/50 hover:text-foreground"
