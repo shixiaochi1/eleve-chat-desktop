@@ -114,6 +114,11 @@ export default function ApprovalCard({ command, description, pattern, choices, r
   const denyChoices = choiceList.filter((c) => c === 'deny');
   const approveChoices = choiceList.filter((c) => c !== 'deny');
 
+  // 🔴 computer_use 输入动作的审批是"桌面操作"而非"危险命令"——标题误导会让
+  // 用户困惑（ELEVE 点个计算器按钮不该显示"危险命令"）；同时这类审批必须醒目，
+  // 用户在操作桌面时看不到普通消息流里的卡片 → 300s 超时（实测根因）。
+  const isDesktopAction = (command ?? '').startsWith('computer_use') || (command ?? '').startsWith('click');
+
   return (
     <div className="icard icard--warning">
       {/* 头部：类型色图标 + 标题 + pattern 徽章 */}
@@ -121,11 +126,29 @@ export default function ApprovalCard({ command, description, pattern, choices, r
         <div className="icard-icon">
           <ShieldCheck size={14} strokeWidth={2} />
         </div>
-        <span className="icard-title">需要审批 · 危险命令</span>
+        <span className="icard-title">{isDesktopAction ? '需要审批 · 桌面操作' : '需要审批 · 危险命令'}</span>
         {pattern && <span className="icard-badge">{pattern}</span>}
       </div>
 
       <div className="icard-body">
+        {/* 🔴 醒目提示条：等待批准中（桌面操作审批必须让用户一眼看到） */}
+        <div
+          className={cn(
+            'mb-2.5 flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5',
+            'text-xs text-warning'
+          )}
+        >
+          <span className="relative flex size-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-60" />
+            <span className="relative inline-flex size-2 rounded-full bg-warning" />
+          </span>
+          <span>
+            {isDesktopAction
+              ? 'ELEVE 想操作你的桌面（点击/输入），请在下方选择批准方式'
+              : '等待你审批——不响应将在超时后自动拒绝'}
+          </span>
+        </div>
+
         {description && (
           <p className="text-xs text-muted-foreground leading-relaxed mb-2.5">{description}</p>
         )}
