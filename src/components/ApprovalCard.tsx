@@ -144,10 +144,10 @@ export default function ApprovalCard({ command, description, pattern, choices, r
           </span>
           <span>
             {isDesktopAction ? (
-              <>
-                ELEVE 想操作你的桌面（点击/输入），请在下方选择批准方式——
-                <span className="font-medium">建议选「批准此会话」</span>，本会话内同类操作不再弹窗
-              </>
+              // 对齐 Hermes CLI 审批文案（cli.py:15764 "Allow computer_use to
+              // perform `{action}`?"）：仅告知用户 computer_use 要执行操作，
+              // 无额外引导语（Hermes 审批 UI 无"建议选哪个"提示）
+              'ELEVE 想操作你的桌面（点击/输入），请在下方选择批准方式'
             ) : (
               '等待你审批——不响应将在超时后自动拒绝'
             )}
