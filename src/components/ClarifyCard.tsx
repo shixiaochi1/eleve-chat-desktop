@@ -1,13 +1,16 @@
 import { useState, useCallback } from 'react';
-import { MessageCircleQuestion, Check, Send } from 'lucide-react';
+import { Check, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { submitClarifyResponse } from '../utils/api';
 
 /**
- * ClarifyCard — 澄清问题交互卡片（中断型交互卡片家族 · info 变体）
+ * ClarifyCard — 澄清问题交互卡片（单题）
  *
- * 对齐 Eleve clarify_gateway 多平台 UI 逻辑
- * 选项 chips 带数字快捷键，"其他"输入行对齐 Eleve MAX_CHOICES = 4 后自动追加
+ * 🔴 UI 与 ClarifyBatchCard（批量多题）统一为同一视觉语言：
+ * - 容器/头部/选项（纵向 radio/checkbox 行）/手动输入兜底/提交按钮同款样式
+ * - 单选点选项即提交（Hermes 单选语义，与批量卡"选中即前进"的即时性一致）；
+ *   多选勾选后点「提交选择」；开放题输入 + 发送
+ * - 手动输入兜底：选项都不合适时直接输入（placeholder 明确引导），答案以最后动作为准
  */
 interface ClarifyCardProps {
   clarifyId?: string;
@@ -23,6 +26,7 @@ interface ClarifyCardProps {
 export default function ClarifyCard({ clarifyId, question, choices, multiSelect, profile, onDone }: ClarifyCardProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [multiSelected, setMultiSelected] = useState<string[]>([]);
+  // 手动输入兜底（选项都不合适时的自定义回答）
   const [otherText, setOtherText] = useState('');
   const [openInput, setOpenInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -54,8 +58,11 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
     }
   }, [clarifyId, submitting, submitted, expired, profile, onDone]);
 
+  // 单选：点选项即提交（Hermes 语义，与批量卡"选中即前进"即时性一致）
   const handleChoice = useCallback((choice: string) => {
     setSelected(choice);
+    // 点选项即清除手动输入（答案以最后动作为准——对齐批量卡互斥逻辑）
+    setOtherText('');
     handleSubmit(choice);
   }, [handleSubmit]);
 
@@ -65,12 +72,23 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
     setMultiSelected((prev) =>
       prev.includes(choice) ? prev.filter((c) => c !== choice) : [...prev, choice]
     );
+    // 勾选即清除手动输入（互斥，对齐批量卡）
+    setOtherText('');
   }, []);
 
   const handleMultiSubmit = useCallback(() => {
     if (multiSelected.length === 0) return;
     handleSubmit(JSON.stringify(multiSelected));
   }, [multiSelected, handleSubmit]);
+
+  // 手动输入（选项都不合适时）：非空 → 清除选项勾选（互斥，以输入为准）
+  const handleOtherChange = useCallback((value: string) => {
+    setOtherText(value);
+    if (value.trim() !== '') {
+      setSelected(null);
+      setMultiSelected([]);
+    }
+  }, []);
 
   const handleOtherSubmit = useCallback(() => {
     const text = otherText.trim();
@@ -87,15 +105,11 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
   // ── 已完成折叠态 ──
   if (submitted) {
     return (
-      <div className="icard icard--done">
-        <div className="icard-head">
-          <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
-            <span className="icard-check">
-              <Check size={11} strokeWidth={3} />
-            </span>
-            <span>已回答</span>
-          </div>
-        </div>
+      <div className="rounded-lg border border-border/60 px-3 py-2 text-xs text-muted-foreground bg-background/60 flex items-center gap-2">
+        <span className="icard-check">
+          <Check size={11} strokeWidth={3} />
+        </span>
+        <span>已回答</span>
       </div>
     );
   }
@@ -103,187 +117,147 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
   // ── 🔴 已过期折叠态（超时/中断后后端已无 pending）──
   if (expired) {
     return (
-      <div className="icard icard--done">
-        <div className="icard-head">
-          <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
-            <span className="icard-check">
-              <Check size={11} strokeWidth={3} />
-            </span>
-            <span>已过期（未及时回答）</span>
-          </div>
-        </div>
+      <div className="rounded-lg border border-border/60 px-3 py-2 text-xs text-muted-foreground bg-background/60 flex items-center gap-2">
+        <span className="icard-check">
+          <Check size={11} strokeWidth={3} />
+        </span>
+        <span>已过期（未及时回答）</span>
       </div>
     );
   }
 
   return (
-    <div className="icard icard--info">
-      {/* 头部 */}
-      <div className="icard-head">
-        <div className="icard-icon">
-          <MessageCircleQuestion size={14} strokeWidth={2} />
-        </div>
-        <span className="icard-title">Agent 想确认一下</span>
+    <div className="rounded-lg border border-border/60 bg-background/80 px-3 py-2.5 space-y-2.5">
+      {/* 头部：标题（与批量卡同款样式） */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[13px] font-medium text-foreground truncate">Agent 想确认一下</div>
       </div>
 
-      <div className="icard-body">
-        <p className="text-[13px] leading-relaxed text-foreground mb-3">{question}</p>
+      {/* 问题文本 */}
+      <div className="text-xs text-foreground">{question}</div>
 
-        {hasChoices ? (
-          isMulti ? (
-            <>
-              {/* 🔴 多选（checkbox）——纵向列表，勾选切换，提交 JSON 数组字符串 */}
-              <div className="space-y-1">
-                {choices!.map((choice, i) => {
-                  const on = multiSelected.includes(choice);
-                  return (
-                    <button
-                      key={i}
-                      className={cn(
-                        'flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-xs transition-colors',
-                        on
-                          ? 'border-info/60 bg-info/10 text-foreground'
-                          : 'border-border bg-muted/20 text-muted-foreground hover:border-info/40'
-                      )}
-                      onClick={() => toggleMulti(choice)}
-                      disabled={submitting}
-                    >
-                      <span
-                        className={cn(
-                          'flex size-3.5 shrink-0 items-center justify-center rounded-[3px] border transition-colors',
-                          on ? 'border-info bg-info' : 'border-border'
-                        )}
-                      >
-                        {on && <Check size={9} strokeWidth={3} className="text-background" />}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">{choice}</span>
-                      <span className="shrink-0 text-[10px] text-muted-foreground">{i + 1}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="flex items-center justify-between gap-2 mt-2.5">
-                <span className="text-[11px] text-muted-foreground">可多选</span>
+      {hasChoices ? (
+        <div className="space-y-2">
+          {/* 选项：纵向列表行（单选圆点 / 多选方块+勾）——与批量卡同款 */}
+          <div className="space-y-1">
+            {choices!.map((choice, i) => {
+              const flag = isMulti
+                ? multiSelected.includes(choice)
+                : selected === choice;
+              return (
                 <button
+                  key={i}
+                  type="button"
+                  disabled={submitting || submitted}
+                  onClick={() => (isMulti ? toggleMulti(choice) : handleChoice(choice))}
                   className={cn(
-                    'inline-flex items-center gap-1.5 rounded-lg bg-info px-3 py-1.5 text-xs font-medium text-background transition-all',
-                    'hover:brightness-110 active:scale-95',
-                    'disabled:pointer-events-none disabled:opacity-40'
+                    'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-xs transition-colors',
+                    flag
+                      ? 'bg-primary/10 text-foreground'
+                      : 'text-muted-foreground hover:bg-background'
                   )}
-                  onClick={handleMultiSubmit}
-                  disabled={submitting || multiSelected.length === 0}
                 >
-                  {submitting ? (
-                    <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  ) : (
-                    <Send size={12} />
-                  )}
-                  提交选择
+                  {/* 单选圆点 / 多选方块 */}
+                  <span
+                    className={cn(
+                      'w-3.5 h-3.5 shrink-0 flex items-center justify-center border transition-colors',
+                      isMulti ? 'rounded-[3px]' : 'rounded-full',
+                      flag ? 'border-primary bg-primary' : 'border-border/80 bg-transparent'
+                    )}
+                  >
+                    {flag &&
+                      (isMulti ? (
+                        <svg viewBox="0 0 12 12" className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M2.5 6.5 L5 9 L9.5 3.5" />
+                        </svg>
+                      ) : (
+                        <span className="w-1 h-1 rounded-full bg-white" />
+                      ))}
+                  </span>
+                  <span className="truncate">{choice}</span>
                 </button>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* 选项 chips — 数字快捷键 */}
-              <div className="flex flex-wrap gap-2">
-                {choices!.map((choice, i) => (
-                  <button
-                    key={i}
-                    className={cn('icard-chip', selected === choice && 'selected')}
-                    onClick={() => handleChoice(choice)}
-                    disabled={submitting}
-                  >
-                    <span className="chip-key">{i + 1}</span>
-                    {choice}
-                  </button>
-                ))}
-              </div>
-              {/* "其他"输入行 — 对齐 Eleve MAX_CHOICES = 4 后自动追加 */}
-              {selected === '__other__' || (!selected && choices!.length <= 4) ? (
-                <div className="flex items-center gap-2 mt-2.5">
-                  <input
-                    type="text"
-                    className={cn(
-                      'h-8 min-w-0 flex-1 rounded-lg border border-border bg-muted/30 px-3 text-xs text-foreground outline-none transition-all',
-                      'placeholder:text-muted-foreground/50',
-                      'focus:border-info/50 focus:bg-info/5 focus:ring-2 focus:ring-info/15',
-                      'disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50'
-                    )}
-                    placeholder="其他 — 输入你的回答，回车发送"
-                    value={otherText}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                      setOtherText(e.target.value);
-                      setSelected('__other__');
-                    }}
-                    onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-                      if (e.key === 'Enter') handleOtherSubmit();
-                    }}
-                    disabled={submitting}
-                  />
-                  <button
-                    className={cn(
-                      'flex size-8 shrink-0 items-center justify-center rounded-lg transition-all',
-                      'bg-info text-background shadow-sm',
-                      'hover:brightness-110 hover:-translate-y-px active:scale-95',
-                      'disabled:pointer-events-none disabled:opacity-40'
-                    )}
-                    onClick={handleOtherSubmit}
-                    disabled={submitting || !otherText.trim()}
-                    title="发送"
-                  >
-                    {submitting ? (
-                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                    ) : (
-                      <Send size={13} />
-                    )}
-                  </button>
-                </div>
-              ) : null}
-            </>
-          )
-        ) : (
-          /* 开放式回答 */
-          <div className="space-y-2">
-            <textarea
-              className={cn(
-                'w-full resize-none rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs leading-relaxed text-foreground outline-none transition-all',
-                'placeholder:text-muted-foreground/50',
-                'focus:border-info/50 focus:bg-info/5 focus:ring-2 focus:ring-info/15',
-                'disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50'
-              )}
-              placeholder="输入你的回答…（Enter 发送，Shift+Enter 换行）"
-              rows={3}
-              value={openInput}
-              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setOpenInput(e.target.value)}
-              onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleOpenSubmit();
-                }
-              }}
-              disabled={submitting}
-            />
-            <div className="flex justify-end">
+              );
+            })}
+          </div>
+
+          {/* 多选提示 + 提交 */}
+          {isMulti && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] text-muted-foreground">可多选</span>
               <button
+                type="button"
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg bg-info px-3.5 py-1.5 text-xs font-semibold text-background shadow-sm transition-all',
-                  'hover:brightness-110 hover:-translate-y-px active:scale-95',
-                  'disabled:pointer-events-none disabled:opacity-40'
+                  'px-3 py-1 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:opacity-90',
+                  'disabled:pointer-events-none disabled:opacity-50'
                 )}
-                onClick={handleOpenSubmit}
-                disabled={submitting || !openInput.trim()}
+                onClick={handleMultiSubmit}
+                disabled={submitting || multiSelected.length === 0}
               >
                 {submitting ? (
-                  <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    提交中…
+                  </span>
                 ) : (
-                  <Send size={12} />
+                  '提交选择'
                 )}
-                发送
               </button>
             </div>
+          )}
+
+          {/* 手动输入兜底：选项都不合适时直接输入（与批量卡同款） */}
+          <input
+            type="text"
+            value={otherText}
+            disabled={submitting || submitted}
+            placeholder="选项都不合适？手动输入回答…"
+            onChange={(e) => handleOtherChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleOtherSubmit();
+              }
+            }}
+            className="w-full px-2 py-1 rounded-md text-xs bg-background border border-border/60 text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/60"
+          />
+        </div>
+      ) : (
+        /* 开放式回答（与批量卡开放题同款输入框 + 发送按钮） */
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={openInput}
+            disabled={submitting || submitted}
+            placeholder="输入回答…（Enter 发送）"
+            onChange={(e) => setOpenInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleOpenSubmit();
+              }
+            }}
+            className="w-full px-2 py-1 rounded-md text-xs bg-background border border-border/60 text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/60"
+          />
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className={cn(
+                'inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:opacity-90',
+                'disabled:pointer-events-none disabled:opacity-50'
+              )}
+              onClick={handleOpenSubmit}
+              disabled={submitting || !openInput.trim()}
+            >
+              {submitting ? (
+                <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              ) : (
+                <Send size={12} />
+              )}
+              发送
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
