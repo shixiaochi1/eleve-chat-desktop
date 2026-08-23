@@ -803,6 +803,8 @@ export function useMessageStream({
       const pending = extractPendingInteractions(data.pending_prompts as Record<string, Record<string, unknown>> | undefined, data.run_id);
       if (pending) {
         if (pending.clarify) setActiveClarify(pending.clarify);
+        // 🔴 2026-08-23：批量表单刷新恢复（pending 快照带 questions → ClarifyBatchCard）
+        if (pending.clarify_batch) setActiveClarifyBatch?.(pending.clarify_batch);
         if (pending.approval) setActiveApproval(pending.approval);
         if (pending.sudo) setActiveSudo?.(pending.sudo);
         if (pending.secret) setActiveSecret?.(pending.secret);
@@ -814,6 +816,7 @@ export function useMessageStream({
         // 旧会话的审批/澄清卡残留——handleSwitchSession 路径不清理，只有
         // loadSessionIntoView（P1-3）清，此前行为不一致）。
         setActiveClarify(null);
+        setActiveClarifyBatch?.(null);
         setActiveApproval(null);
         setActiveSudo?.(null);
         setActiveSecret?.(null);

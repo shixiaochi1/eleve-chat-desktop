@@ -893,13 +893,15 @@ export function useGridChat(
             // 清空（旧实现 pending=null 不 patch → 切会话后旧 pending 卡残留）
             // 🔴 2026-08-17 阶段4：快照按 sid 恢复进多槽（快照归属 = 推送它的会话）
             const infoSid = String(raw.session_id ?? '');
-            const hasPending = !!(pending?.approval || pending?.clarify || pending?.sudo || pending?.secret || pending?.slashConfirm);
+            const hasPending = !!(pending?.approval || pending?.clarify || pending?.clarify_batch || pending?.sudo || pending?.secret || pending?.slashConfirm);
             patch(profile, (s) => {
               let interactions = s.interactions;
               if (infoSid) {
                 const next = { ...interactions };
                 if (pending?.approval) next[infoSid] = { kind: 'approval', data: { ...(pending.approval as Record<string, unknown>), run_id: infoSid } };
                 else if (pending?.clarify) next[infoSid] = { kind: 'clarify', data: pending.clarify as Record<string, unknown> };
+                // 🔴 2026-08-23：批量表单刷新恢复（clarify_batch 槽位 → ClarifyBatchCard）
+                else if (pending?.clarify_batch) next[infoSid] = { kind: 'clarify_batch', data: pending.clarify_batch as Record<string, unknown> };
                 else if (pending?.sudo) next[infoSid] = { kind: 'sudo', data: pending.sudo as Record<string, unknown> };
                 else if (pending?.secret) next[infoSid] = { kind: 'secret', data: pending.secret as Record<string, unknown> };
                 else delete next[infoSid]; // 快照为空 → 清该会话项

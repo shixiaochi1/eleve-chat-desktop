@@ -207,7 +207,13 @@ export function finalizeAccumulator(acc: StreamAccumulator): ChatMessagePart[] {
 /** 归一化的 pending 交互对象（两视图共用） */
 export interface PendingInteractions {
   approval?: { command: string; description: string; pattern: string; choices: string[]; run_id: string };
-  clarify?: { clarify_id: string; question: string; choices: string[] };
+  clarify?: { clarify_id: string; question: string; choices: string[]; multi_select?: boolean };
+  /** 🔴 2026-08-23：批量澄清表单（questions 存在时走 clarify_batch，刷新恢复用） */
+  clarify_batch?: {
+    clarify_id: string;
+    title?: string | null;
+    questions: Array<{ qid: string; id?: string | null; question: string; choices?: string[] | null; multi_select?: boolean }>;
+  };
   sudo?: { request_id: string; prompt?: string };
   secret?: { request_id: string; prompt: string; env_var: string };
   slashConfirm?: { confirmId: string; command: string; description: string };
@@ -246,11 +252,25 @@ export function extractPendingInteractions(
     hasAny = true;
   }
   if (pp.clarify) {
-    result.clarify = {
-      clarify_id: (pp.clarify.clarify_id as string) || '',
-      question: (pp.clarify.question as string) || '',
-      choices: (pp.clarify.choices as string[]) || [],
-    };
+    // 🔴 2026-08-23：批量表单（questions 存在）走 clarify_batch——刷新恢复时
+    // 前端重渲染 ClarifyBatchCard；单题走 clarify（含 multi_select 透传）
+    const questions = pp.clarify.questions as
+      | Array<{ qid: string; id?: string | null; question: string; choices?: string[] | null; multi_select?: boolean }>
+      | undefined;
+    if (questions && questions.length > 0) {
+      result.clarify_batch = {
+        clarify_id: (pp.clarify.clarify_id as string) || '',
+        title: (pp.clarify.title as string | null) || null,
+        questions,
+      };
+    } else {
+      result.clarify = {
+        clarify_id: (pp.clarify.clarify_id as string) || '',
+        question: (pp.clarify.question as string) || '',
+        choices: (pp.clarify.choices as string[]) || [],
+        multi_select: !!pp.clarify.multi_select,
+      };
+    }
     hasAny = true;
   }
   if (pp.sudo_password) {
