@@ -202,7 +202,7 @@ export default function ApprovalCard({ command, description, pattern, choices, r
                   'active:scale-95',
                   isPrimary
                     ? 'bg-warning text-background shadow-sm hover:brightness-110 hover:-translate-y-px'
-                    : 'border border-border bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground'
+                    : 'border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground'
                 )}
                 onClick={() => void handleChoice(choice)}
                 disabled={submitting}

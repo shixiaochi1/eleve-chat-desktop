@@ -104,7 +104,7 @@ export default function SlashConfirmCard({
             onClick={() => void handleChoice('cancel')}
             className={cn(
               'inline-flex items-center justify-center rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-all',
-              'hover:bg-muted/60 hover:text-foreground',
+              'hover:bg-accent hover:text-foreground',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
               'disabled:pointer-events-none disabled:opacity-50',
               'active:scale-95'
@@ -117,8 +117,8 @@ export default function SlashConfirmCard({
             disabled={submitting}
             onClick={() => void handleChoice('once')}
             className={cn(
-              'inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-all',
-              'hover:bg-muted/70 hover:text-foreground',
+              'inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-all',
+              'hover:bg-accent hover:text-foreground',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/40',
               'disabled:pointer-events-none disabled:opacity-50',
               'active:scale-95'

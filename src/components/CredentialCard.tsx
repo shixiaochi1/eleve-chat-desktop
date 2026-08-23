@@ -58,7 +58,7 @@ export default function CredentialCard({ type, title, description, onSubmit, onD
         </div>
         <span className="icard-title">{title}</span>
         <button
-          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           onClick={onDismiss}
           title="取消 (Esc)"
         >
@@ -75,7 +75,7 @@ export default function CredentialCard({ type, title, description, onSubmit, onD
             ref={inputRef}
             type={inputType}
             className={cn(
-              'h-8 min-w-0 flex-1 rounded-lg border border-border bg-muted/30 px-3 font-mono text-xs text-foreground outline-none transition-all',
+              'h-8 min-w-0 flex-1 rounded-lg border border-border bg-card px-3 font-mono text-xs text-foreground outline-none transition-all',
               'placeholder:text-muted-foreground/40',
               'focus:border-accent-purple/50 focus:bg-accent-purple/5 focus:ring-2 focus:ring-accent-purple/15',
               'disabled:pointer-events-none disabled:opacity-50'
@@ -92,7 +92,7 @@ export default function CredentialCard({ type, title, description, onSubmit, onD
               'flex size-8 shrink-0 items-center justify-center rounded-lg transition-all',
               value.trim() && !submitting
                 ? 'bg-accent-purple text-background shadow-sm hover:brightness-110 hover:-translate-y-px active:scale-95'
-                : 'bg-muted/40 text-muted-foreground/40 cursor-not-allowed'
+                : 'bg-card text-muted-foreground/40 cursor-not-allowed'
             )}
             onClick={handleSubmit}
             disabled={!value.trim() || submitting}
