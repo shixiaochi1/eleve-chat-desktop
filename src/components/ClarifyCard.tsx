@@ -105,7 +105,7 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
   // ── 已完成折叠态 ──
   if (submitted) {
     return (
-      <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground bg-background flex items-center gap-2">
+      <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground bg-popover flex items-center gap-2">
         <span className="icard-check">
           <Check size={11} strokeWidth={3} />
         </span>
@@ -117,7 +117,7 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
   // ── 🔴 已过期折叠态（超时/中断后后端已无 pending）──
   if (expired) {
     return (
-      <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground bg-background flex items-center gap-2">
+      <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground bg-popover flex items-center gap-2">
         <span className="icard-check">
           <Check size={11} strokeWidth={3} />
         </span>
@@ -127,7 +127,7 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
   }
 
   return (
-    <div className="rounded-lg border border-border bg-background px-3 py-2.5 space-y-2.5">
+    <div className="rounded-lg border border-border bg-popover text-popover-foreground px-3 py-2.5 space-y-2.5">
       {/* 头部：标题（与批量卡同款样式） */}
       <div className="flex items-center justify-between gap-2">
         <div className="text-[13px] font-medium text-foreground truncate">Agent 想确认一下</div>
@@ -154,7 +154,7 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
                     'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-xs transition-colors',
                     flag
                       ? 'bg-primary/10 text-foreground'
-                      : 'text-muted-foreground hover:bg-background'
+                      : 'text-muted-foreground hover:bg-accent'
                   )}
                 >
                   {/* 单选圆点 / 多选方块 */}
@@ -218,7 +218,7 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
                 handleOtherSubmit();
               }
             }}
-            className="w-full px-2 py-1 rounded-md text-xs bg-background border border-border text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/60"
+            className="w-full px-2 py-1 rounded-md text-xs bg-muted/50 border border-border text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/60"
           />
         </div>
       ) : (
@@ -236,7 +236,7 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
                 handleOpenSubmit();
               }
             }}
-            className="w-full px-2 py-1 rounded-md text-xs bg-background border border-border text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/60"
+            className="w-full px-2 py-1 rounded-md text-xs bg-muted/50 border border-border text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/60"
           />
           <div className="flex justify-end">
             <button
