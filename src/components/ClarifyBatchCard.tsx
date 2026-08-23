@@ -120,7 +120,7 @@ export default function ClarifyBatchCard({ clarifyId, title, questions, profile,
 
   if (expired) {
     return (
-      <div className="rounded-lg border border-border/60 px-3 py-2 text-xs text-muted-foreground bg-background/60">
+      <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground bg-background">
         批量澄清已过期（后端已清理）——无需继续操作。
       </div>
     );
@@ -136,7 +136,7 @@ export default function ClarifyBatchCard({ clarifyId, title, questions, profile,
   const answered = text.trim() !== '' || sel !== undefined;
 
   return (
-    <div className="rounded-lg border border-border/60 bg-background/80 px-3 py-2.5 space-y-2.5">
+    <div className="rounded-lg border border-border bg-background px-3 py-2.5 space-y-2.5">
       {/* 头部：标题 + 题号进度 */}
       <div className="flex items-center justify-between gap-2">
         <div className="text-[13px] font-medium text-foreground truncate">
@@ -214,7 +214,7 @@ export default function ClarifyBatchCard({ clarifyId, title, questions, profile,
               else goNext();
             }
           }}
-          className="w-full px-2 py-1 rounded-md text-xs bg-background border border-border/60 text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/60"
+          className="w-full px-2 py-1 rounded-md text-xs bg-background border border-border text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/60"
         />
 
         {isMulti && (
@@ -228,7 +228,7 @@ export default function ClarifyBatchCard({ clarifyId, title, questions, profile,
           type="button"
           disabled={currentIdx === 0 || submitting || submitted}
           onClick={goPrev}
-          className="px-2.5 py-1 rounded-md text-xs border border-border/60 text-muted-foreground hover:border-border disabled:opacity-40"
+          className="px-2.5 py-1 rounded-md text-xs border border-border text-muted-foreground hover:border-border disabled:opacity-40"
         >
           上一步
         </button>
