@@ -105,7 +105,7 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
   // ── 已完成折叠态 ──
   if (submitted) {
     return (
-      <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground bg-popover flex items-center gap-2">
+      <div className="mx-3 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground bg-popover flex items-center gap-2">
         <span className="icard-check">
           <Check size={11} strokeWidth={3} />
         </span>
@@ -117,7 +117,7 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
   // ── 🔴 已过期折叠态（超时/中断后后端已无 pending）──
   if (expired) {
     return (
-      <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground bg-popover flex items-center gap-2">
+      <div className="mx-3 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground bg-popover flex items-center gap-2">
         <span className="icard-check">
           <Check size={11} strokeWidth={3} />
         </span>
@@ -127,7 +127,7 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
   }
 
   return (
-    <div className="rounded-lg border border-border bg-popover text-popover-foreground px-3 py-2.5 space-y-2.5">
+    <div className="mx-3 rounded-lg bg-popover text-popover-foreground shadow-lg px-3 py-2.5 space-y-2.5">
       {/* 头部：标题（与批量卡同款样式） */}
       <div className="flex items-center justify-between gap-2">
         <div className="text-[13px] font-medium text-foreground truncate">Agent 想确认一下</div>

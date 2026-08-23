@@ -120,7 +120,7 @@ export default function ClarifyBatchCard({ clarifyId, title, questions, profile,
 
   if (expired) {
     return (
-      <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground bg-popover">
+      <div className="mx-3 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground bg-popover">
         批量澄清已过期（后端已清理）——无需继续操作。
       </div>
     );
@@ -136,7 +136,7 @@ export default function ClarifyBatchCard({ clarifyId, title, questions, profile,
   const answered = text.trim() !== '' || sel !== undefined;
 
   return (
-    <div className="rounded-lg border border-border bg-popover text-popover-foreground px-3 py-2.5 space-y-2.5">
+    <div className="mx-3 rounded-lg bg-popover text-popover-foreground shadow-lg px-3 py-2.5 space-y-2.5">
       {/* 头部：标题 + 题号进度 */}
       <div className="flex items-center justify-between gap-2">
         <div className="text-[13px] font-medium text-foreground truncate">
