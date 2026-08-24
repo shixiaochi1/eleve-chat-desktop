@@ -58,6 +58,7 @@
       "resources/wakewords/sherpa/decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
       "resources/wakewords/sherpa/joiner-epoch-12-avg-2-chunk-16-left-64.onnx",
       "resources/wakewords/sherpa/tokens.txt",
+      "resources/upscaler/real-esrgan-x2.onnx",
       "plugins/canvas"
     ],
     "windows": {
