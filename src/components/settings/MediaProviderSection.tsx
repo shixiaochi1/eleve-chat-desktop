@@ -76,11 +76,14 @@ export default function MediaProviderSection() {
     void load();
   }, [load]);
 
-  // 弹窗打开时：加载凭据状态 + mxapi 子配置
+  // 弹窗打开时：加载凭据状态 + mxapi 子配置（每次打开都刷新，避免读陈旧配置）
   useEffect(() => {
     if (!dialogOpen) return;
+    // 🔴 2026-08-24：重开弹窗重置 settingsLoaded → 重新从 config 读取
+    //（此前 settingsLoaded 只加载一次，dialog 重开读陈旧值）
+    setSettingsLoaded(false);
+    setKeyDraft('');
     void loadCreds();
-    if (settingsLoaded) return;
     let cancelled = false;
     (async () => {
       const model = await getMediaConfigValue('image_gen.mxapi.model');
@@ -93,7 +96,7 @@ export default function MediaProviderSection() {
       setSettingsLoaded(true);
     })();
     return () => { cancelled = true; };
-  }, [dialogOpen, settingsLoaded, loadCreds]);
+  }, [dialogOpen, loadCreds]);
 
   const pick = async (usage: 'image' | 'video', provider: string) => {
     setSaving(`${usage}:${provider}`);
@@ -312,8 +315,9 @@ export default function MediaProviderSection() {
                 </span>
               </div>
               <div className="flex flex-wrap gap-1 mt-1.5">
-                {p.domains.image.slice(0, 3).map((m) => (
-                  <span key={m.id} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground truncate max-w-[8rem]">
+                {/* 🔴 2026-08-24：5 个官方模型全部展示（此前 slice(0,3) 漏掉 nano2-lite/gpt-image-2） */}
+                {p.domains.image.map((m) => (
+                  <span key={m.id} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground truncate max-w-[12rem]">
                     {m.display || m.id}
                   </span>
                 ))}
@@ -435,11 +439,12 @@ export default function MediaProviderSection() {
                     onChange={(e) => setMxChannel(e.target.value)}
                   >
                     {/* 🔴 2026-08-24 对齐官方通道：default / default2 / official / openai_official_cheap
-                        （删旧 premium——官方文档无此通道） */}
-                    <option value="default">default（标准，nano/nano-pro/nano2/nano2-lite/gpt-image-2）</option>
-                    <option value="default2">default2（备用，nano2/gpt-image-2）</option>
-                    <option value="official">official（稳定，nano-pro/nano2/gpt-image-2）</option>
-                    <option value="openai_official_cheap">openai_official_cheap（平价，gpt-image-2）</option>
+                        （删旧 premium——官方文档无此通道）；通道为全局配置，
+                        模型不在支持列表时 MXAPI 会自动回落，官方通道标注适用模型 */}
+                    <option value="default">default（标准，全部模型）</option>
+                    <option value="default2">default2（备用，nano2 / gpt-image-2）</option>
+                    <option value="official">official（稳定，nano-pro / nano2 / gpt-image-2）</option>
+                    <option value="openai_official_cheap">openai_official_cheap（平价，仅 gpt-image-2）</option>
                   </select>
                 </div>
                 <button
