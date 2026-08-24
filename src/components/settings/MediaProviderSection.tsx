@@ -53,6 +53,8 @@ export default function MediaProviderSection() {
   const [removingKey, setRemovingKey] = useState(false);
   const [mxModel, setMxModel] = useState('nano');
   const [mxChannel, setMxChannel] = useState('default');
+  // 🔴 2026-08-24：扩图模型（image_gen.mxapi.outpaint_model，默认 gpt-image-2）
+  const [mxOutpaintModel, setMxOutpaintModel] = useState('gpt-image-2');
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingSaving, setSettingSaving] = useState(false);
 
@@ -83,9 +85,11 @@ export default function MediaProviderSection() {
     (async () => {
       const model = await getMediaConfigValue('image_gen.mxapi.model');
       const channel = await getMediaConfigValue('image_gen.mxapi.channel');
+      const outpaint = await getMediaConfigValue('image_gen.mxapi.outpaint_model');
       if (cancelled) return;
       if (typeof model === 'string' && model) setMxModel(model);
       if (typeof channel === 'string' && channel) setMxChannel(channel);
+      if (typeof outpaint === 'string' && outpaint) setMxOutpaintModel(outpaint);
       setSettingsLoaded(true);
     })();
     return () => { cancelled = true; };
@@ -153,6 +157,8 @@ export default function MediaProviderSection() {
     setError(null);
     try {
       await setMediaConfigValue('image_gen.mxapi.channel', mxChannel);
+      // 🔴 2026-08-24：扩图模型一并保存（image_gen.mxapi.outpaint_model）
+      await setMediaConfigValue('image_gen.mxapi.outpaint_model', mxOutpaintModel);
       setSettingsLoaded(true);
     } catch (e: any) {
       setError(e?.message || '保存 ELEVE 媒体生成设置失败');
@@ -404,8 +410,22 @@ export default function MediaProviderSection() {
               {renderMxapiChannels()}
             </section>
 
-            {/* ── 4. 设置（X-Channel） ── */}
+            {/* ── 4. 设置（X-Channel + 扩图模型） ── */}
             <section className="rounded-xl border border-border/60 p-3 space-y-2">
+              <div className="flex items-end gap-2">
+                <div className="grid gap-1 flex-1">
+                  <label className="text-[10px] text-muted-foreground">扩图模型（image_gen.mxapi.outpaint_model）</label>
+                  <select
+                    className="flex h-7 w-full items-center rounded-md border border-input bg-transparent px-2 py-1 text-[11px] text-foreground outline-none"
+                    value={mxOutpaintModel}
+                    onChange={(e) => setMxOutpaintModel(e.target.value)}
+                  >
+                    {/* 🔴 2026-08-24 对齐官方 edits：gpt-image-2（10 积分，实测）/ nano-pro（6 积分，官方背书） */}
+                    <option value="gpt-image-2">gpt-image-2（10 积分，实测可用）</option>
+                    <option value="nano-pro">nano-pro（6 积分，官方 edits 背书）</option>
+                  </select>
+                </div>
+              </div>
               <div className="flex items-end gap-2">
                 <div className="grid gap-1 flex-1">
                   <label className="text-[10px] text-muted-foreground">通道 X-Channel（image_gen.mxapi.channel）</label>
@@ -414,8 +434,12 @@ export default function MediaProviderSection() {
                     value={mxChannel}
                     onChange={(e) => setMxChannel(e.target.value)}
                   >
-                    <option value="default">default（默认通道）</option>
-                    <option value="premium">premium（优质通道）</option>
+                    {/* 🔴 2026-08-24 对齐官方通道：default / default2 / official / openai_official_cheap
+                        （删旧 premium——官方文档无此通道） */}
+                    <option value="default">default（标准，nano/nano-pro/nano2/nano2-lite/gpt-image-2）</option>
+                    <option value="default2">default2（备用，nano2/gpt-image-2）</option>
+                    <option value="official">official（稳定，nano-pro/nano2/gpt-image-2）</option>
+                    <option value="openai_official_cheap">openai_official_cheap（平价，gpt-image-2）</option>
                   </select>
                 </div>
                 <button
@@ -428,7 +452,7 @@ export default function MediaProviderSection() {
                 </button>
               </div>
               <p className="text-[10px] text-muted-foreground/60">
-                当前生图模型：{mxModel}（nano 系列，Nano (gemini-2.5-flash) / Nano Pro (gemini-3-pro) / Nano2 (gemini-3.1-flash)）
+                当前生图模型：{mxModel}（nano / nano-pro / nano2 / nano2-lite / gpt-image-2）
               </p>
             </section>
           </div>
