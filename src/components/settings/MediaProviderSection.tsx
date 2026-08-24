@@ -424,9 +424,9 @@ export default function MediaProviderSection() {
                     value={mxOutpaintModel}
                     onChange={(e) => setMxOutpaintModel(e.target.value)}
                   >
-                    {/* 🔴 2026-08-24 对齐官方 edits：gpt-image-2（10 积分，实测）/ nano-pro（6 积分，官方背书） */}
-                    <option value="gpt-image-2">gpt-image-2（10 积分，实测可用）</option>
-                    <option value="nano-pro">nano-pro（6 积分，官方 edits 背书）</option>
+                    {/* 🔴 2026-08-25 扩图模型收窄：仅 gpt-image-2（唯一底层支持 mask 的模型；
+                        NANO 系 Gemini 官方无 mask 能力，实测 nano-pro 扩图 mask 无效效果差） */}
+                    <option value="gpt-image-2">gpt-image-2（10 积分，唯一支持 mask 扩图）</option>
                   </select>
                 </div>
               </div>
