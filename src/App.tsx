@@ -1127,7 +1127,7 @@ export default function App() {
     uploadUnuploaded,
   } = useImageAttachments({ getSessionId: () => sess.sessionId });
 
-  // 🔴 2026-08-22 重构：聊天图片局部重绘 = 主窗口内嵌编辑器（壳独立能力，
+  // 🔴 2026-08-22 重构：聊天图片编辑 = 主窗口内嵌编辑器（壳独立能力，
   // 与画布插件零耦合，不弹新窗口）。Context 提供全局入口：
   // - 输入区附件编辑带 originalId → 确认后【替换】原附件
   // - 消息区图片编辑不带 originalId → 标注图作为新附件
@@ -1629,12 +1629,13 @@ export default function App() {
                                 draggable={false}
                                 onClick={() => setLightbox({ src: img.preview, name: img.name, onEdit: () => { setLightbox(null); imageEditorApi.openImageEditor(img.preview, img.name, img.id); } })}
                               />
-                              {/* 🔴 2026-08-21：局部重绘编辑（hover 显示，不常显）——
-                                  2026-08-22 重构：主窗口内嵌编辑器，确认后替换原图 */}
+                              {/* 🔴 2026-08-21：图片编辑（hover 显示，不常显）——
+                                  2026-08-22 重构：主窗口内嵌编辑器，确认后替换原图；
+                                  2026-08-25：改名「编辑」（重绘仅画布提供） */}
                               <button
                                 onClick={(e) => { e.stopPropagation(); imageEditorApi.openImageEditor(img.preview, img.name, img.id); }}
                                 className="absolute -bottom-1.5 -right-1.5 w-5 h-5 bg-primary text-primary-foreground rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary/90"
-                                title="局部重绘编辑（涂抹标记要修改的区域）"
+                                title="编辑图片（涂抹标记要修改的区域）"
                                 aria-label={`Edit ${img.name}`}
                               >
                                 ✏️
@@ -1718,7 +1719,7 @@ export default function App() {
                     </div>
                   )}
                   {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.name} onClose={() => setLightbox(null)} onEdit={lightbox.onEdit} />}
-                  {/* 🔴 2026-08-22：局部重绘编辑器（主窗口内嵌全屏层，壳独立能力）——
+                  {/* 🔴 2026-08-22：图片编辑器（主窗口内嵌全屏层，壳独立能力）——
                       确认后按 originalId 替换原附件 / 无则新增；编辑不影响原图 */}
                   {imageEditorTarget && (
                     <ImageEditorModal
