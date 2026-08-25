@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { ChevronDown, KeyRound, X } from 'lucide-react';
+import { Switch } from '../ui/switch';
 import {
   getProvidersDirectory,
   selectMediaProvider,
@@ -55,6 +56,9 @@ export default function MediaProviderSection() {
   const [mxChannel, setMxChannel] = useState('default');
   // 🔴 2026-08-24：扩图模型（image_gen.mxapi.outpaint_model，默认 gpt-image-2）
   const [mxOutpaintModel, setMxOutpaintModel] = useState('gpt-image-2');
+  // 🔴 2026-08-25：图床开关（image_gen.image_host.enabled，默认开——链路1
+  // 图床→公网 URL→原生 /v2 异步，快；关闭 → 强制链路3 edits）
+  const [mxImageHostEnabled, setMxImageHostEnabled] = useState(true);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingSaving, setSettingSaving] = useState(false);
 
@@ -89,10 +93,12 @@ export default function MediaProviderSection() {
       const model = await getMediaConfigValue('image_gen.mxapi.model');
       const channel = await getMediaConfigValue('image_gen.mxapi.channel');
       const outpaint = await getMediaConfigValue('image_gen.mxapi.outpaint_model');
+      const hostEnabled = await getMediaConfigValue('image_gen.image_host.enabled');
       if (cancelled) return;
       if (typeof model === 'string' && model) setMxModel(model);
       if (typeof channel === 'string' && channel) setMxChannel(channel);
       if (typeof outpaint === 'string' && outpaint) setMxOutpaintModel(outpaint);
+      if (typeof hostEnabled === 'boolean') setMxImageHostEnabled(hostEnabled);
       setSettingsLoaded(true);
     })();
     return () => { cancelled = true; };
@@ -162,6 +168,8 @@ export default function MediaProviderSection() {
       await setMediaConfigValue('image_gen.mxapi.channel', mxChannel);
       // 🔴 2026-08-24：扩图模型一并保存（image_gen.mxapi.outpaint_model）
       await setMediaConfigValue('image_gen.mxapi.outpaint_model', mxOutpaintModel);
+      // 🔴 2026-08-25：图床开关一并保存（image_gen.image_host.enabled）
+      await setMediaConfigValue('image_gen.image_host.enabled', mxImageHostEnabled);
       setSettingsLoaded(true);
     } catch (e: any) {
       setError(e?.message || '保存 ELEVE 媒体生成设置失败');
@@ -416,6 +424,20 @@ export default function MediaProviderSection() {
 
             {/* ── 4. 设置（X-Channel + 扩图模型） ── */}
             <section className="rounded-xl border border-border/60 p-3 space-y-2">
+              {/* 🔴 2026-08-25 图床开关（链路1：图床→公网 URL→原生 /v2 异步，快；
+                  默认开；关闭 → 强制链路3 edits multipart） */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="grid gap-0.5">
+                  <label className="text-[10px] text-foreground">图床（image_gen.image_host.enabled）</label>
+                  <p className="text-[10px] text-muted-foreground/60">
+                    开启 = 生图/编辑走链路1（ImgBB 图床 + 原生 /v2 异步，快）；关闭 = 强制链路3（/v1 edits）
+                  </p>
+                </div>
+                <Switch
+                  checked={mxImageHostEnabled}
+                  onCheckedChange={(val: boolean) => setMxImageHostEnabled(val)}
+                />
+              </div>
               <div className="flex items-end gap-2">
                 <div className="grid gap-1 flex-1">
                   <label className="text-[10px] text-muted-foreground">扩图模型（image_gen.mxapi.outpaint_model）</label>
