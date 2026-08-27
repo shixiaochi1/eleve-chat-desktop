@@ -295,6 +295,12 @@ export function closeArtifactPreviewTabs(): void {
   update({ tabs, activeId })
 }
 
+/** Close the tab showing `source`, if one is open. Returns whether it closed.
+ *  （对齐 Hermes closePreviewForSource） */
+export function closePreviewForSource(source: string): boolean {
+  return closePreviewMatching(source)
+}
+
 /** Close the first tab whose source, url, or label matches any candidate.
  *  Empty candidates are a no-op so a missed match cannot wipe the rail —
  *  closing the whole pane is closeAllTabs.（对齐 Hermes closePreviewMatching：

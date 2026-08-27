@@ -1,4 +1,4 @@
-import { useState, useMemo, memo, useCallback } from 'react';
+import { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { SmallToolIcon, ExpandIcon, CollapseIcon, CheckIcon, LoadingIcon, ErrorIcon } from './Icons';
 import DiffLines, { inlineDiffFromResult } from './DiffLines';
@@ -7,6 +7,7 @@ import { useToolViewMode } from '@/store/tool-view';
 import { extractPreviewTargets, previewName, stripPreviewTargets } from '@/lib/preview-targets';
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
 import { getCurrentSessionCwd } from '@/lib/session-cwd';
+import { recordPreviewArtifact } from '@/store/preview-status';
 import { openPreview } from '@/store/preview';
 import { isDesktop } from '@/utils/bridge';
 
@@ -90,7 +91,7 @@ export interface ToolCallItem {
  * 状态机（对齐 Hermes toolStatus）：
  *   pending = 执行中（spinner）/ done = 成功（绿勾）/ error = 失败（红色 AlertCircle）
  */
-const ToolEntry = memo(function ToolEntry({ tool }: { tool: ToolCallItem }) {
+const ToolEntry = memo(function ToolEntry({ tool, sessionId }: { tool: ToolCallItem; sessionId?: string | null }) {
   const [expanded, setExpanded] = useState(false);
   const [animReady, setAnimReady] = useState(false);
   const toolViewMode = useToolViewMode();
@@ -217,6 +218,15 @@ const ToolEntry = memo(function ToolEntry({ tool }: { tool: ToolCallItem }) {
     }
     return out;
   }, [previewTargets, structuredPreviewTargets]);
+
+  // 🔴 2026-08-28 对齐 Hermes tool/fallback.tsx:411：工具行检测到的可预览目标
+  // 上报 composer 状态行 feed（recordPreviewArtifact 幂等，每次渲染重报不 churn）
+  useEffect(() => {
+    if (!sessionId) return;
+    for (const t of [...previewTargets, ...structuredPreviewTargets]) {
+      recordPreviewArtifact(sessionId, t, getCurrentSessionCwd() || '');
+    }
+  });
 
   // 点击预览链接 → 打开预览 tab（openPreview 内部自动切右栏）
   const handlePreviewTarget = useCallback((target: string) => {

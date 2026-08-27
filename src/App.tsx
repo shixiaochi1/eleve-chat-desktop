@@ -10,6 +10,8 @@ import {
 import { textPart } from '@/lib/chat-messages';
 import { requestComposerInsert } from '@/lib/composer-events';
 import { setCurrentSessionCwd } from '@/lib/session-cwd';
+import { clearPreviewArtifacts } from '@/store/preview-status';
+import PreviewStatusStrip from './components/preview/PreviewStatusStrip';
 import { useSessions } from './hooks/useSessions';
 import { useBootstrap } from './hooks/useBootstrap';
 import { usePanelLayout } from './hooks/usePanelLayout';
@@ -1200,6 +1202,9 @@ export default function App() {
     // server.py L12842: 新 turn 开始 → _tts_stream_stop(user_barge=True)）。
     // fire-and-forget：打断失败不影响发送主流程。
     getWsClient().voiceTtsStop().catch(() => {});
+    // 🔴 2026-08-28 对齐 Hermes use-prompt-actions：发送新消息清空当前会话的
+    // 可预览目标状态行 feed
+    if (sess.sessionId) clearPreviewArtifacts(sess.sessionId);
     const wasBusy = isSendingRef.current;
     const images = [...attachedImages];
 
@@ -1915,6 +1920,9 @@ export default function App() {
                   <ContextBar sessionId={sess.sessionId} sessionStartedAt={sessionStartedAt} onNewSession={handleNewSessionWithScope} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount} deepseekVisible={deepseekVisible} onToggleDeepSeek={handleToggleDeepSeek} />
                 </>
               )}
+              {/* 🔴 2026-08-28 对齐 Hermes composer status-stack：工具产出的
+                  可预览目标状态行（发送新消息清空当前会话 feed） */}
+              <PreviewStatusStrip sessionId={sess.sessionId} />
               <InputArea
                 onSend={handleSend}
                 onCommand={handleCommand}

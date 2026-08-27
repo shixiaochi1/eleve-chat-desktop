@@ -207,3 +207,46 @@ ELEVE：`PreviewFilePane` 无 pdf 分支（IMAGE/MARKDOWN 集合之外）→ .pd
 ### 本轮验证
 前端 tsc -b ✅ + vite build ✅；后端 cargo check -p eleve-tools-native ✅（他人遗留
 脏改动 stash 隔离后验证、已恢复原样）。
+
+---
+
+## 十、三项拍板项的对齐方案（2026-08-28 03:2x）
+
+### ② preview-status composer 状态行 —— ✅ 本轮已完整落地
+
+对齐 Hermes store/preview-status.ts + status-stack/preview-row.tsx：
+- **store**（src/store/preview-status.ts）：recordPreviewArtifact 幂等（同 target 保槽位不重排，工具行每次渲染重报）、newest last、每会话上限 4、检测时捕获 cwd、removePreviewArtifact（dismiss）、clearPreviewArtifacts（发送新消息清空）。
+- **检测点**（src/components/ToolEntry.tsx）：工具行检测（与消息内 #preview 链接同一 extractPreviewTargets——"detection parity is exact"）→ useEffect 上报；MessageRow 透传 sessionId（AgentChatCard 宫格链路同享）。
+- **UI**（src/components/preview/PreviewStatusStrip.tsx）：InputArea 上方状态行。交互对齐 preview-row：普通点击=应用内预览打开（tool-result）；⌘/Ctrl+点击=toggle（closePreviewForSource | openPreview）；dismiss=移除条目。
+- **清理**：App handleSend（发送漏斗）clearPreviewArtifacts(sess.sessionId)——对齐 Hermes use-prompt-actions:931/998。
+
+### ① drive_preview 工具族 —— 分阶段对齐方案（建议单独立项）
+
+Hermes 全貌（本轮已侦察）：
+- 工具：drive_preview_tool.py（ACTIONS 枚举 → gateway emit `preview.act.request`）
+- 前端编排：preview-act.ts（567）——executeJavaScript 注入引擎源（RESOLVE/READ：把 'btn-sign-in' 解析成节点/handle 簿记）+ sendInputEvent 真实 Chromium 输入（ACTING：preview-drive.ts clickAt/glideTo/pressKey/typeText/wheelBy）双通道分离（"Script can only dispatch synthetic events, which the page can tell apart"）
+- 页内引擎：lib/preview-act/ act-in-page.ts 638 + watch-in-page.ts 1062 + naming 210 + identity 129 + visibility 147 + types 146 = **2332 行自包含引擎**（+1123 行测试）
+- 依赖底座：Electron executeScript/sendInputEvent —— ELEVE 需 Rust 侧 wry 等价桥（preview_webview_eval_script / preview_webview_send_input / preview_webview_nav 三条 Tauri 命令）
+
+**移植面 ≈ 3500 行高耦合精细代码**，且正确性只有真实浏览器运行可验证（handle 簿记跨导航失效、合成事件与真实输入的区分、SPA 重渲染窗口）。
+
+分阶段：
+- **Phase 1（Rust 底座）**：src-tauri 三条命令（eval_script/send_input/nav）+ PreviewWebPane 接线（label 路由）。可独立验证。
+- **Phase 2（引擎移植）**：lib/preview-act/* 六文件整包移植（自包含契约保留）+ preview-drive/nav/input/script-runner。
+- **Phase 3（编排+工具）**：preview-act.ts 编排 + preview.act.request 事件消费 + 后端 DrivePreviewTool（desktop_ui 族 emit 模式同 close_preview/focus_pane）+ ACTIONS schema 对齐。
+- **验收**：每个 Phase 有独立可验证产物；Phase 3 起用真实 dev server 页面人工回归（点击/输入/导航/读文本）。
+
+**不在本轮实施**：3500 行一夜移植无验证手段 = 交付不可验证的半成品，违背"不能遗失功能"（半成品即功能遗失）。
+
+### ③ layout-tree pane 化 —— 建议单独立项（本轮不做，理由如下）
+
+- Hermes preview-tile 的本质：预览 tabs 镜像进 layout-tree zone tabs（与 session/route tiles 同一条带、可拖拽/堆叠/分屏）。这是 **Hermes 整个窗口管理系统的架构形态**（pane-shell tree/model/store），不是预览语义本身。
+- ELEVE 的预览**语义面已 100% 对齐**（openPreview 单一入口/tab 生命周期/持久化/⌘W/console/read_preview/close_preview/Browser 单例/renderMode）；差异仅在承载形态（ELEVE 固定三栏 + 四 tab 右栏 vs Hermes 自由 pane 树）。
+- ELEVE 布局系统（usePanelLayout v6）刚修完大量抖动/挤压 bug，在预览对齐名义下重写布局 = 高风险低收益。**建议**：作为独立的"窗口布局演进"专项评估（届时 preview tile 镜像是第一个消费方）。
+
+### 当前对齐状态总览（四轮后）
+- store 层：preview.ts 全 API 面对齐 ✅
+- 事件层：preview.open/close/restart.*/read.request ✅ + pane.reveal ✅
+- 工具族：open_preview/close_preview/read_preview/focus_pane ✅（drive_preview 待专项）
+- 渲染层：url/file(image/md/html/pdf/text/binary)/artifact ✅
+- UX 层：composer 状态行 ✅（本轮）；tab strip/context menu/⌘W ✅

@@ -158,7 +158,7 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
                   />
                 )
               case 'tool':
-                return <ToolEntry key={item.key} tool={item.tool} />
+                return <ToolEntry key={item.key} tool={item.tool} sessionId={sessionId} />
             }
           })}
           {m.error && <MessageBubble type="error" content={m.error} />}
