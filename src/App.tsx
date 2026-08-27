@@ -1224,7 +1224,14 @@ export default function App() {
       // 🔴 2026-08-13 深度审查竞态修复：上传 await 期间用户可能切 Agent/会话——
       // 旧附件（图片内容/文件引用）不得发到新会话（跨 Agent 内容串台）。
       // 中止发送 + 已上传图片从旧会话 detach（防残留 → 旧会话下次 submit 幽灵 drain 误发）。
-      if (sess.sessionId !== sid) {
+      // 🔴🔴 2026-08-27 纯图首轮必挂的真凶修复：此处原来读 sess.sessionId
+      // （React state，懒创建后同事件循环内是 stale null/旧值）→ 恒不等于 sid
+      // → 刚 attach 的两张图被误 detach + 放弃发送 = "按一次没效果"；第二次点击
+      // 时图已 uploaded=true 跳过上传、后端已被剥空 → 占位符回复看不到图。
+      // 对齐 Hermes createBackendSessionForSend：attach 与 submit 的会话一致性
+      // 由同一闭包变量保证，**不存在事后剥离回滚**；本守卫保留防真串台，但比较
+      // 源必须与创建侧一致（getSessionId ref 同步读）。
+      if (sess.getSessionId() !== sid) {
         const ws = getWsClient();
         for (const p of synced.paths) {
           ws.imageDetach(p, sid).catch(() => {});
