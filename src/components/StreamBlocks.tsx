@@ -5,6 +5,7 @@ import { enhanceRichFences } from '@/lib/rich-fence';
 import { resolveMediaSrc, mediaName } from '@/utils/media';
 import { ArtifactCard } from './ArtifactCard';
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
+import { getCurrentSessionCwd } from '@/lib/session-cwd';
 import { openPreview } from '@/store/preview';
 import { isDesktop } from '@/utils/bridge';
 
@@ -175,7 +176,8 @@ export default forwardRef<HTMLDivElement, StreamBlocksProps>(function StreamBloc
       const raw = href.startsWith('file:')
         ? href
         : decodeURIComponent(href.slice('#preview'.length + 1));
-      const preview = normalizeOrLocalPreviewTarget(raw);
+      // 🔴 传当前会话 cwd（对齐 Hermes $currentCwd）：相对路径 #preview 链接 join 成绝对路径
+      const preview = normalizeOrLocalPreviewTarget(raw, getCurrentSessionCwd());
       if (preview) openPreview(preview);
       return;
     }

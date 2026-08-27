@@ -16,6 +16,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { cn } from '@/lib/utils';
 import { usePreviewDirty } from '@/lib/preview-edit';
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
+import { getCurrentSessionCwd } from '@/lib/session-cwd';
 import {
   closeAllTabs,
   closeOtherTabs,
@@ -114,7 +115,7 @@ function PreviewEmptyState() {
   const handleOpen = () => {
     const target = url.trim();
     if (!target) return;
-    const resolved = normalizeOrLocalPreviewTarget(target);
+    const resolved = normalizeOrLocalPreviewTarget(target, getCurrentSessionCwd());
     if (resolved) openPreview(resolved);
   };
 

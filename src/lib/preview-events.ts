@@ -12,6 +12,7 @@
 
 import { getWsClient } from '@/services/ws-client'
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
+import { getCurrentSessionCwd } from '@/lib/session-cwd'
 import { getActivePreviewWebview } from '@/lib/preview-reader'
 import { getPreviewStoreState } from '@/store/preview'
 import { notifyWorkspaceChanged, toolMayMutateFiles, toolChangedPath } from '@/lib/workspace-events'
@@ -26,8 +27,6 @@ import {
 export interface PreviewEventsOptions {
   /** 当前聚焦会话 ID（preview.open 过滤：后台 turn 不劫持，对齐 Hermes $focusedRuntimeId） */
   getFocusedSessionId: () => string | null | undefined
-  /** 当前会话工作目录（相对路径归一化基准） */
-  getCwd: () => string | null | undefined
 }
 
 function asRecord(payload: unknown): Record<string, unknown> {
@@ -160,7 +159,9 @@ export function initPreviewEvents(options: PreviewEventsOptions): () => void {
         if (!target) return
 
         const label = typeof payload.label === 'string' ? payload.label.trim() : ''
-        const resolved = normalizeOrLocalPreviewTarget(target, options.getCwd())
+        // 🔴 cwd 取全局单例（lib/session-cwd.ts，对齐 Hermes $currentCwd）——
+        //   与 markdown 链接点击同源，消除 App 闭包双轨
+        const resolved = normalizeOrLocalPreviewTarget(target, getCurrentSessionCwd())
         if (resolved) {
           openPreview(label ? { ...resolved, label } : resolved)
         }

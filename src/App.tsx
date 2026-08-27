@@ -9,6 +9,7 @@ import {
 } from './store/debug';
 import { textPart } from '@/lib/chat-messages';
 import { requestComposerInsert } from '@/lib/composer-events';
+import { setCurrentSessionCwd } from '@/lib/session-cwd';
 import { useSessions } from './hooks/useSessions';
 import { useBootstrap } from './hooks/useBootstrap';
 import { usePanelLayout } from './hooks/usePanelLayout';
@@ -427,11 +428,16 @@ export default function App() {
   // 🔴 预览域 WS 事件路由（对齐 Hermes use-preview-routing）：
   // preview.restart.progress/complete / preview.open / tool.complete+inline_diff 自动刷新
   // 挂载 App 生命周期（全局单点），卸载清理。
-  // ⚠️ 闭包陷阱：空依赖 useEffect 捕获首次渲染值 → 用 ref 持有最新会话 id / cwd
+  // ⚠️ 闭包陷阱：空依赖 useEffect 捕获首次渲染值 → 用 ref 持有最新会话 id
   const focusedSessionIdRef = useRef(sess.sessionId);
   focusedSessionIdRef.current = sess.sessionId;
-  const sessionCwdRef = useRef(sessionCwd);
-  sessionCwdRef.current = sessionCwd;
+  // 🔴 2026-08-28 对齐 Hermes $currentCwd：会话 cwd 写入全局单例（lib/session-cwd.ts），
+  //   供深层组件同步读取——markdown #preview 链接相对路径归一化（StreamBlocks/
+  //   ToolEntry/AgentCardComposer/PreviewCenter）与 preview-events 共用同一真相源
+  //   （原 sessionCwdRef 闭包双轨已删）
+  useEffect(() => {
+    setCurrentSessionCwd(sessionCwd || null);
+  }, [sessionCwd]);
 
   // 🔴 2026-08-09 对齐 Hermes use-cwd-actions：文件面板切换目录 → 后端烙印持久化。
   //   有会话：session.cwd.set（后端烙印 + emit session.info → useMessageStream
@@ -466,9 +472,9 @@ export default function App() {
   }, [sess.sessionId]);
 
   useEffect(() => {
+    // 🔴 cwd 已走 lib/session-cwd.ts 全局单例（2026-08-28 对齐 $currentCwd），此处只留会话过滤
     return initPreviewEvents({
       getFocusedSessionId: () => focusedSessionIdRef.current,
-      getCwd: () => sessionCwdRef.current || null,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

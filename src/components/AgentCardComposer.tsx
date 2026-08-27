@@ -29,6 +29,7 @@ import { useVoice } from '@/hooks/useVoice';
 import type { AttachedImage } from '@/hooks/useImageAttachments';
 import type { AttachedFile } from '@/hooks/useFileAttachments';
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
+import { getCurrentSessionCwd } from '@/lib/session-cwd';
 import { openPreview } from '@/store/preview';
 import { FileText } from 'lucide-react';
 
@@ -398,7 +399,7 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
               key={f.id}
               onClick={() => {
                 // 🔴 2026-08-10 对齐 Hermes Attachment 点击：文件 pill → 右侧预览抽屉
-                const preview = normalizeOrLocalPreviewTarget(f.path);
+                const preview = normalizeOrLocalPreviewTarget(f.path, getCurrentSessionCwd());
                 if (preview) openPreview(preview);
               }}
               className="group flex cursor-pointer items-center gap-1 px-2 py-1 rounded-md border border-border bg-card/70 text-[11px] max-w-[200px] hover:bg-accent transition-colors"

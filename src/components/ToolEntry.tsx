@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { useToolViewMode } from '@/store/tool-view';
 import { extractPreviewTargets, previewName, stripPreviewTargets } from '@/lib/preview-targets';
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
+import { getCurrentSessionCwd } from '@/lib/session-cwd';
 import { openPreview } from '@/store/preview';
 import { isDesktop } from '@/utils/bridge';
 
@@ -219,7 +220,7 @@ const ToolEntry = memo(function ToolEntry({ tool }: { tool: ToolCallItem }) {
 
   // 点击预览链接 → 打开预览 tab（openPreview 内部自动切右栏）
   const handlePreviewTarget = useCallback((target: string) => {
-    const resolved = normalizeOrLocalPreviewTarget(target);
+    const resolved = normalizeOrLocalPreviewTarget(target, getCurrentSessionCwd());
     if (resolved) openPreview(resolved);
   }, []);
 
