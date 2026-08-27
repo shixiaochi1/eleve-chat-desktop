@@ -15,6 +15,12 @@ import type { ListenerCallback, Unsubscribe } from '@/types'
 
 export type PreviewTargetKind = 'url' | 'file' | 'artifact'
 
+/** 🔴 2026-08-28 对齐 Hermes PreviewRecordSource：打开来源只是元数据，不是独立
+ *  代码路径——唯一影响 file target 的 renderMode 首值（file-browser/manual =
+ *  "看源码"；explicit-link/tool-result = "执行渲染"，对齐 Hermes
+ *  isFilePreviewSource 语义） */
+export type PreviewRecordSource = 'explicit-link' | 'file-browser' | 'manual' | 'tool-result'
+
 export interface PreviewTarget {
   kind: PreviewTargetKind
   /** url target = 加载地址；file target = 文件绝对路径；artifact target = artifact registry id */
@@ -28,6 +34,12 @@ export interface PreviewTarget {
   /** 🔴 2026-08-20 对齐 Hermes PreviewTarget.dataUrl：内联图片字节（粘贴/拖拽截图，
    *   磁盘副本不可靠重读时直接渲染，不持久化） */
   dataUrl?: string
+  /** 🔴 2026-08-28 对齐 Hermes：打开来源（renderMode 首值依据 + closePreviewMatching
+   *  候选字段） */
+  source?: PreviewRecordSource
+  /** 🔴 2026-08-28 对齐 Hermes renderMode：file target 的首选视图
+   *  （'preview' = HTML 执行渲染；'source' = 源码。由 openPreview 按 source 定首值） */
+  renderMode?: 'preview' | 'source'
 }
 
 export interface PreviewTab {
@@ -98,11 +110,18 @@ function loadPersistedTabs(): { tabs: PreviewTab[]; activeId: string | null } {
         t.target = rest as typeof t.target
       }
     }
+    // 🔴 对齐 Hermes decodePreviewTabs：id 按 previewTabId 重键（旧存储可能
+    // 存在多个 url tab——Browser 单例化后 URL target 共享 'url:browser'），
+    // URL tab 只保最后一个——最近打开的页面是浏览器显示的那个
+    const rekeyed = tabs.map((t) => ({ ...t, id: previewTabId(t.target) }))
+    let lastUrlIdx = -1
+    rekeyed.forEach((t, i) => { if (t.target.kind === 'url') lastUrlIdx = i })
+    const deduped = rekeyed.filter((t, i) => t.target.kind !== 'url' || i === lastUrlIdx)
     const activeId =
-      typeof parsed.activeId === 'string' && tabs.some((t) => t.id === parsed.activeId)
+      typeof parsed.activeId === 'string' && deduped.some((t) => t.id === parsed.activeId)
         ? parsed.activeId
-        : (tabs[0]?.id ?? null)
-    return { tabs, activeId }
+        : (deduped[0]?.id ?? null)
+    return { tabs: deduped, activeId }
   } catch {
     return fallback
   }
@@ -174,11 +193,39 @@ function labelFor(target: PreviewTarget): string {
 
 // ── Actions ──
 
-/** 打开预览 tab（对齐 Hermes openPreview：open (or re-front) —— 同 kind+url 已有
+/** 🔴 2026-08-28 对齐 Hermes previewTabId + BROWSER_TAB_ID：URL target 全部共享
+ *  单一 Browser tab——"the tab names the SURFACE (Browser), not the page"。
+ *  打开第二个 URL = 导航已有 Browser tab（re-front + 原位换 target），不开新 tab；
+ *  file/artifact 仍按身份各自成 tab。 */
+export function previewTabId(target: PreviewTarget): string {
+  return target.kind === 'url' ? 'url:browser' : `${target.kind}:${target.url}`
+}
+
+// "浏览文件 = 看源码"；工具/显式链接递来的 HTML = "执行渲染"
+// （对齐 Hermes isFilePreviewSource / previewTargetForSource）
+function isFilePreviewSource(source: PreviewRecordSource): boolean {
+  return source === 'file-browser' || source === 'manual'
+}
+
+function isHtmlPath(path: string): boolean {
+  return /\.html?$/i.test(path.split(/[?#]/, 1)[0] || path)
+}
+
+function previewTargetForSource(target: PreviewTarget, source: PreviewRecordSource): PreviewTarget {
+  const withSource: PreviewTarget = { ...target, source }
+  if (withSource.kind !== 'file' || !isHtmlPath(withSource.url) || withSource.renderMode === 'source') {
+    return withSource
+  }
+  return { ...withSource, renderMode: isFilePreviewSource(source) ? 'source' : 'preview' }
+}
+
+/** 打开预览 tab（对齐 Hermes openPreview：open (or re-front) —— 同 id 已有
  *  → 原位刷新 target 再选中（stale label/path 不能比它指向的内容活得久）；
- *  自动请求打开预览面板） */
-export function openPreview(target: PreviewTarget): string {
-  const existing = state.tabs.find((t) => t.target.kind === target.kind && t.target.url === target.url)
+ *  URL target 走 Browser 单例（previewTabId）；自动请求打开预览面板） */
+export function openPreview(rawTarget: PreviewTarget, source: PreviewRecordSource = 'manual'): string {
+  const target = previewTargetForSource(rawTarget, source)
+  const id = previewTabId(target)
+  const existing = state.tabs.find((t) => t.id === id)
   if (existing) {
     update({
       tabs: state.tabs.map((t) =>
@@ -190,7 +237,6 @@ export function openPreview(target: PreviewTarget): string {
     return existing.id
   }
 
-  const id = `${target.kind}:${target.url}`
   const tab: PreviewTab = { id, target, label: labelFor(target) }
   update({ tabs: [...state.tabs, tab], activeId: id })
   requestPaneOpen()
@@ -247,6 +293,24 @@ export function closeArtifactPreviewTabs(): void {
     activeId = tabs[Math.min(idx, tabs.length - 1)]?.id ?? null
   }
   update({ tabs, activeId })
+}
+
+/** Close the first tab whose source, url, or label matches any candidate.
+ *  Empty candidates are a no-op so a missed match cannot wipe the rail —
+ *  closing the whole pane is closeAllTabs.（对齐 Hermes closePreviewMatching：
+ *  preview.close 事件消费用） */
+export function closePreviewMatching(...candidates: string[]): boolean {
+  const queries = [...new Set(candidates.map((v) => v.trim()).filter(Boolean))]
+  if (queries.length === 0) return false
+
+  const tab = state.tabs.find((item) => {
+    const fields = [item.target.source, item.target.url, item.target.label, item.label]
+    return queries.some((q) => fields.includes(q))
+  })
+  if (!tab) return false
+
+  closeTab(tab.id)
+  return true
 }
 
 /** 请求 iframe 重载（文件变更自动刷新 / 手动刷新）— 对齐 Hermes requestPreviewReload */

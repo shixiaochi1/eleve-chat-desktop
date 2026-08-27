@@ -116,7 +116,7 @@ function PreviewEmptyState() {
     const target = url.trim();
     if (!target) return;
     const resolved = normalizeOrLocalPreviewTarget(target, getCurrentSessionCwd());
-    if (resolved) openPreview(resolved);
+    if (resolved) openPreview(resolved, 'manual');
   };
 
   return (

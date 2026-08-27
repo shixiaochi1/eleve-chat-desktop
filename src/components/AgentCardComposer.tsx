@@ -400,7 +400,7 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
               onClick={() => {
                 // 🔴 2026-08-10 对齐 Hermes Attachment 点击：文件 pill → 右侧预览抽屉
                 const preview = normalizeOrLocalPreviewTarget(f.path, getCurrentSessionCwd());
-                if (preview) openPreview(preview);
+                if (preview) openPreview(preview, 'manual');
               }}
               className="group flex cursor-pointer items-center gap-1 px-2 py-1 rounded-md border border-border bg-card/70 text-[11px] max-w-[200px] hover:bg-accent transition-colors"
               title={f.path}

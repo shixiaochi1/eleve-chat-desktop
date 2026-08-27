@@ -178,7 +178,7 @@ export default forwardRef<HTMLDivElement, StreamBlocksProps>(function StreamBloc
         : decodeURIComponent(href.slice('#preview'.length + 1));
       // 🔴 传当前会话 cwd（对齐 Hermes $currentCwd）：相对路径 #preview 链接 join 成绝对路径
       const preview = normalizeOrLocalPreviewTarget(raw, getCurrentSessionCwd());
-      if (preview) openPreview(preview);
+      if (preview) openPreview(preview, 'explicit-link');
       return;
     }
 

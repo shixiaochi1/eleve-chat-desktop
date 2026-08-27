@@ -221,7 +221,7 @@ const ToolEntry = memo(function ToolEntry({ tool }: { tool: ToolCallItem }) {
   // 点击预览链接 → 打开预览 tab（openPreview 内部自动切右栏）
   const handlePreviewTarget = useCallback((target: string) => {
     const resolved = normalizeOrLocalPreviewTarget(target, getCurrentSessionCwd());
-    if (resolved) openPreview(resolved);
+    if (resolved) openPreview(resolved, 'explicit-link');
   }, []);
 
   // 提取 inline_diff（对齐 Eleve：优先从 result.inline_diff 字段获取）

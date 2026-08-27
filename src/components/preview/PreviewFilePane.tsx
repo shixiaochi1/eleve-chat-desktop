@@ -49,6 +49,11 @@ function basename(value: string): string {
   return value.split(/[\\/]/).filter(Boolean).pop() || value;
 }
 
+/** HTML 文件判定（.html/.htm；对齐 Hermes previewKind 'html' 归一化） */
+function isHtmlPath(path: string): boolean {
+  return /\.html?$/i.test(path.split(/[?#]/, 1)[0] || path);
+}
+
 /** 二进制检测：UTF-8 替换符占比 >1% 判为二进制（Tauri readTextFile 对二进制返回替换字符） */
 function isLikelyBinary(text: string): boolean {
   if (!text) return false;
@@ -68,6 +73,9 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   const inlineDataUrl = tab.target.dataUrl;
   const isImage = IMAGE_EXTENSIONS.has(ext) || !!inlineDataUrl;
   const isMarkdown = MARKDOWN_EXTENSIONS.has(ext);
+  // 🔴 HTML 文件（对齐 Hermes previewKind 'html' + renderMode）：工具/显式链接
+  //   递来的 HTML = 执行渲染（'preview'）；文件树浏览/手动打开 = 看源码（'source'）
+  const isHtmlFile = isHtmlPath(path);
   // 🔴 PDF 预览（对齐 Hermes previewKind 'pdf'：扩展名归一化判定；blockedByTarget
   //   豁免 = !isImage && !isPdf && ...——PDF 不走 large/binary 拦截，iframe blob 渲染）
   const isPdf = ext === '.pdf';
@@ -450,14 +458,19 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   //    auto 落点 = 有 diff 优先，其次 markdown 渲染，否则源码）──
   const hasDiff = Boolean(diff && diff.trim());
   const modes: ('source' | 'rendered' | 'diff')[] = [];
-  if (isMarkdown) modes.push('rendered');
+  if (isMarkdown || isHtmlFile) modes.push('rendered');
   modes.push('source');
   if (hasDiff) modes.push('diff');
   const autoMode: 'source' | 'rendered' | 'diff' = hasDiff
     ? 'diff'
-    : isMarkdown
-      ? 'rendered'
-      : 'source';
+    : isHtmlFile
+      ? // 🔴 HTML 首选视图 = renderMode（对齐 Hermes previewTargetForSource 首值语义）
+        tab.target.renderMode === 'preview'
+        ? 'rendered'
+        : 'source'
+      : isMarkdown
+        ? 'rendered'
+        : 'source';
   const mode = userMode && modes.includes(userMode) ? userMode : autoMode;
 
   // 富围栏提升（mermaid / svg，对齐 Hermes MarkdownPreview RichCodeBlock）：
@@ -665,6 +678,16 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
                 <div className="h-full overflow-auto p-3">
                   <DiffLines text={diff ?? ''} maxHeight="none" showLineNumbers />
                 </div>
+              ) : mode === 'rendered' && isHtmlFile && text !== null ? (
+                /* 🔴 HTML 执行渲染（对齐 Hermes renderMode 'preview'）：srcDoc
+                   iframe 内嵌运行；sandbox 隔离主文档（allow-scripts 保留页内
+                   脚本可渲染 SPA；ELEVE 暂无 drive_preview 输入桥） */
+                <iframe
+                  srcDoc={text}
+                  title={basename(path)}
+                  className="h-full w-full border-0 bg-white"
+                  sandbox="allow-scripts allow-forms allow-popups"
+                />
               ) : mode === 'rendered' && bodyHtml ? (
                 <div className="h-full overflow-auto p-3">
                   <div

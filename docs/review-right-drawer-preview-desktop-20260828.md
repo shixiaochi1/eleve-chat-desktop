@@ -148,3 +148,62 @@ ELEVE：`PreviewFilePane` 无 pdf 分支（IMAGE/MARKDOWN 集合之外）→ .pd
 
 ### 本轮验证
 - 前端：tsc -b ✅ + vite build ✅；后端：cargo check -p eleve-tools-native ✅（mxapi.rs/media_artifacts.rs 的**他人遗留脏改动**（取证 debug_save_image，E0382 moved value）经 stash 隔离后验证，验证完已原样恢复，未动其内容——该半成品编译错误需其归属会话自行收尾）。
+
+---
+
+## 九、第四轮：以 Hermes 为基准面的全覆盖枚举审查（2026-08-28 02:5x）
+
+> 方法变更：前三轮以 ELEVE 为起点抽查，本轮以 Hermes 预览域全部文件为基准面
+> （store/preview.ts 全文 352 行逐函数 + layout rail + local-preview 276 行 +
+> preview-status + right-rail 辅助模块群 + desktop_ui 工具族），逐项在 ELEVE 找对应物。
+
+### 四轮新发现并已修复（语义差距）
+
+1. **🔴 URL tab 未单例化（Browser surface 语义）**：Hermes `previewTabId` 把全部
+   URL target 重键到 `BROWSER_TAB_ID='url:browser'`——"the tab names the SURFACE
+   (Browser), not the page"；开第二个 URL = 导航已有 Browser tab，restore 时只保
+   最后一个 URL tab。ELEVE 原实现每 URL 一个 tab。
+   **修**：store/preview.ts 新增 `previewTabId()`（url→单例 id）；openPreview 按 id
+   查重；loadPersistedTabs 恢复时重键 + URL tab 只保最后一个（对齐 decodePreviewTabs）。
+2. **🔴 无 PreviewRecordSource / renderMode——file HTML 永远看源码不执行**：Hermes
+   "浏览文件=看源码（source）；工具/显式链接递来的 HTML=执行渲染（preview）"，
+   由 openPreview 的 source 参数经 previewTargetForSource 定 renderMode 首值。
+   ELEVE 的 .html 此前只进源码视图。
+   **修**：PreviewTarget 加 `source?` + `renderMode?`；openPreview 加第二参 source
+   （7 个调用点全标语义：FileBrowserPanel='file-browser'、AgentCardComposer/
+   PreviewCenter/ArtifactPanel='manual'、StreamBlocks/ToolEntry='explicit-link'、
+   preview-events='tool-result'）；PreviewFilePane 加 HTML 执行渲染分支（srcDoc
+   iframe + sandbox，renderMode 定首选视图，ModeSwitcher 可切）。
+3. **🔴 close_preview 匹配字段不全**：Hermes closePreviewMatching 按
+   [source, url, label] 三字段匹配；ELEVE 只按 url。
+   **修**：store 新增 `closePreviewMatching(...candidates)`（匹配 source/url/
+   target.label/tab.label 全字段），preview-events 改用。
+4. **🔴 focus_pane 工具端到端缺失**：Hermes desktop_ui 工具族第四员
+   （"给我看终端/文件浏览器"→ pane.reveal 事件）。
+   **修**：后端 eleve-tools-native 新增 FocusPaneTool（panes: chat/files/terminal/
+   preview/artifacts/sessions 适配 ELEVE 布局；ELEVE_DESKTOP gate）；前端新增
+   lib/pane-reveal.ts（pane.reveal 消费：聚焦会话门禁 + onRevealPane 动作），
+   App 挂载（右栏 tab 切换/聚焦输入框/左侧会话面板）。
+
+### 四轮核实为已对齐/等价的（无需改）
+
+- `$previewReloadRequest` / restart 状态机（ELEVE complete 多判 'failed' 文本，更保守，无害保留）
+- `resolveActiveTab` fallback / activeId 恢复校验 ✅
+- closeTab 相邻激活 / closeOtherTabs / closeTabsToRight ✅
+- openBrowserTab 的 about:blank 空态语义 ≈ ELEVE PreviewCenter 空态 URL 输入 ✅
+- close-tab.ts ⌘W 语义 / preview-edit.ts / preview-reader.ts / preview-console ✅（前轮已核）
+- local-preview remote 分流：Hermes 在 lib 层 enrich，ELEVE 在 PreviewFilePane 内
+  remote-fs 分支——位置不同功能等价 ✅
+
+### 记录为待拍板的功能面（本轮不实施）
+
+| 功能 | Hermes 体量 | 说明 |
+|---|---|---|
+| **drive_preview 工具族** | preview-act.ts 567 + preview-drive 138 + nav/input/script-runner + lib/preview-act/* | agent 驱动预览页内的 web app（真实 Chromium 输入事件点击/输入/滚动/导航）。需 Rust 侧 wry input 桥 + act-in-page 引擎移植，大工程，需用户拍板 |
+| preview-status composer 状态行 | 79 行 + preview-row.tsx | 工具产出 HTML/localhost 时输入框上方紧凑链接 feed（每会话上限 4）。UX 增强；ELEVE 消息内 #preview 链接承担同类功能 |
+| layout-tree pane 化 | preview-tile.tsx + pane-shell tree | Hermes rail 已演进为 layout-tree zone tabs（可拖拽/堆叠/分屏）。整体布局架构差异，非预览语义本身 |
+| preview-tour/nudge | 105 行 | 引导/onboarding，非核心 |
+
+### 本轮验证
+前端 tsc -b ✅ + vite build ✅；后端 cargo check -p eleve-tools-native ✅（他人遗留
+脏改动 stash 隔离后验证、已恢复原样）。

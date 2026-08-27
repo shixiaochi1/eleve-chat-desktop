@@ -570,7 +570,7 @@ export default function FileBrowserPanel({
       void toggleOpen(entry.path);
       void loadChildren(entry.path);
     } else {
-      openPreview({ kind: 'file', url: entry.path, name: entry.name });
+      openPreview({ kind: 'file', url: entry.path, name: entry.name }, 'file-browser');
     }
   }, [toggleOpen, loadChildren]);
 

@@ -19,7 +19,7 @@ import { notifyWorkspaceChanged, toolMayMutateFiles, toolChangedPath } from '@/l
 import {
   beginPreviewRestart,
   closeAllTabs,
-  closeTab,
+  closePreviewMatching,
   completePreviewRestart,
   openPreview,
   progressPreviewRestart,
@@ -165,7 +165,7 @@ export function initPreviewEvents(options: PreviewEventsOptions): () => void {
         //   与 markdown 链接点击同源，消除 App 闭包双轨
         const resolved = normalizeOrLocalPreviewTarget(target, getCurrentSessionCwd())
         if (resolved) {
-          openPreview(label ? { ...resolved, label } : resolved)
+          openPreview(label ? { ...resolved, label } : resolved, 'tool-result')
         }
         return
       }
@@ -184,15 +184,12 @@ export function initPreviewEvents(options: PreviewEventsOptions): () => void {
           closeAllTabs()
           return
         }
-        // 有 url = 只关匹配 tab。candidates 对齐 Hermes closePreviewMatching：
-        // [原始 target, 归一化后 url]——归一化补 scheme 后与 tab 记录的 url 匹配
-        const candidates = new Set<string>([target])
+        // 有 url = 只关匹配 tab（对齐 Hermes closePreviewMatching：
+        // candidates = [原始 target, 归一化后 url]，按 source/url/label 匹配）
+        const candidates = [target]
         const resolved = normalizeOrLocalPreviewTarget(target, getCurrentSessionCwd())
-        if (resolved) candidates.add(resolved.url)
-        const state = getPreviewStoreState()
-        for (const tab of state.tabs) {
-          if (candidates.has(tab.target.url)) closeTab(tab.id)
-        }
+        if (resolved) candidates.push(resolved.url)
+        closePreviewMatching(...candidates)
         return
       }
 

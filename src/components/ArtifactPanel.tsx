@@ -297,7 +297,7 @@ const ArtifactPanel = memo(function ArtifactPanel({
                               url: activeForRender.record.id,
                               artifactId: activeForRender.record.id,
                               label: activeForRender.record.title,
-                            })
+                            }, 'manual')
                           }
                           title="在预览中打开"
                           className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"

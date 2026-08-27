@@ -62,6 +62,7 @@ import ImageLightbox from './components/ImageLightbox';
 import ImageEditorModal from './components/ImageEditorModal';
 import { ImageEditorContext, type ImageEditorTarget, type ImageEditorApi } from './store/image-editor';
 import { initPreviewEvents } from '@/lib/preview-events';
+import { initPaneReveal } from '@/lib/pane-reveal';
 import { usePaneOpenRequest, getPreviewStoreState, closeTab as closePreviewTab } from '@/store/preview';
 import ArtifactPanel from './components/ArtifactPanel';
 import RightSidebarTabs from './components/RightSidebarTabs';
@@ -479,6 +480,28 @@ export default function App() {
     // 🔴 cwd 已走 lib/session-cwd.ts 全局单例（2026-08-28 对齐 $currentCwd），此处只留会话过滤
     return initPreviewEvents({
       getFocusedSessionId: () => focusedSessionIdRef.current,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 🔴 2026-08-28 对齐 Hermes focus_pane 工具：agent 请求显示/聚焦面板
+  // （"给我看终端"/"打开文件浏览器"）→ pane.reveal 事件 → 开右栏/聚焦输入框
+  useEffect(() => {
+    return initPaneReveal({
+      getFocusedSessionId: () => focusedSessionIdRef.current,
+      onRevealPane: (pane) => {
+        if (pane === 'chat') {
+          (document.getElementById('input') as HTMLElement)?.focus();
+          return;
+        }
+        if (pane === 'sessions') {
+          setActivePanel('sessions');
+          return;
+        }
+        // files / terminal / preview / artifacts → 右栏对应 tab
+        setRightOpen(true);
+        setRightTab(pane);
+      },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
