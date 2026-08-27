@@ -194,6 +194,9 @@ export function useImageAttachments(options?: {
    */
   const uploadUnuploaded = useCallback(async (sessionId: string): Promise<{ ok: boolean; paths: string[]; error?: string }> => {
     const pending = attachedImages.filter((img) => !img.uploaded);
+    // 🔴 2026-08-27 纯图排查决定性日志
+    console.info(`[uploadUnuploaded] sid=${sessionId} total=${attachedImages.length} pending=${pending.length}`,
+      attachedImages.map(i => ({ name: i.name, uploaded: i.uploaded })));
     if (pending.length === 0) return { ok: true, paths: [] };
 
     // 对齐 Hermes uploadState spinner：submit 时统一上传转圈（lazy 语义下 uploading 仅此处活跃）
@@ -212,6 +215,7 @@ export function useImageAttachments(options?: {
           img.name,
           sessionId,
         );
+        console.info(`[uploadUnuploaded] attach result for ${img.name}:`, result);
         if (result.attached && result.path) {
           updatedPaths.set(img.id, result.path);
         } else {

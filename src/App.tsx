@@ -1183,10 +1183,14 @@ export default function App() {
     // 🔴 2026-08-22 修复：移除 !wasBusy 条件——busy（上一条还在处理）时也先 attach，
     // 否则图片不进 session → Queue 快照 attached_images 为空 → ELEVE 收不到图
     // （只收到文字）。busy 与 idle 统一：先 attach 再提交，附件归属后端权威。
+    // 🔴 2026-08-27 纯图排查决定性日志
+    console.info('[handleSend] images snapshot:', images.map(i => ({ name: i.name, uploaded: i.uploaded })),
+      '| needUpload=', images.some((img) => !img.uploaded));
     if (images.some((img) => !img.uploaded)) {
       const ws = getWsClient();
       // 🔴 2026-08-27 同步读（ref 双写，见 useSessions.getSessionId 注释）
       let sid = sess.getSessionId() ?? undefined;
+      console.info('[handleSend] upload block entered, sid=', sid);
       if (!sid) {
         try {
           // 🔴 2026-08-11 对齐 Hermes createBackendSessionForSend（detached 语义）：

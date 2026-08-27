@@ -364,7 +364,9 @@ export const AgentChatCard = memo(function AgentChatCard({
         }
       }
       const synced = await uploadUnuploaded(sid);
-      if (!synced) return; // 对齐 Hermes: 附件同步失败 → 中止发送
+      // 🔴 2026-08-27 修复：synced 是对象恒 truthy——原判断永不命中，上传
+      // 失败也继续提交（对齐 App 版 !synced.ok 中止语义）
+      if (!synced.ok) return; // 对齐 Hermes: 附件同步失败 → 中止发送
       explicitSid = sid;
     }
 
