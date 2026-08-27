@@ -1185,7 +1185,8 @@ export default function App() {
     // （只收到文字）。busy 与 idle 统一：先 attach 再提交，附件归属后端权威。
     if (images.some((img) => !img.uploaded)) {
       const ws = getWsClient();
-      let sid = sess.sessionId ?? undefined;
+      // 🔴 2026-08-27 同步读（ref 双写，见 useSessions.getSessionId 注释）
+      let sid = sess.getSessionId() ?? undefined;
       if (!sid) {
         try {
           // 🔴 2026-08-11 对齐 Hermes createBackendSessionForSend（detached 语义）：

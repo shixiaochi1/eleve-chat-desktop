@@ -196,7 +196,10 @@ export function usePromptActions({
     const wsClient = getWsClient();
     await wsClient.ensureConnected(10000);
 
-    let sessionId = sess.sessionId;
+    // 🔴 2026-08-27 同步读（ref 双写）：App 层 sessionCreate 后同事件循环内
+    // React state 未刷新，stale null 会导致二次懒创建 → 纯图挂错会话
+    // （图片挂 sid1、submit 发 sid2 → attached_images 空 → text is required）
+    let sessionId = sess.getSessionId();
     const submitLockKey = sessionId || '__pending_new__';
     if (_submitInFlight.has(submitLockKey)) {
       console.warn('[handleSend] submitInFlight guard: already submitting for', submitLockKey);

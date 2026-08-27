@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ChatMessage, Session } from '@/types';
 import * as api from '../utils/api';
 import { call } from '../utils/bridge';
@@ -9,6 +9,8 @@ import { getWsClient } from '../services/ws-client';
 
 export function useSessions(): {
   sessionId: string | null
+  /** 🔴 同步读 sessionId（ref 双写）——发送路径专用，规避 React state 异步 stale */
+  getSessionId: () => string | null
   setSessionId: React.Dispatch<React.SetStateAction<string | null>>
   sessions: Session[]
   msgCache: Record<string, ChatMessage[]>
@@ -30,7 +32,7 @@ export function useSessions(): {
   saveTitles: (updater: ((prev: Record<string, string>) => Record<string, string>) | Record<string, string>) => void
   loadHistory: (id: string) => Promise<ChatMessage[] | null>
 } {
-  const [sessionId, setSessionId] = useState<string | null>(() => (storage.load('session_id', null) as string | null));
+  const [sessionId, setSessionIdState] = useState<string | null>(() => (storage.load('session_id', null) as string | null));
   const [sessions, setSessions] = useState<Session[]>(() => (storage.load('sessions', null) as Session[]) || []);
   const [msgCache, setMsgCache] = useState<Record<string, ChatMessage[]>>(() => (storage.load('msg_cache', null) as Record<string, ChatMessage[]>) || {});
   const [titles, setTitles] = useState<Record<string, string>>(() => (storage.load('titles', null) as Record<string, string>) || {});
@@ -44,6 +46,21 @@ export function useSessions(): {
   const [sessionReady, setSessionReady] = useState<boolean>(false);
   // ── pendingTitle — 对齐 Eleve /new <title> 暂存标题，懒创建后 set_session_title
   const [pendingTitle, setPendingTitle] = useState<string | null>(null);
+
+  // 🔴 2026-08-27 同步指针修复（纯图消息挂错会话的根因）：sessionIdRef 双写。
+  // 纯图链路 App.handleSend 在同一次事件循环里 sessionCreate → setSessionId(sid1)
+  // → uploadUnuploaded(sid1)（图片挂 sid1）→ rawHandleSend 内读 sess.sessionId——
+  // React state 尚未重渲染，读到 stale null → 二次懒创建 sid2 → submit 发给 sid2
+  // → attached_images 空 → 后端 "text is required"。getSessionId() 走 ref 同步读，
+  // 关键发送路径一律用同步值；setSessionId 包装为 ref+state 双写（对外 API 不变）。
+  const sessionIdRef = useRef<string | null>(null);
+  const setSessionIdSync = useCallback<React.Dispatch<React.SetStateAction<string | null>>>((value) => {
+    sessionIdRef.current = typeof value === 'function'
+      ? (value as (prev: string | null) => string | null)(sessionIdRef.current)
+      : value;
+    setSessionIdState(sessionIdRef.current);
+  }, []);
+  const getSessionId = useCallback((): string | null => sessionIdRef.current ?? sessionId, [sessionId]);
 
   // ── persistence ──
   const saveCache = useCallback((updater: ((cache: Record<string, ChatMessage[]>) => Record<string, ChatMessage[]>) | Record<string, ChatMessage[]>): void => {
@@ -81,7 +98,7 @@ export function useSessions(): {
       const data = await api.createSession(options) as { session_id?: string; id?: string };
       if (data?.session_id || data?.id) {
         const newId = data.session_id || data.id!;
-        setSessionId(newId);
+        setSessionIdSync(newId);
         persistSessionPointer(newId);
         getWsClient().switchSession(newId);
         setFreshDraftReady(false);
@@ -101,7 +118,7 @@ export function useSessions(): {
       const data = await api.resetSession(sessionId) as { session_id?: string; id?: string };
       if (data?.session_id || data?.id) {
         const newId = data.session_id || data.id!;
-        setSessionId(newId);
+        setSessionIdSync(newId);
         persistSessionPointer(newId);
         // 🔴 2026-08-13 架构统一：reset 后同样订阅新会话（与 switchTo/create 对齐）
         getWsClient().switchSession(newId);
@@ -115,7 +132,7 @@ export function useSessions(): {
     setSessions((prev) => prev.filter((s) => s.id !== id));
     saveCache((prev) => { const c = { ...prev }; delete c[id]; return c; });
     if (sessionId === id) {
-      setSessionId(null);
+      setSessionIdSync(null);
       // 🔴 P1-4: 收敛到权威函数（禁止裸调 storage.remove，防僵尸指针）
       clearSessionPointer(profileFromSessionId(id) ?? undefined);
     }
@@ -123,7 +140,7 @@ export function useSessions(): {
 
   const switchTo = useCallback((id: string): void => {
     if (id === sessionId) return;
-    setSessionId(id);
+    setSessionIdSync(id);
     persistSessionPointer(id);
     // 🔴 2026-08-13 架构统一：切换当前会话 → 同步订阅（attach → 后端推 session.info
     // 含 pending_prompts/cwd——单视图 handleSwitchSession 路径此前不 attach，
@@ -155,7 +172,7 @@ export function useSessions(): {
   }, []);
 
   return {
-    sessionId, setSessionId, sessions, msgCache, titles,
+    sessionId, setSessionId: setSessionIdSync, getSessionId, sessions, msgCache, titles,
     freshDraftReady, setFreshDraftReady,
     sessionReady, setSessionReady,
     pendingTitle, setPendingTitle,

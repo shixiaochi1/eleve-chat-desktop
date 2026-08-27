@@ -57,6 +57,8 @@ function buildDelegateProgressDebugLine(
 
 export interface SessionManagerHandle {
   sessionId: string | null
+  /** 🔴 2026-08-27 同步读 sessionId（ref 双写）——发送路径专用，规避 React state 异步 stale */
+  getSessionId: () => string | null
   sessions: Session[]
   msgCache: Record<string, ChatMessage[]>
   titles: Record<string, string>
