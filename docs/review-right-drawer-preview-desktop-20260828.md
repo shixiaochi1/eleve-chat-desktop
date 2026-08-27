@@ -114,3 +114,37 @@ ELEVE：`PreviewFilePane` 无 pdf 分支（IMAGE/MARKDOWN 集合之外）→ .pd
 - 提交 1：`2de8b05`（P0-P2 六项修复）
 - 提交 2：cwd 单例修复（本轮，见 git log）
 - 验证：tsc -b ✅ + vite build ✅（两轮均过）
+
+---
+
+## 八、第三轮深审追记（用户质疑③后的彻底核查，2026-08-28 02:4x）
+
+### 🔴 ③是错误结论，已修正
+**"宫格↔单视图切换重建 webview"不成立。** 实地核查：
+- `<Pane side="right">`（含 previewMounted 常驻的 PreviewCenter/webview）在 **PaneShell 层**（App:1913），与 `<PaneMain>` 平级；`viewMode==='grid' ? <GridModeView/> : 单视图` 分支只在 PaneMain **内部**（App:1548）。
+- `rightOpen={rightOpen}` 不分视图模式传入（App:1489），全库无任何"宫格切换时动 rightOpen"的代码。
+- → 宫格↔单视图切换**右栏 PreviewCenter/webview 始终存活**（previewMounted 常驻生效），页面状态不丢。上一轮报告写错，向用户致歉并更正。
+
+### 🔴 由③引出的架构修订：宫格预览浮层方案废弃
+- 浮层方案（2de8b05 引入 PreviewFloatingOverlay）建立在"宫格无右栏"的错误假设上。实测：**右栏 Pane 在宫格下照常挂载可用**。
+- 浮层 + 右栏 = 双 PreviewCenter 实例 → 同 URL 双 webview + `registerActivePreviewWebview`（read_preview 目标）与 restart 归属互相覆盖——架构不干净。
+- **修订**：删除 PreviewFloatingOverlay；App 的 paneOpenRequest 消费去掉 `viewMode==='single'` 限制（App:156）——宫格下 open_preview/#preview 链接直接开右栏「预览」tab，与单视图行为完全一致，全局唯一 PreviewCenter/webview。
+- artifact 浮层不动：纯 DOM 无 webview，双实例无害，且"点卡片就地浮层"是既有产品交互。
+
+### 🔴 close_preview 端到端链路补齐（二轮漏掉的真缺失）
+- Hermes：`close_preview(url?)` 工具（desktop_ui toolset，close_preview_tool.py）→ emit `preview.close` → 前端 use-preview-routing:108-140（聚焦会话门禁；无 url=closeRightRail 清全部；有 url=closePreviewMatching 按 [raw, resolved.url] 候选精确关）。
+- ELEVE 三层全缺（后端无工具、前端无分支）。**本轮补齐**：
+  - 后端 `eleve-tools-native/src/close_preview.rs`（对齐 open_preview.rs 模式：ELEVE_DESKTOP gate、normalize_target 复用、session 归属 emit `preview.close`）+ lib.rs 注册。
+  - Gateway 6-G2 desktop_events listener 是**通用事件转发**（event 名参数化），零改动。
+  - 前端 `preview-events.ts` 加 `preview.close` 分支（同 open 门禁；无 target→closeAllTabs；有 target→[raw, resolved.url] 候选匹配 closeTab）。
+
+### ①语义重定位（原"有意差异"论证作废，实为对齐无误）
+- Hermes `closeRightRail()` 的**唯一生产调用方是 agent 的 close_preview 工具**（无参=清全部 tabs）；**UI 上不存在"用户关 rail 清 tabs"的入口**（rail 显隐走 layout store 的 selectRightRailTab）。
+- ELEVE 右栏 X（收起面板保留 tabs）对应的正是 Hermes 的 rail 显隐语义 ✅；ELEVE 的 closeAllTabs 对应 Hermes 的 closeRightRail（agent 清场）✅。**语义对齐无误**，原①"差异"条目撤销。
+
+### ②维持差异（论证补强）
+- Hermes Browser singleton（URL tab 重键单例 + restore 只保最后一个）的前提是"浏览器是 rail 里的一个 surface"（openBrowserTab 由 command-palette 触发）。
+- ELEVE 无 Browser surface，多 URL tab 各自持久化 + openPreview 按 kind+url 去重——是 Hermes 行为的**严格超集**（多开自由 + 不重复），无功能遗失。维持。
+
+### 本轮验证
+- 前端：tsc -b ✅ + vite build ✅；后端：cargo check -p eleve-tools-native ✅（mxapi.rs/media_artifacts.rs 的**他人遗留脏改动**（取证 debug_save_image，E0382 moved value）经 stash 隔离后验证，验证完已原样恢复，未动其内容——该半成品编译错误需其归属会话自行收尾）。

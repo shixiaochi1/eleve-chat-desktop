@@ -18,6 +18,8 @@ import { getPreviewStoreState } from '@/store/preview'
 import { notifyWorkspaceChanged, toolMayMutateFiles, toolChangedPath } from '@/lib/workspace-events'
 import {
   beginPreviewRestart,
+  closeAllTabs,
+  closeTab,
   completePreviewRestart,
   openPreview,
   progressPreviewRestart,
@@ -164,6 +166,32 @@ export function initPreviewEvents(options: PreviewEventsOptions): () => void {
         const resolved = normalizeOrLocalPreviewTarget(target, getCurrentSessionCwd())
         if (resolved) {
           openPreview(label ? { ...resolved, label } : resolved)
+        }
+        return
+      }
+
+      case 'preview.close': {
+        // 🔴 2026-08-28 对齐 Hermes preview.close（close_preview 工具 →
+        //   use-preview-routing:108-140）：与 open 同款聚焦会话门禁——
+        //   "a session the user can see may tidy the pane it opened; a hidden
+        //   background turn must not dismiss the user's preview"
+        const sessionId = raw.session_id as string | undefined
+        if (sessionId && sessionId !== options.getFocusedSessionId()) return
+
+        const target = typeof payload.url === 'string' ? payload.url.trim() : ''
+        if (!target) {
+          // 无 url = 关整个预览面板（对齐 Hermes closeRightRail()：清全部 tabs）
+          closeAllTabs()
+          return
+        }
+        // 有 url = 只关匹配 tab。candidates 对齐 Hermes closePreviewMatching：
+        // [原始 target, 归一化后 url]——归一化补 scheme 后与 tab 记录的 url 匹配
+        const candidates = new Set<string>([target])
+        const resolved = normalizeOrLocalPreviewTarget(target, getCurrentSessionCwd())
+        if (resolved) candidates.add(resolved.url)
+        const state = getPreviewStoreState()
+        for (const tab of state.tabs) {
+          if (candidates.has(tab.target.url)) closeTab(tab.id)
         }
         return
       }

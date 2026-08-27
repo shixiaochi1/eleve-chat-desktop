@@ -55,7 +55,6 @@ import { useGridChat, type AgentChatState } from '../hooks/useGridChat';
 import AgentChatCard, { type AgentProfileInfo, type AgentCardColor } from './AgentChatCard';
 import { applyQueueEditToBubbles, applyQueueRemoveToBubbles, type QueueBubbleSyncOp } from '../lib/queue-bubble-sync';
 import { ArtifactPreviewOverlay } from './ArtifactCard';
-import PreviewFloatingOverlay from './preview/PreviewFloatingOverlay';
 import { getWsClient } from '../services/ws-client';
 import { sessionIdMatchesProfile, persistSessionPointer, loadProfilePointers, batchSaveProfilePointers } from '../utils/session';
 
@@ -610,12 +609,11 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
           </div>
         )}
       </div>
-      {/* 宫格 Artifact 浮层预览（无右栏语义，portal 到 body） */}
+      {/* 宫格 Artifact 浮层预览（portal 到 body）。预览不走浮层：右栏 Pane
+          在宫格下与主区平级始终挂载（PaneShell 层，不受 viewMode 影响），
+          preview.open 由 App 直接开右栏「预览」tab——全局唯一 PreviewCenter/
+          webview，read_preview 与 restart 归属语义干净（2026-08-28 修订） */}
       <ArtifactPreviewOverlay />
-      {/* 🔴 宫格预览浮层（2026-08-28 对齐 Hermes 修复"宫格预览黑洞"）：
-          preview.open / #preview 链接在宫格下也有可见承载；sessionId 取
-          焦点卡片会话（webview restart RPC 上下文，对齐单视图右栏传参） */}
-      <PreviewFloatingOverlay sessionId={focusedSessionId} />
     </div>
   );
 });

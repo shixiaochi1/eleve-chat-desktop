@@ -149,15 +149,19 @@ export default function App() {
     }
   }, [artifactOpen, viewMode]);
 
-  // 🔴 预览中心：外部事件（open_preview 工具 / #preview 链接 / 文件树双击）请求打开预览面板
-  // 对齐 Hermes $revealInTreeRequest：事件源 → App 消费
+  // 🔴 预览中心：外部事件（open_preview/close_preview 工具 / #preview 链接 / 文件树双击）
+  // 请求打开预览面板。对齐 Hermes $revealInTreeRequest：事件源 → App 消费。
+  // 🔴 2026-08-28 修订：去掉 viewMode==='single' 限制——右栏 Pane 在宫格下与主区
+  // 平级始终挂载（PaneShell 层），宫格下 open_preview 同样直接开右栏「预览」tab
+  // （全局唯一 PreviewCenter/webview；浮层方案废弃——双 PreviewWebPane 实例会
+  // 产生同 URL 双 webview 且 read_preview/restart 归属互相覆盖）
   const paneOpenRequest = usePaneOpenRequest();
   useEffect(() => {
-    if (paneOpenRequest > 0 && viewMode === 'single') {
+    if (paneOpenRequest > 0) {
       setRightOpen(true);
       setRightTab('preview');
     }
-  }, [paneOpenRequest, viewMode]);
+  }, [paneOpenRequest]);
   // 🔴 Phase 4b #4: 宫格焦点 Agent 的实时 sessionId（GridModeView 上抛）→ 侧栏会话列表高亮跟随
   const [focusedGridSessionId, setFocusedGridSessionId] = useState<string | null>(null);
   // 🔴 2026-08-13 P2-2：宫格 unread 判定基准 = 焦点卡片会话（session-status override）。
