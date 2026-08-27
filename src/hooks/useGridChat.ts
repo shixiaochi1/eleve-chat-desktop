@@ -204,7 +204,11 @@ export function useGridChat(
 
   // ── 发送消息到指定 Agent（显式 profile + session_id，不切全局盖章） ──
   const sendTo = useCallback(async (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachmentDataURLs?: string[]; explicitSessionId?: string }) => {
-    if (!text.trim()) return;
+    // 🔴 2026-08-27 纯图片消息放行（对齐 Hermes"图片可独立提交"，与
+    // usePromptActions.handleSend / useSSE.send 同口径）——附件 base64 已由
+    // useImageAttachments.addImage 即时 imageAttachBytes 上传后端 session，
+    // 空文本照发后端裁决（空文本+无图 → 后端 "text is required" 错误反馈）。
+    if (!text.trim() && !(opts?.attachmentDataURLs && opts.attachmentDataURLs.length > 0)) return;
 
     // 🔴 Phase 2: per-agent 发送锁保留，但 busy 分支不再是"前端截流排队"——
     // 附件/纯文本统一直发后端 prompt.submit，由 route_busy_submit 决定

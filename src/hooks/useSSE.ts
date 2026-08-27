@@ -758,7 +758,13 @@ export function useSSE(
   }, [routeWsEvent, enabled]);
 
   const send = useCallback(async (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string; queued?: boolean }): Promise<void> => {
-    if (!text?.trim()) return;
+    // 🔴 2026-08-27 纯图片消息放行（对齐 Hermes："图片可独立提交"）——
+    // 图片经 image.attach_bytes 预挂到 session，空文本也要发给后端裁决
+    // （后端 prompt.submit：空文本 + attached_images 非空 → 放行，
+    //   空文本 + 无图 → "text is required" 错误反馈）。
+    // 此前本地 `if (!text?.trim()) return` 拦截导致纯图消息根本不发出去
+    // （ELEVE 收图不回的直接原因）。完全空的提交（无文本无附件）仍由
+    // 发送按钮 disabled 态挡住。
     console.log('[useSSE.send] sessionId:', sessionId, 'wsState:', getWsClient().state);
     // 🔴 Phase 2: busy 直发保护 —— 流式态/发送锁/累加器归属 live turn，
     // wasBusy 路径不重置、失败时不回退（对齐宫格 useGridChat sendTo wasBusy 语义）
