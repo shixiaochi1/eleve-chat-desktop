@@ -16,6 +16,9 @@
 import { useSyncExternalStore } from 'react'
 import type { ArtifactDetection } from '@/lib/artifact-detect'
 import { artifactSlug, artifactContentHash } from '@/lib/artifact-detect'
+// 🔴 对齐 Hermes store/artifacts.ts:5 —— artifacts → preview 单向依赖：
+// 注册表清空时关闭全部 artifact 预览 tab（tab 不能比它的内容源活得久）
+import { closeArtifactPreviewTabs } from '@/store/preview'
 import type { ListenerCallback, Unsubscribe } from '@/types'
 
 export interface ArtifactVersion {
@@ -234,4 +237,7 @@ export function clearArtifactRegistry(): void {
   openState = null
   notify()
   notifyOpen()
+  // 🔴 对齐 Hermes clearArtifactRegistry（store/artifacts.ts:226）：
+  // 注册表清空 → 全部 artifact 预览 tab 一并关闭（file/url tab 保留）
+  closeArtifactPreviewTabs()
 }

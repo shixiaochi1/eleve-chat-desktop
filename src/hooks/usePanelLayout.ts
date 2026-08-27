@@ -86,6 +86,14 @@ export function usePanelLayout() {
   useEffect(() => {
     if (rightOpen && rightTab === 'terminal') setTerminalMounted(true);
   }, [rightOpen, rightTab]);
+  // 🔴 预览常驻挂载（2026-08-28 对齐 Hermes + terminal 同款待遇）：首次可见才
+  //   挂载（有真实尺寸 → webview create 坐标正确），之后 CSS hidden 保活——
+  //   右栏切 files/terminal/artifacts 不再销毁子 webview（旧实现 PreviewCenter
+  //   条件渲染 → 切 tab 即 preview_webview_close → 切回重建 → 页面状态丢失）
+  const [previewMounted, setPreviewMounted] = useState(false);
+  useEffect(() => {
+    if (rightOpen && rightTab === 'preview') setPreviewMounted(true);
+  }, [rightOpen, rightTab]);
   useEffect(() => {
     try {
       localStorage.setItem('eleve.rightPane.v1', JSON.stringify({ open: rightOpen, tab: rightTab, winW: rightAnchor.winW, rightW: rightAnchor.rightW }));
@@ -162,6 +170,7 @@ export function usePanelLayout() {
     rightTab,
     setRightTab,
     terminalMounted,
+    previewMounted,
     handleToggleFiles,
     MIN_CHAT_WIDTH,
   };

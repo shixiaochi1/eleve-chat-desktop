@@ -89,6 +89,15 @@ function loadPersistedTabs(): { tabs: PreviewTab[]; activeId: string | null } {
           label: typeof t.label === 'string' && t.label ? t.label : labelFor(t.target),
         }))
       : []
+    // 🔴 对齐 Hermes preview encode：内联字节（dataUrl）不可恢复也不落盘——
+    // 恢复时剥离，防大字节常驻 localStorage（消费端 PreviewFilePane 已支持
+    // dataUrl 直渲染，这里只保证持久化层不带字节）
+    for (const t of tabs) {
+      if ('dataUrl' in t.target) {
+        const { dataUrl: _stripped, ...rest } = t.target
+        t.target = rest as typeof t.target
+      }
+    }
     const activeId =
       typeof parsed.activeId === 'string' && tabs.some((t) => t.id === parsed.activeId)
         ? parsed.activeId
@@ -165,11 +174,18 @@ function labelFor(target: PreviewTarget): string {
 
 // ── Actions ──
 
-/** 打开预览 tab（去重：同 kind+url 已有 → 选中）；自动请求打开预览面板（对齐 Hermes openPreview 语义） */
+/** 打开预览 tab（对齐 Hermes openPreview：open (or re-front) —— 同 kind+url 已有
+ *  → 原位刷新 target 再选中（stale label/path 不能比它指向的内容活得久）；
+ *  自动请求打开预览面板） */
 export function openPreview(target: PreviewTarget): string {
   const existing = state.tabs.find((t) => t.target.kind === target.kind && t.target.url === target.url)
   if (existing) {
-    selectTab(existing.id)
+    update({
+      tabs: state.tabs.map((t) =>
+        t.id === existing.id ? { ...t, target, label: labelFor(target) } : t,
+      ),
+      activeId: existing.id,
+    })
     requestPaneOpen()
     return existing.id
   }
@@ -215,6 +231,22 @@ export function closeTabsToRight(id: string): void {
 
 export function closeAllTabs(): void {
   update({ tabs: [], activeId: null })
+}
+
+/** 关闭全部 artifact 预览 tab（🔴 对齐 Hermes closeArtifactPreviewTabs：
+ *  "Artifact tabs can't outlive the registry they read from, so clearing it
+ *  closes them"——产物 tab 读的是内存注册表，注册表清空后 tab 无法再从源重读；
+ *  file/url tab 可从磁盘/网络重读，保留不动）。由 store/artifacts 清空时调用。 */
+export function closeArtifactPreviewTabs(): void {
+  const artifactTabs = state.tabs.filter((t) => t.target.kind === 'artifact')
+  if (artifactTabs.length === 0) return
+  let { tabs, activeId } = state
+  for (const tab of artifactTabs) tabs = tabs.filter((t) => t.id !== tab.id)
+  if (activeId && !tabs.some((t) => t.id === activeId)) {
+    const idx = state.tabs.findIndex((t) => t.id === activeId)
+    activeId = tabs[Math.min(idx, tabs.length - 1)]?.id ?? null
+  }
+  update({ tabs, activeId })
 }
 
 /** 请求 iframe 重载（文件变更自动刷新 / 手动刷新）— 对齐 Hermes requestPreviewReload */

@@ -68,6 +68,9 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   const inlineDataUrl = tab.target.dataUrl;
   const isImage = IMAGE_EXTENSIONS.has(ext) || !!inlineDataUrl;
   const isMarkdown = MARKDOWN_EXTENSIONS.has(ext);
+  // 🔴 PDF 预览（对齐 Hermes previewKind 'pdf'：扩展名归一化判定；blockedByTarget
+  //   豁免 = !isImage && !isPdf && ...——PDF 不走 large/binary 拦截，iframe blob 渲染）
+  const isPdf = ext === '.pdf';
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +80,9 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   const [byteSize, setByteSize] = useState(0);
   const [text, setText] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  // 🔴 PDF blob URL（对齐 Hermes pdfUrl：Chromium PDF viewer 对大 data: URL 在
+  //   iframe 中空白，必须走 objectURL；target/字节变化时 revoke）
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   // 🔴 大文件拦截（对齐 Hermes blockedByTarget large：stat 预检后不读内容，
   // 用户点「仍要预览」才读全量，防大文件全量读入内存卡死）
@@ -126,6 +132,10 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
+    setPdfUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
 
     (async () => {
       try {
@@ -165,6 +175,19 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
             });
             setImageUrl(URL.createObjectURL(blob));
           }
+        } else if (isPdf) {
+          // 🔴 PDF：豁免 large/binary 拦截（对齐 Hermes blockedByTarget），读字节
+          //   → Blob → objectURL（Chromium iframe 对大 data: URL 空白，必须 blob）
+          if (isFsRemoteMode()) {
+            const { dataUrl } = await remoteReadDataUrl(path, 'application/pdf');
+            if (cancelled) return;
+            const blob = await (await fetch(dataUrl)).blob();
+            setPdfUrl(URL.createObjectURL(blob));
+          } else {
+            const bytes = await readFile(path);
+            if (cancelled) return;
+            setPdfUrl(URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })));
+          }
         } else if (size > LARGE_FILE_THRESHOLD && !forcePreview) {
           // 大文本文件：拦截（不读内容），用户确认后才读
           setLargeBlocked(true);
@@ -197,7 +220,7 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     return () => {
       cancelled = true;
     };
-  }, [path, isImage, ext, reloadKey, selfReload]);
+  }, [path, isImage, isPdf, ext, reloadKey, selfReload]);
 
   // ── 文件切换/重读 → 退出编辑、清脏标记（对齐 Hermes filePath/reloadKey effect）──
   useEffect(() => {
@@ -310,7 +333,9 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
 
   // ── 编辑能力（对齐 Hermes canEdit：完整可读文本；largeBlocked 拦截态不读内容 →
   //    不可编辑，force 预览后解除——Hermes blockedByTarget 同款语义）──
-  const canEdit = text !== null && !binary && !largeBlocked && !isImage;
+  // 编辑仅限完整可读文本（对齐 Hermes：never images, binaries, or files we only
+  // loaded the first 512 KB of）——PDF 无文本态，显式排除（防御语义）
+  const canEdit = text !== null && !binary && !largeBlocked && !isImage && !isPdf;
 
   // 每击键：更新 draft ref（不重渲染），仅 dirty 边界翻转时 setState
   const handleEditorChange = useCallback((value: string) => {
@@ -569,6 +594,14 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
               <span className="text-[10px] text-[var(--ui-text-tertiary)]">{error}</span>
             </div>
           </div>
+        ) : isPdf && pdfUrl ? (
+          /* 🔴 PDF 预览（对齐 Hermes isPdf 分支：iframe blob URL，内置查看器带
+             下载/缩放；不进文本读取路径，永远不落"二进制文件"提示） */
+          <iframe
+            src={pdfUrl}
+            title={basename(path)}
+            className="h-full w-full border-0 bg-white"
+          />
         ) : binary ? (
           <div className="flex-1 min-h-0 overflow-auto">
             <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">

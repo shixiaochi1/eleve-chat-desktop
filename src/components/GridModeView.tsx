@@ -55,6 +55,7 @@ import { useGridChat, type AgentChatState } from '../hooks/useGridChat';
 import AgentChatCard, { type AgentProfileInfo, type AgentCardColor } from './AgentChatCard';
 import { applyQueueEditToBubbles, applyQueueRemoveToBubbles, type QueueBubbleSyncOp } from '../lib/queue-bubble-sync';
 import { ArtifactPreviewOverlay } from './ArtifactCard';
+import PreviewFloatingOverlay from './preview/PreviewFloatingOverlay';
 import { getWsClient } from '../services/ws-client';
 import { sessionIdMatchesProfile, persistSessionPointer, loadProfilePointers, batchSaveProfilePointers } from '../utils/session';
 
@@ -611,6 +612,10 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
       </div>
       {/* 宫格 Artifact 浮层预览（无右栏语义，portal 到 body） */}
       <ArtifactPreviewOverlay />
+      {/* 🔴 宫格预览浮层（2026-08-28 对齐 Hermes 修复"宫格预览黑洞"）：
+          preview.open / #preview 链接在宫格下也有可见承载；sessionId 取
+          焦点卡片会话（webview restart RPC 上下文，对齐单视图右栏传参） */}
+      <PreviewFloatingOverlay sessionId={focusedSessionId} />
     </div>
   );
 });

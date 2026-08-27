@@ -124,6 +124,7 @@ export default function App() {
     rightAnchor, setRightAnchor,
     rightTab, setRightTab,
     terminalMounted,
+    previewMounted,
     handleToggleFiles,
     MIN_CHAT_WIDTH,
   } = usePanelLayout();
@@ -1899,8 +1900,10 @@ export default function App() {
           </PaneMain>
 
           {/* 右侧面板：文件浏览器 / 终端 / 预览 / 产物（靠标签切换）
-              🔴 终端常驻挂载：切 tab 只 CSS hidden，PTY shell 不死（对齐 Hermes
-              PersistentTerminal “shell 存活于隐藏”）；其余面板按需渲染 */}
+              🔴 终端 + 预览常驻挂载：切 tab 只 CSS hidden——PTY shell 不死（对齐
+              Hermes PersistentTerminal "shell 存活于隐藏"）、预览子 webview 不死
+              （2026-08-28 对齐修复：旧实现条件渲染 → 切 tab 即 preview_webview_close
+              → 切回重建 → 页面状态丢失）；files/artifacts 按需渲染 */}
           <Pane side="right" className="pane-right-column">
             {rightOpen && (
               <>
@@ -1913,13 +1916,19 @@ export default function App() {
                     onFileAttach={(path: string) => requestComposerInsert(`@file:"${path}"`)}
                   />
                 )}
-                {rightTab === 'preview' && (
-                  <PreviewCenter sessionId={sess.sessionId} cwd={sessionCwd} />
-                )}
                 {rightTab === 'artifacts' && (
                   <ArtifactPanel sessionId={sess.sessionId} profile={currentProfile} onSwitchSession={handleSwitchSession} />
                 )}
               </>
+            )}
+            {/* 🔴 预览常驻挂载（2026-08-28 对齐 Hermes + terminal 同款待遇）：
+                previewMounted 首次可见才置位 → webview create 有真实坐标尺寸；
+                之后 hidden 保活——切 files/terminal/artifacts 再切回，页面状态
+                （SPA 路由/表单/滚动）不丢 */}
+            {previewMounted && (
+              <div className={rightOpen && rightTab === 'preview' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}>
+                <PreviewCenter sessionId={sess.sessionId} cwd={sessionCwd} />
+              </div>
             )}
             {/* 🔴 终端挂载（2026-08-09 v2 对齐 Hermes mounted 延迟）：
                 terminalMounted 首次可见才置位 → xterm open 时有真实尺寸；
