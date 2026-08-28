@@ -73,8 +73,14 @@ export function clearPreviewArtifacts(sid: string): void {
   emit()
 }
 
+/** 🔴 2026-08-28 修复 React #185（整页无限渲染崩溃）：空会话快照必须返回
+ * **模块级常量**（稳定引用）——之前 `?? []` 每次返回新空数组，React 的
+ * useSyncExternalStore 渲染后比对快照 Object.is 永不相等 → 强制重渲染 →
+ * 又是新数组 → 无限循环。会话无产物时 Main 界面一打开即崩（#185）。 */
+const EMPTY_ARTIFACTS: PreviewArtifact[] = []
+
 export function getPreviewArtifacts(sid: string): PreviewArtifact[] {
-  return bySession[sid] ?? []
+  return bySession[sid] ?? EMPTY_ARTIFACTS
 }
 
 /** React 订阅（状态行渲染用） */
