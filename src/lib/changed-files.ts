@@ -5,6 +5,7 @@
  */
 
 import type { ChatMessagePart } from '@/lib/chat-messages'
+import { firstStringField } from '@/lib/text'
 
 const FILE_EDIT_TOOL_NAMES = new Set(['edit_file', 'patch', 'write_file'])
 
@@ -56,16 +57,6 @@ function parseMaybeObject(value: unknown): Record<string, unknown> {
   }
 
   return {}
-}
-
-function firstStringField(record: Record<string, unknown>, keys: string[]): string {
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === 'string' && value.trim()) {
-      return value.trim()
-    }
-  }
-  return ''
 }
 
 function htmlPathFromInlineDiff(diff: string): string {

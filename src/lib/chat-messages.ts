@@ -10,6 +10,8 @@
  *   NEW: one assistant ChatMessage contains parts[] — reasoning, tool-calls, text are parts
  */
 
+import { firstStringField } from '@/lib/text'
+
 // ── ChatMessagePart types (1:1 from assistant-ui ThreadAssistantMessagePart) ──
 
 export interface TextMessagePart {
@@ -321,16 +323,6 @@ function toolResult(
 }
 
 // ── Tool part matching ──
-
-function firstStringField(record: Record<string, unknown>, keys: readonly string[]): string {
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === 'string' && value.trim()) {
-      return value.trim()
-    }
-  }
-  return ''
-}
 
 function normalizeToolMatchValue(value: string): string {
   return value.trim().toLowerCase()
