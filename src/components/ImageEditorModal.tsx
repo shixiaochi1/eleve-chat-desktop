@@ -1,16 +1,14 @@
 /**
- * ImageEditorModal v7 — 聊天区图片编辑（🔴 2026-08-25 回归纯标注）
+ * ImageEditorModal v8 — 聊天区图片编辑（🔴 2026-08-29 升级 AI 重绘 + 标注双模式）
  *
  * 架构：壳的独立能力（与画布插件零耦合）——主窗口内全屏编辑，不弹新窗口。
- * 用户拍板：**重绘功能仅画布提供**（InpaintNode /v1/images/inpaint），前端聊天区
- * 编辑器 = **标注工具**——涂抹红色标记要修改的区域 → 合成标注图 → 作为附件发给
- * LLM（LLM 结合标注图 + 用户文字，经 image_generate 图生图处理）。
- *
- * v7 变化（2026-08-25 14:29）：
- * 1. 🗑 取消前端真重绘（AI 重绘 / alpha mask / /v1/images/inpaint 全移除——
- *    该能力仅画布保留）
- * 2. 编辑器改名「编辑」（不再叫"局部重绘"）
- * 3. 确认 = 合成标注图发附件（唯一动作）
+ * 双模式：
+ * 1. 🪄 AI 重绘（v8，2026-08-29 用户拍板"前端编辑用重绘功能，不重复造轮子"）：
+ *    涂抹 → alpha mask（自然尺寸）+ 干净原图 → POST /v1/images/inpaint
+ *    （httpJson 自动 discoverPort；复用画布重绘全链路：双图引导+画布填充+
+ *    定稿提示词+本地化）→ 结果 /media/images → 「使用此图」fetch 转 dataURL
+ *    进附件（base64FromDataURL 兼容）→ ELEVE attach_bytes 落盘
+ * 2. 🖍 标注模式（v7 保留）：合成标注图发附件，agent 结合文字自行处理
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -630,7 +628,27 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
           <div className="ml-auto flex gap-2">
             <button onClick={() => setAiResult(null)} className="rounded-md px-3 py-1 text-xs bg-white/10 text-white hover:bg-white/25">继续编辑</button>
             <button
-              onClick={() => { const base = (name || 'image').replace(/\.[^.]+$/, ''); onConfirm(aiResult, `${base}-重绘.png`) }}
+              onClick={async () => {
+                const base = (name || 'image').replace(/\.[^.]+$/, '')
+                // 🔴 2026-08-29 链路闭环修复：附件链路 uploadUnuploaded 对 preview
+                // 执行 base64FromDataURL（按逗号切 base64）——URL 会被原样当
+                // base64 发给 image.attach_bytes → agent 收不到图。使用前把
+                // 结果 URL fetch 回来转 dataURL，下游全链路按原样工作。
+                let out = aiResult
+                try {
+                  const resp = await fetch(aiResult)
+                  const blob = await resp.blob()
+                  out = await new Promise<string>((resolve, reject) => {
+                    const fr = new FileReader()
+                    fr.onload = () => resolve(fr.result as string)
+                    fr.onerror = () => reject(fr.error)
+                    fr.readAsDataURL(blob)
+                  })
+                } catch (err) {
+                  console.warn('[ImageEditor] 结果图取回失败，回退原 URL:', err)
+                }
+                onConfirm(out, `${base}-重绘.png`)
+              }}
               className="rounded-md px-3 py-1 text-xs font-medium bg-emerald-500 text-white hover:bg-emerald-400"
             >
               ✓ 使用此图
