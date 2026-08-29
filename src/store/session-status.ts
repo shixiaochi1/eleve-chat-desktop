@@ -144,6 +144,11 @@ getWsClient().addEventListener((eventName: string, data: unknown) => {
   const sid = d.session_id;
   if (!sid) return;
   const payload = d.payload ?? {};
+  // 🔴 兼容两种事件帧格式（ws-client 分发时把 params 平铺交给 handler）：
+  // - build_ws_event（标准，payload 内聚）：{ session_id, payload: {...}, seq, ts }
+  // - build_event_frame（平铺，只注入 type）：{ process_id, session_id, ... }
+  // process.started / terminal.close 走后者，字段在顶层，故取 payload ?? 整帧。
+  const flat = (d.payload ?? d) as Record<string, unknown>;
 
   switch (eventName) {
     // ── 权威快照：running + pending_prompts（后端每次状态变化推送） ──
@@ -211,7 +216,7 @@ getWsClient().addEventListener((eventName: string, data: unknown) => {
     // 后端：ProcessRegistry.on_start_tx → Gateway 广播 process.started
     // （registry.rs spawn 注册点 / api_server.rs 6-F2 监听块）
     case 'process.started': {
-      const pid = payload.process_id as string | undefined;
+      const pid = flat.process_id as string | undefined;
       if (!pid) break;
       let set = backgroundProcesses.get(sid);
       if (!set) {
@@ -233,7 +238,7 @@ getWsClient().addEventListener((eventName: string, data: unknown) => {
     // 旧实现收到这个事件后又发一次全量 process.list，纯属浪费——
     // 事件本身已经告诉我们是哪个进程关了。
     case 'terminal.close': {
-      const pid = payload.process_id as string | undefined;
+      const pid = flat.process_id as string | undefined;
       const set = backgroundProcesses.get(sid);
       if (pid && set) {
         set.delete(pid);
