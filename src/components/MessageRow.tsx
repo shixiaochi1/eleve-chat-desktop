@@ -106,6 +106,15 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
       let textOrdinal = 0
       let reasoningOrdinal = 0
 
+      // 🔴 流式 streaming 门控：isLast 必须是"最后一个 text part"（而非数组末位）——
+      // 到达序 [text → tool → text]（工具调用后的总结段，高频场景）中，若按数组末位
+      // 判定，工具后的流式文本 isLast=false → streaming=false → 无平滑揭示 + 尾块
+      // 立即高亮（每 flush 全量 hljs）+ artifact 按落定态误提升。
+      let lastTextPi = -1
+      for (let pi = 0; pi < m.parts.length; pi++) {
+        if (m.parts[pi].type === 'text') lastTextPi = pi
+      }
+
       for (let pi = 0; pi < m.parts.length; pi++) {
         const part = m.parts[pi]
 
@@ -128,7 +137,7 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
           renderItems.push({ kind: 'reasoning', key: `r-${m.id}-${reasoningOrdinal}`, text: part.text, done: part.done, idx: reasoningOrdinal })
           reasoningOrdinal++
         } else if (part.type === 'text') {
-          renderItems.push({ kind: 'text', key: `t-${m.id}-${textOrdinal}`, text: part.text, isLast: pi === m.parts.length - 1 })
+          renderItems.push({ kind: 'text', key: `t-${m.id}-${textOrdinal}`, text: part.text, isLast: pi === lastTextPi })
           textOrdinal++
         }
       }

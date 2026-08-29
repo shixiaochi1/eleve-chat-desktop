@@ -14,6 +14,7 @@ import {
   todoRowModel, clarifyRowModel, delegateRowModel, specializedRowModel,
   delegateCardModel, delegateStatusLabel,
 } from './tool-row-model';
+import { appendTextPart, textPart } from '@/lib/chat-messages';
 
 describe('classifyTool / toolTitle', () => {
   it('variant 表命中', () => {
@@ -381,6 +382,33 @@ describe('delegateStatusLabel', () => {
     expect(delegateStatusLabel('interrupted')).toBe('已中断');
     expect(delegateStatusLabel('error')).toBe('错误');
     expect(delegateStatusLabel('weird')).toBe('weird');
+  });
+});
+
+describe('appendTextPart（流式文本累加——文本晚到/空 delta 回归）', () => {
+  const toolPart = { type: 'tool-call', toolCallId: 't1', toolName: 'terminal', args: {}, argsText: '' } as never;
+
+  it('🔴 工具后文本段：text → tool → deltaB → deltaC 并入单一 text part（不碎裂成 N 气泡）', () => {
+    const withTool = [textPart('我来查一下'), toolPart];
+    const step1 = appendTextPart(withTool, '查询');
+    const step2 = appendTextPart(step1, '结果是');
+    const texts = step2.filter((p) => p.type === 'text').map((p) => (p as { text: string }).text);
+    // 两段文本都渲染在工具上方 → 并入单一 text part 才是连续文本流（Hermes 文本槽位形态），
+    // 每 delta 各自新开 part 会把工具后的总结文本碎裂成 N 个独立气泡
+    expect(texts).toEqual(['我来查一下查询结果是']);
+    // 工具行仍在文本之后（Hermes 视觉：文本上、工具下）
+    expect(step2.at(-1)?.type).toBe('tool-call');
+    // 单一 text part → MessageRow isLast 判定稳定，流式 streaming 标记生效
+    expect(texts).toHaveLength(1);
+  });
+
+  it('🔴 空 delta 防御：尾部非 text 时不新开空 text part（防空气泡）', () => {
+    const parts = [textPart('a'), toolPart];
+    expect(appendTextPart(parts, '').length).toBe(parts.length);
+  });
+
+  it('空 parts + 空 delta → 不建段', () => {
+    expect(appendTextPart([], '')).toEqual([]);
   });
 });
 

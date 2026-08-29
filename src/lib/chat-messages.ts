@@ -158,6 +158,10 @@ export function reasoningPart(text: string): ReasoningMessagePart {
 // ── Append helpers (immutable, return new array) ──
 
 export function appendTextPart(parts: ChatMessagePart[], delta: string): ChatMessagePart[] {
+  // 🔴 空 delta 防御：尾部非 text 时收到空 delta（`payload.delta || ''` 兜底路径），
+  // 新开空 text part 会渲染成空气泡（StreamBlocks 对空文本 return null，但气泡
+  // 容器仍在）；并入尾部 text 则无害（长度不变）。直接忽略。
+  if (!delta) return parts
   const next = [...parts]
   const last = next.at(-1)
 
@@ -170,8 +174,16 @@ export function appendTextPart(parts: ChatMessagePart[], delta: string): ChatMes
   // → append 到末尾会渲染成 [TOOL][TEXT]（工具卡跑到文本前）。对齐 Hermes 视觉
   // （文本上、工具卡下，Hermes mergeFinalAssistantText 是位置保持的替换）：
   // 新开 text 插到第一个 tool-call 之前。
+  // 🔴 2026-08-29 修复（vitest 首用例抓出）：插入点前一个 part 若是 text 必须**并入**——
+  // 插入位置在 tool 之前而数组末位仍是 tool，后续 delta 的 `last` 永远是 tool →
+  // 每个 delta 各自新开 text part → 工具后的流式总结文本碎裂成 N 个独立气泡。
   const firstToolIdx = next.findIndex((p) => p.type === 'tool-call')
   if (firstToolIdx >= 0) {
+    const prev = next[firstToolIdx - 1]
+    if (prev && prev.type === 'text') {
+      next[firstToolIdx - 1] = { ...prev, text: `${prev.text}${delta}` }
+      return next
+    }
     return [...next.slice(0, firstToolIdx), textPart(delta), ...next.slice(firstToolIdx)]
   }
 
