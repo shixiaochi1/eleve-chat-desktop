@@ -13,15 +13,15 @@ import { Switch } from '../ui/switch';
 export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
   const [config, setConfig] = useState({
     approvals_mode: 'manual',
-    approvals_timeout: 60,
+    approvals_timeout: 300,
     mcp_reload_confirm: true,
     command_allowlist: '',
     redact_secrets: true,
     allow_private_urls_security: false,
     allow_private_urls_browser: false,
-    auto_local_for_private_urls: false,
+    auto_local_for_private_urls: true,
     use_real_profile: false,
-    checkpoints_enabled: true,
+    checkpoints_enabled: false,
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -42,15 +42,18 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
 
       setConfig({
         approvals_mode: approvals.mode || 'manual',
-        approvals_timeout: approvals.timeout ?? 60,
+        // 🔴 fallback 对齐 eleve-config default_approvals_timeout()=300（旧 60 与后端不符）
+        approvals_timeout: approvals.timeout ?? 300,
         mcp_reload_confirm: approvals.mcp_reload_confirm ?? true,
         command_allowlist: (Array.isArray(approvals.command_allowlist) ? approvals.command_allowlist.join(', ') : approvals.command_allowlist || ''),
         redact_secrets: security.redact_secrets ?? true,
         allow_private_urls_security: security.allow_private_urls ?? false,
         allow_private_urls_browser: browser.allow_private_urls ?? false,
-        auto_local_for_private_urls: browser.auto_local_for_private_urls ?? false,
+        // 🔴 fallback 对齐 default_auto_local_for_private_urls()=true
+        auto_local_for_private_urls: browser.auto_local_for_private_urls ?? true,
         use_real_profile: browser.use_real_profile ?? false,
-        checkpoints_enabled: checkpoints.enabled ?? true,
+        // 🔴 fallback 对齐 CheckpointsConfig.enabled 默认 false
+        checkpoints_enabled: checkpoints.enabled ?? false,
       });
       setLoaded(true);
     } catch {
@@ -138,7 +141,7 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
           className="w-32"
         />
         <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          待审批操作的超时时间。超时后操作将自动拒绝（默认 60 秒）。
+          待审批操作的超时时间。超时后操作将自动拒绝（默认 300 秒）。
         </p>
       </div>
 
@@ -185,11 +188,14 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
         />
       </div>
 
-      {/* 允许私有 URL（安全） */}
+      {/* 允许私有 URL（安全）—— 🔴 2026-08-30 链路接通：消费方 web_extract
+          （check_url_safety_with_config，对齐 Hermes url_safety.py 全局开关语义）。
+          与下方「浏览器允许私有 URL」是两个独立维度：本开关管网页提取等通用
+          工具，浏览器开关管 browser_* 工具族（Hermes 分组同款）。 */}
       <div className="flex items-center justify-between mb-3">
         <div>
           <label className="block text-xs text-muted-foreground mb-0.5">允许私有 URL（安全）</label>
-          <p className="text-xs text-muted-foreground/70 leading-relaxed m-0">Agent 可访问内网 / 本地地址（安全检查层面）。</p>
+          <p className="text-xs text-muted-foreground/70 leading-relaxed m-0">网页提取等通用工具可访问内网 / 本地地址（不影响浏览器工具，后者用下方独立开关）。</p>
         </div>
         <Switch
           checked={config.allow_private_urls_security}

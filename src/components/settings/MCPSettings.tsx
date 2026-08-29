@@ -68,6 +68,21 @@ export default function MCPSettings() {
   };
 
   const handleReload = async () => {
+    // 🔴 2026-08-30 消费 approvals.mcp_reload_confirm（对齐 Hermes
+    // config_defaults.py L2526 默认 true）：重载前需用户确认。
+    // 该开关在「设置 → 安全防护 → MCP 重载确认」配置。
+    try {
+      const cfg = await call('get_config', {});
+      const needConfirm = (cfg?.approvals?.mcp_reload_confirm as boolean | undefined) ?? true;
+      if (needConfirm && !window.confirm('确认重载所有 MCP 服务器？运行中的 MCP 连接会重建。')) {
+        return;
+      }
+    } catch {
+      // 配置读取失败 → 按默认（需确认）走
+      if (!window.confirm('确认重载所有 MCP 服务器？运行中的 MCP 连接会重建。')) {
+        return;
+      }
+    }
     setReloading(true);
     try {
       await call('reload_mcp', {});
