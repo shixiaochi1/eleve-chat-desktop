@@ -41,6 +41,8 @@ pub use preview_console::PreviewConsoleState;
 pub use preview_file_watch::PreviewFileWatchManager;
 pub use preview_webview::{PreviewReadState, PreviewWebviewManager};
 
+pub mod external_fetch;
+
 // ═══════════════════════════════════════════════════════════════════════════
 // TAURI STATE — 仅存端口、子进程句柄、关闭标志
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1315,10 +1317,20 @@ pub fn run() {
             preview_webview::preview_webview_update,
             preview_webview::preview_webview_navigate,
             preview_webview::preview_webview_reload,
+            // 🔴 2026-08-29 对齐 Hermes reloadIgnoringCache：硬刷新（清缓存+reload）
+            preview_webview::preview_webview_reload_ignoring_cache,
             preview_webview::preview_webview_visible,
             preview_webview::preview_webview_devtools,
             preview_webview::preview_webview_read_text,
+            // 🔴 2026-08-29 对齐 Hermes drive_preview：act 引擎注入通道
+            preview_webview::preview_webview_eval_js,
             preview_webview::preview_text_received,
+            // 🔴 2026-08-29 对齐 Hermes hermesDesktop.fetchLinkTitle：link 标题抓取
+            // （主进程桥语义——renderer 受 CORS 约束不直连外网）
+            external_fetch::fetch_link_title,
+            // 🔴 2026-08-29 对齐 Hermes electron/favicon "the thorough way"：
+            // 站点图标阶梯解析（声明→manifest→well-known），data URL 返回
+            external_fetch::fetch_favicon,
             // 交互式 PTY（右栏用户终端真实 shell，对齐 Hermes terminalApi）
             pty::pty_start,
             pty::pty_write,

@@ -16,8 +16,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { FileCode2, Loader2, AlertCircle } from 'lucide-react'
 import type { PreviewTab } from '@/store/preview'
 import { findArtifact, useArtifacts } from '@/store/artifacts'
-import { composeArtifactHtml } from '@/lib/artifact-render'
 import { cn } from '@/lib/utils'
+import WindowedSourceView from '@/components/preview/WindowedSourceView'
+import ArtifactHtmlFrame from '@/components/preview/ArtifactHtmlFrame'
+// 🔴 复用 ArtifactPanel 的版本步进器（不重复造轮子）
+import { VersionStepper } from '@/components/ArtifactPanel'
 
 type ArtifactViewMode = 'rendered' | 'source'
 
@@ -28,10 +31,14 @@ export default function ArtifactPreviewPane({ tab }: { tab: PreviewTab }) {
     [registry, tab.target.artifactId],
   )
   const [mode, setMode] = useState<ArtifactViewMode>('rendered')
+  // 🔴 2026-08-29 对齐 Hermes preview-artifact VersionStepper：版本步进——
+  // 此前 Eye 按钮路径只渲染最新版，无法回看历史版本；null = 跟随最新
+  const [versionIdx, setVersionIdx] = useState<number | null>(null)
 
-  // tab 切换 → 重置视图模式（对齐 Hermes：文件切换重置 userMode）
+  // tab 切换 → 重置视图模式与版本（对齐 Hermes：文件切换重置 userMode）
   useEffect(() => {
     setMode('rendered')
+    setVersionIdx(null)
   }, [tab.id])
 
   if (!record) {
@@ -44,14 +51,17 @@ export default function ArtifactPreviewPane({ tab }: { tab: PreviewTab }) {
     )
   }
 
-  const current = record.versions[record.versions.length - 1]
+  const versionIndex =
+    versionIdx === null
+      ? record.versions.length - 1
+      : Math.min(Math.max(0, versionIdx), record.versions.length - 1)
+  const current = record.versions[versionIndex]
   const content = current?.content ?? ''
   const isHtml = record.kind === 'html'
   const isSvg = record.kind === 'svg'
   const renderable = isHtml || isSvg
   const effectiveMode: ArtifactViewMode =
     mode === 'rendered' && renderable ? 'rendered' : 'source'
-  const htmlDoc = isHtml ? composeArtifactHtml(content) : ''
   const svgSrc = isSvg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(content)}` : ''
 
   return (
@@ -62,11 +72,11 @@ export default function ArtifactPreviewPane({ tab }: { tab: PreviewTab }) {
         <span className="flex-1 min-w-0 truncate text-xs text-[var(--ui-text-primary)]" title={record.title}>
           {record.title}
         </span>
-        {record.versions.length > 1 && (
-          <span className="text-[10px] text-[var(--ui-text-tertiary)] shrink-0" title="最新版本">
-            v{record.versions.length}
-          </span>
-        )}
+        <VersionStepper
+          current={versionIndex}
+          total={record.versions.length}
+          onSelect={setVersionIdx}
+        />
         {renderable && (
           <div className="flex shrink-0 items-center rounded-md border border-[var(--ui-stroke-secondary)] overflow-hidden">
             {(['rendered', 'source'] as const).map((m) => (
@@ -95,10 +105,9 @@ export default function ArtifactPreviewPane({ tab }: { tab: PreviewTab }) {
             <span className="text-xs">加载中...</span>
           </div>
         ) : effectiveMode === 'rendered' && isHtml ? (
-          <iframe
-            srcDoc={htmlDoc}
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-            referrerPolicy="no-referrer"
+          // 🔴 sandbox/composeArtifactHtml 基线统一 ArtifactHtmlFrame（单一实现）
+          <ArtifactHtmlFrame
+            content={content}
             title={record.title}
             className="w-full h-full border-none bg-white"
           />
@@ -108,9 +117,12 @@ export default function ArtifactPreviewPane({ tab }: { tab: PreviewTab }) {
             <img src={svgSrc} alt={record.title} className="max-w-full max-h-full object-contain" />
           </div>
         ) : (
-          <pre className="h-full overflow-auto p-3 text-[11px] leading-relaxed text-[var(--ui-text-primary)] whitespace-pre-wrap break-all">
-            <code>{content}</code>
-          </pre>
+          // 🔴 2026-08-29 对齐 Hermes ArtifactPreview SourceView：窗口化高亮源码
+          //（此前裸 pre/code 无高亮；与 ArtifactPanel 同款 WindowedSourceView）
+          <WindowedSourceView
+            language={isSvg ? 'xml' : isHtml ? 'html' : record.language}
+            text={content}
+          />
         )}
       </div>
     </div>

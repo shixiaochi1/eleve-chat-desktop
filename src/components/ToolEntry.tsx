@@ -22,7 +22,7 @@ import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
 import { getCurrentSessionCwd } from '@/lib/session-cwd';
 import { recordPreviewArtifact } from '@/store/preview-status';
 import { openPreview } from '@/store/preview';
-import { isDesktop } from '@/utils/bridge';
+import { openExternal } from '@/lib/external-open';
 
 /**
  * product 模式结果摘要（隐藏原始工具数据，显示易读的工具活动）；
@@ -45,19 +45,8 @@ function htmlPathFromInlineDiff(value: string): string {
   return '';
 }
 
-/** 外部浏览器打开（对齐 Hermes PrettyLink openExternal：Tauri shell / window.open fallback） */
-async function openExternalLink(url: string) {
-  if (isDesktop()) {
-    try {
-      const { open: shellOpen } = await import('@tauri-apps/plugin-shell');
-      await shellOpen(url);
-      return;
-    } catch {
-      /* fall through to window.open */
-    }
-  }
-  window.open(url, '_blank', 'noopener,noreferrer');
-}
+/** 外部打开统一走 lib/external-open（对齐 Hermes openExternal 单一出口；此处只留薄别名） */
+const openExternalLink = openExternal;
 
 /** 单个工具调用数据 */
 export interface ToolCallItem {

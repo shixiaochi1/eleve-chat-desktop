@@ -10,7 +10,7 @@
  * 的独立面板，不并入预览中心（避免重复造轮子）。
  */
 
-import { File, Globe, X, ExternalLink } from 'lucide-react';
+import { File, Globe, X, ExternalLink, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { cn } from '@/lib/utils';
@@ -22,6 +22,7 @@ import {
   closeOtherTabs,
   closeTab,
   closeTabsToRight,
+  newBrowserTab,
   openPreview,
   selectTab,
   usePreviewStore,
@@ -104,6 +105,15 @@ function PreviewTabBar() {
           </ContextMenu>
         );
       })}
+      {/* 🔴 2026-08-29 对齐 Hermes：工具栏"+"永远 newBrowserTab() 开新 Browser
+          tab——"新 tab 是用户主动要的"，不走 browserTabId 归属决策 */}
+      <button
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-accent/30 hover:text-foreground"
+        onClick={() => newBrowserTab()}
+        title="新建浏览器标签页"
+      >
+        <Plus size={13} />
+      </button>
     </div>
   );
 }

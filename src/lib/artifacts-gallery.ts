@@ -35,7 +35,8 @@ const WINDOWS_PATH_RE = /(^|[\s("'`])([A-Za-z]:[\\/][^\s"'`<>]+(?:\.[a-z0-9]{1,8
 const URL_RE = /https?:\/\/[^\s<>"')]+/g
 const PATH_RE = /(^|[\s("'`])((?:\/|~\/|\.\.?\/)[^\s"'`<>\\]+(?:\.[a-z0-9]{1,8})?)/gi
 const IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp)(?:\?.*)?$/i
-const FILE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp|pdf|txt|json|md|csv|zip|tar|gz|mp3|wav|mp4|mov)(?:\?.*)?$/i
+// 🔴 2026-08-29 对齐 Hermes artifact-utils FILE_EXT_RE：补 avi/flac/m4a/mkv/ogg/opus/webm
+const FILE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp|pdf|txt|json|md|csv|zip|tar|gz|mp3|wav|mp4|mov|avi|flac|m4a|mkv|ogg|opus|webm)(?:\?.*)?$/i
 const KEY_HINT_RE = /(path|file|url|image|artifact|output|download|result|target)/i
 
 /** 会话标题回退（对齐 Hermes artifactSessionTitle） */
@@ -93,10 +94,12 @@ function looksLikePathOrUrl(value: string): boolean {
   )
 }
 
+// 🔴 2026-08-29 对齐 Hermes looksLikeArtifact（artifact-utils.ts:148-154）：
+// 删除自创第三条 `startsWith('/') && includes('.')`——无扩展名的任意 `/` 路径
+// 含点号即算产物，误报率过高；必须命中扩展名白名单
 function looksLikeArtifact(value: string): boolean {
   if (/^(?:https?:\/\/|data:image\/)/.test(value)) return true
-  if (looksLikePathOrUrl(value) && (IMAGE_EXT_RE.test(value) || FILE_EXT_RE.test(value))) return true
-  return value.startsWith('/') && value.includes('.')
+  return looksLikePathOrUrl(value) && (IMAGE_EXT_RE.test(value) || FILE_EXT_RE.test(value))
 }
 
 function artifactKind(value: string): ArtifactKind {
@@ -240,16 +243,24 @@ function collectArtifactsFromMessage(
   }
 }
 
+// 🔴 2026-08-29 对齐 Hermes normalizeArtifactTimestamp（artifact-utils.ts:210-218）：
+// 持久化会话时间戳是 Unix 秒——大于最大合理秒值（10^11 ≈ 5138 年）的已是毫秒，
+// 原样保留；秒值 ×1000 归一。此前无归一，后端若返回 unix 秒会显示成 1970 年并破坏排序。
+const MAX_UNIX_SECONDS = 10_000_000_000
+
 /** 时间戳回退链（对齐 Hermes：message.timestamp → session.last_active → started_at） */
 function artifactTimestamp(
   message: { timestamp?: unknown },
   session: { last_active?: unknown; started_at?: unknown },
 ): number {
   const toNum = (v: unknown): number | null => {
-    if (typeof v === 'number') return v
+    if (typeof v === 'number') {
+      if (!Number.isFinite(v) || v <= 0) return null
+      return v < MAX_UNIX_SECONDS ? v * 1000 : v
+    }
     if (typeof v === 'string') {
       const n = Number(v)
-      if (!Number.isNaN(n)) return n
+      if (!Number.isNaN(n) && n > 0) return n < MAX_UNIX_SECONDS ? n * 1000 : n
       const t = Date.parse(v)
       if (!Number.isNaN(t)) return t
     }

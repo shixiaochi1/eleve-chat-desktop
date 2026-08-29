@@ -14,6 +14,7 @@ import { getWsClient } from '@/services/ws-client'
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
 import { getCurrentSessionCwd } from '@/lib/session-cwd'
 import { getActivePreviewWebview } from '@/lib/preview-reader'
+import { buildPreviewActJs } from '@/lib/preview-act-engine'
 import { getPreviewStoreState } from '@/store/preview'
 import { notifyWorkspaceChanged, toolMayMutateFiles, toolChangedPath } from '@/lib/workspace-events'
 import {
@@ -29,10 +30,75 @@ import {
 export interface PreviewEventsOptions {
   /** 当前聚焦会话 ID（preview.open 过滤：后台 turn 不劫持，对齐 Hermes $focusedRuntimeId） */
   getFocusedSessionId: () => string | null | undefined
+  /** 🔴 2026-08-29 对齐 Hermes sessionIsOnScreen（use-preview-routing.ts:32-38）：
+   *  "Honor it for any session that's ON SCREEN — the primary chat or an open
+   *  tile — not only the focused one"。仅 focused 门禁会让可见 tile 会话的
+   *  open/close 静默消失（Agent 明确响应了用户请求却被丢弃）。 */
+  isSessionOnScreen: (sessionId: string) => boolean
 }
 
 function asRecord(payload: unknown): Record<string, unknown> {
   return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+}
+
+/** 🔴 2026-08-29 对齐 Hermes PREVIEW_READ_MAX_CHARS（right-rail/preview-reader.ts:50）：
+ *  单次读取硬上限——页面 innerText 可达数 MB，而读取结果要跨网关进入模型上下文 */
+const PREVIEW_READ_MAX_CHARS = 24_000
+
+/** 🔴 2026-08-29 drive_preview 应答（对齐 Hermes desktop-bridge act 引擎：
+ *  WS RPC preview.act.respond，与 read 应答同形） */
+async function respondPreviewAct(requestId: string, result: string): Promise<void> {
+  try {
+    const ws = getWsClient()
+    await ws.sendRpc('preview.act.respond', { request_id: requestId, text: result })
+  } catch {
+    /* 工具侧已超时/连接断开，忽略 */
+  }
+}
+
+/**
+ * 🔴 2026-08-29 drive_preview 请求处理：把 act 引擎注入活跃 url tab 的子
+ * webview 执行（preview_webview_eval_js），应答结果 JSON。与 read_preview
+ * 对称——同一 preview_gateway oneshot 桥；无活跃 webview 立即回错误 JSON
+ * （工具侧报"无预览/超时"而不是干等）。
+ */
+async function handlePreviewActRequest(payload: Record<string, unknown>): Promise<void> {
+  const requestId = typeof payload.request_id === 'string' ? payload.request_id : ''
+  if (!requestId) return
+
+  const respondError = (message: string) => {
+    void respondPreviewAct(
+      requestId,
+      JSON.stringify({ ok: false, error: message }),
+    )
+  }
+
+  const label = getActivePreviewWebview()
+  if (!label) {
+    respondError('No browser webview is active. Open a page with open_preview first.')
+    return
+  }
+
+  const action = typeof payload.action === 'string' ? payload.action : ''
+  const actPayload: Record<string, unknown> = { action }
+  for (const key of ['ref', 'selector', 'text', 'key', 'to']) {
+    if (typeof payload[key] === 'string') actPayload[key] = payload[key]
+  }
+  for (const key of ['submit', 'full']) {
+    if (typeof payload[key] === 'boolean') actPayload[key] = payload[key]
+  }
+  for (const key of ['amount', 'max']) {
+    if (typeof payload[key] === 'number') actPayload[key] = payload[key]
+  }
+
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const js = buildPreviewActJs(actPayload)
+    const raw = await invoke<string>('preview_webview_eval_js', { label, js })
+    await respondPreviewAct(requestId, raw)
+  } catch (e) {
+    respondError(`Failed to act on the in-app browser: ${e instanceof Error ? e.message : String(e)}`)
+  }
 }
 
 /** 🔴 2026-08-20 read_preview 应答（对齐 Hermes _respond：WS RPC preview.read.respond） */
@@ -91,7 +157,13 @@ async function handlePreviewReadRequest(payload: Record<string, unknown>): Promi
     const fullText = parsed.text ?? ''
     const total = fullText.length
     const startIdx = typeof start === 'number' && start >= 0 ? start : 0
-    const countN = typeof count === 'number' && count > 0 ? count : 4000
+    // 🔴 2026-08-29 对齐 Hermes windowText（preview-reader.ts:72）：
+    // want = min(max(1, count ?? MAX), MAX)——默认与上限同为 24_000，此前自创
+    // 默认 4000 且无上限 clamp（超大响应会撑爆模型上下文）
+    const countN =
+      typeof count === 'number' && count > 0
+        ? Math.min(count, PREVIEW_READ_MAX_CHARS)
+        : PREVIEW_READ_MAX_CHARS
     const text = fullText.slice(startIdx, startIdx + countN)
     void respondPreviewRead(
       requestId,
@@ -151,11 +223,18 @@ export function initPreviewEvents(options: PreviewEventsOptions): () => void {
         return
       }
 
+      case 'preview.act.request': {
+        // 🔴 2026-08-29 对齐 Hermes drive_preview：agent 驱动预览活跃 tab 页面
+        void handlePreviewActRequest(payload)
+        return
+      }
+
       case 'preview.open': {
-        // 对齐 Hermes：仅聚焦会话生效。ELEVE 服务端（api_server）已按 session_id
-        // 路由到对应 WS 客户端（terminal.close 6-G 同款），此处过滤为防御性兜底
+        // 🔴 2026-08-29 对齐 Hermes sessionIsOnScreen 门禁（此前仅聚焦会话生效，
+        // 宫格下可见 tile 会话的 open_preview 会静默消失）。ELEVE 服务端已按
+        // session_id 路由到对应 WS 客户端，此处过滤为防御性兜底
         const sessionId = raw.session_id as string | undefined
-        if (sessionId && sessionId !== options.getFocusedSessionId()) return
+        if (sessionId && !options.isSessionOnScreen(sessionId)) return
 
         const target = typeof payload.url === 'string' ? payload.url.trim() : ''
         if (!target) return
@@ -171,12 +250,11 @@ export function initPreviewEvents(options: PreviewEventsOptions): () => void {
       }
 
       case 'preview.close': {
-        // 🔴 2026-08-28 对齐 Hermes preview.close（close_preview 工具 →
-        //   use-preview-routing:108-140）：与 open 同款聚焦会话门禁——
-        //   "a session the user can see may tidy the pane it opened; a hidden
-        //   background turn must not dismiss the user's preview"
+        // 🔴 2026-08-29 对齐 Hermes preview.close（use-preview-routing:108-140）：
+        // 与 open 同款 onScreen 门禁——"a session the user can see may tidy the
+        // pane it opened; a hidden background turn must not dismiss it"
         const sessionId = raw.session_id as string | undefined
-        if (sessionId && sessionId !== options.getFocusedSessionId()) return
+        if (sessionId && !options.isSessionOnScreen(sessionId)) return
 
         const target = typeof payload.url === 'string' ? payload.url.trim() : ''
         if (!target) {

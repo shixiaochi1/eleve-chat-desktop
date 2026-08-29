@@ -16,6 +16,7 @@ import {
 } from '@/store/artifacts';
 import { renderMarkdown } from '@/utils/markdown';
 import { artifactDownloadName } from '@/lib/artifact-detect';
+import ArtifactHtmlFrame from '@/components/preview/ArtifactHtmlFrame';
 // 🔴 浏览器打开走已有插件（不造轮子，对齐 PreviewFilePane writeTextFile 先例）：
 // tauri-plugin-fs 写临时文件（capability 已有 fs:allow-write-text-file + fs:scope **）
 // + tauri-plugin-opener openPath（系统默认程序打开，capability opener:allow-open-path）
@@ -28,6 +29,7 @@ import ArtifactsGallery from '@/components/ArtifactsGallery';
 import { TextTab, TextTabMeta } from '@/components/ui/text-tab';
 import { useArtifactsGallery } from '@/lib/useArtifactsGallery';
 import { collectArtifactsForSession, type GalleryArtifact } from '@/lib/artifacts-gallery';
+import { useRefreshHotkey } from '@/hooks/use-refresh-hotkey';
 import { call } from '@/utils/bridge';
 import DOMPurify from 'dompurify';
 
@@ -91,6 +93,9 @@ const ArtifactPanel = memo(function ArtifactPanel({
   }, [sessionId]);
   // 视图：本会话产物 / 产物库（跨会话画廊，Hermes app/artifacts）
   const [view, setView] = useState<'session' | 'gallery'>('session');
+  // 🔴 2026-08-29 对齐 Hermes useRefreshHotkey（app/artifacts/index.tsx:180）：
+  // 产物库视图激活期间裸 `r` 键刷新（输入框聚焦豁免）
+  useRefreshHotkey(() => { void gallery.refresh(); }, view === 'gallery');
   const openState = useOpenArtifact();
   const [copied, setCopied] = useState(false);
   // 🔴 全屏预览（老大 2026-08-05 要求）
@@ -165,8 +170,6 @@ const ArtifactPanel = memo(function ArtifactPanel({
     }
   }, [active]);
 
-  const empty = !sessionId || sessionRecords.length === 0;
-
   // 🔴 缩放适配：量预览容器宽度（ResizeObserver，含面板拖拽变宽）
   useEffect(() => {
     const el = viewportRef.current;
@@ -201,6 +204,33 @@ const ArtifactPanel = memo(function ArtifactPanel({
   const viewMode: ArtifactViewMode =
     userMode && viewModes.some((m) => m.key === userMode) ? userMode : viewModes[0].key;
 
+  // 🔴 2026-08-29 对齐 Hermes searchHints（app/artifacts/index.tsx:242-259）：从真实
+  // 数据派生旋转 placeholder——搜索命中的是文件路径（扩展名）与会话标题，不只是标签
+  const searchHints = useMemo(() => {
+    const items = gallery.artifacts;
+    if (!items?.length) return [] as string[];
+    const exts = [
+      ...new Set(
+        items
+          .map((a) => /\.(\w{2,4})$/.exec(a.value)?.[1]?.toLowerCase())
+          .filter(Boolean as unknown as (v: string | undefined) => v is string),
+      ),
+    ].slice(0, 3);
+    const titles = [...new Set(items.map((a) => a.sessionTitle).filter(Boolean))].slice(0, 2);
+    return [
+      ...exts.map((ext) => `试试 .${ext}`),
+      ...titles.map((title) => `试试 "${title}"`),
+    ];
+  }, [gallery.artifacts]);
+  const [hintIdx, setHintIdx] = useState(0);
+  useEffect(() => {
+    if (searchHints.length === 0) return;
+    const timer = setInterval(() => setHintIdx((i) => i + 1), 3000);
+    return () => clearInterval(timer);
+  }, [searchHints.length]);
+  const searchPlaceholder =
+    searchHints.length > 0 ? searchHints[hintIdx % searchHints.length] : '搜索产物 / 会话';
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* 视图切换：本会话 / 产物库（产物库 = 跨会话画廊，对齐 Hermes app/artifacts）——
@@ -218,7 +248,7 @@ const ArtifactPanel = memo(function ArtifactPanel({
               <input
                 value={gallery.query}
                 onChange={(e) => gallery.setQuery(e.target.value)}
-                placeholder="搜索产物 / 会话"
+                placeholder={searchPlaceholder}
                 className="h-7 w-40 rounded-full border border-border/80 bg-muted/30 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground/45 transition-all focus:w-48 focus:border-accent-cyan/50 focus:bg-background focus:outline-none focus:ring-2 focus:ring-accent-cyan/15"
               />
             </div>
@@ -409,7 +439,8 @@ function ArtifactListItem({
   );
 }
 
-function VersionStepper({
+/** 版本步进器（ArtifactPanel / ArtifactPreviewPane 共用，不重复造轮子） */
+export function VersionStepper({
   current,
   total,
   onSelect,
@@ -500,13 +531,7 @@ function ArtifactContentView({
             transformOrigin: 'top left',
           }}
         >
-          <iframe
-            className="block size-full border-0 bg-white"
-            sandbox="allow-scripts"
-            srcDoc={composeArtifactHtml(content)}
-            style={{ colorScheme: 'light' }}
-            title={record.title}
-          />
+          <ArtifactHtmlFrame content={content} title={record.title} />
         </div>
       </div>
     );
@@ -562,13 +587,7 @@ function ArtifactFullscreen({
       </div>
       {/* 内容：大画面 iframe */}
       <div className="min-h-0 flex-1 bg-white">
-        <iframe
-          className="block size-full border-0 bg-white"
-          sandbox="allow-scripts"
-          srcDoc={composeArtifactHtml(content)}
-          style={{ colorScheme: 'light' }}
-          title={record.title}
-        />
+        <ArtifactHtmlFrame content={content} title={record.title} />
       </div>
     </div>,
     document.body,

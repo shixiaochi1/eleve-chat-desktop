@@ -24,6 +24,63 @@ function isWindowsAbsPath(value: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(value)
 }
 
+// 🔴 2026-08-29 对齐 Hermes local-preview.ts：扩展名 → previewKind（内容形态）
+const HTML_EXTENSIONS = new Set(['html', 'htm', 'xhtml'])
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'])
+
+/** 扩展名 → MIME（对齐 Hermes mimeType 富化；常用子集，后端嗅探可覆盖） */
+const MIME_BY_EXT: Record<string, string> = {
+  avi: 'video/x-msvideo',
+  bmp: 'image/bmp',
+  css: 'text/css',
+  gif: 'image/gif',
+  htm: 'text/html',
+  html: 'text/html',
+  ico: 'image/x-icon',
+  jpeg: 'image/jpeg',
+  jpg: 'image/jpeg',
+  js: 'text/javascript',
+  json: 'application/json',
+  md: 'text/markdown',
+  mjs: 'text/javascript',
+  mov: 'video/quicktime',
+  mp3: 'audio/mpeg',
+  mp4: 'video/mp4',
+  ogg: 'audio/ogg',
+  pdf: 'application/pdf',
+  png: 'image/png',
+  svg: 'image/svg+xml',
+  txt: 'text/plain',
+  wasm: 'application/wasm',
+  webm: 'video/webm',
+  webp: 'image/webp',
+  xml: 'application/xml',
+}
+
+function extensionOf(path: string): string {
+  return /\.([a-z0-9]{1,8})$/i.exec(path)?.[1]?.toLowerCase() ?? ''
+}
+
+function filePreviewTarget(path: string): PreviewTarget {
+  const ext = extensionOf(path)
+  const previewKind = HTML_EXTENSIONS.has(ext)
+    ? ('html' as const)
+    : ext === 'pdf'
+      ? ('pdf' as const)
+      : IMAGE_EXTENSIONS.has(ext)
+        ? ('image' as const)
+        : ('text' as const)
+  const mimeType = MIME_BY_EXT[ext]
+  return {
+    kind: 'file',
+    url: path,
+    name: basename(path),
+    label: basename(path),
+    previewKind,
+    ...(mimeType ? { mimeType } : {}),
+  }
+}
+
 export function localPreviewTarget(rawTarget: string, cwd?: string | null): PreviewTarget | null {
   const raw = rawTarget.trim().replace(/^`|`$/g, '')
 
@@ -48,7 +105,7 @@ export function localPreviewTarget(rawTarget: string, cwd?: string | null): Prev
     path = joinPath(cwd, raw)
   }
 
-  return { kind: 'file', url: path, name: basename(path), label: basename(path) }
+  return filePreviewTarget(path)
 }
 
 export function normalizeOrLocalPreviewTarget(

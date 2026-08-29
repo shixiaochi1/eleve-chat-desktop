@@ -31,6 +31,10 @@ windows-version = "0.1.7"
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.55"
 windows-sys = { version = "0.59", features = ["Win32_System_Threading"] }
+# 🔴 2026-08-29 硬刷新（对齐 Hermes reloadIgnoringCache）：ClearBrowsingData COM 绑定
+# （windows-core 版本必须与 webview2-com 0.38 的依赖 0.61 精确对齐，防双副本类型不兼容）
+webview2-com = "0.38"
+windows-core = "0.61"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 libc = "0.2"

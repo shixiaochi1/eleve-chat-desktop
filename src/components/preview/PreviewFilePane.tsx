@@ -31,6 +31,7 @@ import DiffLines from '@/components/DiffLines';
 import ModeSwitcher from '@/components/preview/ModeSwitcher';
 import ImageLightbox from '@/components/ImageLightbox';
 import WindowedSourceView from '@/components/preview/WindowedSourceView';
+import { usePreviewWebview } from '@/hooks/use-preview-webview';
 import { enhanceRichFences } from '@/lib/rich-fence';
 import { isDesktop, call } from '@/utils/bridge';
 import { isFsRemoteMode, remoteReadText, remoteReadDataUrl, remoteStat, remoteWriteText } from '@/lib/remote-fs';
@@ -54,8 +55,23 @@ function isHtmlPath(path: string): boolean {
   return /\.html?$/i.test(path.split(/[?#]/, 1)[0] || path);
 }
 
-/** 二进制检测：UTF-8 替换符占比 >1% 判为二进制（Tauri readTextFile 对二进制返回替换字符） */
-function isLikelyBinary(text: string): boolean {
+/** 🔴 2026-08-29 对齐 Hermes 二进制检测（preview-file.tsx:209-227）：前 4KB 含
+ *  NUL 字节即二进制；或控制字符（除 \t\n\r）占比 >12%。此前用 UTF-8 替换符
+ *  占比 >1%——UTF-16/宽字节文本会被误判 */
+function isLikelyBinary(bytes: Uint8Array): boolean {
+  const head = bytes.subarray(0, 4096);
+  if (head.length === 0) return false;
+  if (head.includes(0)) return true;
+  let controls = 0;
+  for (let i = 0; i < head.length; i += 1) {
+    const b = head[i];
+    if (b < 9 || (b > 13 && b < 32)) controls += 1;
+  }
+  return controls / head.length > 0.12;
+}
+
+/** remote 降级：无字节流（remoteReadText 直出文本）→ 保留替换符占比检测 */
+function isLikelyBinaryText(text: string): boolean {
   if (!text) return false;
   const replacements = text.split('\uFFFD').length - 1;
   return replacements / text.length > 0.01;
@@ -200,11 +216,22 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
           // 大文本文件：拦截（不读内容），用户确认后才读
           setLargeBlocked(true);
         } else {
-          const value = isFsRemoteMode() ? (await remoteReadText(path)).text : await readTextFile(path);
-          if (cancelled) return;
-          const bin = isLikelyBinary(value);
-          setText(value);
-          setBinary(bin);
+          let bin: boolean;
+          if (isFsRemoteMode()) {
+            // remote：无字节流 → 文本直读 + 替换符检测降级
+            const value = (await remoteReadText(path)).text;
+            if (cancelled) return;
+            bin = isLikelyBinaryText(value);
+            setText(value);
+            setBinary(bin);
+          } else {
+            // 🔴 对齐 Hermes：字节读取 → 前 4KB 检测 → UTF-8 解码
+            const bytes = await readFile(path);
+            if (cancelled) return;
+            bin = isLikelyBinary(bytes);
+            setText(new TextDecoder('utf-8').decode(bytes));
+            setBinary(bin);
+          }
           // diff 拉取（对齐 Hermes L670-684：best-effort；非 git 仓库/无变更 → 空 →
           // diff 模式不显示；二进制无 diff）
           if (!bin) {
@@ -483,6 +510,21 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     return enhanceRichFences(el);
   }, [mode, bodyHtml]);
 
+  // ── 🔴 2026-08-29 HTML 执行渲染走子 webview（对齐 Hermes isWebPreview：
+  //    file:// 真浏览器 guest）——iframe srcDoc 的 about:srcdoc 基准无法解析
+  //    相对资源（./assets/x.js），file:// webview 可以。生命周期统一
+  //    usePreviewWebview（严禁重复造轮子，与 PreviewWebPane 同一份实现）；
+  //    文件变化/保存后重读（reloadKey/selfReload）→ 重建载入新内容。
+  //    remote 模式降级 srcDoc iframe ──
+  const htmlWebviewActive =
+    isDesktop() && !isFsRemoteMode() && isHtmlFile && mode === 'rendered' && text !== null;
+
+  const { containerRef: htmlContainerRef } = usePreviewWebview({
+    active: htmlWebviewActive,
+    url: path,
+    reloadKey: `${path}:${reloadKey}:${selfReload}`,
+  });
+
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-[var(--ui-bg-editor)]">
       {/* ── 文件头：名称 + 操作（编辑态换保存/取消，对齐 Hermes EditControls）── */}
@@ -679,15 +721,21 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
                   <DiffLines text={diff ?? ''} maxHeight="none" showLineNumbers />
                 </div>
               ) : mode === 'rendered' && isHtmlFile && text !== null ? (
-                /* 🔴 HTML 执行渲染（对齐 Hermes renderMode 'preview'）：srcDoc
-                   iframe 内嵌运行；sandbox 隔离主文档（allow-scripts 保留页内
-                   脚本可渲染 SPA；ELEVE 暂无 drive_preview 输入桥） */
-                <iframe
-                  srcDoc={text}
-                  title={basename(path)}
-                  className="h-full w-full border-0 bg-white"
-                  sandbox="allow-scripts allow-forms allow-popups"
-                />
+                /* 🔴 2026-08-29 HTML 执行渲染走子 webview（对齐 Hermes
+                   isWebPreview：file:// 真浏览器 guest）——相对资源可解析
+                   （iframe srcDoc 的 about:srcdoc 基准做不到）；原生 HWND
+                   在 DOM 之上，容器仅承担定位锚点。remote/浏览器模式降级
+                   srcDoc iframe（相对资源无法解析，功能受限） */
+                isDesktop() && !isFsRemoteMode() ? (
+                  <div ref={htmlContainerRef} className="h-full w-full" />
+                ) : (
+                  <iframe
+                    srcDoc={text}
+                    title={basename(path)}
+                    className="h-full w-full border-0 bg-white"
+                    sandbox="allow-scripts allow-forms allow-popups"
+                  />
+                )
               ) : mode === 'rendered' && bodyHtml ? (
                 <div className="h-full overflow-auto p-3">
                   <div

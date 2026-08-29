@@ -91,11 +91,41 @@ function codeSignals(body: string): {
   }
 }
 
+// ── 结构化文本否决（🔴 2026-08-29 对齐 Hermes markdown-code.ts:276-337，此前缺失）──
+// SSH config / .env / INI 等 `Key: value` 结构化文本不是散文：它们会触发散文
+// 启发式的"多行纯文本、无代码 token"规则而被误提升。此否决让它们保持代码块。
+const SENTENCE_PUNCTUATION_RE = /[.!?](?:\s|$)/
+const CONFIG_SEPARATOR_LINE_RE = /^[A-Za-z0-9_][\w.-]*\s*[:=]\s*\S/
+const CONFIG_KEY_RE = /^[A-Za-z0-9_][\w.-]*$/
+
+function isConfigDirectiveLine(line: string): boolean {
+  const trimmed = line.trim()
+  if (CONFIG_SEPARATOR_LINE_RE.test(trimmed)) return true
+  const tokens = trimmed.split(/\s+/)
+  // 短指令 `Host example` / `Port 22`：token 数 2-3 且首 token 是标识符——
+  // 真正的散文句子行通常更宽，标点缺失的散文碎片不会被误判为 config
+  return tokens.length >= 2 && tokens.length <= 3 && CONFIG_KEY_RE.test(tokens[0])
+}
+
+function isLikelyStructuredText(body: string): boolean {
+  const lines = body.split('\n').filter((line) => line.trim())
+  if (lines.length < 2) return false
+  // 任意缩进续行 = config 分节（`Host x` / `    HostName y`），散文不会逐行缩进
+  if (lines.some((line) => /^\s+\S/.test(line))) return true
+  // 有句末标点 = 包裹散文，直接放行
+  if (lines.some((line) => SENTENCE_PUNCTUATION_RE.test(line.trim()))) return false
+  const configLines = lines.filter((line) => isConfigDirectiveLine(line)).length
+  return configLines >= Math.max(2, Math.ceil(lines.length * 0.6))
+}
+
 function isLikelyProseCodeBlock(language: string | undefined, code: string | undefined): boolean {
   const cleanLanguage = sanitizeLanguageTag(language || '')
   const signals = codeSignals(code || '')
   if (!signals.trimmed || signals.codeSignals >= 3) return false
   if (signals.bulletLines >= 1 && (signals.hasMarkdown || signals.proseLines >= 2)) return true
+  // 🔴 对齐 Hermes markdown-code.ts:396-400（此前缺失）：config / key-value /
+  // 缩进列表是代码不是散文，永不提升（SSH config、.env、INI、键值表）
+  if (isLikelyStructuredText(code || '')) return false
   if (NON_CODE_FENCE_LANGUAGES.has(cleanLanguage)) {
     return signals.proseLines >= 3 && signals.codeSignals === 0
   }

@@ -19,20 +19,25 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ExternalLink, AlertCircle, Loader2, Globe, RefreshCw, Bug, PanelBottom } from 'lucide-react';
+import { ExternalLink, AlertCircle, Loader2, Globe, RefreshCw, Bug, PanelBottom, Copy, Check, ArrowLeft, ArrowRight } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { getWsClient } from '@/services/ws-client';
 import { isDesktop } from '@/utils/bridge';
 import { cn } from '@/lib/utils';
+import { usePreviewWebview } from '@/hooks/use-preview-webview';
+import { openExternal } from '@/lib/external-open';
 import { createPreviewConsoleState, isNearConsoleBottom } from '@/store/preview-console';
 import { PreviewConsolePanel, formatLogLine } from './PreviewConsolePanel';
 import {
   type PreviewTab,
   beginPreviewRestart,
+  commitBrowserPage,
+  commitBrowserTabUrl,
   failPreviewRestart,
   failPreviewRestartRequest,
+  getBrowserPage,
+  setTabLabel,
   usePreviewStore,
 } from '@/store/preview';
 import { notifySuccess, notifyError } from '@/utils/notifications';
@@ -52,6 +57,43 @@ interface PreviewConsolePushEntry {
   message: string;
   source: string | null;
   line: number | null;
+}
+
+/**
+ * 地址栏输入归一化（🔴 2026-08-29 对齐 Hermes normalizePreviewAddress，
+ * preview-browser-bar.tsx:58-89）：裸主机名是地址栏最常见输入（通常是
+ * dev server）——loopback 补 `http`（443 无监听也无证书），其余补 `https`。
+ * 封禁表刻意收窄：`javascript:` 与 `data:` 在 guest 分区内执行而非导航，
+ * 地址栏不是够到它们的地方；浏览器能加载的其余一切（含 about:blank/file:）
+ * 都放行。返回 null = 不可加载。
+ */
+export function normalizePreviewAddress(value: string): null | string {
+  const address = value.trim()
+
+  if (!address) {
+    return null
+  }
+
+  // `://` 而非前导 scheme 正则：`localhost:5173`、`example.com:8080` 都匹配
+  // `scheme:`，会被误读成未知协议而非主机+端口；`about:blank` 也没有 `://`，
+  // 所以先做显式 scheme 测试再猜主机
+  const scheme = /^(about|blob|chrome|data|devtools|file|ftp|https?|javascript|view-source):/i.exec(address)?.[1]
+  const loopback = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?(?:[/?#]|$)/i.test(address)
+  const candidate = scheme ? address : `${loopback ? 'http' : 'https'}://${address}`
+
+  // 带脚本的 scheme 在用户正在看的页面内部执行（或铸造攻击者任选内容的
+  // 文档）——那是披着导航外衣的注入，任何浏览器地址栏也不受理它
+  if (scheme && /^(data|javascript)$/i.test(scheme)) {
+    return null
+  }
+
+  try {
+    // 解析失败才是垃圾输入的真过滤器：`://broken`、`htp:/x`、半截乱打全落在这
+    new URL(candidate)
+    return candidate
+  } catch {
+    return null
+  }
 }
 
 /** 预览 URL 安全校验：仅允许 http:/https: 协议（同现有 iframe 白名单） */
@@ -74,15 +116,19 @@ function isModuleMimeError(message: string): boolean {
 
 export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPaneProps) {
   const { reloadRequest, restart } = usePreviewStore();
-  const [url, setUrl] = useState(tab.target.url);
+  // 🔴 对齐 Hermes $browserPages：初始显示恢复地址（切走再切回 → 上次页面
+  // 而非 tab 打开时的初始地址）
+  const [url, setUrl] = useState(() => getBrowserPage(tab.id) ?? tab.target.url);
+  // 🔴 2026-08-29 对齐 Hermes preview-browser-bar：地址栏 draft/pending 模式——
+  // null = 空闲（地址自行跟随页面导航）；用户接管输入时 draft（打字不丢）；
+  // 提交后 pending（导航完成前不闪回旧地址）
+  const [draft, setDraft] = useState<string | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   // 浏览器模式 iframe 重建计数
   const [iframeKey, setIframeKey] = useState(0);
   const [iframeError, setIframeError] = useState<'serverNotFound' | 'failed' | 'moduleMime' | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  // 子 webview label（Rust 生成；ref 同步最新值供 cleanup/navigate 使用）
-  const [webviewLabel, setWebviewLabel] = useState<string | null>(null);
-  const webviewLabelRef = useRef<string | null>(null);
   // 页面控制台（per pane 实例，对齐 Hermes per-pane consoleState）
   const [consoleState] = useState(() => createPreviewConsoleState());
   const consoleBodyRef = useRef<HTMLDivElement | null>(null);
@@ -91,13 +137,34 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
   // Rust seq 游标（断档检测 → snapshot 补拉）
   const lastSeqRef = useRef<number | null>(null);
-  const layoutRafRef = useRef<number | null>(null);
   const probeTimerRef = useRef<number | null>(null);
   const isTauri = isDesktop();
 
   // 最新 URL 供异步探测/刷新闭包使用（老铁律：空依赖 effect 闭包陷阱）
   const currentUrlRef = useRef(url.trim() || tab.target.url);
   currentUrlRef.current = url.trim() || tab.target.url;
+
+  // 🔴 对齐 $browserPages：webview 创建/历史栈的起点 = 恢复地址（切走再切回
+  // → 上次页面；首次打开 = target.url）
+  const resumeUrl = getBrowserPage(tab.id) ?? tab.target.url;
+
+  // 🔴 子 webview 生命周期统一 usePreviewWebview（严禁重复造轮子——与
+  //    PreviewFilePane HTML rendered 同一份实现）。about:blank 新 tab 不创建
+  //    （Rust 白名单拒绝，等用户输入地址 → commitBrowserTabUrl 回写后重建）；
+  //    运行时页面地址回写（commitBrowserPage）不改 target.url → 不重建，
+  //    pane 内导航走 navigateTo 路径
+  const { containerRef, label: webviewLabel, labelRef: webviewLabelRef } = usePreviewWebview({
+    active: isTauri && isSafePreviewUrl(resumeUrl),
+    url: resumeUrl,
+    reloadKey: tab.target.url,
+    onRecreate: () => {
+      // 重建 = 新页面新会话：Rust 侧 close 会销毁 per-label 缓冲，前端同步重置
+      lastSeqRef.current = null;
+      consoleState.reset();
+      setDevtoolsOpen(false);
+      setIframeError(null);
+    },
+  });
 
   // tab 切换 → URL 输入框重置为 tab 目标（对齐 Hermes：仅 target.url 变化时重置，
   // 同 URL 切 tab 保留输入框本地编辑/页面状态——Hermes currentUrl 同款语义）
@@ -106,94 +173,22 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
     setIframeError(null);
   }, [tab.target.url]);
 
-  // ── 子 webview 创建/销毁（对齐 Hermes preview-pane webview effect：
-  //    依赖 [target.kind, target.url]——URL 变化才重建，同 URL 切 tab 保留
-  //    webview/页面状态。旧实现挂载时创建 + key remount 无条件重建）──
-  useEffect(() => {
-    if (!isTauri || !tab.target.url) return;
-    let cancelled = false;
+  // 页面移动（或重定向落到别处）后，真实地址取代我们请求的地址（对齐 Hermes：
+  // setPending(null) on url change）
+  useEffect(() => setPending(null), [url]);
 
-    // 重建 = 新页面新会话：Rust 侧 close 会销毁 per-label 缓冲，前端同步重置
-    lastSeqRef.current = null;
-    consoleState.reset();
-    setDevtoolsOpen(false);
-    setIframeError(null);
+  // 仅用户输入时报错：页面自导航（重定向）不是用户的错（对齐 Hermes invalid 判定）
+  const invalid = draft !== null && draft.trim().length > 0 && !normalizePreviewAddress(draft);
+  const shown = draft ?? pending ?? url;
 
-    const container = containerRef.current;
-    const rect = container?.getBoundingClientRect();
-    const x = rect?.x ?? 0;
-    const y = rect?.y ?? 0;
-    const width = rect?.width ?? 800;
-    const height = rect?.height ?? 600;
-
-    invoke('preview_webview_create', { url: tab.target.url, x, y, width, height })
-      .then((label) => {
-        if (cancelled) {
-          // 创建完成前已卸载（异步竞态）→ 立即销毁
-          invoke('preview_webview_close', { label }).catch(() => {});
-          return;
-        }
-        webviewLabelRef.current = label as string;
-        setWebviewLabel(label as string);
-      })
-      .catch((e) => {
-        console.error('[preview] webview create failed:', e);
-      });
-
-    return () => {
-      cancelled = true;
-      const label = webviewLabelRef.current;
-      webviewLabelRef.current = null;
-      setWebviewLabel(null);
-      if (label) {
-        invoke('preview_webview_close', { label }).catch(() => {});
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- URL 变化重建（对齐
-    // Hermes）；同 URL 的 pane 内导航（用户改 URL 点加载）走 navigate 不重建
-  }, [tab.target.url, isTauri]);
-
-  // ── 布局同步：ResizeObserver → rAF 节流 → update（对齐方案：前端 rAF 节流上报）──
-  // 🔴 2026-08-20 read_preview 注册：webview label 就绪 → 注册为活跃读取目标
-  //（preview-events 处理 preview.read.request 时经它取 label 读页面文本）；
-  // 卸载/URL 变化 → 注销。多个 pane 只有当前激活 tab 的组件挂载，天然唯一。
+  // 🔴 2026-08-20 read_preview 注册（生命周期已移交 usePreviewWebview）：
+  // webview label 就绪 → 注册为活跃读取目标（preview-events 处理
+  // preview.read.request 时经它取 label 读页面文本）；卸载/URL 变化 → 注销。
+  // 多个 pane 只有当前激活 tab 的组件挂载，天然唯一。
   useEffect(() => {
     if (!webviewLabel || !isTauri) return;
     registerActivePreviewWebview(webviewLabel);
     return () => registerActivePreviewWebview(null);
-  }, [webviewLabel, isTauri]);
-
-  useEffect(() => {
-    if (!webviewLabel || !isTauri) return;
-    const container = containerRef.current;
-    if (!container) return;
-
-    const sync = () => {
-      if (layoutRafRef.current !== null) return; // 每帧至多一次
-      layoutRafRef.current = requestAnimationFrame(() => {
-        layoutRafRef.current = null;
-        const rect = container.getBoundingClientRect();
-        invoke('preview_webview_update', {
-          label: webviewLabel,
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-        }).catch(() => {});
-      });
-    };
-
-    const ro = new ResizeObserver(sync);
-    ro.observe(container);
-    window.addEventListener('resize', sync);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', sync);
-      if (layoutRafRef.current !== null) {
-        cancelAnimationFrame(layoutRafRef.current);
-        layoutRafRef.current = null;
-      }
-    };
   }, [webviewLabel, isTauri]);
 
   // ── console 事件 + 加载状态事件（webview 就绪后订阅；按 label 分流）──
@@ -255,6 +250,14 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
       }
     };
 
+    // 🔴 2026-08-29 对齐 Hermes noteBrowserPage（page-title-updated）：页面标题
+    // → 回写 tab 标签（tab 名跟随真实页面）
+    const onTitle = (event: { payload: { label: string; title: string } }) => {
+      const { label: l, title } = event.payload;
+      if (l !== webviewLabel) return;
+      setTabLabel(tab.id, title);
+    };
+
     const onLoadState = (event: { payload: { label: string; state: string; url?: string } }) => {
       const { label, state, url: navUrl } = event.payload;
       if (label !== webviewLabel) return;
@@ -262,6 +265,12 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
       // 输入框（SPA 路由/重定向后跟随真实 URL；Rust on_page_load 已带 url）
       if (state === 'finished' && navUrl && isSafePreviewUrl(navUrl) && navUrl !== url) {
         setUrl(navUrl);
+      }
+      if (state === 'finished' && navUrl && isSafePreviewUrl(navUrl)) {
+        pushHistory(navUrl);
+        // 🔴 对齐 Hermes commitBrowserTabLocation：页面地址回写 store（运行时
+        // 与 target.url 分离，落盘时 merge）→ 切走再切回/重启后恢复
+        commitBrowserPage(tab.id, navUrl);
       }
       if (state === 'started') {
         setIframeError(null);
@@ -281,16 +290,18 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
     };
 
     void (async () => {
-      const [c, l] = await Promise.all([
+      const [c, l, t] = await Promise.all([
         listen('preview-console', onConsole),
         listen('preview-load-state', onLoadState),
+        listen('preview-page-title', onTitle),
       ]);
       if (cancelled) {
         c();
         l();
+        t();
         return;
       }
-      unlisteners = [c, l];
+      unlisteners = [c, l, t];
     })();
 
     return () => {
@@ -309,11 +320,15 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
     }
   }, [reloadRequest, isTauri]);
 
-  // ── 重启成功 → 自动刷新（对齐 Hermes complete 后 requestPreviewReload 语义）──
+  // ── 重启成功 → 自动刷新（对齐 Hermes complete 后 requestPreviewReload 语义；
+  //    重启 = 服务器代码已更新 → 优先硬刷新 reloadIgnoringCache，Err/非 Windows
+  //    降级普通 reload——对齐 Hermes preview-pane.tsx:365-369 的降级语义）──
   useEffect(() => {
     if (restart?.status === 'success' && restart.url === (url.trim() || tab.target.url)) {
-      if (webviewLabelRef.current && isTauri) {
-        invoke('preview_webview_reload', { label: webviewLabelRef.current }).catch(() => {});
+      const label = webviewLabelRef.current;
+      if (label && isTauri) {
+        invoke('preview_webview_reload_ignoring_cache', { label })
+          .catch(() => invoke('preview_webview_reload', { label }).catch(() => {}));
       } else {
         setIframeKey((k) => k + 1);
       }
@@ -369,8 +384,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   }, [url, sessionId, cwd, iframeError, consoleState]);
 
   // ── 手动加载：webview navigate（新页面新会话，Rust 侧清缓冲）／iframe 重建 ──
-  const handleLoad = useCallback(() => {
-    const target = url.trim();
+  const navigateTo = useCallback((target: string) => {
     if (!target) return;
     if (webviewLabelRef.current && isTauri) {
       lastSeqRef.current = null; // 新页面 seq 从 0 重新开始
@@ -383,18 +397,70 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
       setIframeKey((k) => k + 1);
       setIframeError(null);
     }
-  }, [url, isTauri, consoleState]);
+  }, [isTauri, consoleState]);
 
-  // ── 外部打开：系统浏览器（tauri-plugin-shell，对齐 Hermes openExternal）──
+  // 地址栏提交（对齐 Hermes commit：normalize → draft 清空 → pending 接管显示）；
+  // 🔴 about:blank 新 tab 首次输入地址 → 回写 target.url 触发 webview 创建
+  const commitAddress = useCallback(
+    (value: string) => {
+      const address = normalizePreviewAddress(value);
+      if (!address) return;
+      setDraft(null);
+      setPending(address);
+      commitBrowserTabUrl(tab.id, address);
+      navigateTo(address);
+    },
+    [navigateTo, tab.id],
+  );
+
+  // 加载按钮 / 错误覆盖层重试：重载当前地址
+  const handleLoad = useCallback(() => {
+    navigateTo(url.trim() || tab.target.url);
+  }, [navigateTo, url, tab.target.url]);
+
+  // 🔴 2026-08-29 对齐 Hermes 浏览器导航历史：per-tab URL 栈——用户提交与页面
+  // 自导航（点击链接/重定向）都入栈；back/forward 移动指针，指针位置的导航
+  // （回放历史）不再入栈。上限 50 条防无界增长。
+  const historyRef = useRef<string[]>(
+    resumeUrl && resumeUrl !== 'about:blank' ? [resumeUrl] : [],
+  );
+  const historyIdxRef = useRef(0);
+  const [histMeta, setHistMeta] = useState({ back: false, forward: false });
+  const syncHistMetaRef = useRef<() => void>(() => {});
+  syncHistMetaRef.current = () => {
+    setHistMeta({
+      back: historyIdxRef.current > 0,
+      forward: historyIdxRef.current < historyRef.current.length - 1,
+    });
+  };
+
+  const pushHistory = useCallback((navUrl: string) => {
+    const h = historyRef.current;
+    if (h[historyIdxRef.current] === navUrl) return; // 回放/重复导航不入栈
+    historyRef.current = [...h.slice(0, historyIdxRef.current + 1), navUrl].slice(-50);
+    historyIdxRef.current = historyRef.current.length - 1;
+    syncHistMetaRef.current();
+  }, []);
+
+  const goHistoryBack = useCallback(() => {
+    if (historyIdxRef.current <= 0) return;
+    historyIdxRef.current -= 1;
+    syncHistMetaRef.current();
+    navigateTo(historyRef.current[historyIdxRef.current]);
+  }, [navigateTo]);
+
+  const goHistoryForward = useCallback(() => {
+    if (historyIdxRef.current >= historyRef.current.length - 1) return;
+    historyIdxRef.current += 1;
+    syncHistMetaRef.current();
+    navigateTo(historyRef.current[historyIdxRef.current]);
+  }, [navigateTo]);
+
+  // ── 外部打开：系统默认程序（lib/external-open 单一出口，严禁重复造轮子）──
   const handleOpenExternal = useCallback(() => {
     const target = url.trim() || tab.target.url;
     if (!target) return;
-    try {
-      void shellOpen(target);
-    } catch (e) {
-      // 浏览器模式降级 window.open
-      window.open(target, '_blank');
-    }
+    void openExternal(target);
   }, [url, tab.target.url]);
 
   // ── iframe 错误检测 + 分类（浏览器模式；webview 模式走 onLoadState + console 流）──
@@ -472,19 +538,65 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-[var(--ui-bg-editor)]">
-      {/* ── URL 输入栏 ── */}
+      {/* ── URL 输入栏（back/forward 历史导航，对齐 Hermes browser-bar 四控件）── */}
       <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[var(--ui-stroke-secondary)] bg-[var(--ui-bg-quaternary)]">
+        <button
+          onClick={goHistoryBack}
+          disabled={!histMeta.back}
+          className="flex items-center justify-center w-6 h-6 shrink-0 rounded text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] hover:text-[var(--ui-text-primary)] disabled:pointer-events-none disabled:opacity-30 transition-colors"
+          title="后退"
+        >
+          <ArrowLeft size={13} />
+        </button>
+        <button
+          onClick={goHistoryForward}
+          disabled={!histMeta.forward}
+          className="flex items-center justify-center w-6 h-6 shrink-0 rounded text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] hover:text-[var(--ui-text-primary)] disabled:pointer-events-none disabled:opacity-30 transition-colors"
+          title="前进"
+        >
+          <ArrowRight size={13} />
+        </button>
         <Globe size={14} className="text-[var(--ui-text-tertiary)] shrink-0" />
-        <input
-          type="text"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleLoad();
-          }}
-          placeholder="http://localhost:3000"
-          className="flex-1 min-w-0 bg-transparent text-xs text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] outline-none border-none"
-        />
+        {/* 🔴 2026-08-29 对齐 Hermes preview-browser-bar：地址输入（draft 模式 +
+            Escape 取消 + Enter 提交 normalize + 内联复制按钮） */}
+        <div className="relative flex-1 min-w-0">
+          <input
+            type="text"
+            value={shown}
+            onChange={(e) => setDraft(e.target.value)}
+            onFocus={(e) => {
+              setDraft(shown);
+              e.currentTarget.select();
+            }}
+            onBlur={() => setDraft(null)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitAddress(e.currentTarget.value);
+              if (e.key === 'Escape') {
+                setDraft(null);
+                e.currentTarget.blur();
+              }
+            }}
+            aria-invalid={invalid || undefined}
+            placeholder="http://localhost:3000"
+            spellCheck={false}
+            className={cn(
+              'w-full bg-transparent text-xs text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-quaternary)] outline-none border-none pr-6',
+              invalid && 'text-[var(--ui-red)]',
+            )}
+          />
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(currentUrl).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }).catch(() => {});
+            }}
+            title={copied ? '已复制地址' : '复制地址'}
+            className="absolute right-0.5 top-1/2 -translate-y-1/2 grid place-items-center size-5 rounded text-[var(--ui-text-quaternary)] hover:text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] transition-colors"
+          >
+            {copied ? <Check size={11} className="text-success" /> : <Copy size={11} />}
+          </button>
+        </div>
         <button
           onClick={handleLoad}
           disabled={!url.trim()}
@@ -553,7 +665,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
           必须嵌入 flex 布局（面板弹出 → webviewHost 缩小 → ResizeObserver 联动 webview） */}
       <div className="flex-1 min-h-0 flex flex-col bg-background">
         <div ref={containerRef} className="flex-1 min-h-0 relative">
-        {!currentUrl ? (
+        {!currentUrl || currentUrl === 'about:blank' ? (
           <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
             <Globe size={32} strokeWidth={1} />
             <span className="text-xs">输入 URL 开始预览</span>

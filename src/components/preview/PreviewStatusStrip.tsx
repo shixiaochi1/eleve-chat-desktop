@@ -13,6 +13,7 @@ import { ExternalLink, Globe, X } from 'lucide-react';
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
+import { openExternal } from '@/lib/external-open';
 import { closePreviewForSource, openPreview } from '@/store/preview';
 import {
   removePreviewArtifact,
@@ -21,15 +22,16 @@ import {
 } from '@/store/preview-status';
 
 function StatusRow({ item, onDismiss }: { item: PreviewArtifact; onDismiss: (id: string) => void }) {
-  const resolveTarget = () => normalizeOrLocalPreviewTarget(item.target, item.cwd || undefined);
-
+  // 🔴 2026-08-29 修复（对齐 Hermes preview-row openPreviewTargetInBrowser）：
+  // 普通点击 = 系统浏览器/默认程序打开——URL 交给默认浏览器、本地路径交给
+  // 系统默认程序（shell open 与 ToolEntry openExternal 同款）。此前头注释声称
+  // "系统浏览器打开"，实现却调 openPreview 在应用内打开，语义相反。
   const openDefaultTarget = () => {
-    const target = resolveTarget();
-    if (target) openPreview(target, 'tool-result');
+    void openExternal(item.target);
   };
 
   const toggleInAppPreview = () => {
-    const target = resolveTarget();
+    const target = normalizeOrLocalPreviewTarget(item.target, item.cwd || undefined);
     if (!target) return;
     closePreviewForSource(item.target) || openPreview(target, 'tool-result');
   };

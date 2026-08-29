@@ -128,6 +128,9 @@ interface GridModeViewProps {
   onFocusChange?: (name: string) => void;
   /** 焦点 Agent 的 session 变化 → 上抛 App（侧栏会话列表高亮跟随 focusedAgent） */
   onFocusedSessionChange?: (sessionId: string | null) => void;
+  /** 🔴 2026-08-29 对齐 Hermes $sessionTiles：宫格可见会话集合上抛 App
+   *  （preview.open/close 门禁 onScreen 语义——可见 tile 的会话都能开预览） */
+  onVisibleSessionsChange?: (ids: string[]) => void;
   /** 🔴 2026-08-13 并发修复：焦点卡片 session.info 的 cwd 推送（App 传 handleSessionInfoCwd，含项目钉住检查） */
   onSessionCwd?: (cwd: string) => void;
   /** 网关就绪（slash 补全拉取命令列表） */
@@ -188,7 +191,7 @@ function slotPos(index: number, cols: number, cellW: number, cellH: number) {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, onFocusedSessionChange, onSessionCwd, portReady, onNewSessionEffects, getNewSessionCwd, onSelectModel }, ref) {
+const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function GridModeView({ currentProfile, currentSessionId, onExitGrid, onExpandAgent, onFocusChange, onFocusedSessionChange, onVisibleSessionsChange, onSessionCwd, portReady, onNewSessionEffects, getNewSessionCwd, onSelectModel }, ref) {
   // 🔴 M-1/M-2 修复：不再从 Context 取全局 currentModel（发送链已去 model，
   // 各卡片展示用后端 per-session 推送的 modelName，选择走 onSelectModel 绑定卡片）
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
@@ -229,6 +232,17 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   useEffect(() => {
     onFocusedSessionChange?.(focusedSessionId);
   }, [focusedSessionId, onFocusedSessionChange]);
+
+  // 🔴 2026-08-29 对齐 Hermes $sessionTiles：全部 Agent 卡片当前会话 = 宫格
+  // "可见 tile 集合"。上抛 App 供 preview onScreen 门禁（focus 判定之外，
+  // 任一可见 tile 会话的 open_preview/close_preview 也要放行）
+  const visibleSessionIds = useMemo(
+    () => Object.values(states).map((s) => s.sessionId).filter((id): id is string => Boolean(id)),
+    [states],
+  );
+  useEffect(() => {
+    onVisibleSessionsChange?.(visibleSessionIds);
+  }, [visibleSessionIds, onVisibleSessionsChange]);
 
   // 🔴 新建会话：per-agent 状态槽归零 + 全局副作用（复用单视图 handleNewSession 同一套工具链）
   // 🔴 2026-08-11 对齐 Hermes openNewSessionTile：卡片新建 = 立即创建后端会话

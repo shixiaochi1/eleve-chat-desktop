@@ -13,6 +13,7 @@ import {
   findArtifactVersion,
 } from '@/store/artifacts';
 import { renderMarkdown } from '@/utils/markdown';
+import ArtifactHtmlFrame from '@/components/preview/ArtifactHtmlFrame';
 
 interface ArtifactCardProps {
   detection: ArtifactDetection;
@@ -129,7 +130,8 @@ export const ArtifactCard = memo(function ArtifactCard({ detection, code, stream
 
 /**
  * Artifact 浮层预览（Hermes 右栏；ELEVE 先用浮层承载，portal 到 body）：
- * - html → sandbox iframe（srcDoc，禁脚本外联）
+ * - html → sandbox iframe（srcDoc，禁脚本外联）；composeArtifactHtml 包完整文档
+ *   （🔴 2026-08-29 对齐 ArtifactPanel/PreviewCenter：片段 HTML 直塞 srcDoc 走 quirks 模式）
  * - svg → blob URL → img
  * - code → renderMarkdown 高亮代码卡片 + 复制
  * 版本切换 v1/v2…；ESC / 遮罩关闭。
@@ -237,11 +239,10 @@ export function ArtifactPreviewOverlay() {
         {/* 内容区 */}
         <div className="min-h-0 flex-1 overflow-auto p-4">
           {record.kind === 'html' && (
-            <iframe
-              sandbox="allow-scripts"
-              srcDoc={version.content}
-              className="h-full w-full rounded-lg border border-border bg-white"
+            <ArtifactHtmlFrame
+              content={version.content}
               title={record.title}
+              className="h-full w-full rounded-lg border border-border bg-white"
             />
           )}
           {record.kind === 'svg' && svgUrl && (

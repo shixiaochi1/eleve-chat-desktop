@@ -7,7 +7,7 @@ import { ArtifactCard } from './ArtifactCard';
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
 import { getCurrentSessionCwd } from '@/lib/session-cwd';
 import { openPreview } from '@/store/preview';
-import { isDesktop } from '@/utils/bridge';
+import { openExternal } from '@/lib/external-open';
 
 /**
  * StreamBlocks — 块级流式 Markdown 渲染（对齐 Hermes Streamdown 分块模型）
@@ -182,19 +182,9 @@ export default forwardRef<HTMLDivElement, StreamBlocksProps>(function StreamBloc
       return;
     }
 
-    // 外链（http/https/其它 scheme/相对路径）→ 系统浏览器（对齐 Hermes PrettyLink）
-    void (async () => {
-      if (isDesktop()) {
-        try {
-          const { open: shellOpen } = await import('@tauri-apps/plugin-shell');
-          await shellOpen(href);
-          return;
-        } catch {
-          /* fall through to window.open */
-        }
-      }
-      window.open(href, '_blank', 'noopener,noreferrer');
-    })();
+    // 外链（http/https/其它 scheme/相对路径）→ 系统浏览器（对齐 Hermes PrettyLink；
+    // 传输细节统一 lib/external-open 单一出口，严禁重复造轮子）
+    void openExternal(href);
   }, []);
 
   const plan = useMemo(() => {

@@ -20,6 +20,7 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
     allow_private_urls_security: false,
     allow_private_urls_browser: false,
     auto_local_for_private_urls: false,
+    use_real_profile: false,
     checkpoints_enabled: true,
   });
   const [loading, setLoading] = useState(false);
@@ -48,6 +49,7 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
         allow_private_urls_security: security.allow_private_urls ?? false,
         allow_private_urls_browser: browser.allow_private_urls ?? false,
         auto_local_for_private_urls: browser.auto_local_for_private_urls ?? false,
+        use_real_profile: browser.use_real_profile ?? false,
         checkpoints_enabled: checkpoints.enabled ?? true,
       });
       setLoaded(true);
@@ -81,6 +83,7 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
           browser: {
             allow_private_urls: config.allow_private_urls_browser,
             auto_local_for_private_urls: config.auto_local_for_private_urls,
+            use_real_profile: config.use_real_profile,
           },
           agent: {
             checkpoints: {
@@ -220,6 +223,21 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
         <Switch
           checked={config.auto_local_for_private_urls}
           onCheckedChange={(val: boolean) => update('auto_local_for_private_urls', val)}
+        />
+      </div>
+
+      {/* 🔴 2026-08-29 对齐 Hermes 设置页 Browser 分组 useRealProfile
+          （settings/constants.ts L431/L560：真实登录态副本浏览，默认关闭） */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="min-w-0 pr-3">
+          <label className="block text-xs text-muted-foreground mb-0.5">使用真实浏览器配置</label>
+          <p className="text-xs text-muted-foreground/70 leading-relaxed m-0">
+            本地浏览使用你的真实登录态：把默认 Chromium 浏览器的配置（Cookies/登录/偏好设置）复制进托管快照副本，由内置 Chromium 驱动副本——绝不直接打开正在使用的浏览器配置，每次运行重新同步。仅支持 Chromium 系默认浏览器（Chrome/Edge/Brave/Chromium），其他默认浏览器会明确报错。默认关闭。
+          </p>
+        </div>
+        <Switch
+          checked={config.use_real_profile}
+          onCheckedChange={(val: boolean) => update('use_real_profile', val)}
         />
       </div>
 

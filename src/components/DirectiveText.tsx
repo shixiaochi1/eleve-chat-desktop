@@ -1,6 +1,6 @@
 import { Fragment, memo, useMemo } from 'react';
 import { FolderIcon, FileIcon, GlobeIcon, ImageIcon } from './Icons';
-import { isDesktop } from '@/utils/bridge';
+import { openExternal } from '@/lib/external-open';
 import { cn } from '@/lib/utils';
 
 /**
@@ -65,19 +65,10 @@ function DirectiveIcon({ type }: { type: string }) {
   }
 }
 
-/** 打开外部链接（对齐 Hermes DIRECTIVE_ACTIONS.url → openExternalLink） */
+/** 打开外部链接（对齐 Hermes DIRECTIVE_ACTIONS.url；传输细节统一
+ *  lib/external-open 单一出口，此处只做 ref 值解包） */
 async function openExternalLink(id: string) {
-  const url = unwrapRefValue(id);
-  if (isDesktop()) {
-    try {
-      const { open: shellOpen } = await import('@tauri-apps/plugin-shell');
-      await shellOpen(url);
-      return;
-    } catch {
-      /* fall through to window.open */
-    }
-  }
-  window.open(url, '_blank', 'noopener,noreferrer');
+  await openExternal(unwrapRefValue(id));
 }
 
 function DirectiveChip({ type, label, id }: { type: string; label: string; id: string }) {

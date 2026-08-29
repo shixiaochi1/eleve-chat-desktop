@@ -41,7 +41,7 @@ import { ThemeProvider } from './themes/index';
 import IconBar from './components/IconBar';
 import SidePanel from './components/SidePanel';
 import OverlayView from './components/OverlayView';
-import { useOpenArtifact } from './store/artifacts';
+import { useOpenArtifact, clearArtifactRegistry } from './store/artifacts';
 import ThemePanel from './components/ThemePanel';
 import SettingsPanel from './components/SettingsPanel';
 import AboutPanel from './components/AboutPanel';
@@ -167,6 +167,13 @@ export default function App() {
   }, [paneOpenRequest]);
   // 🔴 Phase 4b #4: 宫格焦点 Agent 的实时 sessionId（GridModeView 上抛）→ 侧栏会话列表高亮跟随
   const [focusedGridSessionId, setFocusedGridSessionId] = useState<string | null>(null);
+  // 🔴 2026-08-29 对齐 Hermes $sessionTiles：宫格可见会话集合（GridModeView 上抛，
+  // preview.open/close 的 onScreen 门禁消费）。存 ref：initPreviewEvents 空依赖
+  // effect 捕获，避免闭包过期
+  const gridVisibleSessionIdsRef = useRef<string[]>([]);
+  const handleGridVisibleSessionsChange = useCallback((ids: string[]) => {
+    gridVisibleSessionIdsRef.current = ids;
+  }, []);
   // 🔴 2026-08-13 P2-2：宫格 unread 判定基准 = 焦点卡片会话（session-status override）。
   // 宫格焦点切换不写全局 session 指针（防污染单视图指针语义），故 unread 判定需独立基准；
   // 退出宫格 → override 清空 → 回退全局指针（单视图模式）。
@@ -482,6 +489,12 @@ export default function App() {
     // 🔴 cwd 已走 lib/session-cwd.ts 全局单例（2026-08-28 对齐 $currentCwd），此处只留会话过滤
     return initPreviewEvents({
       getFocusedSessionId: () => focusedSessionIdRef.current,
+      // 🔴 2026-08-29 对齐 Hermes sessionIsOnScreen：单视图当前会话（同步权威
+      // ref）或任一宫格可见 tile 会话都放行（仅 focused 门禁会让可见 tile 的
+      // open_preview/close_preview 静默消失）
+      isSessionOnScreen: (sessionId: string) =>
+        sessionId === currentSessionIdRef.current ||
+        gridVisibleSessionIdsRef.current.includes(sessionId),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -772,6 +785,13 @@ export default function App() {
     clearImagesRef.current();
     clearFilesAttachmentRef.current();
 
+    // 🔴 2026-08-29 对齐 Hermes gateway-switch（store/gateway-switch.ts:222）：
+    // 切 profile 清空 artifact 注册表——注册表是内存态，跨 profile 残留 = 旧 Agent
+    // 的产物混入新 Agent 视图；卡片重渲染会自动重注册，清空安全。连带关闭全部
+    // artifact 预览 tab（closeArtifactPreviewTabs，tab 不能比内容源活得久）。
+    // 宫格焦点分支不清（所有 Agent 卡片仍活跃，registry 按 sessionId 隔离）。
+    clearArtifactRegistry();
+
     // ── Step 1: 记住指针（每个 Agent 上次用哪个 session） ──
     const map = loadProfilePointers();
     // 🔴 串台防御：只写入归属正确的 session 指针，防止污染扩散
@@ -835,6 +855,9 @@ export default function App() {
     if (profile !== currentProfile) {
       // 🔴 2026-08-12 断线修复：宫格→单视图同样清旧项目 scope（防新会话落错项目）
       setProjectScopeCwd(null);
+      // 🔴 2026-08-29 对齐 Hermes gateway-switch：跨 profile 清 artifact 注册表
+      //（同 handleProfileChange；同 profile 退出宫格不清）
+      clearArtifactRegistry();
       // 🔴 2026-08-16 一致性修复（审计 P2）：不再立即 setPanelRoot(null)——
       // 与 handleProfileChange 的"抖动根治"同款：保持旧面板直到新 Agent
       // 激活项目恢复（fetchTree 后 handleProjectScopeRestored 一次切换），
@@ -1452,6 +1475,8 @@ export default function App() {
         // 对齐 Hermes：唤醒词归属 profile 先 re-home（切盖章）再开新会话；
         // 🔴 2026-08-12：跨 profile 不带当前 scope（新 profile 无选中项目，落其 workspace）
         setWsActiveProfile(targetProfile);
+        // 🔴 2026-08-29 对齐 Hermes gateway-switch：跨 profile 清 artifact 注册表
+        clearArtifactRegistry();
         getWsClient().switchSession('');
         if (viewMode === 'grid') {
           gridRef.current?.newSession(targetProfile);
@@ -1589,6 +1614,7 @@ export default function App() {
   // 🔴 2026-08-13 并发修复：宫格/独立窗口复用同一 handleSessionInfoCwd（焦点卡片 session.info
   // → 文件面板跟随，含项目钉住检查）；GridModeView 经 useGridChat opts 接线
                   onFocusedSessionChange={setFocusedGridSessionId}
+                  onVisibleSessionsChange={handleGridVisibleSessionsChange}
                   onSessionCwd={handleSessionInfoCwd}
                   portReady={portReady}
                   onNewSessionEffects={handleGridNewSessionEffects}

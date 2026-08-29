@@ -10,7 +10,6 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
-import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { readFile, stat } from '@tauri-apps/plugin-fs';
 import {
@@ -18,6 +17,9 @@ import {
 } from 'lucide-react';
 import ImageLightbox from '@/components/ImageLightbox';
 import { notifyError, notifySuccess } from '@/utils/notifications';
+import { openExternal } from '@/lib/external-open';
+import { useLinkTitle } from '@/lib/use-link-title';
+import { Favicon } from '@/lib/use-favicon';
 import { cn } from '@/lib/utils';
 import {
   ARTIFACT_FILTERS,
@@ -152,15 +154,12 @@ export default function ArtifactsGallery({
 
   /** 打开产物（Hermes openArtifact 等价：link/file → 系统程序；失败降级 + 可见错误） */
   const handleOpen = useCallback(async (artifact: GalleryArtifact) => {
-    if (!isTauri()) {
-      window.open(artifact.href, '_blank', 'noopener,noreferrer');
+    if (artifact.kind === 'link') {
+      // 系统浏览器（lib/external-open 单一出口；非 Tauri 环境内部降级 window.open）
+      await openExternal(artifact.href);
       return;
     }
-    try {
-      if (artifact.kind === 'link') {
-        await shellOpen(artifact.href);
-        return;
-      }
+    if (isTauri()) {
       if (artifact.kind === 'file') {
         const path = artifact.href.startsWith('file://') ? artifact.href.slice('file://'.length) : artifact.href;
         // 路径有效性验证（fs:allow-stat）：不存在/目录 → 明确提示，避免静默失败
@@ -188,8 +187,6 @@ export default function ArtifactsGallery({
           }
         }
       }
-    } catch (err) {
-      notifyError(err, '打开失败');
     }
   }, []);
 
@@ -529,6 +526,11 @@ function ArtifactRow({
   onOpenChat?: (sessionId: string) => void;
 }) {
   const isLink = artifact.kind === 'link';
+  // 🔴 2026-08-29 对齐 Hermes 画廊 link 卡片：抓取网页 <title> 做可读标题
+  // （useLinkTitle 空串 → 回退 URL 末段 label——Hermes fetched/label 合并同款；
+  //  同 key 多卡片共享一次抓取，失败静默降级）
+  const linkTitle = useLinkTitle(isLink ? artifact.href : null);
+  const displayLabel = (isLink && linkTitle) || artifact.label;
   const Icon = isLink ? Link2 : FileText;
   const accent = isLink ? 'text-emerald-500' : 'text-sky-500';
   return (
@@ -540,10 +542,16 @@ function ArtifactRow({
           className="flex w-full min-w-0 items-center gap-2 text-left"
         >
           <span className={cn('grid size-6 shrink-0 place-items-center rounded-md bg-muted/50', accent)}>
-            <Icon className="size-3.5" />
+            {/* 🔴 2026-08-29 站点图标（对齐 Hermes connector-logo Favicon 用法）：
+                link 行抓站点 favicon，无图标/解析中保留 Link2 字形占位 */}
+            {isLink ? (
+              <Favicon url={artifact.href} fallback={<Icon className="size-3.5" />} />
+            ) : (
+              <Icon className="size-3.5" />
+            )}
           </span>
           <span className="min-w-0 flex-1 truncate font-medium text-foreground/90 transition-colors group-hover/row:text-foreground">
-            {artifact.label}
+            {displayLabel}
           </span>
         </button>
       </td>

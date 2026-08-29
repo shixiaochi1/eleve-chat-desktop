@@ -40,6 +40,19 @@ export interface PreviewTarget {
   /** 🔴 2026-08-28 对齐 Hermes renderMode：file target 的首选视图
    *  （'preview' = HTML 执行渲染；'source' = 源码。由 openPreview 按 source 定首值） */
   renderMode?: 'preview' | 'source'
+  /** 🔴 2026-08-29 对齐 Hermes previewKind：内容形态——渲染分派优先消费，
+   *  缺省回退扩展名推导（localPreviewTarget 按扩展名填充） */
+  previewKind?: 'binary' | 'html' | 'image' | 'pdf' | 'text'
+  /** 🔴 2026-08-29 对齐 Hermes mimeType：MIME 类型（扩展名映射；后端嗅探后可覆盖） */
+  mimeType?: string
+  /** 🔴 2026-08-29 对齐 Hermes binary：二进制文件（嗅探命中，禁编辑走专用渲染） */
+  binary?: boolean
+  /** 🔴 2026-08-29 对齐 Hermes byteSize：字节大小 */
+  byteSize?: number
+  /** 🔴 2026-08-29 对齐 Hermes large：大文件（>512KB——预览需确认，编辑禁用） */
+  large?: boolean
+  /** 🔴 2026-08-29 对齐 Hermes transient：一次性目标（不持久化） */
+  transient?: boolean
 }
 
 export interface PreviewTab {
@@ -69,6 +82,11 @@ interface PreviewState {
   /** 递增计数：文件变更自动刷新 / 手动 reload（对齐 Hermes $previewReloadRequest） */
   reloadRequest: number
   restart: PreviewRestartState | null
+  /** 🔴 2026-08-29 对齐 Hermes $browserPages：每个 Browser tab 的当前页面地址。
+   *  运行时与 target.url 分离（页面内导航不销毁 webview，SPA 状态保留）；
+   *  落盘时 merge 进 target.url（对齐 Hermes commitBrowserTabLocation 手递手
+   *  回写持久化 tab）——切走再切回 / 重启后恢复到上次页面而非初始地址。 */
+  browserPages: Record<string, string>
 }
 
 // ── 持久化（对齐 Hermes $previewTabs persistentAtom + $rightRailActiveTabId）──
@@ -110,18 +128,23 @@ function loadPersistedTabs(): { tabs: PreviewTab[]; activeId: string | null } {
         t.target = rest as typeof t.target
       }
     }
-    // 🔴 对齐 Hermes decodePreviewTabs：id 按 previewTabId 重键（旧存储可能
-    // 存在多个 url tab——Browser 单例化后 URL target 共享 'url:browser'），
-    // URL tab 只保最后一个——最近打开的页面是浏览器显示的那个
-    const rekeyed = tabs.map((t) => ({ ...t, id: previewTabId(t.target) }))
-    let lastUrlIdx = -1
-    rekeyed.forEach((t, i) => { if (t.target.kind === 'url') lastUrlIdx = i })
-    const deduped = rekeyed.filter((t, i) => t.target.kind !== 'url' || i === lastUrlIdx)
+    // 🔴 2026-08-29 多 Browser tab 化（对齐 Hermes decodePreviewTabs）：URL tab
+    // 保留原 id（url:browser-<rand>），不再合并单例；旧存储的 'url:browser'
+    // 单例 id 合法直接保留。file/artifact 按 previewTabId 重键。
+    const rekeyed = tabs.map((t) => ({
+      ...t,
+      id:
+        t.target.kind === 'url'
+          ? t.id.startsWith('url:')
+            ? t.id
+            : mintBrowserTabId()
+          : previewTabId(t.target),
+    }))
     const activeId =
-      typeof parsed.activeId === 'string' && deduped.some((t) => t.id === parsed.activeId)
+      typeof parsed.activeId === 'string' && rekeyed.some((t) => t.id === parsed.activeId)
         ? parsed.activeId
-        : (deduped[0]?.id ?? null)
-    return { tabs: deduped, activeId }
+        : (rekeyed[0]?.id ?? null)
+    return { tabs: rekeyed, activeId }
   } catch {
     return fallback
   }
@@ -129,13 +152,29 @@ function loadPersistedTabs(): { tabs: PreviewTab[]; activeId: string | null } {
 
 function persistTabs(): void {
   try {
-    if (state.tabs.length === 0) {
+    // 🔴 2026-08-29 对齐 Hermes preview encode（store/preview.ts:120-144）：
+    // artifact tab 不落盘——其内容在内存注册表，刷新后无法还原（tab 不能比
+    // 它的内容源活得久）；file/url tab 可从磁盘/网络重读，保留。
+    const persistable = state.tabs.filter(
+      (t) => t.target.kind !== 'artifact' && !t.target.transient,
+    )
+    if (persistable.length === 0) {
       localStorage.removeItem(PREVIEW_STORAGE_KEY)
       return
     }
+    const activeId = persistable.some((t) => t.id === state.activeId)
+      ? state.activeId
+      : (persistable[0]?.id ?? null)
+    // 🔴 对齐 Hermes commitBrowserTabLocation：页面地址手递手回写持久化 tab——
+    // 重启后恢复到"上次在哪"而非 tab 打开时的初始地址
+    const serialized = persistable.map((t) =>
+      t.target.kind === 'url' && state.browserPages[t.id]
+        ? { ...t, target: { ...t.target, url: state.browserPages[t.id] } }
+        : t,
+    )
     localStorage.setItem(
       PREVIEW_STORAGE_KEY,
-      JSON.stringify({ tabs: state.tabs, activeId: state.activeId }),
+      JSON.stringify({ tabs: serialized, activeId }),
     )
   } catch {
     /* 存储不可用（隐私模式等），静默降级为纯运行时 */
@@ -149,6 +188,7 @@ let state: PreviewState = {
   activeId: restoredTabs.activeId,
   reloadRequest: 0,
   restart: null,
+  browserPages: {},
 }
 
 let listeners = new Set<ListenerCallback>()
@@ -179,8 +219,8 @@ export function getPreviewStoreState(): PreviewState {
 
 function update(patch: Partial<PreviewState>): void {
   state = { ...state, ...patch }
-  // 仅 tab 组成变化时落盘（reloadRequest/restart 是运行时态）
-  if ('tabs' in patch || 'activeId' in patch) persistTabs()
+  // 仅 tab 组成/页面地址变化时落盘（reloadRequest/restart 是运行时态）
+  if ('tabs' in patch || 'activeId' in patch || 'browserPages' in patch) persistTabs()
   notify()
 }
 
@@ -193,12 +233,25 @@ function labelFor(target: PreviewTarget): string {
 
 // ── Actions ──
 
-/** 🔴 2026-08-28 对齐 Hermes previewTabId + BROWSER_TAB_ID：URL target 全部共享
- *  单一 Browser tab——"the tab names the SURFACE (Browser), not the page"。
- *  打开第二个 URL = 导航已有 Browser tab（re-front + 原位换 target），不开新 tab；
- *  file/artifact 仍按身份各自成 tab。 */
+/** 🔴 2026-08-29 多 Browser tab 化（对齐 Hermes mintBrowserTabId）：新 Browser
+ *  tab id = `url:browser-<rand>`——"the tab names the SURFACE (Browser)" */
+function mintBrowserTabId(): string {
+  return `url:browser-${Math.random().toString(36).slice(2, 10)}`
+}
+
+/** 🔴 2026-08-29 多 Browser tab 化（对齐 Hermes browserTabId）：URL target 归属
+ *  "当前活跃的 Browser"——激活 Browser 就导航它，否则用最后一个 Browser，
+ *  都没有才 mint 新 Browser。file/artifact 仍按身份各自成 tab。
+ *  （用户主动要新 tab 走 newBrowserTab，不走此归属决策） */
+function browserTabId(): string {
+  const active = state.tabs.find((t) => t.id === state.activeId)
+  if (active?.target.kind === 'url') return active.id
+  const lastUrl = [...state.tabs].reverse().find((t) => t.target.kind === 'url')
+  return lastUrl?.id ?? mintBrowserTabId()
+}
+
 export function previewTabId(target: PreviewTarget): string {
-  return target.kind === 'url' ? 'url:browser' : `${target.kind}:${target.url}`
+  return target.kind === 'url' ? browserTabId() : `${target.kind}:${target.url}`
 }
 
 // "浏览文件 = 看源码"；工具/显式链接递来的 HTML = "执行渲染"
@@ -213,9 +266,15 @@ function isHtmlPath(path: string): boolean {
 
 function previewTargetForSource(target: PreviewTarget, source: PreviewRecordSource): PreviewTarget {
   const withSource: PreviewTarget = { ...target, source }
-  if (withSource.kind !== 'file' || !isHtmlPath(withSource.url) || withSource.renderMode === 'source') {
+  if (withSource.kind !== 'file' || withSource.renderMode === 'source') {
     return withSource
   }
+  // 🔴 2026-08-29 对齐 Hermes 判定（previewKind === 'html' 优先，扩展名回退）：
+  // mimeType 为 text/html 但扩展名非 .html 的文件也能正确执行渲染
+  const isHtml = withSource.previewKind
+    ? withSource.previewKind === 'html'
+    : isHtmlPath(withSource.url)
+  if (!isHtml) return withSource
   return { ...withSource, renderMode: isFilePreviewSource(source) ? 'source' : 'preview' }
 }
 
@@ -243,6 +302,57 @@ export function openPreview(rawTarget: PreviewTarget, source: PreviewRecordSourc
   return id
 }
 
+/** 🔴 2026-08-29 对齐 Hermes newBrowserTab（store/preview.ts:409-415）：工具栏
+ *  "+"永远开新 Browser tab——"新 tab 是用户主动要的"，不走 browserTabId
+ *  归属决策。初始 about:blank（PreviewWebPane 空态，等用户输入地址）。 */
+export function newBrowserTab(): string {
+  const id = mintBrowserTabId()
+  const tab: PreviewTab = {
+    id,
+    target: { kind: 'url', url: 'about:blank', label: '新标签页' },
+    label: '新标签页',
+  }
+  update({ tabs: [...state.tabs, tab], activeId: id })
+  requestPaneOpen()
+  return id
+}
+
+/** Browser tab 地址回写：仅 about:blank 新 tab 首次输入地址时回写 target.url
+ *  （webview 创建 effect 依赖 target.url——无 webview 时必须改 target 才能触发
+ *  创建）；已有真实 URL 的 tab 不回写（页面内导航不销毁 webview，SPA 状态保留） */
+export function commitBrowserTabUrl(tabId: string, url: string): void {
+  update({
+    tabs: state.tabs.map((t) =>
+      t.id === tabId && t.target.kind === 'url' && t.target.url === 'about:blank' && t.target.url !== url
+        ? { ...t, target: { ...t.target, url }, label: labelFor({ kind: 'url', url }) }
+        : t,
+    ),
+  })
+}
+
+/** 🔴 2026-08-29 对齐 Hermes $browserPages / commitBrowserTabLocation：
+ *  记录 Browser tab 的当前页面地址（导航完成后回写）。运行时与 target.url
+ *  分离——页面内导航不销毁 webview；落盘时才 merge 进 target.url。 */
+export function commitBrowserPage(tabId: string, url: string): void {
+  if (state.browserPages[tabId] === url) return
+  update({ browserPages: { ...state.browserPages, [tabId]: url } })
+}
+
+/** 读取 Browser tab 的恢复地址（切走再切回 / PreviewWebPane 重挂载时用） */
+export function getBrowserPage(tabId: string): string | null {
+  return state.browserPages[tabId] ?? null
+}
+
+/** 🔴 2026-08-29 对齐 Hermes noteBrowserPage + page-title-updated：页面标题
+ *  回写 tab 标签（用户看到的 tab 名跟随真实页面，而非初始 URL 末段） */
+export function setTabLabel(tabId: string, title: string): void {
+  const trimmed = title.trim()
+  if (!trimmed) return
+  const tab = state.tabs.find((t) => t.id === tabId)
+  if (!tab || tab.label === trimmed) return
+  update({ tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, label: trimmed } : t)) })
+}
+
 export function selectTab(id: string): void {
   if (state.activeId !== id) update({ activeId: id })
 }
@@ -256,7 +366,9 @@ export function closeTab(id: string): void {
   if (state.activeId === id) {
     activeId = tabs[Math.min(idx, tabs.length - 1)]?.id ?? null
   }
-  update({ tabs, activeId })
+  const browserPages = { ...state.browserPages }
+  delete browserPages[id]
+  update({ tabs, activeId, browserPages })
 }
 
 export function closeOtherTabs(id: string): void {
