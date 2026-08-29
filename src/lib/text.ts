@@ -43,10 +43,10 @@ export function firstRawStringField(record: Record<string, unknown>, keys: reado
   return '';
 }
 
-/** 压缩所有空白为单空格后截断（超长以 … 结尾） */
+/** 压缩所有空白为单空格后截断（省略号计入宽度：max-1 字符 + …，对齐 Hermes compactPreview） */
 export function truncateOneLine(value: string, max: number): string {
   const flat = value.replace(/\s+/g, ' ').trim();
-  return flat.length > max ? flat.slice(0, max) + '…' : flat;
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
 /** 🔴 对齐 Hermes fallback-model/targets.ts：可预览目标判定 */

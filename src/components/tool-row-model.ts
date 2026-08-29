@@ -184,15 +184,16 @@ export function relativizeToCwd(text: string, cwd: string | undefined): string {
   return text;
 }
 
-/** result → 错误第一行（对齐 DSH：`name: code` 结构化错误优先于正文） */
+/** result → 错误第一行（对齐 DSH：`name: code` 结构化错误优先于正文；先取首行再压平——
+ *  顺序反了"首行"就永远失效） */
 export function deriveErrorSummary(resultStr: string | undefined, parsedResult: unknown): string | null {
   const rec = parsedResult && typeof parsedResult === 'object' && !Array.isArray(parsedResult)
     ? (parsedResult as Record<string, unknown>)
     : null;
   const structured = rec && typeof rec.error === 'string' ? rec.error : '';
   const raw = structured || (typeof parsedResult === 'string' ? parsedResult : resultStr || '');
-  const line = raw.replace(/\s+/g, ' ').trim();
-  return line ? firstLine(line).slice(0, 200) : null;
+  const line = firstLine(raw).replace(/\s+/g, ' ').trim();
+  return line ? line.slice(0, 200) : null;
 }
 
 /** 派生完整行模型（对齐 DSH toolRowModel：一次派生，行渲染全消费） */
@@ -211,9 +212,10 @@ export function toolRowModel(
   // args 解析失败的兜底：DSH 用 callId 站位，ELEVE 无稳定短 id 消费场景，空摘要即可
   // （分隔点随空摘要一起消失，对齐 DSH "a row that is only its title shows no trailing dot"）。
   const filePathParsed = parseArgs(args);
-  const filePath = FILE_PATH_VARIANTS.has(variant) && filePathParsed
+  const filePathRaw = FILE_PATH_VARIANTS.has(variant) && filePathParsed
     ? pickString(filePathParsed, FILE_PATH_KEYS)
     : undefined;
+  const filePath = filePathRaw ? relativizeToCwd(filePathRaw, cwd) : undefined;
   return {
     variant,
     title: toolTitle(variant, toolName),
@@ -282,7 +284,8 @@ export function terminalCardModel(
     command: cardField(argsRec, ['command', 'code']),
     output: hasSplitStreams ? '' : clampForDisplay(merged),
     stdout: hasSplitStreams ? clampForDisplay(stdout || merged) : undefined,
-    stderr: stderr,
+    // 空串必须归一为 undefined——渲染层以 `!== undefined` 判定分段，空串会造成假分段
+    stderr: hasSplitStreams ? stderr : undefined,
     exitCode: typeof exitRaw === 'number' && Number.isFinite(exitRaw) ? exitRaw : null,
   };
 }
