@@ -515,7 +515,7 @@ const ToolEntry = memo(function ToolEntry({ tool, sessionId }: { tool: ToolCallI
         </span>
         <span
           className={cn(
-            'shrink-0 font-medium text-sm',
+            'shrink-0 max-w-[50%] truncate font-medium text-sm',
             isTechnical && 'font-mono text-xs',
             isError ? 'text-destructive' : 'text-foreground',
           )}
