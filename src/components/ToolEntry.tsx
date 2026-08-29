@@ -15,6 +15,7 @@ import {
 import DiffLines, { inlineDiffFromResult } from './DiffLines';
 import { cn } from '@/lib/utils';
 import { firstStringField, truncateOneLine, looksLikeUrl, looksLikePath } from '@/lib/text';
+import { isFileEditTool } from '@/lib/changed-files';
 import { useToolViewMode } from '@/store/tool-view';
 import { extractPreviewTargets, previewName, stripPreviewTargets } from '@/lib/preview-targets';
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
@@ -29,9 +30,6 @@ import { isDesktop } from '@/utils/bridge';
  * technical 模式不消费摘要，展示完整原始参数/结果。
  */
 const PRODUCT_PREVIEW_CHARS = 600;
-
-/** 文件编辑工具（对齐 Hermes FILE_EDIT_TOOL_NAMES） */
-const FILE_EDIT_TOOLS = new Set(['edit_file', 'patch', 'write_file']);
 
 /** 从 inline_diff 提取 html 路径（对齐 Hermes stripInlineDiffChrome + htmlPathFromInlineDiff） */
 function htmlPathFromInlineDiff(value: string): string {
@@ -422,7 +420,7 @@ const ToolEntry = memo(function ToolEntry({ tool, sessionId }: { tool: ToolCallI
     for (const key of ['preview', 'url', 'target', 'path', 'file', 'filepath']) add(argsRec?.[key]);
     for (const key of ['path', 'file', 'filepath']) add(resRec?.[key]);
     // 文件编辑工具：从 inline_diff 提取 html 路径（对齐 Hermes toolPreviewTarget isFileEditTool 分支）
-    if (tool.name && FILE_EDIT_TOOLS.has(tool.name)) {
+    if (tool.name && isFileEditTool(tool.name)) {
       const diff = firstStringField(resRec ?? {}, ['inline_diff', 'diff']);
       const htmlPath = htmlPathFromInlineDiff(diff);
       if (htmlPath && !seen.has(htmlPath)) {
@@ -553,34 +551,36 @@ const ToolEntry = memo(function ToolEntry({ tool, sessionId }: { tool: ToolCallI
       </div>
 
       {/* ── 展开体（头行兄弟节点：内部点击不触发行折叠，对齐 DSH bodyWrap）──
-          卡片优先（对齐 DSH："a call carries at most one card kind"：terminal →
-          search → read 互斥派生），无卡片命中走通用参数/结果体 */}
+          卡片（对齐 DSH "a call carries at most one card kind"：互斥派生）+
+          technical 附加原始参数/结果 JSON（🔴 默认模式是 technical，卡片命中时
+          也必须保留原始数据视图——对齐 Hermes ToolPayloadDisclosure 语义）；
+          product 无卡片命中走通用关键参数/结果摘要 */}
       {expanded && (
         <div className={`tool-call-content ${animReady ? 'expanded' : ''}`}>
           <div className="mt-2 pt-2 border-t border-border max-h-64 overflow-y-auto space-y-1">
-            {delegateCard ? (
-              <DelegateCardBody card={delegateCard} />
-            ) : terminalCard ? (
-              <TerminalCardBody card={terminalCard} />
-            ) : searchCard ? (
-              <SearchCardBody card={searchCard} onOpenUrl={(url) => void openExternalLink(url)} />
-            ) : readCard ? (
-              <ReadCardBody card={readCard} />
-            ) : isTechnical ? (
+            {delegateCard && <DelegateCardBody card={delegateCard} />}
+            {terminalCard && <TerminalCardBody card={terminalCard} />}
+            {searchCard && <SearchCardBody card={searchCard} onOpenUrl={(url) => void openExternalLink(url)} />}
+            {readCard && <ReadCardBody card={readCard} />}
+            {isTechnical && (
               <>
                 {/* technical 模式：完整原始参数/结果（对齐 Hermes rawTechnicalTrace 语义） */}
                 {parsedArgs ? (
                   <>
-                    <div className="text-xs font-semibold text-muted-foreground">参数</div>
+                    <div className={cn('text-xs font-semibold text-muted-foreground', (delegateCard || terminalCard || searchCard || readCard) && 'mt-2')}>
+                      参数
+                    </div>
                     <pre className="text-xs font-mono bg-muted/50 p-2 rounded overflow-x-auto">
                       {JSON.stringify(parsedArgs, null, 2)}
                     </pre>
                   </>
-                ) : isSettled ? (
-                  <span className="text-xs text-muted-foreground italic">无参数</span>
-                ) : (
-                  <span className="text-xs text-muted-foreground italic">参数加载中...</span>
-                )}
+                ) : !delegateCard && !terminalCard && !searchCard && !readCard ? (
+                  isSettled ? (
+                    <span className="text-xs text-muted-foreground italic">无参数</span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground italic">参数加载中...</span>
+                  )
+                ) : null}
                 {parsedResult && !inlineDiff && (
                   <>
                     <div className={cn('text-xs font-semibold mt-2', isError ? 'text-destructive' : 'text-muted-foreground')}>
@@ -592,7 +592,8 @@ const ToolEntry = memo(function ToolEntry({ tool, sessionId }: { tool: ToolCallI
                   </>
                 )}
               </>
-            ) : (
+            )}
+            {!isTechnical && !delegateCard && !terminalCard && !searchCard && !readCard && (
               <>
                 {/* product 模式：隐藏原始数据，只显示关键参数行 + 结果摘要 */}
                 {row.summary ? (
