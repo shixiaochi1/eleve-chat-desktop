@@ -35,6 +35,12 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
   const [saving, setSaving] = useState(false)
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
+  // 🔴 v8（2026-08-29）：AI 重绘——复用 /v1/images/inpaint 全链路（双图引导 +
+  // 画布填充 + 定稿提示词 + 结果本地化），与画布重绘节点同一后端能力
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [aiResult, setAiResult] = useState<string | null>(null)
 
   const wrapRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
@@ -452,6 +458,66 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
     }
   }, [name, onConfirm, saving])
 
+  // 🔴 v8：AI 重绘——复用 /v1/images/inpaint（与画布重绘节点同一后端链路：
+  // 双图引导 + 画布填充 + 定稿提示词 + 结果本地化），涂抹导出 alpha mask 原样提交。
+  const handleAiInpaint = useCallback(async () => {
+    if (aiLoading) return
+    const img = imgRef.current
+    const maskCanvas = maskCanvasRef.current
+    if (!img || !maskCanvas) return
+    const w = img.naturalWidth
+    const h = img.naturalHeight
+    if (!w || !h) return
+    setAiLoading(true)
+    setAiError(null)
+    try {
+      // 1. 原图（自然尺寸，无红标——image = 干净原图）
+      const imgOut = document.createElement('canvas')
+      imgOut.width = w
+      imgOut.height = h
+      imgOut.getContext('2d')!.drawImage(img, 0, 0)
+      const imageDataUrl = imgOut.toDataURL('image/png')
+      // 2. alpha 蒙版（涂抹区 alpha=0 透明=重绘区；其余 alpha=255 保留区）——
+      //    maskCanvas（显示尺寸）等比缩放到自然尺寸（与 handleConfirm 同映射）
+      const maskOut = document.createElement('canvas')
+      maskOut.width = w
+      maskOut.height = h
+      const moctx = maskOut.getContext('2d')!
+      moctx.drawImage(maskCanvas, 0, 0, w, h)
+      const mpx = moctx.getImageData(0, 0, w, h)
+      const md = mpx.data
+      for (let i = 0; i < md.length; i += 4) {
+        const r = md[i], g = md[i + 1], b = md[i + 2], a = md[i + 3]
+        if (a > 0 && r > 180 && g < 120 && b < 120) {
+          md[i + 3] = 0 // 涂抹区 → 透明（重绘区）
+        } else {
+          md[i] = 0; md[i + 1] = 0; md[i + 2] = 0; md[i + 3] = 255 // 保留区
+        }
+      }
+      moctx.putImageData(mpx, 0, 0)
+      const maskDataUrl = maskOut.toDataURL('image/png')
+      // 3. 调 /v1/images/inpaint（gateway httpJson：自动 discoverPort + profile）
+      const { httpJson } = await import('../utils/bridge')
+      const data = await httpJson('/v1/images/inpaint', 'POST', {
+        image: imageDataUrl,
+        mask: maskDataUrl,
+        prompt: aiPrompt.trim() || '自然修改标记区域内容',
+        model: 'nano-banana',
+      })
+      // 4. 结果显示（/media/images 相对路径 → 拼 gateway httpBase）
+      const { getHttpBase } = await import('../utils/bridge')
+      const url = data?.image as string
+      if (!url) throw new Error('未返回重绘结果')
+      const abs = url.startsWith('http') ? url : `${getHttpBase()}${url}`
+      setAiResult(abs)
+    } catch (e: any) {
+      console.error('[ImageEditor] AI 重绘失败:', e)
+      setAiError(e?.message || 'AI 重绘失败，请重试')
+    } finally {
+      setAiLoading(false)
+    }
+  }, [aiPrompt, aiLoading])
+
   const btn = (t: ToolMode, label: string, title: string, active: boolean, onClick: () => void) => (
     <button
       onClick={onClick}
@@ -531,6 +597,47 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
           </div>
         </div>
       </div>
+
+      {/* 🔴 v8：AI 重绘（涂抹 → /v1/images/inpaint 直出结果，复用画布重绘链路） */}
+      <div className="flex items-center gap-2 px-4 py-2 border-t border-white/10 bg-black/40">
+        <span className="text-[11px] text-white/60 shrink-0">🪄 AI 重绘</span>
+        <input
+          type="text"
+          value={aiPrompt}
+          onChange={(e) => setAiPrompt(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !aiLoading) void handleAiInpaint() }}
+          placeholder="描述重绘要求（如：把沙发换成绿色皮革），涂抹区域将按此修改"
+          className="flex-1 rounded-md bg-white/10 px-3 py-1.5 text-xs text-white placeholder:text-white/30 outline-none focus:ring-1 focus:ring-blue-400"
+          disabled={aiLoading}
+        />
+        <button
+          onClick={() => void handleAiInpaint()}
+          disabled={aiLoading || !aiPrompt.trim()}
+          title="按涂抹区域执行 AI 重绘"
+          className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium bg-blue-500 text-white hover:bg-blue-400 disabled:opacity-40"
+        >
+          {aiLoading ? '⏳ 重绘中…' : '🪄 生成'}
+        </button>
+      </div>
+      {aiError && (
+        <div className="px-4 py-1.5 bg-red-500/20 border-t border-red-400/30">
+          <span className="text-[11px] text-red-200">⚠️ {aiError}</span>
+        </div>
+      )}
+      {aiResult && (
+        <div className="flex items-center gap-2 px-4 py-2 border-t border-emerald-400/30 bg-emerald-500/10">
+          <span className="text-[11px] text-emerald-200">✅ AI 重绘完成——结果已生成，可确认使用或继续编辑迭代</span>
+          <div className="ml-auto flex gap-2">
+            <button onClick={() => setAiResult(null)} className="rounded-md px-3 py-1 text-xs bg-white/10 text-white hover:bg-white/25">继续编辑</button>
+            <button
+              onClick={() => { const base = (name || 'image').replace(/\.[^.]+$/, ''); onConfirm(aiResult, `${base}-重绘.png`) }}
+              className="rounded-md px-3 py-1 text-xs font-medium bg-emerald-500 text-white hover:bg-emerald-400"
+            >
+              ✓ 使用此图
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 底部说明 + 操作 */}
       <div className="flex items-center gap-3 px-4 py-2.5 border-t border-white/10 bg-black/40">
