@@ -271,16 +271,18 @@ export function terminalCardModel(
   const argsRec = parseArgs(args);
   const stdout = cardField(res, ['stdout']);
   const stderr = cardField(res, ['stderr']);
-  // 对齐 Hermes hasSplitStreams：仅后端真返回分离字段时才分段，避免与 output 双渲染
-  const hasSplitStreams = Boolean(stdout || stderr);
   // 合并输出序：output → output_preview（后台进程轮询兜底，对齐 Hermes）
   const merged = cardField(res, ['output', 'output_preview']);
+  // 🔴 ELEVE 数据形状适配：execute_code 结果 = output（stdout 截断版主体）+ stderr
+  // 分离流并存；terminal 仅 output 合并流 + exit_code。分段门控以 stderr 非空为准：
+  // 分段时 output 归入 stdout 段（execute_code 无 stdout 字段），避免主体输出被丢。
+  const hasSplitStreams = Boolean(stderr);
   const exitRaw = res.exit_code;
   return {
     command: cardField(argsRec, ['command', 'code']),
-    output: clampForDisplay(merged),
-    stdout: hasSplitStreams ? stdout || undefined : undefined,
-    stderr: hasSplitStreams ? stderr || undefined : undefined,
+    output: hasSplitStreams ? '' : clampForDisplay(merged),
+    stdout: hasSplitStreams ? clampForDisplay(stdout || merged) : undefined,
+    stderr: stderr,
     exitCode: typeof exitRaw === 'number' && Number.isFinite(exitRaw) ? exitRaw : null,
   };
 }
@@ -347,7 +349,11 @@ export interface ReadCardModel {
   truncated: boolean;
 }
 
-const LINE_NUMBERED_RE = /^\s{0,6}\d+[:|]\s/;
+/**
+ * 后端 `add_line_numbers` 生成 `{num}|{line}`（common.rs L917，竖线顶格无空格）；
+ * 匹配则整段 content 已带行号，前端跳过 gutter 不重复编号。
+ */
+const LINE_NUMBERED_RE = /^\d+\|/;
 
 export function readCardModel(
   toolName: string,
@@ -509,9 +515,14 @@ export function delegateRowModel(
   if (results.length === 1) {
     const rec = parseArgs(results[0]);
     const summary = rec ? cardField(rec, ['summary']) : '';
+    const status = rec && typeof rec.status === 'string' ? rec.status : '';
+    // 单任务无摘要时按状态给结论（对齐 DetailedResult.status 四值），不谎报"已完成"
+    const fallback = status === 'completed' || status === ''
+      ? '已完成 1 项任务'
+      : `任务未完成（${delegateStatusLabel(status)}）`;
     return {
       title: '委派',
-      summary: summary ? truncateOneLine(summary, 120) : '已完成 1 项任务',
+      summary: summary ? truncateOneLine(summary, 120) : fallback,
       summarySuffix: null,
     };
   }
@@ -522,6 +533,17 @@ export function delegateRowModel(
     summary: `${results.length} 项任务: ${completed} 成功, ${failed} 失败`,
     summarySuffix: null,
   };
+}
+
+/** delegate 任务状态 → 中文标签（对齐 DetailedResult.status 四值；渲染层据此配色） */
+export function delegateStatusLabel(status: string): string {
+  switch (status) {
+    case 'completed': return '成功';
+    case 'failed': return '失败';
+    case 'interrupted': return '已中断';
+    case 'error': return '错误';
+    default: return status || '未知';
+  }
 }
 
 /** keyed 分发表（对齐 DSH ToolCallTree renderSlot entryKey=toolName；null = 通用行兜底） */

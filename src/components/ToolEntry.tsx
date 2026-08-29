@@ -7,7 +7,7 @@ import {
 } from './Icons';
 import {
   toolRowModel, terminalCardModel, searchCardModel, readCardModel,
-  specializedRowModel, delegateCardModel,
+  specializedRowModel, delegateCardModel, delegateStatusLabel,
   type ToolRowState, type ToolRowVariant,
   type TerminalCardModel, type SearchCardModel, type ReadCardModel,
   type DelegateCardModel,
@@ -122,14 +122,14 @@ function hostnameOf(url: string): string {
   }
 }
 
-/** delegate 任务状态 → 点色 / 中文标签（对齐后端 DetailedResult.status 四值） */
-function delegateStatusSemantics(status: string): { dot: string; label: string } {
+/** delegate 任务状态 → 点色（中文标签统一走模型层 delegateStatusLabel 单一权威源） */
+function delegateStatusDot(status: string): string {
   switch (status) {
-    case 'completed': return { dot: 'text-success', label: '成功' };
-    case 'failed': return { dot: 'text-destructive', label: '失败' };
-    case 'interrupted': return { dot: 'text-warning', label: '已中断' };
-    case 'error': return { dot: 'text-destructive', label: '错误' };
-    default: return { dot: 'text-muted-foreground', label: status || '未知' };
+    case 'completed': return 'text-success';
+    case 'failed': return 'text-destructive';
+    case 'interrupted': return 'text-warning';
+    case 'error': return 'text-destructive';
+    default: return 'text-muted-foreground';
   }
 }
 
@@ -141,13 +141,13 @@ function DelegateCardBody({ card }: { card: DelegateCardModel }) {
   return (
     <div className="space-y-1">
       {card.tasks.map((task, i) => {
-        const semantics = delegateStatusSemantics(task.status);
+        const dot = delegateStatusDot(task.status);
         return (
           <div key={i} className="rounded-md border border-border/60 px-2 py-1.5">
             <div className="flex items-center gap-1.5 text-xs">
-              <DotIcon className={cn('shrink-0', semantics.dot)} />
+              <DotIcon className={cn('shrink-0', dot)} />
               <span className="font-medium">任务 {task.index + 1}</span>
-              <span className={cn(semantics.dot, 'text-[10px]')}>{semantics.label}</span>
+              <span className={cn(dot, 'text-[10px]')}>{delegateStatusLabel(task.status)}</span>
               {task.durationSeconds !== null && task.durationSeconds > 0 && (
                 <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">
                   {task.durationSeconds.toFixed(1)}s
