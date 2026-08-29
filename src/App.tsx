@@ -1783,18 +1783,10 @@ export default function App() {
                         }
                         imageEditorApi.closeImageEditor();
                         addExternalImage(dataUrl, n);
-                        // 🔴 2026-08-29 用户拍板：明确告诉 ELEVE 这是编辑标注图——
-                        // 确认后自动往输入框注入声明（用户可见可删改），随消息发送；
-                        // agent 读到声明即按 image_generate 的标注协议走
-                        //（图原样作 image_url + 按模板扩写提示词）。
-                        try {
-                          const el = document.getElementById('input') as HTMLTextAreaElement | null;
-                          if (el) {
-                            const note = '[此图为编辑标注图：图中红色粗边框标出了需要编辑修改的区域，红框不是图片内容。生成时请将此图原样作为编辑输入，不要裁剪或重绘红框，只编辑红框区域。]';
-                            el.value = el.value ? `${el.value}\n${note}` : note;
-                            el.dispatchEvent(new Event('input', { bubbles: true }));
-                          }
-                        } catch { /* 注入失败不致命 */ }
+                        // 🔴 2026-08-29 标注识别改为 PNG 不可见标记（tEXt chunk
+                        // "eleve-annotated"，编辑器导出时嵌入）——image_generate
+                        // 读图自动检测 → 套用重绘编辑协议。无需输入框注入文本
+                        //（用户拍板：协议下沉到工具自动检测，链路干净）。
                       }}
                     />
                   )}
