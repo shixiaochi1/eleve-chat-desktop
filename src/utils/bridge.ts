@@ -45,6 +45,11 @@ export function getHttpBase(): string {
   return _httpBase;
 }
 
+/** HTTP base 是否已 discover（2026-08-29 media.ts 相对 URL 拼接用） */
+export function isHttpBaseSet(): boolean {
+  return _httpBaseSet;
+}
+
 /**
  * 🔴 2026-08-20：通用 gateway HTTP 调用（媒体凭据等无 WS 方法的端点走 HTTP）。
  * 自动：桌面端 discoverPort（未发现时抛错）→ profile 前缀（非 default 加 /p/<profile>/）→

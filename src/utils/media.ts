@@ -74,11 +74,24 @@ export function extractMediaRefs(text: string): { clean: string; refs: { path: s
 /**
  * 解析本地媒体路径 → 可渲染 src（对齐 Hermes resolveMediaDisplaySrc）：
  * - 内联/网络 URL（http/data/blob）→ 原样
+ * - 🔴 2026-08-29 `/media/...` 相对 URL（image_generate 结果本地化）→ 拼
+ *   gateway HTTP base（gateway 有 /media/* ServeDir 静态路由；主 UI origin
+ *   是 tauri.localhost，相对请求 404 = 用户实测"图片加载失败"根因）
  * - 本地 Tauri 桌面 → plugin-fs 读文件 → data URL（对齐 Hermes readFileDataUrl）
  * - remote / 读失败兜底 → 后端 WS media.resolve（MEDIA: 单路径 → 提取 data URL）
  */
 export async function resolveMediaSrc(path: string): Promise<string | null> {
   if (/^(https?:|data:|blob:)/i.test(path)) return path;
+
+  // 🔴 2026-08-29：gateway 本地化相对 URL（/media/images/...）→ 拼 gateway base
+  //（主 UI origin=tauri.localhost 无 /media 路由，必须显式走 gateway HTTP）
+  if (/^\/media\//i.test(path)) {
+    const { getHttpBase, discoverPort, isDesktop: desktop } = await import('./bridge');
+    if (desktop() && !(await import('./bridge')).isHttpBaseSet()) {
+      await discoverPort();
+    }
+    return `${getHttpBase()}${path}`;
+  }
 
   // 本地 Tauri 桌面：直接读文件（与 useImageAttachments.addImageFromPath 同款快路径）
   if (isDesktop()) {
