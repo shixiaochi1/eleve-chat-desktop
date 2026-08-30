@@ -41,27 +41,21 @@ pub struct PreviewWebviewManager {
 // 独立 OS 窗口。
 //
 // ELEVE 的 WebView2 子 webview 默认放行 NewWindowRequested → 用户点
-// target=_blank 链接会弹独立 WebView2 窗口（脱离前端界面）。拦截策略：
-// 取消默认新窗口 + 在**同一预览 webview** 内导航——链接始终内置打开；
-// 导航后既有的 preview-load-state 事件链（= Hermes did-navigate 同步）
-// 自动更新地址栏 / tab 位置状态，前端无感。
-//
-// 有意偏差（注释如实）：Hermes webview 对 _blank 是静默拒绝（点击无反应）；
-// ELEVE 选择在预览内打开——语义更贴"一切都在内置界面"，且复用既有位置
-// 同步链路。非 Windows 平台不拦截（wry/WebKitGTK 行为不同，Windows 优先）。
+// target=_blank 链接会弹独立 WebView2 窗口（脱离前端界面）。拦截策略
+// （🔴 2026-08-31 纠偏回归 Hermes——旧实现自创"同 webview 导航"，偏离
+// Hermes 的 deny 语义）：SetHandled(true) 取消默认独立窗口，**仅此而已**
+// ——与 Hermes `<webview>`（无 allowpopups）的静默拒绝逐字对齐。
+// 非 Windows 平台不拦截（wry/WebKitGTK 行为不同，Windows 优先）。
 #[cfg(windows)]
 fn register_new_window_interceptor(webview: &tauri::Webview) {
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
     use webview2_com::NewWindowRequestedEventHandler;
-    use windows_core::PWSTR;
 
     let register_result = webview.with_webview(move |platform| unsafe {
         // 回调在 WebView2 UI 线程执行（COM 调用线程要求，同硬刷新范式）
         let Ok(core) = platform.controller().CoreWebView2() else {
             return;
         };
-        // handler 闭包持有自己的 COM 引用（Clone = AddRef）
-        let core_handler = core.clone();
         // 闭包签名（webview2-com #[event_callback] 生成）：裸 COM 参数经
         // InvokeArg::convert 包装为 Option——sender 与 args 均可能为 None
         let handler = NewWindowRequestedEventHandler::create(Box::new(
@@ -69,14 +63,8 @@ fn register_new_window_interceptor(webview: &tauri::Webview) {
                 let Some(args) = args else {
                     return Ok(());
                 };
-                // 先取目标 URL（Uri 是 &mut PWSTR 出参；take_pwstr 转 String
-                // 并释放 WebView2 分配的内存），再取消默认独立窗口，最后在
-                // 同一预览 webview 内导航（内置在前端界面）
-                let mut uri = PWSTR::null();
-                args.Uri(&mut uri)?;
-                let uri_str: String = webview2_com::take_pwstr(uri);
+                // deny：取消默认独立窗口（对齐 Hermes 无 allowpopups 的静默拒绝）
                 args.SetHandled(true)?;
-                core_handler.Navigate(&windows_core::HSTRING::from(uri_str))?;
                 Ok(())
             },
         ));
