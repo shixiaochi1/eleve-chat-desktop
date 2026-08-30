@@ -15,7 +15,9 @@ import { useState, useCallback, useRef } from 'react';
 import { getWsClient, type ImageAttachResponse } from '@/services/ws-client';
 import { readFileAsDataURL, base64FromDataURL, mimeFromExt, arrayBufferToBase64 } from '@/utils/file';
 import { isRemoteMode, loadConnection } from '@/lib/connection';
-import { shrinkDataUrlForAttach } from '@/lib/pngAnnotated';
+// 🔴 2026-08-31 图片缩放重试不在前端做：后端 conversation_loop.rs 已有 Hermes
+// 对齐实现（shrink_image_parts_in_messages，LLM 层 4MB/2048）；attach 层前后端
+// 同为 25MB 硬顶且 Hermes 也无 attach 重试——前端再包一层纯属重复造轮子。
 
 export interface AttachedImage {
   /** 本地唯一 ID（用于 React key + 删除定位） */
@@ -193,44 +195,6 @@ export function useImageAttachments(options?: {
    *   后端路径（调用方在"上传期间会话已切换"时用于 detach 清理残留，防旧会话下次 submit 幽灵 drain）;
    *   error: 最后一条错误信息（🔴 2026-08-22 新增：供调用方识别 session not found 后重建会话重试） }
    */
-  /**
-   * 🔴 2026-08-31 对齐 Hermes image-shrink recovery（conversation_compression.py
-   * L4838 try_shrink_image_parts_in_messages）：attach 失败 → 缩放（1568px/4MB）
-   * 重发一次。缩放判定与"缩了也白缩"守卫都在 shrinkDataUrlForAttach 内
-   * （返回 null = 不值得重试或缩放失败）；带 eleve-annotated 标记的图重嵌标记。
-   * @returns true = 缩放重发成功（path 已记入 updatedPaths）
-   */
-  const shrinkRetryAttach = useCallback(
-    async (
-      img: AttachedImage,
-      sessionId: string,
-      updatedPaths: Map<string, string>,
-    ): Promise<boolean> => {
-      try {
-        const shrunk = await shrinkDataUrlForAttach(img.preview);
-        if (!shrunk) return false;
-        console.info(
-          `[uploadUnuploaded] attach 失败，缩放重试: ${img.name} (${Math.round(img.preview.length / 1024)}KB → ${Math.round(shrunk.length / 1024)}KB)`,
-        );
-        const wsClient = getWsClient();
-        const result: ImageAttachResponse = await wsClient.imageAttachBytes(
-          base64FromDataURL(shrunk),
-          img.name,
-          sessionId,
-        );
-        if (result.attached && result.path) {
-          updatedPaths.set(img.id, result.path);
-          return true;
-        }
-        return false;
-      } catch (err) {
-        console.warn('[uploadUnuploaded] 缩放重试仍失败:', err);
-        return false;
-      }
-    },
-    [],
-  );
-
   const uploadUnuploaded = useCallback(async (sessionId: string): Promise<{ ok: boolean; paths: string[]; error?: string }> => {
     const pending = attachedImages.filter((img) => !img.uploaded);
     // 🔴 2026-08-27 纯图排查决定性日志
@@ -258,25 +222,16 @@ export function useImageAttachments(options?: {
         if (result.attached && result.path) {
           updatedPaths.set(img.id, result.path);
         } else {
-          // 🔴 2026-08-31 对齐 Hermes image-shrink recovery：attach 失败先试
-          // 缩放重发一次（图超 1568px/4MB 才有意义——门控在 shrinkDataUrlForAttach）
-          const shrunk = await shrinkRetryAttach(img, sessionId, updatedPaths);
-          if (!shrunk) {
-            allOk = false;
-            const msg = (result as unknown as { error?: string }).error || `后端未确认附件`;
-            lastError = msg;
-            setError(`图片上传失败: ${img.name}（${msg}）`);
-          }
+          allOk = false;
+          const msg = (result as unknown as { error?: string }).error || `后端未确认附件`;
+          lastError = msg;
+          setError(`图片上传失败: ${img.name}（${msg}）`);
         }
       } catch (err) {
-        // 🔴 2026-08-31 同上：异常路径也给缩放重试机会
-        const shrunk = await shrinkRetryAttach(img, sessionId, updatedPaths);
-        if (!shrunk) {
-          allOk = false;
-          const msg = err instanceof Error ? err.message : String(err);
-          lastError = msg;
-          setError(`图片上传失败: ${msg}`);
-        }
+        allOk = false;
+        const msg = err instanceof Error ? err.message : String(err);
+        lastError = msg;
+        setError(`图片上传失败: ${msg}`);
       }
     }
 
