@@ -77,13 +77,16 @@ function StatGroup({ title, icon, color, data, badge }: {
   data: KindSummaryItem;
   badge?: React.ReactNode;
 }) {
+  // 🔴 2026-08-31 修复：此前用 var(--accent)/var(--success)/var(--primary)/var(--destructive)——
+  // 主题系统里不存在这些变量名（正确为 --dt-accent/--ui-green/--dt-primary/--dt-destructive），
+  // color 属性失效回退继承 → 指标数字一片灰。
   const cells = [
-    { label: '输入', value: fmtNum(data.input), color: 'var(--accent)' },
+    { label: '输入', value: fmtNum(data.input), color: 'var(--dt-accent)' },
     { label: '输出', value: fmtNum(data.output), color: 'var(--ui-purple)' },
-    { label: '缓存读', value: fmtNum(data.cacheRead), color: 'var(--success)' },
+    { label: '缓存读', value: fmtNum(data.cacheRead), color: 'var(--ui-green)' },
     { label: '缓存写', value: fmtNum(data.cacheWrite), color: 'var(--ui-yellow)' },
-    { label: '命中率', value: data.hitPercent === null ? '—' : `${data.hitPercent}%`, color: 'var(--primary)' },
-    { label: '费用', value: fmtCost(data.cost), color: 'var(--destructive)' },
+    { label: '命中率', value: data.hitPercent === null ? '—' : `${data.hitPercent}%`, color: 'var(--dt-primary)' },
+    { label: '费用', value: fmtCost(data.cost), color: 'var(--dt-destructive)' },
   ];
   return (
     <div className="rounded border border-[var(--ui-stroke-tertiary)] bg-card p-2">
@@ -269,7 +272,7 @@ export default function UsagePanel({
         <StatGroup
           title="主会话"
           icon={<Layers size={12} />}
-          color="var(--accent)"
+          color="var(--dt-accent)"
           data={kindSummary.main}
           badge={
             <span className="text-[10px] text-muted-foreground/60 tabular-nums">{kindSummary.main.sessions} 个会话</span>
@@ -287,7 +290,7 @@ export default function UsagePanel({
         <StatGroup
           title="全部合计"
           icon={<BarChart3 size={12} />}
-          color="var(--foreground)"
+          color="var(--dt-foreground)"
           data={kindSummary.total}
           badge={
             <span className="text-[10px] text-muted-foreground/60 tabular-nums">{kindSummary.total.sessions} 个会话</span>
@@ -534,25 +537,38 @@ function SessionRowGroup({ row, isOpen, onToggle }: {
   );
 }
 
-/** 按日趋势叠柱（输入 + 缓存读） */
+/** 按日趋势叠柱（输入 + 缓存读）
+ * 🔴 2026-08-31 修复"一大坨灰色矩形"：
+ * ① max 计算加 NaN/负值防护（此前单日异常值会让 Math.max 返 NaN → 全部柱子 height 失效）；
+ * ② 柱子限宽 max-w-[22px] + 列居中——此前 flex-1 无上限，天数少时单柱撑满整行变成大色块；
+ * ③ 日期稀疏标注（>12 天时每 5 根显示一次）——此前每根都标 8px 灰字，密集时糊成一团。 */
 function TrendChart({ data }: { data: DailyTrendPoint[] }) {
-  const max = Math.max(...data.map((d) => d.input + d.cacheRead), 1);
+  const totalMax = Math.max(
+    ...data.map((d) => (Number(d.input) || 0) + (Number(d.cacheRead) || 0)),
+    1,
+  );
+  const showEvery = data.length > 12 ? 5 : 1;
   return (
     <div className="flex items-end gap-[2px] h-16 overflow-x-auto pb-1">
-      {data.map((d) => {
-        const hInput = Math.max((d.input / max) * 56, d.input > 0 ? 2 : 0);
-        const hCache = Math.max((d.cacheRead / max) * 56, d.cacheRead > 0 ? 2 : 0);
+      {data.map((d, i) => {
+        const input = Math.max(Number(d.input) || 0, 0);
+        const cacheRead = Math.max(Number(d.cacheRead) || 0, 0);
+        const hInput = Math.max((input / totalMax) * 56, input > 0 ? 2 : 0);
+        const hCache = Math.max((cacheRead / totalMax) * 56, cacheRead > 0 ? 2 : 0);
         return (
           <div
-            key={d.day}
-            className="flex flex-col justify-end min-w-[14px] flex-1 group relative cursor-default"
+            key={d.day || i}
+            className="flex flex-col justify-end min-w-[14px] max-w-[22px] flex-1 group relative cursor-default"
             title={`${d.day}\n输入 ${fmtNum(d.input)} · 输出 ${fmtNum(d.output)}\n缓存读 ${fmtNum(d.cacheRead)} · 写 ${fmtNum(d.cacheWrite)}\n命中率 ${d.hitPercent === null ? '—' : d.hitPercent + '%'} · 费用 ${fmtCost(d.cost)}`}
           >
             <div className="flex flex-col-reverse gap-px w-full">
               <div style={{ height: hCache }} className="w-full rounded-sm bg-success/70" />
               <div style={{ height: hInput }} className="w-full rounded-sm bg-primary/70" />
             </div>
-            <span className="text-[8px] text-muted-foreground/40 text-center leading-none mt-0.5 select-none">
+            <span className={cn(
+              'text-[8px] text-muted-foreground/40 text-center leading-none mt-0.5 select-none',
+              i % showEvery !== 0 && 'invisible',
+            )}>
               {d.day.slice(5)}
             </span>
           </div>
