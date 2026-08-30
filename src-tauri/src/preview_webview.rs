@@ -46,6 +46,58 @@ pub struct PreviewWebviewManager {
 // Hermes 的 deny 语义）：SetHandled(true) 取消默认独立窗口，**仅此而已**
 // ——与 Hermes `<webview>`（无 allowpopups）的静默拒绝逐字对齐。
 // 非 Windows 平台不拦截（wry/WebKitGTK 行为不同，Windows 优先）。
+/// 导航失败监听（🔴 2026-08-31 对齐 Hermes did-fail-load，preview-pane.tsx
+/// L834-860）：`NavigationCompleted` IsSuccess=false 时 emit `preview-load-error`
+/// （前端据此显示错误态 + console 追加）。OperationCanceled（errorCode=-3 等价）
+/// 过滤——取消的导航不算失败。
+#[cfg(windows)]
+fn register_navigation_error_listener(
+    webview: &tauri::Webview,
+    app: tauri::AppHandle,
+    label: String,
+) {
+    use tauri::Emitter;
+    use webview2_com::Microsoft::Web::WebView2::Win32::*;
+    use webview2_com::NavigationCompletedEventHandler;
+
+    let register_result = webview.with_webview(move |platform| unsafe {
+        // 回调在 WebView2 UI 线程执行（COM 调用线程要求，同硬刷新范式）
+        let Ok(core) = platform.controller().CoreWebView2() else {
+            return;
+        };
+        let handler = NavigationCompletedEventHandler::create(Box::new(
+            move |_sender, args: Option<ICoreWebView2NavigationCompletedEventArgs>| {
+                use tauri::Emitter as _;
+                let Some(args) = args else {
+                    return Ok(());
+                };
+                let mut success = windows_core::BOOL::default();
+                args.IsSuccess(&mut success)?;
+                if success.as_bool() {
+                    return Ok(());
+                }
+                let mut status = COREWEBVIEW2_WEB_ERROR_STATUS::default();
+                args.WebErrorStatus(&mut status)?;
+                // 取消的导航不算失败（对齐 Hermes errorCode === -3 早退）
+                if status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED {
+                    return Ok(());
+                }
+                let _ = app.emit(
+                    "preview-load-error",
+                    serde_json::json!({ "label": label }),
+                );
+                Ok(())
+            },
+        ));
+        // token 不保留：webview 销毁时事件随 COM 对象一起清理
+        let mut token = Default::default();
+        let _ = core.add_NavigationCompleted(&handler, &mut token);
+    });
+    if let Err(e) = register_result {
+        eprintln!("[PREVIEW] navigation error listener failed: {e}");
+    }
+}
+
 #[cfg(windows)]
 fn register_new_window_interceptor(webview: &tauri::Webview) {
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
@@ -129,9 +181,12 @@ pub async fn preview_webview_create(
     let init_script = capture.replace("__PREVIEW_CONSOLE_LABEL__", &label);
 
     // 加载状态事件（对齐 Hermes did-start-loading/did-stop-loading）：
-    // Started → 前端清错误态；Finished → 前端探测服务器可达性（失败导航也会触发）
+    // Started → 前端清错误态；Finished → 前端同步地址/历史（🔴 2026-08-31
+    // 可达性探测已删——错误态改由原生 preview-load-error 事件驱动）
     let emit_label = label.clone();
-    // 🔴 标题回调独立克隆（on_page_load 闭包 move app，后续不能再 clone）
+    // 🔴 事件回调独立克隆（on_page_load/on_document_title_changed 闭包各自
+    // 持有 AppHandle——后续导航错误监听/调用点还要用 app）
+    let load_app = app.clone();
     let title_app = app.clone();
     let title_label = label.clone();
     let builder = tauri::webview::WebviewBuilder::new(
@@ -149,7 +204,7 @@ pub async fn preview_webview_create(
             PageLoadEvent::Finished => "finished",
         };
         eprintln!("[PREVIEW] load: label={} state={} url={}", emit_label, state, payload.url());
-        let _ = app.emit(
+        let _ = load_app.emit(
             "preview-load-state",
             serde_json::json!({ "label": emit_label, "state": state, "url": payload.url() }),
         );
@@ -184,6 +239,9 @@ pub async fn preview_webview_create(
     #[cfg(windows)]
     if let Some(wv) = manager.find(&window, &label) {
         register_new_window_interceptor(&wv);
+        // 🔴 导航失败监听（did-fail-load 等价——错误态由原生事件驱动，
+        // 替代旧的自创 fetch 探测）
+        register_navigation_error_listener(&wv, app.clone(), label.clone());
     }
 
     manager.labels.lock().unwrap().insert(label.clone());

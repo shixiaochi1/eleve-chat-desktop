@@ -137,7 +137,6 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
   // Rust seq 游标（断档检测 → snapshot 补拉）
   const lastSeqRef = useRef<number | null>(null);
-  const probeTimerRef = useRef<number | null>(null);
   const isTauri = isDesktop();
 
   // 最新 URL 供异步探测/刷新闭包使用（老铁律：空依赖 effect 闭包陷阱）
@@ -274,34 +273,42 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
       }
       if (state === 'started') {
         setIframeError(null);
-      } else if (state === 'finished') {
-        // 加载结束 → 探测服务器可达性（失败导航也触发 Finished；
-        // 成功则不报错——宁漏勿误，module mime 由 console 流检测）
-        if (probeTimerRef.current) clearTimeout(probeTimerRef.current);
-        probeTimerRef.current = window.setTimeout(async () => {
-          probeTimerRef.current = null;
-          try {
-            await fetch(currentUrlRef.current, { method: 'HEAD', mode: 'no-cors' });
-          } catch {
-            setIframeError('serverNotFound');
-          }
-        }, 800);
       }
+      // 🔴 2026-08-31 删除 Finished 后的 fetch HEAD 探测——自创逻辑误报源：
+      // about:blank / 内网页面 / 拒绝 HEAD 的站点都会误报「无法连接到服务器」。
+      // 加载失败改由原生事件 preview-load-error 驱动（对齐 Hermes did-fail-load，
+      // Rust 侧 NavigationCompleted IsSuccess=false → emit）。
+    };
+
+    // 🔴 2026-08-31 对齐 Hermes did-fail-load（preview-pane.tsx L834-860）：
+    // 导航失败原生事件 → console 追加（level 3）+ 错误态。
+    // （Rust 侧 NavigationCompleted IsSuccess=false → emit；
+    //   OperationCanceled 已在 Rust 侧过滤——取消的导航不算失败。）
+    const onLoadError = (event: { payload: { label: string } }) => {
+      const { label: l } = event.payload;
+      if (l !== webviewLabel) return;
+      consoleState.append({
+        level: 3,
+        message: '页面加载失败（导航错误）——目标服务器不可达或连接被拒绝',
+      });
+      setIframeError('serverNotFound');
     };
 
     void (async () => {
-      const [c, l, t] = await Promise.all([
+      const [c, l, t, e] = await Promise.all([
         listen('preview-console', onConsole),
         listen('preview-load-state', onLoadState),
         listen('preview-page-title', onTitle),
+        listen('preview-load-error', onLoadError),
       ]);
       if (cancelled) {
         c();
         l();
         t();
+        e();
         return;
       }
-      unlisteners = [c, l, t];
+      unlisteners = [c, l, t, e];
     })();
 
     return () => {
