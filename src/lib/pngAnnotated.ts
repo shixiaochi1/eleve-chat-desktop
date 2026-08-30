@@ -120,10 +120,7 @@ export const shrinkDataUrlForAttach = async (dataUrl: string): Promise<string | 
     const hasMarker = isPng && pngHasAnnotatedMarker(dataUrl)
     const img = await loadImage(dataUrl)
     const maxSide = Math.max(img.naturalWidth, img.naturalHeight)
-    if (
-      maxSide <= ANNOTATED_MAX_DIMENSION &&
-      dataUrl.length <= ATTACH_TARGET_BYTES * (4 / 3)
-    ) {
+    if (maxSide <= ANNOTATED_MAX_DIMENSION && dataUrl.length <= ATTACH_TARGET_BYTES) {
       return null // 尺寸与字节都在限内——失败与大小无关，缩了也白缩
     }
     const scale = Math.min(1, ANNOTATED_MAX_DIMENSION / maxSide)
@@ -134,7 +131,8 @@ export const shrinkDataUrlForAttach = async (dataUrl: string): Promise<string | 
     let out = canvas.toDataURL('image/png')
     if (hasMarker) out = insertPngAnnotatedText(out) // 标记是协议命脉，重编码后补回
     // Hermes 非单调守卫：缩完反而更大 → 放弃；仍超字节目标 → 放弃
-    if (out.length >= dataUrl.length || out.length > ATTACH_TARGET_BYTES * (4 / 3)) {
+    // （对齐 L4926：Hermes 直接用 data URL 字符串长度对比 target_bytes）
+    if (out.length >= dataUrl.length || out.length > ATTACH_TARGET_BYTES) {
       return null
     }
     return out
