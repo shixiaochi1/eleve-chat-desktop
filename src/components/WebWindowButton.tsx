@@ -86,26 +86,28 @@ export default function WebWindowButton({ sessionId }: WebWindowButtonProps) {
   );
 
   /**
-   * 主点击（左键）——一键主动作：
-   * 已连接 → 前置内嵌 Browser；未连接 → 自动连接 + 内嵌弹出。
-   * 失败时打开管理菜单展示进度/错误详情。
+   * 主点击（左键）——对齐 Hermes 输入框「打开浏览器」按钮（view.showBrowser
+   * → openBrowserTab，keybinds actions.ts L136/L254）：**立即前置/弹出内嵌
+   * Browser surface**（保留上次页面——"the surface, not a page"）。
+   * 未连接时后台自动连接（不阻塞面板弹出；失败开管理菜单看详情）。
    */
   const handleActivate = useCallback(async () => {
     if (remote || busy) return;
-    if (connected) {
-      openBrowserTab();
-      return;
-    }
-    setBusy(true);
-    setMessages([]);
-    try {
-      const ok = await connect(urlInput.trim() || undefined);
-      if (!ok) setMenuOpen(true); // 失败 → 菜单里看进度详情/自定义地址
-    } catch (err) {
-      notifyError(err, '浏览器连接失败');
-      setMenuOpen(true);
-    } finally {
-      setBusy(false);
+    // 内嵌 Browser surface 立即弹出（对齐 Hermes：不依赖连接状态）
+    openBrowserTab();
+    // 未连接 → 后台自动连接（Agent 自动化通道；面板浏览本身不需要连接）
+    if (!connected) {
+      setBusy(true);
+      setMessages([]);
+      try {
+        const ok = await connect(urlInput.trim() || undefined);
+        if (!ok) setMenuOpen(true); // 失败 → 菜单里看进度详情/自定义地址
+      } catch (err) {
+        notifyError(err, '浏览器连接失败');
+        setMenuOpen(true);
+      } finally {
+        setBusy(false);
+      }
     }
   }, [remote, busy, connected, connect, urlInput]);
 

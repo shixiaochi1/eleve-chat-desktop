@@ -7,7 +7,7 @@ import { ArtifactCard } from './ArtifactCard';
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
 import { getCurrentSessionCwd } from '@/lib/session-cwd';
 import { openPreview } from '@/store/preview';
-import { openExternal } from '@/lib/external-open';
+import { openLink } from '@/lib/external-open';
 
 /**
  * StreamBlocks — 块级流式 Markdown 渲染（对齐 Hermes Streamdown 分块模型）
@@ -162,7 +162,11 @@ export default forwardRef<HTMLDivElement, StreamBlocksProps>(function StreamBloc
 ) {
   // 🔴 2026-08-10 对齐 Hermes MarkdownLink：消息里链接点击 → 预览抽屉 / 系统浏览器。
   // - file:/#preview: → 右侧预览抽屉（对齐 PreviewAttachment openPreview）
-  // - http(s) 外链 → 系统浏览器打开（对齐 PrettyLink openExternal；拦截 webview 自身导航）
+  // - 🔴 2026-08-30 http(s) 外链 → **内嵌预览面板**（对齐 Hermes openLink——
+  //   "reading a doc doesn't cost a context switch out of the app, and it is
+  //   the surface the agent can see"；旧实现误读 Hermes 全量 openExternal）
+  //   Ctrl/⌘/中键逃逸系统浏览器（wantsNativeBrowser）
+  // - 其它 scheme（mailto: 等）→ OS
   // - 站内锚点 #xxx 不拦截
   const handleLinkClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const anchor = (e.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
@@ -182,9 +186,9 @@ export default forwardRef<HTMLDivElement, StreamBlocksProps>(function StreamBloc
       return;
     }
 
-    // 外链（http/https/其它 scheme/相对路径）→ 系统浏览器（对齐 Hermes PrettyLink；
-    // 传输细节统一 lib/external-open 单一出口，严禁重复造轮子）
-    void openExternal(href);
+    // 统一链接决策（lib/external-open 单一出口，严禁重复造轮子）：
+    // web → 内嵌预览；修饰键/其它 scheme → OS
+    void openLink(href, e);
   }, []);
 
   const plan = useMemo(() => {

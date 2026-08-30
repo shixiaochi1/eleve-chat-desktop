@@ -22,7 +22,7 @@ import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
 import { getCurrentSessionCwd } from '@/lib/session-cwd';
 import { recordPreviewArtifact } from '@/store/preview-status';
 import { openPreview } from '@/store/preview';
-import { openExternal } from '@/lib/external-open';
+import { openLink } from '@/lib/external-open';
 
 /**
  * product 模式结果摘要（隐藏原始工具数据，显示易读的工具活动）；
@@ -45,8 +45,9 @@ function htmlPathFromInlineDiff(value: string): string {
   return '';
 }
 
-/** 外部打开统一走 lib/external-open（对齐 Hermes openExternal 单一出口；此处只留薄别名） */
-const openExternalLink = openExternal;
+/** 链接打开统一走 lib/external-open 的 openLink（🔴 2026-08-30 对齐 Hermes
+ *  openLink：web 链接 → 内嵌预览面板，修饰键/非 web 协议 → OS；此处只留薄别名） */
+const openExternalLink = openLink;
 
 /** 单个工具调用数据 */
 export interface ToolCallItem {

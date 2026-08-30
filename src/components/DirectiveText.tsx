@@ -1,6 +1,6 @@
-import { Fragment, memo, useMemo } from 'react';
+import { Fragment, memo, useMemo, type MouseEvent as ReactMouseEvent } from 'react';
 import { FolderIcon, FileIcon, GlobeIcon, ImageIcon } from './Icons';
-import { openExternal } from '@/lib/external-open';
+import { openLink } from '@/lib/external-open';
 import { cn } from '@/lib/utils';
 
 /**
@@ -65,10 +65,11 @@ function DirectiveIcon({ type }: { type: string }) {
   }
 }
 
-/** 打开外部链接（对齐 Hermes DIRECTIVE_ACTIONS.url；传输细节统一
- *  lib/external-open 单一出口，此处只做 ref 值解包） */
-async function openExternalLink(id: string) {
-  await openExternal(unwrapRefValue(id));
+/** 打开 url 引用（🔴 2026-08-30 对齐 Hermes DIRECTIVE_ACTIONS.url → openLink：
+ *  web 链接 → 内嵌预览面板，修饰键逃逸 OS；传输统一 lib/external-open，
+ *  此处只做 ref 值解包与 event 透传） */
+async function openExternalLink(id: string, event?: ReactMouseEvent) {
+  await openLink(unwrapRefValue(id), event);
 }
 
 function DirectiveChip({ type, label, id }: { type: string; label: string; id: string }) {
@@ -94,7 +95,7 @@ function DirectiveChip({ type, label, id }: { type: string; label: string; id: s
         title={id}
         onClick={(e) => {
           e.stopPropagation();
-          void openExternalLink(id);
+          void openExternalLink(id, e);
         }}
       >
         {body}

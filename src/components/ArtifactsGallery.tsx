@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import ImageLightbox from '@/components/ImageLightbox';
 import { notifyError, notifySuccess } from '@/utils/notifications';
-import { openExternal } from '@/lib/external-open';
+import { openLink } from '@/lib/external-open';
 import { useLinkTitle } from '@/lib/use-link-title';
 import { Favicon } from '@/lib/use-favicon';
 import { cn } from '@/lib/utils';
@@ -155,8 +155,9 @@ export default function ArtifactsGallery({
   /** 打开产物（Hermes openArtifact 等价：link/file → 系统程序；失败降级 + 可见错误） */
   const handleOpen = useCallback(async (artifact: GalleryArtifact) => {
     if (artifact.kind === 'link') {
-      // 系统浏览器（lib/external-open 单一出口；非 Tauri 环境内部降级 window.open）
-      await openExternal(artifact.href);
+      // 🔴 2026-08-30 对齐 Hermes 画廊 PrimaryCell（ExternalLink → openLink）：
+      // web 链接 → 内嵌预览面板；修饰键/非 web 协议 → OS（openLink 内部决策）
+      await openLink(artifact.href);
       return;
     }
     if (isTauri()) {
