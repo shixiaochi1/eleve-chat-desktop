@@ -102,7 +102,7 @@ export default function ThinkingButton() {
                 'items-start gap-2 rounded-lg border px-2.5 py-2',
                 selected
                   ? 'border-primary bg-primary/5 text-foreground'
-                  : 'border-border/40'
+                  : 'border-[var(--ui-stroke-quaternary)]'
               )}
             >
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">

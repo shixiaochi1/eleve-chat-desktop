@@ -180,7 +180,7 @@ function TaskCard({ task, sessionId }: TaskCardProps) {
     // 🔴 2026-08-18 老大需求：抽屉 UI 干干净净像主聊天窗口——卡片中性玻璃
     // 表面（bg-card/50 + 细边框，与主气泡同语言），去掉主题色/强调色背景；
     // 状态色仅保留在状态文字（信息性小字），不再整卡上色。
-    <div className="rounded-lg border border-border/60 bg-card/50 backdrop-blur-sm px-2.5 py-2 space-y-1.5">
+    <div className="rounded-lg border border-[var(--ui-stroke-tertiary)] bg-card/50 backdrop-blur-sm px-2.5 py-2 space-y-1.5">
       {/* 头部：状态 + goal + 控制 */}
       <div className="flex items-start gap-2">
         <Bot size={13} className="shrink-0 mt-0.5 text-muted-foreground/60" />
@@ -322,7 +322,7 @@ function TaskCard({ task, sessionId }: TaskCardProps) {
       {!isDone && (
         <div className="flex items-center gap-1 pl-5">
           <input
-            className="flex-1 h-6 rounded border border-border bg-background px-1.5 text-[10px] outline-none focus:border-primary/60"
+            className="flex-1 h-6 rounded border border-[var(--ui-stroke-tertiary)] bg-background px-1.5 text-[10px] outline-none focus:border-primary/60"
             placeholder="向该子 Agent 下达指令（下个工具调用边界生效）…"
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}

@@ -531,7 +531,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
       {drill ? (
         // ── 阶段二：钻取视图（全量水合 Repo → Lane → Session）──
         <>
-          <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-border/30 shrink-0">
+          <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-[var(--ui-stroke-quaternary)] shrink-0">
             <button
               className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
               onClick={handleBack}
@@ -603,7 +603,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
           {tree && (
             <>
               {/* 总览工具栏：区块头（对齐 SessionsPanel 风格）+ 实心新建按钮 + 刷新 */}
-              <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5 border-b border-border/30 shrink-0">
+              <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5 border-b border-[var(--ui-stroke-quaternary)] shrink-0">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/60 select-none">
                     项目
@@ -727,7 +727,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
           </DialogHeader>
           <DialogFooter>
             <button
-              className="rounded border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="rounded border border-[var(--ui-stroke-tertiary)] px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
               onClick={() => setDeleting(null)}
               disabled={deleteBusy}
             >
@@ -763,7 +763,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
           </DialogHeader>
           <DialogFooter className="sm:justify-between">
             <button
-              className="rounded border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="rounded border border-[var(--ui-stroke-tertiary)] px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
               onClick={() => setRemoveTarget(null)}
               disabled={removeBusy}
             >
@@ -800,7 +800,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
           </DialogHeader>
           <DialogFooter className="sm:justify-between">
             <button
-              className="rounded border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="rounded border border-[var(--ui-stroke-tertiary)] px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
               onClick={() => setForceTarget(null)}
               disabled={removeBusy}
             >

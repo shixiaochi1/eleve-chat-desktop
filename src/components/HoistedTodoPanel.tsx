@@ -33,7 +33,7 @@ export default function HoistedTodoPanel({ todos }: HoistedTodoPanelProps) {
   const hasActive = todos.some(t => t.status === 'in_progress');
 
   return (
-    <div className="border border-border rounded-lg bg-card p-2 mb-1.5 max-w-fit">
+    <div className="border border-[var(--ui-stroke-tertiary)] rounded-lg bg-card p-2 mb-1.5 max-w-fit">
       <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1">
         <span>待办事项</span>
         <span className="text-muted-foreground/60">· {todos.length}</span>

@@ -228,7 +228,7 @@ export default function ModelPickerPanel({
       <div className="relative mb-2">
         <Search size={14} strokeWidth={1.5} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <input
-          className="w-full h-7 pl-8 pr-7 text-xs bg-muted/50 rounded border border-border focus:border-primary focus:outline-none placeholder:text-muted-foreground/50"
+          className="w-full h-7 pl-8 pr-7 text-xs bg-muted/50 rounded border border-[var(--ui-stroke-tertiary)] focus:border-primary focus:outline-none placeholder:text-muted-foreground/50"
           type="text"
           placeholder="Search models..."
           value={searchQuery}

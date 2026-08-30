@@ -74,7 +74,7 @@ export default function Toast() {
           className={cn(
             'flex items-center justify-between px-3 py-1.5 pointer-events-auto',
             'backdrop-blur-xl saturate-180 border rounded-xl',
-            'border-border shadow-[0_8px_32px_var(--theme-shadow-color-heavy),0_2px_8px_var(--theme-shadow-color)]'
+            'border-[var(--ui-stroke-tertiary)] shadow-[0_8px_32px_var(--theme-shadow-color-heavy),0_2px_8px_var(--theme-shadow-color)]'
           )}
           style={{
             background: 'var(--ui-bg-elevated)',
@@ -115,7 +115,7 @@ function ToastItem({ notification }: ToastItemProps) {
       className={cn(
         'pointer-events-auto grid items-start p-2.5 rounded-xl',
         'backdrop-blur-xl saturate-180 border shadow-[0_8px_32px_var(--theme-shadow-color-heavy),0_2px_8px_var(--theme-shadow-color)]',
-        style.borderClass || 'border-border',
+        style.borderClass || 'border-[var(--ui-stroke-tertiary)]',
         'border-l-[3px]'
       )}
       style={{

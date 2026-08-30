@@ -138,7 +138,7 @@ export default function ToolStatusBar({ sessionId, isStreaming, onToggleViewMode
   return (
     <>
       <div
-        className="flex items-center h-10 px-4 border-b border-border gap-2"
+        className="flex items-center h-10 px-4 border-b border-[var(--ui-stroke-tertiary)] gap-2"
         title={onToggleViewMode ? '双击空白处切换宫格模式' : undefined}
         onDoubleClick={(e) => {
           // 🔴 2026-08-02 老大需求：双击顶部工具状态栏空白处 → 切宫格（排除按钮区）

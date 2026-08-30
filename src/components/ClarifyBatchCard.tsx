@@ -120,7 +120,7 @@ export default function ClarifyBatchCard({ clarifyId, title, questions, profile,
 
   if (expired) {
     return (
-      <div className="mx-3 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground bg-popover">
+      <div className="mx-3 rounded-lg border border-[var(--ui-stroke-tertiary)] px-3 py-2 text-xs text-muted-foreground bg-popover">
         批量澄清已过期（后端已清理）——无需继续操作。
       </div>
     );
@@ -181,7 +181,7 @@ export default function ClarifyBatchCard({ clarifyId, title, questions, profile,
                   <span
                     className={`w-3.5 h-3.5 shrink-0 flex items-center justify-center border transition-colors ${
                       isMulti ? 'rounded-[3px]' : 'rounded-full'
-                    } ${flag ? 'border-primary bg-primary' : 'border-border/80 bg-transparent'}`}
+                    } ${flag ? 'border-primary bg-primary' : 'border-[var(--ui-stroke-tertiary)]/80 bg-transparent'}`}
                   >
                     {flag &&
                       (isMulti ? (
@@ -214,7 +214,7 @@ export default function ClarifyBatchCard({ clarifyId, title, questions, profile,
               else goNext();
             }
           }}
-          className="w-full px-2 py-1 rounded-md text-xs bg-muted/50 border border-border text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/60"
+          className="w-full px-2 py-1 rounded-md text-xs bg-muted/50 border border-[var(--ui-stroke-tertiary)] text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/60"
         />
 
         {isMulti && (
@@ -228,7 +228,7 @@ export default function ClarifyBatchCard({ clarifyId, title, questions, profile,
           type="button"
           disabled={currentIdx === 0 || submitting || submitted}
           onClick={goPrev}
-          className="px-2.5 py-1 rounded-md text-xs border border-border text-muted-foreground hover:border-border disabled:opacity-40"
+          className="px-2.5 py-1 rounded-md text-xs border border-[var(--ui-stroke-tertiary)] text-muted-foreground hover:border-[var(--ui-stroke-secondary)] disabled:opacity-40"
         >
           上一步
         </button>

@@ -86,7 +86,7 @@ function StatGroup({ title, icon, color, data, badge }: {
     { label: '费用', value: fmtCost(data.cost), color: 'var(--destructive)' },
   ];
   return (
-    <div className="rounded border border-border bg-card p-2">
+    <div className="rounded border border-[var(--ui-stroke-tertiary)] bg-card p-2">
       <div className="flex items-center justify-between mb-1.5">
         <span className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground" style={{ color }}>
           {icon} {title}
@@ -301,10 +301,10 @@ export default function UsagePanel({
           <h3 className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
             <TrendingUp size={13} /> 子 Agent 按主会话归组
           </h3>
-          <div className="overflow-auto border border-border rounded">
+          <div className="overflow-auto border border-[var(--ui-stroke-tertiary)] rounded">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-border bg-muted/30">
+                <tr className="border-b border-[var(--ui-stroke-tertiary)] bg-muted/30">
                   <th className="px-1.5 py-1 text-left font-medium text-muted-foreground">父会话</th>
                   <th className="px-1.5 py-1 text-right font-medium text-muted-foreground">子会话</th>
                   <th className="px-1.5 py-1 text-right font-medium text-muted-foreground">输入</th>
@@ -315,7 +315,7 @@ export default function UsagePanel({
               </thead>
               <tbody>
                 {byParent.map((g) => (
-                  <tr key={g.parentId} className="border-b border-border/50 last:border-0 hover:bg-accent/5">
+                  <tr key={g.parentId} className="border-b border-[var(--ui-stroke-tertiary)] last:border-0 hover:bg-accent/5">
                     <td className="px-1.5 py-1 max-w-28 truncate" title={g.parentTitle}>{g.parentTitle}</td>
                     <td className="px-1.5 py-1 text-right text-muted-foreground">{g.childSessions}</td>
                     <td className="px-1.5 py-1 text-right tabular-nums">{fmtNum(g.input)}</td>
@@ -381,7 +381,7 @@ export default function UsagePanel({
           <BarChart3 size={13} /> 会话用量明细
           <span className="ml-auto flex items-center gap-1 text-[10px] font-normal">
             {/* 类型筛选 */}
-            <div className="flex items-center rounded border border-border overflow-hidden">
+            <div className="flex items-center rounded border border-[var(--ui-stroke-tertiary)] overflow-hidden">
               {(['all', 'main', 'subagent'] as const).map((k) => (
                 <button
                   key={k}
@@ -400,10 +400,10 @@ export default function UsagePanel({
             <button type="button" onClick={collapseAll} className="text-muted-foreground hover:text-foreground px-1">收起</button>
           </span>
         </div>
-        <div className="overflow-auto border border-border rounded max-h-72">
+        <div className="overflow-auto border border-[var(--ui-stroke-tertiary)] rounded max-h-72">
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-background">
-              <tr className="border-b border-border bg-muted/30">
+              <tr className="border-b border-[var(--ui-stroke-tertiary)] bg-muted/30">
                 <th className="px-1.5 py-1 text-left font-medium text-muted-foreground cursor-pointer hover:text-foreground" onClick={() => handleSort('title')}>
                   会话 <SortIcon field="title" />
                 </th>
@@ -452,7 +452,7 @@ export default function UsagePanel({
 
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/60">
-          <div className="w-5 h-5 border-2 border-border border-t-primary rounded-full animate-spin" />
+          <div className="w-5 h-5 border-2 border-[var(--ui-stroke-tertiary)] border-t-primary rounded-full animate-spin" />
         </div>
       )}
     </div>
@@ -469,7 +469,7 @@ function SessionRowGroup({ row, isOpen, onToggle }: {
   const hasChildren = isParent && row.children.length > 0;
   return (
     <>
-      <tr className="border-b border-border/50 last:border-0 hover:bg-accent/5">
+      <tr className="border-b border-[var(--ui-stroke-tertiary)] last:border-0 hover:bg-accent/5">
         <td className="px-1.5 py-1">
           <span className="flex items-center gap-1 max-w-28">
             {isParent ? (
@@ -508,7 +508,7 @@ function SessionRowGroup({ row, isOpen, onToggle }: {
         <td className="px-1.5 py-1 text-right text-muted-foreground/50 whitespace-nowrap">{fmtDate(row.date)}</td>
       </tr>
       {isParent && hasChildren && isOpen && row.children.map((child) => (
-        <tr key={child.sessionId} className="border-b border-border/50 last:border-0 bg-muted/10">
+        <tr key={child.sessionId} className="border-b border-[var(--ui-stroke-tertiary)] last:border-0 bg-muted/10">
           <td className="px-1.5 py-1 pl-6">
             <span className="flex items-center gap-1 max-w-24">
               <span className="w-3 shrink-0 inline-block" />

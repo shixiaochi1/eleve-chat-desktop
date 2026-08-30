@@ -54,7 +54,7 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
                       <img
                         src={ref}
                         alt="attachment"
-                        className="w-20 h-20 object-cover rounded-lg border border-border cursor-zoom-in"
+                        className="w-20 h-20 object-cover rounded-lg border border-[var(--ui-stroke-tertiary)] cursor-zoom-in"
                         draggable={false}
                         onClick={() => setLightbox({ src: ref, name: `image-${i + 1}` })}
                       />
@@ -64,7 +64,7 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
                       </span>
                     </div>
                   ) : (
-                    <span key={`${m.id}-att-${i}`} className="max-w-[160px] truncate rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    <span key={`${m.id}-att-${i}`} className="max-w-[160px] truncate rounded-md border border-[var(--ui-stroke-tertiary)] bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                       {ref}
                     </span>
                   ),

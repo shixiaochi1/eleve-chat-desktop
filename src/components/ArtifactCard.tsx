@@ -88,7 +88,7 @@ export const ArtifactCard = memo(function ArtifactCard({ detection, code, stream
       onClick={open}
       className={cn(
         'group/artifact my-1.5 flex w-full max-w-md items-center gap-2.5 overflow-hidden text-left',
-        'rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm transition-colors',
+        'rounded-xl border border-[var(--ui-stroke-tertiary)] bg-card px-3 py-2.5 shadow-sm transition-colors',
         'hover:border-muted-foreground/40',
         streaming ? 'cursor-default opacity-80' : 'cursor-pointer',
       )}
@@ -184,11 +184,11 @@ export function ArtifactPreviewOverlay() {
       onClick={() => closeArtifact()}
     >
       <div
-        className="flex h-[80vh] w-[min(90vw,960px)] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
+        className="flex h-[80vh] w-[min(90vw,960px)] flex-col overflow-hidden rounded-xl border border-[var(--ui-stroke-tertiary)] bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部：图标 + 标题 + 类型/版本 + 操作 */}
-        <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+        <div className="flex items-center gap-2 border-b border-[var(--ui-stroke-tertiary)] px-4 py-2.5">
           <span className="grid size-7 shrink-0 place-items-center rounded-md bg-muted/55 text-muted-foreground">
             <Icon size={15} />
           </span>
@@ -242,7 +242,7 @@ export function ArtifactPreviewOverlay() {
             <ArtifactHtmlFrame
               content={version.content}
               title={record.title}
-              className="h-full w-full rounded-lg border border-border bg-white"
+              className="h-full w-full rounded-lg border border-[var(--ui-stroke-tertiary)] bg-white"
             />
           )}
           {record.kind === 'svg' && svgUrl && (

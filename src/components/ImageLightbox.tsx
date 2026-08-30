@@ -155,7 +155,7 @@ export function ImageLightbox({ src, alt, onClose, onEdit }: ImageLightboxProps)
             e.stopPropagation()
             onEdit()
           }}
-          className="absolute top-4 right-24 rounded-md bg-amber-500/90 px-3 py-1.5 text-sm font-medium text-white backdrop-blur transition-colors hover:bg-amber-500"
+          className="absolute top-4 right-24 rounded-md bg-warning/90 px-3 py-1.5 text-sm font-medium text-white backdrop-blur transition-colors hover:bg-warning"
           title="局部重绘编辑：涂抹标记要修改的区域"
           aria-label="局部重绘编辑"
         >

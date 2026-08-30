@@ -62,7 +62,7 @@ export default function AboutPanel() {
         </ul>
       </section>
 
-      <div className="text-center text-xs text-muted-foreground/50 pt-2 border-t border-border">
+      <div className="text-center text-xs text-muted-foreground/50 pt-2 border-t border-[var(--ui-stroke-tertiary)]">
         <p>Rust · Tauri · React · 全栈自研</p>
         <p>Eleve Team — 让 AI 真正为你工作</p>
       </div>

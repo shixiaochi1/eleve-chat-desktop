@@ -495,7 +495,7 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
             <button
               onClick={() => { setDeletingTarget(null); setDeleteConfirmName(''); }}
               disabled={deletingBusy}
-              className="px-3 py-1.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors disabled:opacity-40"
+              className="px-3 py-1.5 text-xs rounded-md border border-[var(--ui-stroke-tertiary)] text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors disabled:opacity-40"
             >
               取消
             </button>

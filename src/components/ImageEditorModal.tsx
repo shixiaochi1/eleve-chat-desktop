@@ -10,6 +10,7 @@
  * 生图统一走 image_generate 工具。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { insertPngAnnotatedText } from '@/lib/pngAnnotated'
 
 type ToolMode = 'brush' | 'eraser' | 'rect' | 'polygon'
 
@@ -432,10 +433,14 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
       rc.globalCompositeOperation = 'source-over'
 
       // 3. 原图 + 红框环带叠加（globalAlpha 1，环带外不透明红、内部零填充）
-      //    → 等比缩放 maxDim=1024 → PNG
-      // 🔴 v4 修复：不压缩会输出原图自然尺寸 PNG（4K 图 10-20MB）→ WS attach 传输失败
-      // → ELEVE 收不到图（对齐画布 composeMaskOverlay 的 compressImage maxDim=1024）
-      const maxDim = 1024
+      //    → 等比缩放 maxDim=1568 → PNG
+      // 🔴 2026-08-31 对齐 Hermes（vision_tools.py _EMBED_MAX_DIMENSION L719，
+      // Anthropic 官方推荐长边）：1024 → 1568，编辑输入保住更多原图分辨率。
+      // 🔴 v4 修复保留：不压缩会输出原图自然尺寸 PNG（4K 图 10-20MB）→ WS attach
+      // 传输失败 → ELEVE 收不到图。仍用 PNG 不用 JPEG——tEXt 标记只在 PNG 存活，
+      // 标记是后端编辑协议的触发命脉（Hermes force_jpeg 是 opt-in，不适用此处）。
+      // attach 超限的运行时兜底见 useImageAttachments shrinkDataUrlForAttach。
+      const maxDim = 1568
       const scale = Math.min(1, maxDim / Math.max(w, h))
       const outW = Math.round(w * scale)
       const outH = Math.round(h * scale)
@@ -460,61 +465,13 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
     }
   }, [name, onConfirm, saving])
 
-  // ── PNG tEXt 标记（与后端 png_has_annotated_chunk 配对，2026-08-29）──
-  // PNG 结构：签名 8B + IHDR(4len+4type+13data+4crc) → tEXt 插在 33B 处
-  const CRC_TABLE = (() => {
-    const t = new Uint32Array(256)
-    for (let n = 0; n < 256; n++) {
-      let c = n
-      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
-      t[n] = c >>> 0
-    }
-    return t
-  })()
-  const crc32 = (buf: Uint8Array): number => {
-    let c = 0xffffffff
-    for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8)
-    return (c ^ 0xffffffff) >>> 0
-  }
-  const insertPngAnnotatedText = (dataUrl: string): string => {
-    try {
-      const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
-      const bin = atob(b64)
-      const bytes = new Uint8Array(bin.length)
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-      if (bytes[0] !== 0x89 || bytes[1] !== 0x50) return dataUrl // 非 PNG 回退
-      const enc = new TextEncoder()
-      const kw = enc.encode('eleve-annotated')
-      const val = enc.encode('1')
-      const data = new Uint8Array(kw.length + 1 + val.length)
-      data.set(kw)
-      data[kw.length] = 0
-      data.set(val, kw.length + 1)
-      const chunk = new Uint8Array(12 + data.length)
-      const dv = new DataView(chunk.buffer)
-      dv.setUint32(0, data.length)
-      chunk.set(enc.encode('tEXt'), 4)
-      chunk.set(data, 8)
-      dv.setUint32(8 + data.length, crc32(chunk.subarray(4, 8 + data.length)))
-      const at = 33 // 签名 8 + IHDR 25
-      const merged = new Uint8Array(bytes.length + chunk.length)
-      merged.set(bytes.subarray(0, at), 0)
-      merged.set(chunk, at)
-      merged.set(bytes.subarray(at), at + chunk.length)
-      let s = ''
-      for (let i = 0; i < merged.length; i++) s += String.fromCharCode(merged[i])
-      return `data:image/png;base64,${btoa(s)}`
-    } catch (e) {
-      console.warn('[ImageEditor] tEXt 标记嵌入失败，回退原图:', e)
-      return dataUrl
-    }
-  }
+  // 🔴 2026-08-31：tEXt 标记嵌入抽到 lib/pngAnnotated.ts（与 attach 缩放兜底共用）
 
   const btn = (t: ToolMode, label: string, title: string, active: boolean, onClick: () => void) => (
     <button
       onClick={onClick}
       title={title}
-      className={`rounded-md px-2.5 py-1.5 text-xs transition-colors ${active ? 'bg-blue-500 text-white' : 'bg-white/10 text-white hover:bg-white/25'}`}
+      className={`rounded-md px-2.5 py-1.5 text-xs transition-colors ${active ? 'bg-primary text-primary-foreground' : 'bg-white/10 text-white hover:bg-white/25'}`}
     >
       {label}
     </button>
@@ -566,7 +523,7 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
         <button onClick={undo} disabled={!canUndo} title="撤销 (Ctrl+Z)" className="rounded-md px-2.5 py-1.5 text-xs bg-white/10 text-white hover:bg-white/25 disabled:opacity-30">↩ 撤销</button>
         <button onClick={redo} disabled={!canRedo} title="重做 (Ctrl+Y)" className="rounded-md px-2.5 py-1.5 text-xs bg-white/10 text-white hover:bg-white/25 disabled:opacity-30">↪ 重做</button>
         <button onClick={clearMask} title="清除所有涂抹" className="rounded-md px-2.5 py-1.5 text-xs bg-white/10 text-white hover:bg-white/25">🗑 清除</button>
-        <button onClick={() => setShowMask(v => !v)} title="蒙版预览（红色标注/白色蒙版切换）" className={`rounded-md px-2.5 py-1.5 text-xs transition-colors ${showMask ? 'bg-emerald-500 text-white' : 'bg-white/10 text-white hover:bg-white/25'}`}>
+        <button onClick={() => setShowMask(v => !v)} title="蒙版预览（红色标注/白色蒙版切换）" className={`rounded-md px-2.5 py-1.5 text-xs transition-colors ${showMask ? 'bg-success text-white' : 'bg-white/10 text-white hover:bg-white/25'}`}>
           👁 蒙版{showMask ? '：白' : '：红'}
         </button>
         <div className="flex items-center gap-3 ml-auto">
@@ -601,7 +558,7 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
         </span>
         <div className="ml-auto flex gap-2">
           <button onClick={onCancel} disabled={saving} className="rounded-lg px-5 py-2 text-sm bg-white/10 text-white hover:bg-white/20">取消</button>
-          <button onClick={handleConfirm} disabled={saving} className="rounded-lg px-6 py-2 text-sm font-medium bg-blue-500 text-white hover:bg-blue-400 disabled:opacity-50">
+          <button onClick={handleConfirm} disabled={saving} className="rounded-lg px-6 py-2 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
             {saving ? '合成中...' : '✓ 确认'}
           </button>
         </div>

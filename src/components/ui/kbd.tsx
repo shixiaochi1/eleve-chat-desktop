@@ -8,7 +8,7 @@ function Kbd({ className, ...props }: KbdProps) {
   return (
     <kbd
       className={cn(
-        'inline-grid h-4 min-w-4 place-items-center rounded-sm border border-border/70 bg-muted/45 px-1 font-mono text-[0.5625rem] font-medium leading-none text-muted-foreground shadow-xs',
+        'inline-grid h-4 min-w-4 place-items-center rounded-sm border border-[var(--ui-stroke-tertiary)] bg-muted/45 px-1 font-mono text-[0.5625rem] font-medium leading-none text-muted-foreground shadow-xs',
         className
       )}
       data-slot="kbd"

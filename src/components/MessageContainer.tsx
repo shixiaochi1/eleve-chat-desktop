@@ -162,7 +162,7 @@ export function VirtualizedThread({
               <h2 className="text-lg font-semibold">Eleve Agent</h2>
               {!gatewayOnline ? (
                 // ── 网关未连接 ──
-                <div className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border bg-card text-center max-w-xs">
+                <div className="flex flex-col items-center gap-2 p-4 rounded-lg border border-[var(--ui-stroke-tertiary)] bg-card text-center max-w-xs">
                   <span className="text-sm font-medium text-destructive">网关未连接</span>
                   <p className="text-xs text-muted-foreground">后端服务未启动，请检查后重试</p>
                   <button
@@ -189,7 +189,7 @@ export function VirtualizedThread({
                 const hasProvider = !!hasModels;
                 if (!hasProvider) {
                   return (
-                    <div className="flex flex-col items-center gap-3 p-5 rounded-xl border border-border bg-card text-center max-w-xs">
+                    <div className="flex flex-col items-center gap-3 p-5 rounded-xl border border-[var(--ui-stroke-tertiary)] bg-card text-center max-w-xs">
                       <div className="w-10 h-10 rounded-full bg-warning/10 flex items-center justify-center">
                         <span className="text-lg">⚠</span>
                       </div>

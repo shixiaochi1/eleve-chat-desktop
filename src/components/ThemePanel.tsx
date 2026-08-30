@@ -124,7 +124,7 @@ function ColorPickerPopover({ value, onChange, onClose }: {
   return (
     <div
       ref={ref}
-      className="absolute right-0 top-full z-50 mt-2 w-[360px] rounded-xl border border-border/80 bg-popover p-4 shadow-lg"
+      className="absolute right-0 top-full z-50 mt-2 w-[360px] rounded-xl border border-[var(--ui-stroke-tertiary)]/80 bg-popover p-4 shadow-lg"
       style={{ boxShadow: 'var(--shadow-lg)' }}
       role="dialog"
       aria-label="自定义颜色"
@@ -132,7 +132,7 @@ function ColorPickerPopover({ value, onChange, onClose }: {
       {/* 2D 色场（饱和度 × 亮度） */}
       <div
         ref={fieldRef}
-        className="relative h-56 cursor-crosshair touch-none overflow-hidden rounded-lg border border-border/60"
+        className="relative h-56 cursor-crosshair touch-none overflow-hidden rounded-lg border border-[var(--ui-stroke-tertiary)]"
         style={{
           background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${hslToHex(hsl.h, 100, 50)})`,
         }}
@@ -154,7 +154,7 @@ function ColorPickerPopover({ value, onChange, onClose }: {
       {/* 色相条 */}
       <div
         ref={hueRef}
-        className="relative mt-3 h-4 cursor-pointer touch-none rounded-full border border-border/60"
+        className="relative mt-3 h-4 cursor-pointer touch-none rounded-full border border-[var(--ui-stroke-tertiary)]"
         style={{ background: HUE_TRACK }}
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId)
@@ -173,7 +173,7 @@ function ColorPickerPopover({ value, onChange, onClose }: {
       {/* 当前色 + hex 输入 */}
       <div className="mt-3 flex items-center gap-2">
         <span
-          className="size-8 shrink-0 rounded-md border border-border/70"
+          className="size-8 shrink-0 rounded-md border border-[var(--ui-stroke-tertiary)]"
           style={{ background: value, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.12)' }}
           aria-hidden
         />
@@ -188,7 +188,7 @@ function ColorPickerPopover({ value, onChange, onClose }: {
               applyHex()
             }
           }}
-          className="h-8 w-[104px] rounded-md border border-border/70 bg-background px-1.5 font-mono text-xs uppercase outline-none focus:border-primary/60"
+          className="h-8 w-[104px] rounded-md border border-[var(--ui-stroke-tertiary)] bg-background px-1.5 font-mono text-xs uppercase outline-none focus:border-primary/60"
           aria-label="十六进制颜色值"
           spellCheck={false}
         />
@@ -382,7 +382,7 @@ export default function ThemePanel() {
                   'group relative flex flex-col items-stretch gap-1.5 rounded-xl border p-2 text-left transition-all duration-150',
                   selected
                     ? 'border-primary/60 bg-primary/5 ring-2 ring-primary/25'
-                    : 'border-border/70 bg-card/50 hover:border-primary/30 hover:bg-card'
+                    : 'border-[var(--ui-stroke-tertiary)] bg-card/50 hover:border-primary/30 hover:bg-card'
                 )}
                 aria-pressed={selected}
               >
@@ -483,7 +483,7 @@ export default function ThemePanel() {
       </section>
 
       {/* ═══ 边栏色调 + 辅助功能（macOS 分组卡片） ═══ */}
-      <section className="overflow-hidden rounded-xl border border-border/70 bg-card/50">
+      <section className="overflow-hidden rounded-xl border border-[var(--ui-stroke-tertiary)] bg-card/50">
         <ToggleRow
           title="边栏色调"
           desc="让侧边栏跟随主题色。关闭后侧边栏保持中性灰，换主题色不影响它。"
@@ -513,7 +513,7 @@ export default function ThemePanel() {
               调整界面根字号，全应用即时生效。
             </div>
           </div>
-          <div className="flex shrink-0 overflow-hidden rounded-lg border border-border/70 bg-background/60 p-0.5">
+          <div className="flex shrink-0 overflow-hidden rounded-lg border border-[var(--ui-stroke-tertiary)] bg-background/60 p-0.5">
             {FONT_SCALE_OPTIONS.map(({ value, label }) => (
               <button
                 key={value}
@@ -537,13 +537,13 @@ export default function ThemePanel() {
       {/* ═══ 实时预览 ═══ */}
       <section>
         <h3 className={sectionTitle}>预览</h3>
-        <div className="overflow-hidden rounded-xl border border-border/70">
+        <div className="overflow-hidden rounded-xl border border-[var(--ui-stroke-tertiary)]">
           <WindowMock
             colors={colors}
             accent={accent}
             glass={isGlass}
           />
-          <div className="flex items-center justify-between border-t border-border/60 bg-card/40 px-3 py-1.5 text-[10px] text-muted-foreground">
+          <div className="flex items-center justify-between border-t border-[var(--ui-stroke-tertiary)] bg-card/40 px-3 py-1.5 text-[10px] text-muted-foreground">
             <span>
               当前：{appearance === 'light' ? '浅色' : appearance === 'dark' ? '深色' : appearance === 'glass' ? '毛玻璃' : '自动'}
               {appearance === 'auto' && (isDark ? '（深色）' : '（浅色）')}

@@ -687,7 +687,7 @@ function InputArea({
 
         {/* F3 T3.1: @ 路径补全弹窗 */}
         {showPathPopup && pathItems.length > 0 && (
-          <div className="absolute inset-x-0 bottom-full z-50 mb-1.5 max-h-60 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg">
+          <div className="absolute inset-x-0 bottom-full z-50 mb-1.5 max-h-60 overflow-y-auto rounded-lg border border-[var(--ui-stroke-tertiary)] bg-popover p-1 shadow-lg">
             {pathItems.map((item, i) => (
               <div
                 key={item.text}

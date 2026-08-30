@@ -160,7 +160,7 @@ function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   };
 
   return (
-    <div ref={menuRef} className="min-w-[180px] py-1 bg-popover border border-border rounded-md shadow-lg z-[10000]" style={style}>
+    <div ref={menuRef} className="min-w-[180px] py-1 bg-popover border border-[var(--ui-stroke-tertiary)] rounded-md shadow-lg z-[10000]" style={style}>
       {items.map((item, i) =>
         item === ('---' as any) ? (
           <div key={i} className="h-px bg-border mx-2 my-1" />
@@ -620,7 +620,7 @@ export default function SessionsPanel({
 
         {/* 全选/取消栏 — 批量模式 */}
         {batchMode && (
-          <div className="flex items-center gap-2 px-3 py-1 border-b border-border bg-muted/20 shrink-0">
+          <div className="flex items-center gap-2 px-3 py-1 border-b border-[var(--ui-stroke-tertiary)] bg-muted/20 shrink-0">
             <span className="text-[11px] text-muted-foreground/70">
               {selectedIds.size > 0 ? `已选 ${selectedIds.size} 项` : '选择会话'}
             </span>
@@ -676,7 +676,7 @@ export default function SessionsPanel({
                   )}
                   {row.kind === 'session' && renderSession(row.session, row.section)}
                   {row.kind === 'archive-toggle' && (
-                    <div className="border-t border-border/50 mt-1">
+                    <div className="border-t border-[var(--ui-stroke-tertiary)] mt-1">
                       <button
                         className="flex items-center gap-1.5 w-full px-3 py-1.5 text-xs text-muted-foreground/70 hover:text-foreground hover:bg-accent/20 transition-colors"
                         onClick={() => setShowArchived((v) => !v)}
@@ -698,7 +698,7 @@ export default function SessionsPanel({
 
       {/* 批量操作栏 */}
       {batchMode && (
-        <div className="flex items-center gap-2 px-3 py-1.5 border-t border-border bg-muted/20 shrink-0">
+        <div className="flex items-center gap-2 px-3 py-1.5 border-t border-[var(--ui-stroke-tertiary)] bg-muted/20 shrink-0">
           <button
             className="flex items-center gap-1 px-2 py-1 text-xs text-destructive hover:bg-destructive/10 rounded transition-colors disabled:opacity-40"
             onClick={handleBatchDelete}

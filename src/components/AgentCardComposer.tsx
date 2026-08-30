@@ -373,7 +373,7 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
               <img
                 src={img.preview}
                 alt={img.name}
-                className="w-9 h-9 object-cover rounded-md border border-border"
+                className="w-9 h-9 object-cover rounded-md border border-[var(--ui-stroke-tertiary)]"
                 draggable={false}
               />
               <button
@@ -402,7 +402,7 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
                 const preview = normalizeOrLocalPreviewTarget(f.path, getCurrentSessionCwd());
                 if (preview) openPreview(preview, 'manual');
               }}
-              className="group flex cursor-pointer items-center gap-1 px-2 py-1 rounded-md border border-border bg-card/70 text-[11px] max-w-[200px] hover:bg-accent transition-colors"
+              className="group flex cursor-pointer items-center gap-1 px-2 py-1 rounded-md border border-[var(--ui-stroke-tertiary)] bg-card/70 text-[11px] max-w-[200px] hover:bg-accent transition-colors"
               title={f.path}
             >
               <FileText size={12} className="shrink-0 text-muted-foreground" />

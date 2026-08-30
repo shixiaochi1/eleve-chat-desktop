@@ -131,7 +131,7 @@ function DelegateCardBody({ card }: { card: DelegateCardModel }) {
       {card.tasks.map((task, i) => {
         const dot = delegateStatusDot(task.status);
         return (
-          <div key={i} className="rounded-md border border-border/60 px-2 py-1.5">
+          <div key={i} className="rounded-md border border-[var(--ui-stroke-tertiary)] px-2 py-1.5">
             <div className="flex items-center gap-1.5 text-xs">
               <DotIcon className={cn('shrink-0', dot)} />
               <span className="font-medium">任务 {task.index + 1}</span>
@@ -162,9 +162,9 @@ function DelegateCardBody({ card }: { card: DelegateCardModel }) {
 function TerminalCardBody({ card }: { card: TerminalCardModel }) {
   const hasSplitStreams = card.stdout !== undefined || card.stderr !== undefined;
   return (
-    <div className="rounded-md border border-border bg-muted/30 overflow-hidden">
+    <div className="rounded-md border border-[var(--ui-stroke-tertiary)] bg-muted/30 overflow-hidden">
       {card.command && (
-        <div className="flex items-start gap-1.5 px-2 py-1.5 border-b border-border/60 font-mono text-xs">
+        <div className="flex items-start gap-1.5 px-2 py-1.5 border-b border-[var(--ui-stroke-tertiary)] font-mono text-xs">
           <span className="text-success shrink-0 select-none" aria-hidden>$</span>
           <span className="break-all whitespace-pre-wrap">{card.command}</span>
         </div>
@@ -188,7 +188,7 @@ function TerminalCardBody({ card }: { card: TerminalCardModel }) {
         <pre className="px-2 py-1.5 font-mono text-xs whitespace-pre-wrap break-all">{card.output}</pre>
       ) : null}
       {card.exitCode !== null && (
-        <div className="flex items-center px-2 py-1 border-t border-border/60 text-[10px] font-mono">
+        <div className="flex items-center px-2 py-1 border-t border-[var(--ui-stroke-tertiary)] text-[10px] font-mono">
           <span className={card.exitCode === 0 ? 'text-success' : 'text-destructive'}>
             {card.exitCode === 0 ? '✓ 退出码 0' : `✗ 退出码 ${card.exitCode}`}
           </span>
@@ -212,7 +212,7 @@ function SearchCardBody({ card, onOpenUrl }: { card: SearchCardModel; onOpenUrl:
         {card.hits.map((hit, i) => (
           <div
             key={`${hit.url || hit.title}-${i}`}
-            className="rounded-md border border-border/60 px-2 py-1.5 hover:bg-accent/40 transition-colors"
+            className="rounded-md border border-[var(--ui-stroke-tertiary)] px-2 py-1.5 hover:bg-accent/40 transition-colors"
           >
             {hit.url ? (
               <button
@@ -245,8 +245,8 @@ function ReadCardBody({ card }: { card: ReadCardModel }) {
   const shown = card.lines.slice(0, MAX_RENDER_LINES);
   const hidden = card.lines.length - shown.length;
   return (
-    <div className="rounded-md border border-border bg-muted/30 overflow-hidden">
-      <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-border/60 text-[10px] text-muted-foreground">
+    <div className="rounded-md border border-[var(--ui-stroke-tertiary)] bg-muted/30 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-[var(--ui-stroke-tertiary)] text-[10px] text-muted-foreground">
         <span className="font-mono truncate">{card.label}</span>
         {card.totalLines !== null && (
           <span className="shrink-0 ml-2">{card.truncated ? `共 ${card.totalLines} 行（已截断）` : `共 ${card.totalLines} 行`}</span>
@@ -265,7 +265,7 @@ function ReadCardBody({ card }: { card: ReadCardModel }) {
         </pre>
       </div>
       {(hidden > 0 || card.truncated || (card.totalLines !== null && card.lines.length < card.totalLines)) && (
-        <div className="px-2 py-1 border-t border-border/60 text-[10px] text-muted-foreground">
+        <div className="px-2 py-1 border-t border-[var(--ui-stroke-tertiary)] text-[10px] text-muted-foreground">
           {hidden > 0 && <span>其余 {hidden} 行未渲染 — 切换技术模式查看完整输出</span>}
           {card.truncated && card.totalLines !== null && (
             <span>文件已截断 — 可用 offset 参数继续读取</span>
@@ -547,7 +547,7 @@ const ToolEntry = memo(function ToolEntry({ tool, sessionId }: { tool: ToolCallI
           product 无卡片命中走通用关键参数/结果摘要 */}
       {expanded && (
         <div className={`tool-call-content ${animReady ? 'expanded' : ''}`}>
-          <div className="mt-2 pt-2 border-t border-border max-h-64 overflow-y-auto space-y-1">
+          <div className="mt-2 pt-2 border-t border-[var(--ui-stroke-tertiary)] max-h-64 overflow-y-auto space-y-1">
             {delegateCard && <DelegateCardBody card={delegateCard} />}
             {terminalCard && <TerminalCardBody card={terminalCard} />}
             {searchCard && <SearchCardBody card={searchCard} onOpenUrl={(url) => void openExternalLink(url)} />}
@@ -615,7 +615,7 @@ const ToolEntry = memo(function ToolEntry({ tool, sessionId }: { tool: ToolCallI
       {/* 🔴 预览链接行 — 工具结果/参数里的可预览目标（对齐 Hermes status-stack preview-row +
           toolPreviewTarget 结构化提取；点击打开预览 tab） */}
       {allPreviewTargets.length > 0 && (
-        <div className="mt-2 pt-1.5 border-t border-border space-y-1">
+        <div className="mt-2 pt-1.5 border-t border-[var(--ui-stroke-tertiary)] space-y-1">
           {allPreviewTargets.map((target) => (
             <button
               key={target}

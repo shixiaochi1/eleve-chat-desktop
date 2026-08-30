@@ -75,7 +75,7 @@ export default function CredentialCard({ type, title, description, onSubmit, onD
             ref={inputRef}
             type={inputType}
             className={cn(
-              'h-8 min-w-0 flex-1 rounded-lg border border-border bg-card px-3 font-mono text-xs text-foreground outline-none transition-all',
+              'h-8 min-w-0 flex-1 rounded-lg border border-[var(--ui-stroke-tertiary)] bg-card px-3 font-mono text-xs text-foreground outline-none transition-all',
               'placeholder:text-muted-foreground/40',
               'focus:border-accent-purple/50 focus:bg-accent-purple/5 focus:ring-2 focus:ring-accent-purple/15',
               'disabled:pointer-events-none disabled:opacity-50'

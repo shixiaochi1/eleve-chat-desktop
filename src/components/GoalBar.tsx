@@ -87,7 +87,7 @@ export default function GoalBar({ sessionId }: { sessionId?: string | null }) {
   const phaseCls = isPaused ? 'text-muted-foreground/70' : isWaiting ? 'text-primary/80' : 'text-primary';
 
   return (
-    <div className="mx-1 mb-1 rounded-lg border border-border bg-muted/30">
+    <div className="mx-1 mb-1 rounded-lg border border-[var(--ui-stroke-tertiary)] bg-muted/30">
       <div
         className="flex items-center gap-2 px-2.5 h-9"
         title={goal.goal}

@@ -116,7 +116,7 @@ const UserMessageText = memo(function UserMessageText({ text }: { text: string }
         segment.kind === 'fence' ? (
           <pre
             key={`fence-${index}`}
-            className="my-1.5 max-w-full overflow-x-auto rounded-md border border-border/45 bg-[color-mix(in_srgb,var(--dt-foreground)_5%,transparent)] px-2.5 py-2 font-mono text-[0.86em] leading-snug"
+            className="my-1.5 max-w-full overflow-x-auto rounded-md border border-[var(--ui-stroke-tertiary)]/45 bg-[color-mix(in_srgb,var(--dt-foreground)_5%,transparent)] px-2.5 py-2 font-mono text-[0.86em] leading-snug"
           >
             <code className="block whitespace-pre">{segment.code}</code>
           </pre>

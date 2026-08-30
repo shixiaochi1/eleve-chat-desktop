@@ -106,7 +106,7 @@ export default function DiffLines({ text, maxHeight = '384px', showLineNumbers =
 
   return (
     <div
-      className="text-xs font-mono bg-muted/50 rounded-md overflow-x-auto overflow-y-auto border border-border"
+      className="text-xs font-mono bg-muted/50 rounded-md overflow-x-auto overflow-y-auto border border-[var(--ui-stroke-tertiary)]"
       style={{ maxHeight }}
     >
       {showLineNumbers ? (

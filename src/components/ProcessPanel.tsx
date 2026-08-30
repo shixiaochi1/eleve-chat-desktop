@@ -113,7 +113,7 @@ export default function ProcessPanel({ sessionId }: ProcessPanelProps) {
         {processes.map((p) => {
           const isExpanded = expandedId === p.session_id;
           return (
-            <div key={p.session_id} className="border border-border rounded-lg overflow-hidden">
+            <div key={p.session_id} className="border border-[var(--ui-stroke-tertiary)] rounded-lg overflow-hidden">
               {/* 进程行 */}
               <div
                 className={cn(
@@ -152,7 +152,7 @@ export default function ProcessPanel({ sessionId }: ProcessPanelProps) {
               </div>
               {/* 展开的输出 */}
               {isExpanded && p.output_tail && (
-                <pre className="px-2 py-1.5 text-[10px] leading-relaxed font-mono text-muted-foreground bg-muted/30 border-t border-border/50 max-h-40 overflow-auto whitespace-pre-wrap break-all">
+                <pre className="px-2 py-1.5 text-[10px] leading-relaxed font-mono text-muted-foreground bg-muted/30 border-t border-[var(--ui-stroke-tertiary)] max-h-40 overflow-auto whitespace-pre-wrap break-all">
                   {p.output_tail}
                 </pre>
               )}

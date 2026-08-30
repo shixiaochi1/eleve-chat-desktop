@@ -96,7 +96,7 @@ export default function DebugPanel({
   };
 
   const renderTool = (t: DebugToolCall, i: number) => (
-    <div key={i} className="px-2 py-1 rounded border border-border mb-1">
+    <div key={i} className="px-2 py-1 rounded border border-[var(--ui-stroke-tertiary)] mb-1">
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1 text-xs font-medium text-foreground">
           <SmallToolIcon size={12} className="text-muted-foreground" />
@@ -128,7 +128,7 @@ export default function DebugPanel({
   return (
     <div className="flex flex-col h-full p-3" data-selectable-text="true">
       {/* 标签 */}
-      <div className="flex items-center gap-0.5 border-b border-border mb-2">
+      <div className="flex items-center gap-0.5 border-b border-[var(--ui-stroke-tertiary)] mb-2">
         <button className={cn(
           'px-2 py-1 text-xs border-b-2 border-transparent transition-colors',
           tab === 'events' ? 'border-primary text-primary' : 'text-muted-foreground hover:text-foreground'
@@ -223,7 +223,7 @@ export default function DebugPanel({
       </div>
 
       {!autoScroll && tab === 'events' && (
-        <button className="absolute bottom-2 right-2 px-2 py-0.5 text-[10px] bg-background border border-border rounded shadow-sm text-primary hover:bg-accent/10 transition-colors" onClick={() => { setAutoScroll(true); if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }}>
+        <button className="absolute bottom-2 right-2 px-2 py-0.5 text-[10px] bg-background border border-[var(--ui-stroke-tertiary)] rounded shadow-sm text-primary hover:bg-accent/10 transition-colors" onClick={() => { setAutoScroll(true); if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }}>
           ↓ 最新
         </button>
       )}

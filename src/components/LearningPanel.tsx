@@ -201,8 +201,8 @@ export default function LearningPanel(_props: LearningPanelProps) {
 
       {/* 详情预览 */}
       {detail !== null && (
-        <div className="border border-border rounded-lg overflow-hidden shrink-0 max-h-56">
-          <div className="flex items-center justify-between px-2 py-1 bg-muted/30 border-b border-border/50">
+        <div className="border border-[var(--ui-stroke-tertiary)] rounded-lg overflow-hidden shrink-0 max-h-56">
+          <div className="flex items-center justify-between px-2 py-1 bg-muted/30 border-b border-[var(--ui-stroke-tertiary)]">
             <span className="text-[10px] font-mono text-muted-foreground truncate">{selectedId}</span>
             <div className="flex items-center gap-1">
               {/* 🔴 2026-08-18 对齐 Hermes learning.edit：编辑按钮（仅非编辑态显示） */}
@@ -226,7 +226,7 @@ export default function LearningPanel(_props: LearningPanelProps) {
           ) : editing ? (
             <div className="flex flex-col gap-1.5 p-2">
               <textarea
-                className="w-full h-28 resize-none rounded bg-background border border-border p-1.5 text-[10px] font-mono leading-relaxed text-foreground outline-none focus:border-accent/50"
+                className="w-full h-28 resize-none rounded bg-background border border-[var(--ui-stroke-tertiary)] p-1.5 text-[10px] font-mono leading-relaxed text-foreground outline-none focus:border-accent/50"
                 value={editContent}
                 onChange={(ev) => setEditContent(ev.target.value)}
                 spellCheck={false}
@@ -234,7 +234,7 @@ export default function LearningPanel(_props: LearningPanelProps) {
               />
               <div className="flex items-center justify-end gap-1.5">
                 <button
-                  className="px-2 py-0.5 text-[10px] rounded border border-border text-muted-foreground hover:text-foreground hover:bg-bg-hover transition-colors"
+                  className="px-2 py-0.5 text-[10px] rounded border border-[var(--ui-stroke-tertiary)] text-muted-foreground hover:text-foreground hover:bg-bg-hover transition-colors"
                   onClick={handleCancelEdit}
                   disabled={editSaving}
                 >

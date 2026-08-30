@@ -235,7 +235,7 @@ const ArtifactPanel = memo(function ArtifactPanel({
     <div className="flex min-h-0 flex-1 flex-col">
       {/* 视图切换：本会话 / 产物库（产物库 = 跨会话画廊，对齐 Hermes app/artifacts）——
           搜索框与刷新按钮放在本栏右侧（老大 2026-08-06 指示） */}
-      <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-1.5">
+      <div className="flex shrink-0 items-center gap-1 border-b border-[var(--ui-stroke-tertiary)] px-3 py-1.5">
         <TextTab active={view === 'session'} onClick={() => setView('session')}>
           本会话
           {sessionRecords.length > 0 && <TextTabMeta>{sessionRecords.length}</TextTabMeta>}
@@ -249,7 +249,7 @@ const ArtifactPanel = memo(function ArtifactPanel({
                 value={gallery.query}
                 onChange={(e) => gallery.setQuery(e.target.value)}
                 placeholder={searchPlaceholder}
-                className="h-7 w-40 rounded-full border border-border/80 bg-muted/30 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground/45 transition-all focus:w-48 focus:border-accent-cyan/50 focus:bg-background focus:outline-none focus:ring-2 focus:ring-accent-cyan/15"
+                className="h-7 w-40 rounded-full border border-[var(--ui-stroke-tertiary)]/80 bg-muted/30 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground/45 transition-all focus:w-48 focus:border-accent-cyan/50 focus:bg-background focus:outline-none focus:ring-2 focus:ring-accent-cyan/15"
               />
             </div>
             <button
@@ -257,7 +257,7 @@ const ArtifactPanel = memo(function ArtifactPanel({
               onClick={() => void gallery.refresh()}
               disabled={gallery.refreshing}
               title={gallery.refreshing ? '刷新中…' : '刷新'}
-              className="grid size-7 place-items-center rounded-full border border-border/80 bg-muted/30 text-muted-foreground transition-all hover:border-muted-foreground/30 hover:bg-accent/10 hover:text-foreground disabled:opacity-50"
+              className="grid size-7 place-items-center rounded-full border border-[var(--ui-stroke-tertiary)]/80 bg-muted/30 text-muted-foreground transition-all hover:border-muted-foreground/30 hover:bg-accent/10 hover:text-foreground disabled:opacity-50"
             >
               {gallery.refreshing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
             </button>
@@ -289,7 +289,7 @@ const ArtifactPanel = memo(function ArtifactPanel({
           <div className="flex min-h-0 flex-1 flex-col">
             {activeForRender ? (
               <>
-                <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
+                <div className="flex shrink-0 items-center gap-1 border-b border-[var(--ui-stroke-tertiary)] px-2 py-1.5">
                   {/* 渲染/源码切换（对齐 Hermes PreviewModeSwitcher；仅多模式时显示） */}
                   {viewModes.length > 1 && (
                     <ModeSwitcher modes={viewModes} active={viewMode} onSelect={setUserMode} />
@@ -426,7 +426,7 @@ function ArtifactListItem({
         'flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-left transition-colors',
         active
           ? 'border-accent-cyan/50 bg-accent/10 text-foreground'
-          : 'border-border bg-card text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground',
+          : 'border-[var(--ui-stroke-tertiary)] bg-card text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground',
       )}
       title={record.title}
     >
@@ -572,7 +572,7 @@ function ArtifactFullscreen({
       aria-label={`${record.title} 全屏预览`}
     >
       {/* 头部：标题 + 版本 + 操作 */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
+      <div className="flex shrink-0 items-center gap-2 border-b border-[var(--ui-stroke-tertiary)] px-4 py-2">
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{record.title}</span>
         <VersionStepper current={versionIndex} total={record.versions.length} onSelect={onSelectVersion} />
         <button

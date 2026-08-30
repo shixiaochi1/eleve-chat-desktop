@@ -48,7 +48,7 @@ export function BaseBranchPicker({ repoPath, value, onValueChange, disabled }: {
       <button
         type="button"
         className={cn(
-          'flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-foreground transition-colors',
+          'flex h-8 items-center gap-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] px-2.5 text-xs text-foreground transition-colors',
           'hover:bg-accent/50 disabled:opacity-50',
         )}
         onClick={() => setOpen(o => !o)}
@@ -60,7 +60,7 @@ export function BaseBranchPicker({ repoPath, value, onValueChange, disabled }: {
       </button>
 
       {open && (
-        <Command className="rounded-md border border-border">
+        <Command className="rounded-md border border-[var(--ui-stroke-tertiary)]">
           <CommandInput placeholder="过滤分支…" autoFocus />
           <CommandList className="max-h-44">
             <CommandEmpty>{loading ? '加载中…' : '无分支'}</CommandEmpty>

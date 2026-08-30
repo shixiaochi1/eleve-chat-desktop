@@ -196,7 +196,7 @@ export default function WebWindowButton({ sessionId }: WebWindowButtonProps) {
 
           <div className="px-2.5 pb-2">
             {/* 状态卡片 */}
-            <div className="flex items-center gap-2 rounded-lg border border-border/40 px-2.5 py-2">
+            <div className="flex items-center gap-2 rounded-lg border border-[var(--ui-stroke-quaternary)] px-2.5 py-2">
               <span
                 className={cn(
                   'size-2 shrink-0 rounded-full',

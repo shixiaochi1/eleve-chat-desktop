@@ -181,7 +181,7 @@ export default function SkillsPanel({ currentProfile }: { currentProfile?: strin
           ) : (
             <div className="space-y-1">
               {allSkills.map((s, i) => (
-                <div key={i} className="p-2 rounded border border-border">
+                <div key={i} className="p-2 rounded border border-[var(--ui-stroke-tertiary)]">
                   <div className="flex items-center gap-1 mb-0.5">
                     <span className="text-xs text-foreground truncate flex-1">{s.name || '?'}</span>
                     {s.category && <span className="px-1 py-0.5 text-[10px] bg-muted/30 text-muted-foreground rounded">{s.category}</span>}
@@ -254,7 +254,7 @@ export default function SkillsPanel({ currentProfile }: { currentProfile?: strin
           {results.length > 0 && (
             <div className="space-y-1">
               {results.map((r, i) => (
-                <div key={i} className="p-2 rounded border border-border">
+                <div key={i} className="p-2 rounded border border-[var(--ui-stroke-tertiary)]">
                   <div className="flex items-center gap-1 mb-0.5">
                     <span className="text-xs text-foreground truncate flex-1">{r.name}</span>
                     {trustBadge(r.trust_level, r.source)}

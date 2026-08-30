@@ -49,7 +49,7 @@ function PreviewTabBar() {
   if (tabs.length === 0) return null;
 
   return (
-    <div className="flex items-center border-b border-border bg-[var(--ui-bg-quaternary)] overflow-x-auto shrink-0">
+    <div className="flex items-center border-b border-[var(--ui-stroke-tertiary)] bg-[var(--ui-bg-quaternary)] overflow-x-auto shrink-0">
       {tabs.map((tab, index) => {
         const active = tab.id === activeId;
         const hasOthers = tabs.length > 1;
@@ -60,7 +60,7 @@ function PreviewTabBar() {
             <ContextMenuTrigger asChild>
               <div
                 className={cn(
-                  'group/tab flex items-center gap-1.5 pl-2 pr-1 py-1 text-xs cursor-pointer select-none border-r border-border/60',
+                  'group/tab flex items-center gap-1.5 pl-2 pr-1 py-1 text-xs cursor-pointer select-none border-r border-[var(--ui-stroke-tertiary)]',
                   active
                     ? 'text-foreground bg-[var(--ui-bg-editor)]'
                     : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'

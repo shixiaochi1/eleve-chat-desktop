@@ -320,7 +320,7 @@ export default function OutlinePanel({ embedded = false }: { embedded?: boolean 
   return (
     <div className="flex flex-col h-full p-3 gap-2">
       {/* 统计栏 */}
-      <div className="flex items-center gap-2 text-[10px] text-muted-foreground border-b border-border pb-1">
+      <div className="flex items-center gap-2 text-[10px] text-muted-foreground border-b border-[var(--ui-stroke-tertiary)] pb-1">
         <span className="flex items-center gap-0.5" title="总消息数">
           <MessageSquare size={10} {...STROKE_PROPS} />
           {stats.total}

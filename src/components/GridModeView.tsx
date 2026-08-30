@@ -562,7 +562,7 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
     <div className="flex flex-col h-full min-h-0">
       {/* ── 顶部控制条 ── */}
       <div
-        className="flex items-center gap-2 px-3 py-1.5 shrink-0 border-b border-border/30"
+        className="flex items-center gap-2 px-3 py-1.5 shrink-0 border-b border-[var(--ui-stroke-quaternary)]"
         title="双击空白处返回单视图"
         onDoubleClick={handleExit}
       >

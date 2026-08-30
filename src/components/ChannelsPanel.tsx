@@ -150,7 +150,7 @@ export default function ChannelsPanel({ gatewayOnline, onOpenSettings }: Channel
         ) : (
           <div className="space-y-1">
             {channels.map((ch: ChannelItem) => (
-              <div key={ch.id} className="flex items-center gap-2 p-2 rounded border border-border hover:bg-accent/5 transition-colors">
+              <div key={ch.id} className="flex items-center gap-2 p-2 rounded border border-[var(--ui-stroke-tertiary)] hover:bg-accent/5 transition-colors">
                 {/* 左侧图标 */}
                 <div className="shrink-0" style={{ color: platformColor(ch.platform) }}>
                   {platformIcon(ch.platform)}

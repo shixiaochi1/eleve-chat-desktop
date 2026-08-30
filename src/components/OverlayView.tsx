@@ -56,7 +56,7 @@ export default function OverlayView({ children, onClose, title, wide = false, pa
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/40 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => onClose?.()}>
       <div className={cn("flex flex-col bg-popover text-popover-foreground rounded-lg shadow-lg overflow-hidden animate-in zoom-in-95 duration-200", wide ? "w-[96vw] max-w-[1600px] h-[90vh] max-h-[960px]" : "w-[90vw] max-w-4xl h-[85vh] max-h-[800px]")} onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--ui-stroke-tertiary)] shrink-0">
           {title && <h2 className="text-base font-semibold text-foreground">{title}</h2>}
           <button
             className="ml-auto p-1.5 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"

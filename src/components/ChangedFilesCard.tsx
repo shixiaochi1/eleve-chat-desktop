@@ -18,10 +18,10 @@ const ChangedFilesCard = memo(function ChangedFilesCard({ parts }: { parts: read
 
   return (
     <div
-      className="mt-1.5 max-w-md overflow-hidden rounded-xl border border-border bg-card shadow-sm"
+      className="mt-1.5 max-w-md overflow-hidden rounded-xl border border-[var(--ui-stroke-tertiary)] bg-card shadow-sm"
       data-slot="aui_changed-files"
     >
-      <div className="flex items-center gap-2 border-b border-border/60 px-3 py-1.5">
+      <div className="flex items-center gap-2 border-b border-[var(--ui-stroke-tertiary)] px-3 py-1.5">
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
           {files.length} 个文件已修改
         </span>

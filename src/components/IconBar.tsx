@@ -140,7 +140,7 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
       </div>
 
       {/* 底部 */}
-      <div className="flex flex-col items-center gap-0.5 py-2 border-t border-border">
+      <div className="flex flex-col items-center gap-0.5 py-2 border-t border-[var(--ui-stroke-tertiary)]">
         {bottomItems.map(renderButton)}
         <button
           className={cn(navBtnBase)}

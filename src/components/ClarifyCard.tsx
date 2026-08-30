@@ -105,7 +105,7 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
   // ── 已完成折叠态 ──
   if (submitted) {
     return (
-      <div className="mx-3 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground bg-popover flex items-center gap-2">
+      <div className="mx-3 rounded-lg border border-[var(--ui-stroke-tertiary)] px-3 py-2 text-xs text-muted-foreground bg-popover flex items-center gap-2">
         <span className="icard-check">
           <Check size={11} strokeWidth={3} />
         </span>
@@ -117,7 +117,7 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
   // ── 🔴 已过期折叠态（超时/中断后后端已无 pending）──
   if (expired) {
     return (
-      <div className="mx-3 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground bg-popover flex items-center gap-2">
+      <div className="mx-3 rounded-lg border border-[var(--ui-stroke-tertiary)] px-3 py-2 text-xs text-muted-foreground bg-popover flex items-center gap-2">
         <span className="icard-check">
           <Check size={11} strokeWidth={3} />
         </span>
@@ -162,7 +162,7 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
                     className={cn(
                       'w-3.5 h-3.5 shrink-0 flex items-center justify-center border transition-colors',
                       isMulti ? 'rounded-[3px]' : 'rounded-full',
-                      flag ? 'border-primary bg-primary' : 'border-border/80 bg-transparent'
+                      flag ? 'border-primary bg-primary' : 'border-[var(--ui-stroke-tertiary)]/80 bg-transparent'
                     )}
                   >
                     {flag &&
@@ -218,7 +218,7 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
                 handleOtherSubmit();
               }
             }}
-            className="w-full px-2 py-1 rounded-md text-xs bg-muted/50 border border-border text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/60"
+            className="w-full px-2 py-1 rounded-md text-xs bg-muted/50 border border-[var(--ui-stroke-tertiary)] text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/60"
           />
         </div>
       ) : (
@@ -236,7 +236,7 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
                 handleOpenSubmit();
               }
             }}
-            className="w-full px-2 py-1 rounded-md text-xs bg-muted/50 border border-border text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/60"
+            className="w-full px-2 py-1 rounded-md text-xs bg-muted/50 border border-[var(--ui-stroke-tertiary)] text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/60"
           />
           <div className="flex justify-end">
             <button

@@ -39,7 +39,7 @@ function MediaImage({ path, name, onZoom }: { path: string; name: string; onZoom
 
   if (failed) {
     return (
-      <div className="text-xs text-muted-foreground border border-dashed border-border rounded-md px-3 py-2">
+      <div className="text-xs text-muted-foreground border border-dashed border-[var(--ui-stroke-tertiary)] rounded-md px-3 py-2">
         {name}（图片加载失败）
       </div>
     );
@@ -57,7 +57,7 @@ function MediaImage({ path, name, onZoom }: { path: string; name: string; onZoom
       src={src}
       alt={name}
       title={name}
-      className="max-w-[320px] max-h-[240px] object-contain rounded-lg border border-border cursor-zoom-in"
+      className="max-w-[320px] max-h-[240px] object-contain rounded-lg border border-[var(--ui-stroke-tertiary)] cursor-zoom-in"
       onClick={() => onZoom(src)}
     />
   );

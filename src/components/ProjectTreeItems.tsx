@@ -682,7 +682,7 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
       </div>
       {/* 预览会话（卡片内展开，border-t 分隔；对齐 Hermes PROJECT_PREVIEW_COUNT Top3） */}
       {expanded && (
-        <div className="mt-1 border-t border-border/40 pt-0.5">
+        <div className="mt-1 border-t border-[var(--ui-stroke-quaternary)] pt-0.5">
           {previews.length > 0 ? (
             previews.map(s => (
               <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => { onSessionRowActivate?.(project); onSwitchSession?.(s.id); }} actions={sessionActions} rowClassName="pl-6 rounded-md hover:bg-accent/30" />

@@ -403,7 +403,7 @@ export const AgentChatCard = memo(function AgentChatCard({
     <div
       className={cn(
         'w-full h-full flex flex-col rounded-xl border overflow-hidden min-h-0 transition-shadow duration-200',
-        focused ? 'border-transparent shadow-lg' : 'border-border/60 opacity-90 hover:opacity-100 shadow-sm'
+        focused ? 'border-transparent shadow-lg' : 'border-[var(--ui-stroke-tertiary)] opacity-90 hover:opacity-100 shadow-sm'
       )}
       style={{
         background: 'var(--ui-card-bg)',
@@ -417,7 +417,7 @@ export const AgentChatCard = memo(function AgentChatCard({
           🔴 2026-08-02 老大需求：双击工具状态栏任意处 → 展开为单视图（与右侧展开按钮同一出口 onExpand）*/}
       <div
         data-drag-handle
-        className="flex items-center gap-2 h-11 px-3 shrink-0 border-b border-border/40 select-none cursor-grab active:cursor-grabbing touch-none"
+        className="flex items-center gap-2 h-11 px-3 shrink-0 border-b border-[var(--ui-stroke-quaternary)] select-none cursor-grab active:cursor-grabbing touch-none"
         style={{ background: color.bg }}
         onDoubleClick={() => onExpand(name)}
         title="双击展开为单视图"

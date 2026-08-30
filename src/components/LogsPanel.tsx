@@ -83,7 +83,7 @@ export default function LogsPanel() {
     <div className="flex h-full min-h-0 flex-col">
       {/* 工具条：文件切换 + 暂停/继续（对齐 Hermes 无 chrome 语义的最小增强：
           后端 /api/logs 三文件能力展示；核心行为仍是 5s 轮询尾随） */}
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-2 py-1.5">
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-[var(--ui-stroke-tertiary)] px-2 py-1.5">
         {LOG_FILES.map((f) => (
           <button
             key={f.id}
@@ -112,7 +112,7 @@ export default function LogsPanel() {
 
       {/* 错误态（对齐 Hermes "log unavailable: ..."） */}
       {error && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--ui-stroke-tertiary)] bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
           <AlertCircle size={13} />
           <span className="min-w-0 flex-1 truncate">日志不可用: {error}</span>
           <button

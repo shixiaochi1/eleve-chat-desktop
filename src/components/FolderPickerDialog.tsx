@@ -120,13 +120,13 @@ export default function FolderPickerDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="flex h-[min(30rem,calc(100vh-4rem))] max-w-md flex-col gap-0 overflow-hidden p-0">
-        <DialogHeader className="shrink-0 border-b border-border px-4 py-3">
+        <DialogHeader className="shrink-0 border-b border-[var(--ui-stroke-tertiary)] px-4 py-3">
           <DialogTitle className="text-sm">{title}</DialogTitle>
           <DialogDescription className="mt-0.5 text-xs text-muted-foreground/60">选择文件树根目录（仅目录可选）</DialogDescription>
         </DialogHeader>
 
         {/* 面包屑 */}
-        <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border/50 px-3 py-1.5 text-[11px] text-muted-foreground">
+        <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--ui-stroke-tertiary)] px-3 py-1.5 text-[11px] text-muted-foreground">
           {crumbs.map((crumb, i) => (
             <button
               key={crumb.path}
@@ -176,12 +176,12 @@ export default function FolderPickerDialog({
           )}
         </div>
 
-        <DialogFooter className="shrink-0 items-center justify-between gap-2 border-t border-border/70 px-4 py-2.5">
+        <DialogFooter className="shrink-0 items-center justify-between gap-2 border-t border-[var(--ui-stroke-tertiary)] px-4 py-2.5">
           <span className="min-w-0 truncate text-[11px] text-muted-foreground/60">{currentPath}</span>
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
-              className="rounded border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="rounded border border-[var(--ui-stroke-tertiary)] px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
               onClick={() => close()}
             >
               取消

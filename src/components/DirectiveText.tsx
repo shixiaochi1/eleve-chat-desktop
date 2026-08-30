@@ -83,7 +83,7 @@ function DirectiveChip({ type, label, id }: { type: string; label: string; id: s
   );
 
   const baseCls = cn(
-    'mx-px inline-flex max-w-[220px] cursor-default items-center gap-1 rounded-md border border-border/60 bg-muted/40 px-1.5 py-px align-baseline text-[0.92em] text-foreground/90',
+    'mx-px inline-flex max-w-[220px] cursor-default items-center gap-1 rounded-md border border-[var(--ui-stroke-tertiary)] bg-muted/40 px-1.5 py-px align-baseline text-[0.92em] text-foreground/90',
     isUrl && 'cursor-pointer hover:bg-accent hover:text-foreground'
   );
 

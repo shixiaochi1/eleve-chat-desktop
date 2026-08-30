@@ -204,7 +204,7 @@ export default function ArtifactsGallery({
     <TooltipProvider delayDuration={0}>
     <div className="flex h-full min-h-0 flex-col">
       {/* 过滤 tabs（搜索/刷新在外部「产物库」栏） */}
-      <div className="flex shrink-0 items-center gap-1 border-b border-border/60 px-3 py-1.5">
+      <div className="flex shrink-0 items-center gap-1 border-b border-[var(--ui-stroke-tertiary)] px-3 py-1.5">
         {ARTIFACT_FILTERS.map((f) => (
           <TextTab key={f} active={kindFilter === f} onClick={() => setKindFilter(f)}>
             {f === 'all' ? '全部' : KIND_LABEL[f]}
@@ -240,7 +240,7 @@ export default function ArtifactsGallery({
                 <button
                   type="button"
                   onClick={onRefresh}
-                  className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-muted-foreground/30 hover:text-foreground"
+                  className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-[var(--ui-stroke-tertiary)] bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-muted-foreground/30 hover:text-foreground"
                 >
                   <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
                   重新扫描
@@ -291,7 +291,7 @@ export default function ArtifactsGallery({
                 )}
                 <table className="w-full border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-border/60 text-left text-[10px] uppercase tracking-wider text-muted-foreground/50">
+                      <tr className="border-b border-[var(--ui-stroke-tertiary)] text-left text-[10px] uppercase tracking-wider text-muted-foreground/50">
                         <th className="w-[42%] px-1.5 py-1.5 font-medium">名称</th>
                         <th className="px-1.5 py-1.5 font-medium">来源</th>
                         <th className="w-[14rem] px-1.5 py-1.5 font-medium">会话 · 时间</th>
@@ -405,7 +405,7 @@ function ArtifactImageCard({
   }, [artifact.href, artifact.id, artifact.value, onFailed]);
 
   return (
-    <article className="group/card overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-muted-foreground/30 hover:shadow-md">
+    <article className="group/card overflow-hidden rounded-xl border border-[var(--ui-stroke-tertiary)]/80 bg-card shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-muted-foreground/30 hover:shadow-md">
       {/* 缩略图区 */}
       <div className="relative flex h-40 items-center justify-center overflow-hidden bg-gradient-to-b from-muted/40 via-muted/20 to-muted/10 p-2">
         {!failed && src && (
@@ -466,7 +466,7 @@ function ArtifactImageCard({
               type="button"
               onClick={() => onOpenChat(artifact.sessionId)}
               title="打开会话"
-              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 px-2 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-all hover:border-muted-foreground/30 hover:bg-accent/10 hover:text-foreground group-hover/card:opacity-100 focus-visible:opacity-100"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[var(--ui-stroke-tertiary)]/80 px-2 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-all hover:border-muted-foreground/30 hover:bg-accent/10 hover:text-foreground group-hover/card:opacity-100 focus-visible:opacity-100"
             >
               <FolderOpen className="size-3" />
               会话
@@ -533,9 +533,9 @@ function ArtifactRow({
   const linkTitle = useLinkTitle(isLink ? artifact.href : null);
   const displayLabel = (isLink && linkTitle) || artifact.label;
   const Icon = isLink ? Link2 : FileText;
-  const accent = isLink ? 'text-emerald-500' : 'text-sky-500';
+  const accent = isLink ? 'text-success' : 'text-info';
   return (
-    <tr className="group/row border-b border-border/50 transition-colors last:border-b-0 hover:bg-muted/30">
+    <tr className="group/row border-b border-[var(--ui-stroke-tertiary)] transition-colors last:border-b-0 hover:bg-muted/30">
       <td className="px-1.5 py-1.5">
         <button
           type="button"
@@ -600,7 +600,7 @@ function ArtifactRow({
           type="button"
           onClick={onOpen}
           title={isLink ? '在浏览器中打开' : '用系统程序打开'}
-          className="inline-flex items-center gap-1 rounded-full border border-border/80 px-2 py-1 text-[10px] text-muted-foreground opacity-0 transition-all hover:border-muted-foreground/30 hover:bg-accent/10 hover:text-foreground group-hover/row:opacity-100 focus-visible:opacity-100"
+          className="inline-flex items-center gap-1 rounded-full border border-[var(--ui-stroke-tertiary)]/80 px-2 py-1 text-[10px] text-muted-foreground opacity-0 transition-all hover:border-muted-foreground/30 hover:bg-accent/10 hover:text-foreground group-hover/row:opacity-100 focus-visible:opacity-100"
         >
           {isLink ? <ExternalLink className="size-3" /> : <FileText className="size-3" />}
           打开

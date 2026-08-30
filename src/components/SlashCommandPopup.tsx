@@ -27,7 +27,7 @@ export default function SlashCommandPopup({
   return (
     <div
       className={cn(
-        'absolute inset-x-0 bottom-full z-50 mb-1.5 max-h-60 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg',
+        'absolute inset-x-0 bottom-full z-50 mb-1.5 max-h-60 overflow-y-auto rounded-lg border border-[var(--ui-stroke-tertiary)] bg-popover p-1 shadow-lg',
         className,
       )}
     >

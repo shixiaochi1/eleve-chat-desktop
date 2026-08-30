@@ -21,7 +21,7 @@ const DOT_BASE = 'inline-block size-1.5 rounded-full';
 
 const DOT_VARIANTS: Record<SessionDotState, { className: string; pulse?: boolean; title?: string }> = {
   'needs-input': {
-    className: `${DOT_BASE} bg-amber-500`,
+    className: `${DOT_BASE} bg-warning`,
     title: '等待输入（审批/澄清/密码等）',
   },
   working: {
@@ -40,7 +40,7 @@ const DOT_VARIANTS: Record<SessionDotState, { className: string; pulse?: boolean
     title: '有后台进程在运行',
   },
   unread: {
-    className: `${DOT_BASE} bg-emerald-500`,
+    className: `${DOT_BASE} bg-success`,
     title: '已完成，未读',
   },
   idle: {

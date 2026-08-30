@@ -23,7 +23,7 @@ export default function RightSidebarTabs({ activeTab, onTabChange, onClose }: Ri
   const { accent } = useTheme();
 
   return (
-    <div className={cn('group/rail-tabs flex h-10 shrink-0 items-stretch border-b border-border')}>
+    <div className={cn('group/rail-tabs flex h-10 shrink-0 items-stretch border-b border-[var(--ui-stroke-tertiary)]')}>
       {TABS.map(({ key, label, Icon }) => {
         const isActive = activeTab === key;
         return (

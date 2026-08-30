@@ -1702,7 +1702,7 @@ export default function App() {
                               <img
                                 src={img.preview}
                                 alt={img.name}
-                                className="w-12 h-12 object-cover rounded-md border border-border cursor-zoom-in"
+                                className="w-12 h-12 object-cover rounded-md border border-[var(--ui-stroke-tertiary)] cursor-zoom-in"
                                 draggable={false}
                                 onClick={() => setLightbox({ src: img.preview, name: img.name, onEdit: () => { setLightbox(null); imageEditorApi.openImageEditor(img.preview, img.name, img.id); } })}
                               />
@@ -1758,7 +1758,7 @@ export default function App() {
                           {attachedFiles.map((f) => (
                             <div
                               key={f.id}
-                              className="group flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border bg-card/70 text-xs max-w-[280px]"
+                              className="group flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[var(--ui-stroke-tertiary)] bg-card/70 text-xs max-w-[280px]"
                               title={f.path}
                             >
                               <FileText size={13} className="shrink-0 text-muted-foreground" />

@@ -226,7 +226,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
         title="收起面板"
         aria-label="收起面板"
       >
-        <div className="w-12 h-12 rounded-2xl bg-gradient-to-b from-accent/20 to-accent/5 border border-border/60 flex items-center justify-center shadow-sm transition-transform group-hover:scale-105 group-active:scale-95">
+        <div className="w-12 h-12 rounded-2xl bg-gradient-to-b from-accent/20 to-accent/5 border border-[var(--ui-stroke-tertiary)] flex items-center justify-center shadow-sm transition-transform group-hover:scale-105 group-active:scale-95">
           <img src="/Elogo.svg" alt="Eleve" className="w-7 h-7" />
         </div>
         <span className="text-sm font-semibold text-foreground">Eleve Agent</span>
@@ -237,7 +237,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
         className={cn(
           'flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors shrink-0',
           gatewayChecking
-            ? 'bg-muted/40 border-border text-muted-foreground cursor-default'
+            ? 'bg-muted/40 border-[var(--ui-stroke-tertiary)] text-muted-foreground cursor-default'
             : online
               ? 'bg-success/10 border-success/25 text-success hover:bg-success/20 cursor-pointer'
               : 'bg-destructive/10 border-destructive/25 text-destructive hover:bg-destructive/20 cursor-pointer'
@@ -255,7 +255,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
       {/* ── 运行时长（点击刷新） ── */}
       {online && status && (
         <button
-          className="rounded-xl border border-border bg-gradient-to-b from-background to-muted/20 px-3 py-2 text-center transition-colors hover:bg-accent/30 shrink-0"
+          className="rounded-xl border border-[var(--ui-stroke-tertiary)] bg-gradient-to-b from-background to-muted/20 px-3 py-2 text-center transition-colors hover:bg-accent/30 shrink-0"
           onClick={fetchStatus}
           title="点击刷新状态"
         >
@@ -270,7 +270,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
       {online && status && (
         <div className="grid grid-cols-2 gap-1.5 shrink-0">
           <button
-            className="rounded-lg border border-border px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
+            className="rounded-lg border border-[var(--ui-stroke-tertiary)] px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
             onClick={() => onPanelChange?.('agents')}
             title="查看 Agent 列表"
           >
@@ -283,7 +283,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
             </div>
           </button>
           <button
-            className="rounded-lg border border-border px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
+            className="rounded-lg border border-[var(--ui-stroke-tertiary)] px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
             onClick={() => status.port && copy(String(status.port), '端口')}
             title={status.port ? `复制端口 ${status.port}` : '端口未知'}
           >
@@ -296,7 +296,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
             </div>
           </button>
           <button
-            className="rounded-lg border border-border px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
+            className="rounded-lg border border-[var(--ui-stroke-tertiary)] px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
             onClick={() => status.pid && copy(String(status.pid), 'PID')}
             title={status.pid ? `复制 PID ${status.pid}` : 'PID 未知'}
           >
@@ -309,7 +309,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
             </div>
           </button>
           <button
-            className="rounded-lg border border-border px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
+            className="rounded-lg border border-[var(--ui-stroke-tertiary)] px-2 py-1.5 min-w-0 text-left transition-colors hover:bg-accent/30"
             onClick={() => status.provider && copy(status.provider, '提供商')}
             title={status.provider ? `复制提供商 ${status.provider}` : '提供商未知'}
           >
@@ -356,7 +356,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
       {/* ── 模型（点击复制） ── */}
       {online && status && (
         <button
-          className="rounded-lg border border-border px-2.5 py-1.5 text-xs flex items-center gap-2 transition-colors hover:bg-accent/30 shrink-0"
+          className="rounded-lg border border-[var(--ui-stroke-tertiary)] px-2.5 py-1.5 text-xs flex items-center gap-2 transition-colors hover:bg-accent/30 shrink-0"
           onClick={() => status.model && copy(status.model, '模型')}
           title={status.model ? `复制模型 ${status.model}` : '模型未知'}
         >
@@ -369,8 +369,8 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
       {/* ── 配置区 / 日志区（二选一，可滚动） ── */}
       {logsVisible ? (
         /* 🔴 2026-08-10 日志视图：左侧工具栏 LogsPanel 搬入（5s 轮询尾随、三文件切换、暂停） */
-        <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-border bg-muted/10 flex flex-col">
-          <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1">
+        <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-[var(--ui-stroke-tertiary)] bg-muted/10 flex flex-col">
+          <div className="flex shrink-0 items-center justify-between border-b border-[var(--ui-stroke-tertiary)] px-2 py-1">
             <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">运行日志</span>
             <button
               className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
@@ -385,7 +385,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
           </div>
         </div>
       ) : (
-      <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border border-border bg-muted/10 px-2.5 py-2 space-y-2.5">
+      <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border border-[var(--ui-stroke-tertiary)] bg-muted/10 px-2.5 py-2 space-y-2.5">
         <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">连接配置</div>
 
         {envOverride && (
@@ -491,7 +491,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
         {online && (
           <div className="flex gap-1.5">
             <button
-              className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-lg border border-border text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+              className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-lg border border-[var(--ui-stroke-tertiary)] text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
               onClick={fetchStatus}
               title="刷新状态"
             >

@@ -127,7 +127,7 @@ export function WorktreeDialog({ repoPath, open, onOpenChange, onStarted, initia
         </DialogHeader>
 
         {convertMode ? (
-          <Command className="rounded-md border border-border" filter={(v, search) => (v.toLowerCase().includes(search.toLowerCase()) ? 1 : 0)}>
+          <Command className="rounded-md border border-[var(--ui-stroke-tertiary)]" filter={(v, search) => (v.toLowerCase().includes(search.toLowerCase()) ? 1 : 0)}>
             <CommandInput autoFocus disabled={pending} placeholder="过滤分支…" />
             <CommandList className="max-h-64">
               <CommandEmpty>{branchesLoading ? '加载中…' : '无分支'}</CommandEmpty>

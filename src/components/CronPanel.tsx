@@ -34,7 +34,7 @@ const EMPTY_FORM: CronForm = { name: '', schedule: '0 9 * * *', prompt: '', deli
 const STATE_MAP: Record<string, { label: string; chip: string; dot: string; pulse?: boolean }> = {
   scheduled: { label: '运行中', chip: 'text-success bg-success/10 border-success/20', dot: 'bg-success', pulse: true },
   paused:    { label: '已暂停', chip: 'text-warning bg-warning/10 border-warning/20', dot: 'bg-warning' },
-  completed: { label: '已完成', chip: 'text-muted-foreground/70 bg-muted/40 border-border', dot: 'bg-muted-foreground/50' },
+  completed: { label: '已完成', chip: 'text-muted-foreground/70 bg-muted/40 border-[var(--ui-stroke-tertiary)]', dot: 'bg-muted-foreground/50' },
 };
 
 // 频率预设（对齐 Hermes SCHEDULE_OPTIONS：时间段细分，非裸 cron）
@@ -338,7 +338,7 @@ export default function CronPanel() {
 
       {/* 新建 / 编辑表单 */}
       {showForm && (
-        <div className="space-y-3 p-3 rounded-lg bg-muted/20 border border-border shadow-sm">
+        <div className="space-y-3 p-3 rounded-lg bg-muted/20 border border-[var(--ui-stroke-tertiary)] shadow-sm">
           <div className="text-[11px] font-semibold text-foreground">{editingId ? '编辑任务' : '新建任务'}</div>
 
           {/* 名称 */}
@@ -448,10 +448,10 @@ export default function CronPanel() {
           visibleJobs.map((job) => {
             const expr = scheduleExpr(job);
             const summary = jobScheduleText(job);
-            const st = STATE_MAP[job.state || ''] || { label: job.state || '—', chip: 'text-muted-foreground/70 bg-muted/40 border-border', dot: 'bg-muted-foreground/50' };
+            const st = STATE_MAP[job.state || ''] || { label: job.state || '—', chip: 'text-muted-foreground/70 bg-muted/40 border-[var(--ui-stroke-tertiary)]', dot: 'bg-muted-foreground/50' };
             return (
               <div key={job.id}
-                className="group relative rounded-lg border border-border/70 bg-card/40 p-2.5 transition-all duration-200 hover:border-primary/40 hover:bg-accent/25 hover:shadow-md hover:-translate-y-px">
+                className="group relative rounded-lg border border-[var(--ui-stroke-tertiary)] bg-card/40 p-2.5 transition-all duration-200 hover:border-primary/40 hover:bg-accent/25 hover:shadow-md hover:-translate-y-px">
                 {/* 名称 + 状态 */}
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', st.dot, st.pulse && 'animate-pulse')} />
@@ -497,7 +497,7 @@ export default function CronPanel() {
                 )}
 
                 {/* 操作（悬停增强） */}
-                <div className="flex items-center gap-0.5 mt-2 pt-1.5 border-t border-border/40 opacity-70 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center gap-0.5 mt-2 pt-1.5 border-t border-[var(--ui-stroke-quaternary)] opacity-70 group-hover:opacity-100 transition-opacity">
                   <button className="p-1 rounded text-muted-foreground hover:text-success hover:bg-success/10 transition-all active:scale-90" title="立即执行"
                     onClick={() => handleRun(job.id)} disabled={actionLoading[`trigger-${job.id}`]}>
                     <PlayIcon size={13} />
@@ -525,7 +525,7 @@ export default function CronPanel() {
       {/* 删除确认 */}
       {pendingDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-[2px]" onClick={() => setPendingDelete(null)}>
-          <div className="w-72 p-4 rounded-xl border border-border bg-background shadow-2xl space-y-2.5" onClick={(e) => e.stopPropagation()}>
+          <div className="w-72 p-4 rounded-xl border border-[var(--ui-stroke-tertiary)] bg-background shadow-2xl space-y-2.5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2">
               <span className="flex items-center justify-center h-7 w-7 rounded-full bg-destructive/10 text-destructive"><TrashIcon size={13} /></span>
               <span className="text-xs font-semibold text-foreground">删除定时任务</span>
@@ -534,7 +534,7 @@ export default function CronPanel() {
               确定删除「<span className="text-foreground font-medium">{pendingDelete.name || (pendingDelete.id || '').slice(0, 8)}</span>」吗？删除后将停止调度，无法恢复。
             </p>
             <div className="flex justify-end gap-2 pt-1">
-              <button className="px-3 py-1.5 text-[11px] rounded-md border border-border text-foreground hover:bg-accent transition-colors active:scale-95"
+              <button className="px-3 py-1.5 text-[11px] rounded-md border border-[var(--ui-stroke-tertiary)] text-foreground hover:bg-accent transition-colors active:scale-95"
                 onClick={() => setPendingDelete(null)} disabled={actionLoading[`delete-${pendingDelete.id}`]}>
                 取消
               </button>

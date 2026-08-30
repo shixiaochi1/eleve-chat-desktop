@@ -185,7 +185,7 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
 
         <div className="flex flex-col gap-3 py-1">
           {/* ① 实时预览（紧凑单行） */}
-          <div className="flex items-center gap-2.5 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2">
+          <div className="flex items-center gap-2.5 rounded-lg border border-[var(--ui-stroke-tertiary)] bg-muted/20 px-2.5 py-2">
             <div
               className="grid size-8 shrink-0 place-items-center rounded-lg shadow-sm transition-colors"
               style={{
@@ -211,7 +211,7 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
             <div>
               <label className="mb-1 block text-[11px] font-medium text-muted-foreground">项目名称</label>
               <input
-                className="desktop-input-chrome h-8 w-full rounded-lg border border-border bg-background px-2.5 text-sm outline-none transition-shadow focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                className="desktop-input-chrome h-8 w-full rounded-lg border border-[var(--ui-stroke-tertiary)] bg-background px-2.5 text-sm outline-none transition-shadow focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="如：Eleve Agent"
@@ -225,11 +225,11 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
               </label>
               {folders.length === 0 ? (
                 <div className="flex items-center gap-1.5">
-                  <span className="flex-1 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                  <span className="flex-1 rounded-md border border-[var(--ui-stroke-tertiary)] bg-muted/30 px-2.5 py-1.5 text-[11px] text-muted-foreground">
                     未选择文件夹
                   </span>
                   <button
-                    className="h-7 shrink-0 rounded-md border border-border px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+                    className="h-7 shrink-0 rounded-md border border-[var(--ui-stroke-tertiary)] px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
                     onClick={pickFolder}
                     disabled={!desktop}
                     title={desktop ? '原生文件夹选择' : '仅桌面端可用'}
@@ -242,7 +242,7 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
                   {folders.map((f, i) => (
                     <div key={f} className="flex items-center gap-1.5">
                       <span
-                        className="flex-1 truncate rounded-md border border-border bg-muted/30 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground"
+                        className="flex-1 truncate rounded-md border border-[var(--ui-stroke-tertiary)] bg-muted/30 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground"
                         title={f}
                       >
                         {f}
@@ -260,7 +260,7 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
                     </div>
                   ))}
                   <button
-                    className="self-start rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+                    className="self-start rounded border border-[var(--ui-stroke-tertiary)] px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
                     onClick={pickFolder}
                     disabled={!desktop}
                     title={desktop ? '原生文件夹选择' : '仅桌面端可用'}
@@ -329,13 +329,13 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
               </label>
               <div className="flex items-center gap-1.5">
                 <span
-                  className="flex-1 truncate rounded-md border border-border bg-muted/30 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground"
+                  className="flex-1 truncate rounded-md border border-[var(--ui-stroke-tertiary)] bg-muted/30 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground"
                   title={folder || undefined}
                 >
                   {folder || '未选择 — 可稍后从项目菜单添加'}
                 </span>
                 <button
-                  className="h-7 shrink-0 rounded-md border border-border px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+                  className="h-7 shrink-0 rounded-md border border-[var(--ui-stroke-tertiary)] px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
                   onClick={pickFolder}
                   disabled={!desktop}
                   title={desktop ? '原生文件夹选择' : '仅桌面端可用'}
@@ -352,14 +352,14 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
               <label className="mb-1 block text-[11px] font-medium text-muted-foreground">项目 Idea（可选）</label>
               <div className="relative">
                 <textarea
-                  className="min-h-24 w-full rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs outline-none resize-y"
+                  className="min-h-24 w-full rounded-md border border-[var(--ui-stroke-tertiary)] bg-muted/30 px-2.5 py-2 text-xs outline-none resize-y"
                   value={idea}
                   onChange={(e) => setIdea(e.target.value)}
                   placeholder="一句话总结 + 3-5 个目标；创建后写入主文件夹 IDEA.md"
                   disabled={saving}
                 />
                 <button
-                  className="absolute top-1 right-1 rounded border border-border bg-background px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  className="absolute top-1 right-1 rounded border border-[var(--ui-stroke-tertiary)] bg-background px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-50"
                   onClick={() => void generateIdea()}
                   disabled={saving || generatingIdea}
                   title="AI 生成项目 idea"
@@ -371,7 +371,7 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
                 {templates.map((t) => (
                   <button
                     key={t.label}
-                    className="flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors disabled:opacity-50"
+                    className="flex items-center gap-1 rounded-full border border-[var(--ui-stroke-tertiary)] px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors disabled:opacity-50"
                     onClick={() => setIdea(t.idea)}
                     disabled={saving}
                     title={t.label}
@@ -394,7 +394,7 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
 
           {/* 归档危险区（仅显式项目编辑模式；自动项目无记录不可归档；Home 系统桶不归档——老大 2026-08-12：Home 除删除外与项目同权，归档/删除均不提供） */}
           {initial && !initial.isAuto && !initial.isNoProject && (
-            <div className="border-t border-border pt-2">
+            <div className="border-t border-[var(--ui-stroke-tertiary)] pt-2">
               <button
                 className={cn(
                   'h-7 rounded-md px-2.5 text-xs transition-colors',
@@ -413,7 +413,7 @@ export function ProjectDialog({ open, initial, onClose, onSaved, profile }: {
 
         <DialogFooter className="mt-1 gap-2">
           <button
-            className="h-8 rounded-lg border border-border px-4 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="h-8 rounded-lg border border-[var(--ui-stroke-tertiary)] px-4 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             onClick={onClose}
           >
             取消

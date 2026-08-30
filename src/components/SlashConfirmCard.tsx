@@ -103,7 +103,7 @@ export default function SlashConfirmCard({
             disabled={submitting}
             onClick={() => void handleChoice('cancel')}
             className={cn(
-              'inline-flex items-center justify-center rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-all',
+              'inline-flex items-center justify-center rounded-lg border border-[var(--ui-stroke-tertiary)] px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-all',
               'hover:bg-accent hover:text-foreground',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
               'disabled:pointer-events-none disabled:opacity-50',
@@ -117,7 +117,7 @@ export default function SlashConfirmCard({
             disabled={submitting}
             onClick={() => void handleChoice('once')}
             className={cn(
-              'inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-all',
+              'inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--ui-stroke-tertiary)] bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-all',
               'hover:bg-accent hover:text-foreground',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/40',
               'disabled:pointer-events-none disabled:opacity-50',

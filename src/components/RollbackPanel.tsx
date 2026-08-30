@@ -190,8 +190,8 @@ export default function RollbackPanel({ sessionId }: RollbackPanelProps) {
 
       {/* diff 预览 */}
       {diff !== null && (
-        <div className="border border-border rounded-lg overflow-hidden shrink-0 max-h-48">
-          <div className="flex items-center justify-between px-2 py-1 bg-muted/30 border-b border-border/50">
+        <div className="border border-[var(--ui-stroke-tertiary)] rounded-lg overflow-hidden shrink-0 max-h-48">
+          <div className="flex items-center justify-between px-2 py-1 bg-muted/30 border-b border-[var(--ui-stroke-tertiary)]">
             <span className="text-[10px] font-mono text-muted-foreground">diff {selectedHash?.slice(0, 7)}</span>
             <button className="text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setDiff(null)}>关闭</button>
           </div>

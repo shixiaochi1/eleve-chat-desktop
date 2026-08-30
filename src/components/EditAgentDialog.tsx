@@ -299,13 +299,13 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
 
       <div
         ref={rootRef}
-        className="relative flex flex-col rounded-2xl border border-border bg-popover shadow-2xl panel-enter overflow-hidden"
+        className="relative flex flex-col rounded-2xl border border-[var(--ui-stroke-tertiary)] bg-popover shadow-2xl panel-enter overflow-hidden"
         style={dims
           ? { width: dims.w, height: dims.h }
           : { width: 'min(560px, calc(100vw - 48px))', maxHeight: 'min(640px, calc(100vh - 64px))' }}
       >
         {/* ── 头部 ── */}
-        <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border/60">
+        <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-[var(--ui-stroke-tertiary)]">
           <div className="min-w-0">
             <span className="text-sm font-semibold text-foreground">编辑 Agent</span>
             <span className="ml-2 text-[11px] font-mono text-muted-foreground/60">{profile.name}</span>
@@ -327,14 +327,14 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
           {tabBtn('memory', 'MEMORY.md', <BookOpen size={12} strokeWidth={2} />)}
           {tabBtn('user', 'USER.md', <User size={12} strokeWidth={2} />)}
           {saved && (
-            <span className="ml-auto text-[11px] text-emerald-500 animate-pulse">{saved}</span>
+            <span className="ml-auto text-[11px] text-success animate-pulse">{saved}</span>
           )}
         </div>
 
         {/* ── 内容 ── */}
         <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3.5">
           {error && (
-            <div className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-600 dark:text-amber-400">
+            <div className="mb-3 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] text-warning">
               {error}
             </div>
           )}
@@ -348,7 +348,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
                     type="button"
                     onClick={() => setAvatarPickerOpen(true)}
                     disabled={avatarBusy}
-                    className="group relative w-20 h-20 shrink-0 rounded-full overflow-hidden ring-2 ring-border hover:ring-primary/50 transition-all disabled:opacity-60 disabled:cursor-wait"
+                    className="group relative w-20 h-20 shrink-0 rounded-full overflow-hidden ring-2 ring-[var(--ui-stroke-tertiary)] hover:ring-primary/50 transition-all disabled:opacity-60 disabled:cursor-wait"
                     title="点击更换头像"
                   >
                     {avatar ? (
@@ -385,7 +385,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
 
                 {/* ── 头像选择面板（点击头像弹出）── */}
                 {avatarPickerOpen && (
-                  <div className="rounded-xl border border-border bg-card p-3 grid gap-2.5">
+                  <div className="rounded-xl border border-[var(--ui-stroke-tertiary)] bg-card p-3 grid gap-2.5">
                     <span className="text-[11px] font-medium text-muted-foreground">选择头像（随主题色变化）</span>
                     <div className="grid grid-cols-6 gap-2">
                       {AGENT_AVATARS.map((a) => {
@@ -411,11 +411,11 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
                         );
                       })}
                     </div>
-                    <div className="flex items-center justify-between border-t border-border/60 pt-2">
+                    <div className="flex items-center justify-between border-t border-[var(--ui-stroke-tertiary)] pt-2">
                       <button
                         type="button"
                         onClick={() => avatarInputRef.current?.click()}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md border border-[var(--ui-stroke-tertiary)] text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
                       >
                         <Camera size={12} strokeWidth={2} />
                         上传自定义图片
@@ -455,7 +455,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
                     onChange={(e) => setNickname(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !nickBusy) void handleSaveNickname(); }}
                     disabled={nickBusy}
-                    className="flex-1 px-2.5 py-1.5 text-sm rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
+                    className="flex-1 px-2.5 py-1.5 text-sm rounded-md border border-[var(--ui-stroke-tertiary)] bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
                   />
                   <button
                     type="button"
@@ -502,7 +502,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
               <div className="flex items-center justify-between">
                 <label className="text-xs font-medium text-foreground">人物性格 / 身份（SOUL.md）</label>
                 {soul !== soulOriginal && soulOriginal !== '' && (
-                  <span className="text-[11px] text-amber-500">未保存</span>
+                  <span className="text-[11px] text-warning">未保存</span>
                 )}
               </div>
               {soulLoading ? (
@@ -516,7 +516,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
                   disabled={soulBusy}
                   rows={14}
                   placeholder="空 — 使用默认人设"
-                  className="w-full px-2.5 py-2 text-xs leading-5 font-mono rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
+                  className="w-full px-2.5 py-2 text-xs leading-5 font-mono rounded-md border border-[var(--ui-stroke-tertiary)] bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
                 />
               )}
               <div className="flex items-center justify-end gap-2">
@@ -539,7 +539,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
               <div className="flex items-center justify-between">
                 <label className="text-xs font-medium text-foreground">长期记忆（MEMORY.md）</label>
                 {memory !== memoryOriginal && memoryOriginal !== '' && (
-                  <span className="text-[11px] text-amber-500">未保存</span>
+                  <span className="text-[11px] text-warning">未保存</span>
                 )}
               </div>
               {memoryLoading ? (
@@ -553,7 +553,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
                   disabled={memoryBusy}
                   rows={14}
                   placeholder="空 — 无长期记忆"
-                  className="w-full px-2.5 py-2 text-xs leading-5 font-mono rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
+                  className="w-full px-2.5 py-2 text-xs leading-5 font-mono rounded-md border border-[var(--ui-stroke-tertiary)] bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
                 />
               )}
               <div className="flex justify-end">
@@ -575,7 +575,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
               <div className="flex items-center justify-between">
                 <label className="text-xs font-medium text-foreground">用户档案 / 对 Agent 的指示（USER.md）</label>
                 {user !== userOriginal && userOriginal !== '' && (
-                  <span className="text-[11px] text-amber-500">未保存</span>
+                  <span className="text-[11px] text-warning">未保存</span>
                 )}
               </div>
               {userLoading ? (
@@ -589,7 +589,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
                   disabled={userBusy}
                   rows={14}
                   placeholder="空 — 无用户档案"
-                  className="w-full px-2.5 py-2 text-xs leading-5 font-mono rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
+                  className="w-full px-2.5 py-2 text-xs leading-5 font-mono rounded-md border border-[var(--ui-stroke-tertiary)] bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
                 />
               )}
               <div className="flex justify-end">

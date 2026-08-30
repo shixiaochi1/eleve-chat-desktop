@@ -117,7 +117,7 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
       >
         <div className="flex items-center gap-1">
           <button
-            className="flex items-center gap-1 h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground border border-border/40 bg-card hover:bg-accent/50 rounded-md shadow-sm transition-colors"
+            className="flex items-center gap-1 h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground border border-[var(--ui-stroke-quaternary)] bg-card hover:bg-accent/50 rounded-md shadow-sm transition-colors"
             title="新建会话 (Ctrl+N)"
             // 🔴 2026-08-05 修复：必须包箭头函数——onClick 直绑会把 MouseEvent 当参数传入
             // handleNewSession(title)，title?.trim 抛错但 sessionId 已被清空 → 下次发送传 null
@@ -136,7 +136,7 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
                 'flex items-center gap-1 h-7 px-2.5 text-xs rounded-md transition-colors border bg-card shadow-sm',
                 deepseekVisible
                   ? 'border-primary/40 text-primary bg-primary/5'
-                  : 'border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                  : 'border-[var(--ui-stroke-quaternary)] text-muted-foreground hover:text-foreground hover:bg-accent/50'
               )}
               title="DeepSeek 嵌入"
               onClick={onToggleDeepSeek}

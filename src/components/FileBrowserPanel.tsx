@@ -751,7 +751,7 @@ export default function FileBrowserPanel({
           <p className="text-xs">未打开项目</p>
           <span className="text-[10px] text-muted-foreground/50 text-center">点击左侧项目卡片打开项目，或手动选择目录（面板跟随项目，不跟随会话）</span>
           <button
-            className="mt-1 flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="mt-1 flex items-center gap-1 rounded border border-[var(--ui-stroke-tertiary)] px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             onClick={handlePickRoot}
           >
             <FolderInput size={12} />
@@ -808,7 +808,7 @@ export default function FileBrowserPanel({
         type="button"
         onClick={handlePickRoot}
         title="点击切换目录"
-        className="group flex w-full items-center gap-1 px-1 py-1 mb-2 text-xs text-muted-foreground truncate border-b border-border transition-colors hover:bg-accent/10 hover:text-foreground"
+        className="group flex w-full items-center gap-1 px-1 py-1 mb-2 text-xs text-muted-foreground truncate border-b border-[var(--ui-stroke-tertiary)] transition-colors hover:bg-accent/10 hover:text-foreground"
       >
         <Folder size={12} className="text-warning shrink-0" />
         <span className="truncate">{rootPath || dirName}</span>
@@ -907,7 +907,7 @@ export default function FileBrowserPanel({
           </DialogHeader>
           <DialogFooter>
             <button
-              className="rounded border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="rounded border border-[var(--ui-stroke-tertiary)] px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
               onClick={() => setDeletingEntry(null)}
               disabled={deleteBusy}
             >

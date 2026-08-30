@@ -40,7 +40,7 @@ export default function AgentsPanel(props: AgentsPanelProps) {
       </div>
 
       {/* ── 分割线 ── */}
-      <div className="border-t border-border shrink-0" />
+      <div className="border-t border-[var(--ui-stroke-tertiary)] shrink-0" />
 
       {/* ── 下部：项目区（flex-1 = Agent 区决定的剩余空间，无固定占比概念） ── */}
       <div className="flex-1 min-h-0 flex flex-col">

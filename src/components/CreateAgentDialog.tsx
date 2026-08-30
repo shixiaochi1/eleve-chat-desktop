@@ -98,7 +98,7 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
   return (
     <div
       ref={rootRef}
-      className="absolute top-[calc(100%+6px)] left-2 right-2 z-50 max-h-[calc(100vh-120px)] overflow-y-auto rounded-xl border border-border bg-popover shadow-lg panel-enter"
+      className="absolute top-[calc(100%+6px)] left-2 right-2 z-50 max-h-[calc(100vh-120px)] overflow-y-auto rounded-xl border border-[var(--ui-stroke-tertiary)] bg-popover shadow-lg panel-enter"
     >
       {/* ── 头部 ── */}
       <div className="flex items-center justify-between px-3.5 pt-3 pb-1">
@@ -130,7 +130,7 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
               placeholder="小老虎"
               autoFocus
               disabled={busy}
-              className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
+              className="w-full px-2.5 py-1.5 text-sm rounded-md border border-[var(--ui-stroke-tertiary)] bg-card text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
             />
             {nickError && <p className="text-[11px] text-destructive">{nickError}</p>}
           </div>
@@ -145,7 +145,7 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
               value={cloneSource}
               onChange={(e) => setCloneSource(e.target.value)}
               disabled={busy}
-              className="w-full px-2 py-1.5 text-xs rounded-md border border-border bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
+              className="w-full px-2 py-1.5 text-xs rounded-md border border-[var(--ui-stroke-tertiary)] bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
             >
               <option value={CLONE_BLANK}>空白配置（不克隆）</option>
               {profiles.map((p) => (
@@ -167,7 +167,7 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="px-3 py-1.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors disabled:opacity-40"
+            className="px-3 py-1.5 text-xs rounded-md border border-[var(--ui-stroke-tertiary)] text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors disabled:opacity-40"
           >
             取消
           </button>

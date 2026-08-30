@@ -41,7 +41,7 @@ function PaginationButton({ className, isActive, ...props }: PaginationButtonPro
       className={cn(
         'inline-flex h-5 min-w-5 items-center justify-center rounded border border-transparent px-1 text-[0.6875rem] leading-none tabular-nums transition-colors disabled:pointer-events-none disabled:opacity-45',
         isActive
-          ? 'border-border bg-background text-foreground shadow-xs'
+          ? 'border-[var(--ui-stroke-tertiary)] bg-background text-foreground shadow-xs'
           : 'text-muted-foreground hover:bg-accent hover:text-foreground',
         className
       )}

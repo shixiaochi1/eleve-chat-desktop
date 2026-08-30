@@ -275,9 +275,9 @@ export default function CommandCenter({
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-start justify-center pt-[15vh] bg-overlay/50 backdrop-blur-sm" onMouseDown={(e: React.MouseEvent) => { if (e.target === e.currentTarget) onClose?.(); }}>
-      <div className="w-full max-w-lg bg-popover text-popover-foreground rounded-xl shadow-2xl border border-border overflow-hidden" onMouseDown={(e: React.MouseEvent) => e.stopPropagation()}>
+      <div className="w-full max-w-lg bg-popover text-popover-foreground rounded-xl shadow-2xl border border-[var(--ui-stroke-tertiary)] overflow-hidden" onMouseDown={(e: React.MouseEvent) => e.stopPropagation()}>
         {/* Search input */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--ui-stroke-tertiary)]">
           <Search size={18} className="text-muted-foreground/50 shrink-0" />
           <input
             ref={inputRef}
@@ -289,7 +289,7 @@ export default function CommandCenter({
             autoComplete="off"
             spellCheck="false"
           />
-          <kbd className="px-1.5 py-0.5 text-[10px] bg-muted text-muted-foreground rounded border border-border">ESC</kbd>
+          <kbd className="px-1.5 py-0.5 text-[10px] bg-muted text-muted-foreground rounded border border-[var(--ui-stroke-tertiary)]">ESC</kbd>
         </div>
 
         {/* Results list */}
@@ -361,10 +361,10 @@ export default function CommandCenter({
 
           {/* New session shortcut */}
           {query === '' && (
-            <div className="flex items-center gap-3 px-4 py-2 cursor-pointer text-popover-foreground hover:bg-accent/50 transition-colors border-t border-border" onClick={() => { onNewSession?.(); onClose?.(); }}>
+            <div className="flex items-center gap-3 px-4 py-2 cursor-pointer text-popover-foreground hover:bg-accent/50 transition-colors border-t border-[var(--ui-stroke-tertiary)]" onClick={() => { onNewSession?.(); onClose?.(); }}>
               <Plus size={16} className="text-muted-foreground/70" />
               <span className="text-sm flex-1">New Session</span>
-              <kbd className="px-1.5 py-0.5 text-[10px] bg-muted text-muted-foreground rounded border border-border">Ctrl+N</kbd>
+              <kbd className="px-1.5 py-0.5 text-[10px] bg-muted text-muted-foreground rounded border border-[var(--ui-stroke-tertiary)]">Ctrl+N</kbd>
             </div>
           )}
         </div>

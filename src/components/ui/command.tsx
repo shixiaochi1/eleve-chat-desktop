@@ -23,7 +23,7 @@ interface CommandInputProps extends React.ComponentPropsWithoutRef<typeof Comman
 
 function CommandInput({ className, ...props }: CommandInputProps) {
   return (
-    <div className="flex h-11 items-center gap-2 border-b border-border px-3" data-slot="command-input-wrapper">
+    <div className="flex h-11 items-center gap-2 border-b border-[var(--ui-stroke-tertiary)] px-3" data-slot="command-input-wrapper">
       <SearchIcon className="size-4 shrink-0 text-muted-foreground" />
       <CommandPrimitive.Input
         className={cn(

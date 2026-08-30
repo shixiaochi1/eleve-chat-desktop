@@ -80,8 +80,8 @@ export default function CommandMenu({ commands = [], onCommand }: CommandMenuPro
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 mb-1 w-64 bg-popover border border-border rounded-lg shadow-lg overflow-hidden z-50">
-          <div className="p-2 border-b border-border">
+        <div className="absolute bottom-full left-0 mb-1 w-64 bg-popover border border-[var(--ui-stroke-tertiary)] rounded-lg shadow-lg overflow-hidden z-50">
+          <div className="p-2 border-b border-[var(--ui-stroke-tertiary)]">
             <input
               ref={inputRef}
               type="text"
