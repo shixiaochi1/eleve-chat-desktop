@@ -254,6 +254,21 @@ export function previewTabId(target: PreviewTarget): string {
   return target.kind === 'url' ? browserTabId() : `${target.kind}:${target.url}`
 }
 
+/** 🔴 2026-08-31 对齐 Hermes openBrowserTab（store/preview.ts L400-403）：
+ *  Show the Browser — **the surface, not a page**。已有 Browser tab 则前置它
+ *  （保留上次页面——再次唤起不清空）；没有则落 about:blank 空态（空态邀请
+ *  输入地址）。消费方：网页窗口按钮主点击（自动连接成功后内嵌弹出）。 */
+export function openBrowserTab(): string {
+  const id = browserTabId()
+  const current = state.tabs.find((t) => t.id === id)
+  if (current) {
+    update({ activeId: current.id })
+    requestPaneOpen()
+    return current.id
+  }
+  return openPreview({ kind: 'url', url: 'about:blank', label: '浏览器' }, 'manual')
+}
+
 // "浏览文件 = 看源码"；工具/显式链接递来的 HTML = "执行渲染"
 // （对齐 Hermes isFilePreviewSource / previewTargetForSource）
 function isFilePreviewSource(source: PreviewRecordSource): boolean {
