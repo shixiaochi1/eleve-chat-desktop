@@ -433,17 +433,16 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
       rc.globalCompositeOperation = 'source-over'
 
       // 3. 原图 + 红框环带叠加（globalAlpha 1，环带外不透明红、内部零填充）
-      //    → 等比缩放 maxDim=1568 → PNG
-      // 🔴 2026-08-31 对齐 Hermes（vision_tools.py _EMBED_MAX_DIMENSION L719，
-      // Anthropic 官方推荐长边）：1024 → 1568，编辑输入保住更多原图分辨率。
-      // 🔴 v4 修复保留：不压缩会输出原图自然尺寸 PNG（4K 图 10-20MB）→ WS attach
-      // 传输失败 → ELEVE 收不到图。仍用 PNG 不用 JPEG——tEXt 标记只在 PNG 存活，
-      // 标记是后端编辑协议的触发命脉（Hermes force_jpeg 是 opt-in，不适用此处）。
-      // attach 超限的运行时兜底见 useImageAttachments shrinkDataUrlForAttach。
-      const maxDim = 1568
-      const scale = Math.min(1, maxDim / Math.max(w, h))
-      const outW = Math.round(w * scale)
-      const outH = Math.round(h * scale)
+      //    → 原图自然尺寸直出 PNG（🔴 2026-08-31 对齐 Hermes：前端零主动压缩）
+      // 🔴 对齐 Hermes desktop（use-prompt-actions/uploadComposerAttachment）：
+      // 本地=image.attach 路径引用零拷贝、remote=image.attach_bytes 原字节
+      // （attach IPC 256MiB），gateway _queue_attached_image 原样落盘——全链
+      // 无压缩。ELEVE A+B 双通道同能力（A 路径引用零传输；B HTTP 50MB 原始
+      // 字节），上下文被 provider 拒由后端 shrink_image_parts_in_messages
+      // 反应式兜底（缩的是上下文副本，落盘原文件与生图输入不受影响）。
+      // 仍用 PNG 不用 JPEG——tEXt 标记只在 PNG 存活，标记是编辑协议触发命脉。
+      const outW = w
+      const outH = h
       const out = document.createElement('canvas')
       out.width = outW
       out.height = outH
