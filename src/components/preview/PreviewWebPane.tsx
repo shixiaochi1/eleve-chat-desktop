@@ -172,6 +172,13 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
     setIframeError(null);
   }, [tab.target.url]);
 
+  // 🔴 2026-08-31 tab 激活变化（切走再切回同 tab）→ 清错误态：错误是 webview
+  // 导航事件驱动的瞬时状态，面板切换不产生新事件，残留会让 webview 持续
+  // 被隐藏（旧误报期的 webview 实际加载成功，切回时必须重新可见）
+  useEffect(() => {
+    setIframeError(null);
+  }, [tab.id]);
+
   // 页面移动（或重定向落到别处）后，真实地址取代我们请求的地址（对齐 Hermes：
   // setPending(null) on url change）
   useEffect(() => setPending(null), [url]);
