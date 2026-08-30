@@ -189,18 +189,18 @@ export default function ProviderCard({
     }
   };
 
-  // ── 协议类型 → 图标色块（卡片头部视觉锚点）──
+  // ── 协议类型 → 图标色块（卡片头部视觉锚点；主题语义色，跟随 Light/Dark 切换）──
   const { Icon: TransportIcon, bg: iconBg, color: iconColor } = (() => {
     switch (provider.transport) {
-      case 'openai_chat': return { Icon: Bot, bg: 'bg-emerald-500/10', color: 'text-emerald-500' };
-      case 'anthropic_messages': return { Icon: Sparkles, bg: 'bg-orange-500/10', color: 'text-orange-500' };
-      case 'codex_responses': return { Icon: Code2, bg: 'bg-blue-500/10', color: 'text-blue-500' };
-      default: return { Icon: Cloud, bg: 'bg-slate-500/10', color: 'text-slate-500' };
+      case 'openai_chat': return { Icon: Bot, bg: 'bg-success/10', color: 'text-success' };
+      case 'anthropic_messages': return { Icon: Sparkles, bg: 'bg-accent-orange/10', color: 'text-accent-orange' };
+      case 'codex_responses': return { Icon: Code2, bg: 'bg-info/10', color: 'text-info' };
+      default: return { Icon: Cloud, bg: 'bg-muted-foreground/10', color: 'text-muted-foreground' };
     }
   })();
 
   return (
-    <div className={cn('border border-border rounded-xl bg-card overflow-hidden transition-all hover:border-border/80', expanded && 'sm:col-span-2')}>
+    <div className={cn('rounded-xl border border-[var(--ui-stroke-tertiary)] bg-card shadow-xs overflow-hidden transition-colors hover:border-[var(--ui-stroke-secondary)]', expanded && 'sm:col-span-2')}>
       {/* ── 卡片头部（紧凑卡片，非长条）── */}
       <button
         className={cn('flex items-center justify-between w-full px-3.5 py-3 gap-3 cursor-pointer bg-transparent border-none text-left hover:bg-muted/30 transition-colors')}
@@ -217,7 +217,7 @@ export default function ProviderCard({
               <span className={cn('text-sm font-semibold text-foreground truncate')}>{provider.name}</span>
               {/* 来源徽章 */}
               {provider.source === 'global_pool' && (
-                <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-500 shrink-0 font-medium')}>池</span>
+                <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full bg-info/10 text-info shrink-0 font-medium')}>池</span>
               )}
               {provider.source === 'preset' && (
                 <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0 font-medium')}>预设</span>
@@ -234,7 +234,7 @@ export default function ProviderCard({
           {/* Key 状态徽章 */}
           {provider.hasKey !== undefined && (
             <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full shrink-0 font-medium',
-              provider.hasKey ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-500'
+              provider.hasKey ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'
             )}>
               {provider.hasKey ? '已配 Key' : '未配 Key'}
             </span>
@@ -245,7 +245,7 @@ export default function ProviderCard({
 
       {/* ── 展开详情 ── */}
       {expanded && (
-        <div className={cn('border-t border-border/60 px-3.5 py-3.5 space-y-3.5')}>
+        <div className={cn('border-t border-[var(--ui-stroke-tertiary)] px-3.5 py-3.5 space-y-3.5')}>
           {/* API Key */}
           <div className={cn('grid gap-1.5')}>
             <label className={cn('flex items-center gap-1.5 text-xs text-muted-foreground')}>
@@ -301,7 +301,7 @@ export default function ProviderCard({
               </Button>
             </div>
             {testResult && (
-              <p className={cn('text-[11px]', testResult.ok ? 'text-emerald-600' : 'text-destructive')}>
+              <p className={cn('text-[11px]', testResult.ok ? 'text-success' : 'text-destructive')}>
                 {testResult.text}
               </p>
             )}
@@ -337,7 +337,7 @@ export default function ProviderCard({
             </label>
 
             {/* 模型行 */}
-            <div className={cn('rounded-lg border border-border/60 divide-y divide-border/40 bg-muted/10')}>
+            <div className={cn('rounded-lg border border-[var(--ui-stroke-tertiary)] divide-y divide-[var(--ui-stroke-quaternary)] bg-muted/10')}>
               {provider.models.length === 0 ? (
                 <div className={cn('px-3 py-2.5 text-xs text-muted-foreground/60')}>暂无模型，请在下方添加</div>
               ) : (
@@ -393,10 +393,10 @@ export default function ProviderCard({
               </Button>
             </div>
             {addSuccess ? (
-              <p className={cn('text-[11px] mt-1.5 font-medium text-emerald-600')}>{addSuccess}</p>
+              <p className={cn('text-[11px] mt-1.5 font-medium text-success')}>{addSuccess}</p>
             ) : (
               modelHint && (
-                <p className={cn('text-[11px] mt-0.5', modelHint.startsWith('✓') ? 'text-emerald-600' : 'text-muted-foreground')}>
+                <p className={cn('text-[11px] mt-0.5', modelHint.startsWith('✓') ? 'text-success' : 'text-muted-foreground')}>
                   {modelLooking ? '查询中…' : modelHint}
                 </p>
               )
@@ -404,7 +404,7 @@ export default function ProviderCard({
           </div>
 
           {/* 删除按钮 + 保存按钮（🔴 2026-08-10 统一：组件默认高 + min-w 等宽 + 双图标） */}
-          <div className={cn('flex items-center justify-between pt-3 border-t border-border/60')}>
+          <div className={cn('flex items-center justify-between pt-3 border-t border-[var(--ui-stroke-quaternary)]')}>
             <div className={cn('flex items-center gap-2')}>
               {/* 🔴 P-3：preset 卡禁删（对齐 Hermes direct-config 来源端点隐藏删除按钮）——
                   预设未入池时删除是假删（重开面板复活），需先保存入池才可删 */}

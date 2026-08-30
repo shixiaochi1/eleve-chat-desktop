@@ -3,6 +3,8 @@
  *
  * MCP Server 列表管理：添加/编辑/删除/启用禁用
  * 功能：传输类型标签、计数、env编辑、JSON编辑器
+ *
+ * 2026-08-31 卡片 UI 重构：裸行列表 → 统一分组卡片列表（逻辑不变）。
  */
 import { useEffect, useState } from 'react';
 import { call } from '../../utils/bridge';
@@ -11,9 +13,10 @@ import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
+import { SectionCard, SettingsSaveBar } from './SettingBlocks';
 import {
   Plus, Trash2, ToggleLeft, ToggleRight, RefreshCw,
-  Terminal, Globe, Wrench, Code2, Edit3,
+  Code2, Server,
 } from 'lucide-react';
 
 interface MCPServer {
@@ -188,139 +191,142 @@ export default function MCPSettings() {
   if (loading) return <div className="px-3 py-2 text-xs text-muted-foreground/70">加载中…</div>;
 
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-xs font-semibold text-muted-foreground">MCP Server 管理</span>
-        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-primary/10 text-primary">
-          {servers.length} 已配置
-        </span>
-      </div>
-      <p className="text-xs text-muted-foreground/70 leading-relaxed mb-3">管理 Model Context Protocol 服务器连接。</p>
-
-      {/* 操作栏：刷新 + JSON 切换 */}
-      <div className="flex items-center justify-end gap-2 mb-3">
-        <Button variant="ghost" size="icon-xs" onClick={handleReload} disabled={reloading} title="重载所有 MCP">
-          <RefreshCw size={14} className={reloading ? 'animate-spin' : ''} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={() => setJsonMode(!jsonMode)}
-          title={jsonMode ? '返回普通模式' : 'JSON 编辑器'}
-          className={jsonMode ? 'text-primary' : ''}
-        >
-          <Code2 size={14} />
-        </Button>
-      </div>
-
-      {/* JSON 编辑器模式 */}
-      {jsonMode ? (
-        <div className="border border-border rounded-lg p-3 bg-card mb-3">
-          <div className="mb-3">
-            <label className="block text-xs text-muted-foreground mb-1">完整 MCP 配置 (JSON)</label>
+    <div className="max-w-2xl">
+      <SectionCard
+        icon={Server}
+        title="MCP Server"
+        desc="管理 Model Context Protocol 服务器连接"
+        headerTrailing={
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+              {servers.length} 已配置
+            </span>
+            <Button variant="ghost" size="icon-xs" onClick={handleReload} disabled={reloading} title="重载所有 MCP">
+              <RefreshCw size={14} className={reloading ? 'animate-spin' : ''} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => setJsonMode(!jsonMode)}
+              title={jsonMode ? '返回普通模式' : 'JSON 编辑器'}
+              className={jsonMode ? 'text-primary' : ''}
+            >
+              <Code2 size={14} />
+            </Button>
+          </div>
+        }
+      >
+        {jsonMode ? (
+          <div className="p-3.5">
+            <label className="mb-1.5 block text-[13px] font-medium leading-snug text-foreground">完整 MCP 配置 (JSON)</label>
             <Textarea
               className="min-h-[200px] font-mono text-xs resize-y whitespace-pre overflow-auto"
               value={jsonContent}
               onChange={(e) => setJsonContent(e.target.value)}
             />
+            <div className="mt-3 flex gap-2">
+              <Button variant="default" size="sm" className="flex-1" onClick={handleSaveJson}>
+                保存 JSON
+              </Button>
+              <Button variant="outline" size="sm" className="flex-1" onClick={() => setJsonMode(false)}>
+                取消
+              </Button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant="default" size="sm" className="flex-1" onClick={handleSaveJson}>
-              保存 JSON
-            </Button>
-            <Button variant="outline" size="sm" className="flex-1" onClick={() => setJsonMode(false)}>
-              取消
-            </Button>
+        ) : servers.length === 0 ? (
+          <div className="px-4 py-6 text-center">
+            <p className="text-xs text-muted-foreground">暂无 MCP Server</p>
+            <p className="mt-1 text-xs text-muted-foreground/70">点击下方「添加 MCP Server」创建第一个连接</p>
           </div>
+        ) : (
+          /* Server 列表（行间 hairline 分隔 + hover 反馈） */
+          <>
+            {servers.map((s) => {
+              const ttype = getTransportType(s);
+              return (
+                <div key={s.name} className="flex items-center gap-3 px-3.5 py-2.5 transition-colors hover:bg-[var(--ui-row-hover-background)]">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[13px] font-medium text-foreground">{s.name}</span>
+                      {/* Transport 类型标签 */}
+                      <span className={cn(
+                        'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                        ttype === 'stdio' && 'bg-success/10 text-success',
+                        ttype === 'http' && 'bg-info/10 text-info',
+                        ttype === 'custom' && 'bg-muted-foreground/10 text-muted-foreground',
+                      )}>
+                        {transportLabel[ttype]}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground/70">
+                      {s.command} {s.args}
+                    </div>
+                    {s.env && (
+                      <div className="mt-0.5 truncate text-[10px] text-muted-foreground/50">
+                        env: {s.env.length > 40 ? s.env.slice(0, 40) + '…' : s.env}
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => handleToggle(s.name, s.enabled)}
+                    title={s.enabled ? '已启用' : '已禁用'}
+                    className={s.enabled ? 'text-primary' : 'text-muted-foreground/60'}
+                  >
+                    {s.enabled ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                  </Button>
+                  <Button variant="ghost" size="icon-xs" onClick={() => handleDelete(s.name)} title="删除">
+                    <Trash2 size={14} className="text-destructive" />
+                  </Button>
+                </div>
+              );
+            })}
+          </>
+        )}
+      </SectionCard>
+
+      {/* 添加表单 / 添加入口（虚线卡，与「添加服务商」同语言） */}
+      {addOpen ? (
+        <div className="rounded-xl border border-[var(--ui-stroke-tertiary)] bg-card shadow-xs p-3.5 space-y-3">
+          <div className="grid gap-1.5">
+            <label className="block text-[13px] font-medium leading-snug text-foreground">名称</label>
+            <Input className="h-8 text-xs" value={newServer.name} onChange={(e) => setNewServer({ ...newServer, name: e.target.value })} placeholder="my-server" />
+          </div>
+          <div className="grid gap-1.5">
+            <label className="block text-[13px] font-medium leading-snug text-foreground">命令</label>
+            <Input className="h-8 text-xs" value={newServer.command} onChange={(e) => setNewServer({ ...newServer, command: e.target.value })} placeholder="npx @example/mcp-server" />
+          </div>
+          <div className="grid gap-1.5">
+            <label className="block text-[13px] font-medium leading-snug text-foreground">参数 (空格分隔)</label>
+            <Input className="h-8 text-xs" value={newServer.args} onChange={(e) => setNewServer({ ...newServer, args: e.target.value })} placeholder="--port 3000" />
+          </div>
+          <div className="grid gap-1.5">
+            <label className="block text-[13px] font-medium leading-snug text-foreground">环境变量 (JSON 或 key=value 每行一个)</label>
+            <Textarea
+              className="min-h-[60px] font-mono text-xs resize-y"
+              value={newServer.env}
+              onChange={(e) => setNewServer({ ...newServer, env: e.target.value })}
+              placeholder='{"KEY": "value"} 或\nKEY=value'
+            />
+          </div>
+          <SettingsSaveBar>
+            <Button variant="outline" size="sm" onClick={() => setAddOpen(false)}>取消</Button>
+            <Button variant="default" size="sm" onClick={handleAdd} disabled={!newServer.name.trim() || !newServer.command.trim()}>添加</Button>
+          </SettingsSaveBar>
         </div>
       ) : (
-        <>
-          {/* 空状态 */}
-          {servers.length === 0 && !addOpen && (
-            <div className="py-6 text-center">
-              <p className="text-xs text-muted-foreground">暂无 MCP Server</p>
-              <p className="text-xs text-muted-foreground/70 mt-1">点击下方按钮添加</p>
-            </div>
-          )}
-
-          {/* Server 列表 */}
-          {servers.map((s) => {
-            const ttype = getTransportType(s);
-            return (
-              <div key={s.name} className="flex items-center gap-3 px-3 py-2 hover:bg-accent/50 rounded-md mb-1">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-medium">{s.name}</span>
-                    {/* Transport 类型标签 */}
-                    <span className={cn(
-                      'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
-                      ttype === 'stdio' && 'bg-success/10 text-success',
-                      ttype === 'http' && 'bg-info/10 text-info',
-                      ttype === 'custom' && 'bg-muted-foreground/10 text-muted-foreground',
-                    )}>
-                      {transportLabel[ttype]}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-muted-foreground/70 font-mono mt-0.5 truncate">
-                    {s.command} {s.args}
-                  </div>
-                  {s.env && (
-                    <div className="text-[10px] text-muted-foreground/50 mt-0.5 truncate">
-                      env: {s.env.length > 40 ? s.env.slice(0, 40) + '…' : s.env}
-                    </div>
-                  )}
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={() => handleToggle(s.name, s.enabled)}
-                  title={s.enabled ? '已启用' : '已禁用'}
-                  className={s.enabled ? 'text-primary' : 'text-muted-foreground/60'}
-                >
-                  {s.enabled ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
-                </Button>
-                <Button variant="ghost" size="icon-xs" onClick={() => handleDelete(s.name)} title="删除">
-                  <Trash2 size={14} className="text-destructive" />
-                </Button>
-              </div>
-            );
-          })}
-
-          {/* 添加表单 */}
-          {addOpen ? (
-            <div className="border border-border rounded-lg p-3 bg-card mt-2">
-              <div className="mb-3">
-                <label className="block text-xs text-muted-foreground mb-1">名称</label>
-                <Input className="h-8 text-xs" value={newServer.name} onChange={(e) => setNewServer({ ...newServer, name: e.target.value })} placeholder="my-server" />
-              </div>
-              <div className="mb-3">
-                <label className="block text-xs text-muted-foreground mb-1">命令</label>
-                <Input className="h-8 text-xs" value={newServer.command} onChange={(e) => setNewServer({ ...newServer, command: e.target.value })} placeholder="npx @example/mcp-server" />
-              </div>
-              <div className="mb-3">
-                <label className="block text-xs text-muted-foreground mb-1">参数 (空格分隔)</label>
-                <Input className="h-8 text-xs" value={newServer.args} onChange={(e) => setNewServer({ ...newServer, args: e.target.value })} placeholder="--port 3000" />
-              </div>
-              <div className="mb-3">
-                <label className="block text-xs text-muted-foreground mb-1">环境变量 (JSON 或 key=value 每行一个)</label>
-                <Textarea
-                  className="min-h-[60px] font-mono text-xs resize-y"
-                  value={newServer.env}
-                  onChange={(e) => setNewServer({ ...newServer, env: e.target.value })}
-                  placeholder='{"KEY": "value"} 或\nKEY=value'
-                />
-              </div>
-              <div className="flex gap-2">
-                <Button variant="default" size="sm" className="flex-1" onClick={handleAdd} disabled={!newServer.name.trim() || !newServer.command.trim()}>添加</Button>
-                <Button variant="outline" size="sm" className="flex-1" onClick={() => setAddOpen(false)}>取消</Button>
-              </div>
-            </div>
-          ) : (
-            <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => setAddOpen(true)}>
-              <Plus size={14} /> 添加 MCP Server
-            </Button>
-          )}
-        </>
+        !jsonMode && (
+          <button
+            type="button"
+            className="grid min-h-[3.25rem] w-full cursor-pointer place-items-center rounded-xl border border-dashed border-[var(--ui-stroke-tertiary)] bg-transparent text-muted-foreground transition-colors hover:border-foreground/30 hover:bg-accent/30 hover:text-foreground"
+            onClick={() => setAddOpen(true)}
+          >
+            <span className="flex items-center gap-1.5 text-xs font-medium">
+              <Plus size={14} strokeWidth={2} /> 添加 MCP Server
+            </span>
+          </button>
+        )
       )}
     </div>
   );

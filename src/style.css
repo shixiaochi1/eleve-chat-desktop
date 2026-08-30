@@ -261,8 +261,12 @@
     --dt-destructive-foreground: var(--theme-destructive-foreground);
     --dt-sidebar-bg: var(--theme-sidebar-background);
     --dt-sidebar-border: var(--theme-sidebar-border);
-    --dt-user-bubble: var(--ui-chat-bubble-background);
-    --dt-user-bubble-border: var(--ui-stroke-tertiary);
+    /* 🔴 2026-08-31 修复气泡断链：此前绑 --ui-chat-bubble-background（light 下
+       theme-card 与 neutral-card 同为纯白，color-mix ≈ 白色）→ 气泡永远灰白不随主题色。
+       现接回主题系统早已派生的 --theme-user-bubble（light accent 8% / dark accent 12%，
+       derive.ts L351/L470，2026-08-18 灰度加重链产物），换主题色气泡即时联动。 */
+    --dt-user-bubble: var(--theme-user-bubble);
+    --dt-user-bubble-border: var(--theme-user-bubble-border);
 
     --dt-font-sans: 'Segoe WPC', 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
     --dt-font-mono: 'Cascadia Code', 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, Consolas, monospace;

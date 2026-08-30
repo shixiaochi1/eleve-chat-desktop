@@ -4,6 +4,9 @@ import { notifySuccess, notifyError } from '../../utils/notifications';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
+import { Brain, Shrink } from 'lucide-react';
+import { SectionCard, SettingRow, SettingField, SettingsSaveBar } from './SettingBlocks';
+import { selectCls } from '@/lib/ui-styles';
 import MemoryPanel from '../MemoryPanel';
 
 /**
@@ -11,6 +14,8 @@ import MemoryPanel from '../MemoryPanel';
  *
  * 顶部：记忆数据总览（当前 Agent 的 MEMORY.md/USER.md 用量/条目/重置，对齐 Hermes）
  * 下方：持久化记忆、用户画像、记忆预算、提供商、自动压缩（对齐 Hermes compression 配置语义）
+ *
+ * 2026-08-31 卡片 UI 重构：裸表单 → 统一 SectionCard 分组卡片（逻辑不变）。
  */
 export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: () => void; currentProfile?: string }) {
   // 字符上限初始为占位 0：loadConfig 从配置覆盖（config.get 恒返后端默认值），loaded 门控保证加载前不渲染
@@ -97,159 +102,107 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
   if (!loaded) return null;
 
   return (
-    <div>
+    <div className="max-w-2xl">
       {/* 记忆数据 — 侧边栏记忆面板合并至此（当前 Agent 的记忆内容总览） */}
       <MemoryPanel currentProfile={currentProfile} />
 
-      <div className="my-4" />
-
-      {/* 持久化记忆 */}
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <label className="block text-xs text-muted-foreground mb-0.5">持久化记忆</label>
-          <p className="text-xs text-muted-foreground/70 leading-relaxed m-0">跨会话自动保存和检索关键信息，增强 Agent 连续性。</p>
-        </div>
-        <Switch
-          checked={config.memory_enabled}
-          onCheckedChange={(val: boolean) => update('memory_enabled', val)}
-        />
-      </div>
-
-      {/* 用户画像 */}
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <label className="block text-xs text-muted-foreground mb-0.5">用户画像</label>
-          <p className="text-xs text-muted-foreground/70 leading-relaxed m-0">基于对话历史构建用户偏好画像，提供个性化回复。</p>
-        </div>
-        <Switch
-          checked={config.user_profile_enabled}
-          onCheckedChange={(val: boolean) => update('user_profile_enabled', val)}
-        />
-      </div>
-
-      <div className="my-4" />
-
-      {/* 记忆预算 */}
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">记忆预算（字符数）</label>
-        <Input
-          type="number"
-          min={1000}
-          max={500000}
-          step={1000}
-          value={config.memory_char_limit}
-          onChange={e => update('memory_char_limit', parseInt(e.target.value) || config.memory_char_limit)}
-          className="w-40"
-        />
-        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          持久化记忆存储的最大字符数。
-        </p>
-      </div>
-
-      {/* 画像预算 */}
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">画像预算（字符数）</label>
-        <Input
-          type="number"
-          min={500}
-          max={100000}
-          step={500}
-          value={config.user_char_limit}
-          onChange={e => update('user_char_limit', parseInt(e.target.value) || config.user_char_limit)}
-          className="w-40"
-        />
-        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          用户画像存储的最大字符数。
-        </p>
-      </div>
-
-      {/* 记忆提供商 */}
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">记忆提供商</label>
-        <select
-          className="flex h-8 w-full items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-          value={config.memory_provider}
-          onChange={e => update('memory_provider', e.target.value)}
-        >
-          <option value="builtin">builtin — 内置本地存储</option>
-          <option value="honcho" disabled>honcho — Honcho API（待实现）</option>
-        </select>
-        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          选择记忆存储的后端服务提供商。
-        </p>
-      </div>
-
-      <div className="my-4" />
+      {/* 持久化记忆与用户画像 */}
+      <SectionCard icon={Brain} title="记忆与画像" desc="跨会话记忆与用户个性化画像">
+        <SettingRow label="持久化记忆" desc="跨会话自动保存和检索关键信息，增强 Agent 连续性。">
+          <Switch
+            checked={config.memory_enabled}
+            onCheckedChange={(val: boolean) => update('memory_enabled', val)}
+          />
+        </SettingRow>
+        <SettingRow label="用户画像" desc="基于对话历史构建用户偏好画像，提供个性化回复。">
+          <Switch
+            checked={config.user_profile_enabled}
+            onCheckedChange={(val: boolean) => update('user_profile_enabled', val)}
+          />
+        </SettingRow>
+        <SettingField label="记忆预算（字符数）" desc="持久化记忆存储的最大字符数。">
+          <Input
+            type="number"
+            min={1000}
+            max={500000}
+            step={1000}
+            value={config.memory_char_limit}
+            onChange={e => update('memory_char_limit', parseInt(e.target.value) || config.memory_char_limit)}
+            className="w-40"
+          />
+        </SettingField>
+        <SettingField label="画像预算（字符数）" desc="用户画像存储的最大字符数。">
+          <Input
+            type="number"
+            min={500}
+            max={100000}
+            step={500}
+            value={config.user_char_limit}
+            onChange={e => update('user_char_limit', parseInt(e.target.value) || config.user_char_limit)}
+            className="w-40"
+          />
+        </SettingField>
+        <SettingField label="记忆提供商" desc="选择记忆存储的后端服务提供商。">
+          <select
+            className={selectCls}
+            value={config.memory_provider}
+            onChange={e => update('memory_provider', e.target.value)}
+          >
+            <option value="builtin">builtin — 内置本地存储</option>
+            <option value="honcho" disabled>honcho — Honcho API（待实现）</option>
+          </select>
+        </SettingField>
+      </SectionCard>
 
       {/* 自动压缩 */}
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <label className="block text-xs text-muted-foreground mb-0.5">自动压缩</label>
-          <p className="text-xs text-muted-foreground/70 leading-relaxed m-0">上下文超阈值后自动压缩，而非截断。</p>
-        </div>
-        <Switch
-          checked={config.compression_enabled}
-          onCheckedChange={(val: boolean) => update('compression_enabled', val)}
-        />
-      </div>
-
-      {/* 压缩阈值（上下文比率，对齐 Hermes compression.threshold） */}
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">压缩阈值（上下文比率）</label>
-        <Input
-          type="number"
-          min={0.05}
-          max={0.95}
-          step={0.05}
-          value={config.compression_threshold}
-          onChange={e => update('compression_threshold', parseFloat(e.target.value) || 0.5)}
-          className="w-40"
-        />
-        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          上下文占用超过此比率时触发自动压缩（默认 0.50，即上下文窗口的 50%）。
-        </p>
-      </div>
-
-      {/* 压缩目标比率 */}
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">压缩目标比率</label>
-        <Input
-          type="number"
-          min={0.05}
-          max={0.95}
-          step={0.05}
-          value={config.compression_target_ratio}
-          onChange={e => update('compression_target_ratio', parseFloat(e.target.value) || 0.3)}
-          className="w-32"
-        />
-        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          尾部预算占阈值的比例，越大保留越多近期消息（默认 0.20）。
-        </p>
-      </div>
-
-      {/* 保护最近 N 条消息 */}
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">保护最近消息数</label>
-        <Input
-          type="number"
-          min={1}
-          max={100}
-          step={1}
-          value={config.compression_protect_last_n}
-          onChange={e => update('compression_protect_last_n', parseInt(e.target.value) || 4)}
-          className="w-32"
-        />
-        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          压缩时始终保留最近 N 条完整消息不被压缩（默认 20）。
-        </p>
-      </div>
+      <SectionCard icon={Shrink} title="自动压缩" desc="上下文超阈值后自动压缩，而非截断">
+        <SettingRow label="启用自动压缩" desc="上下文占用接近阈值时自动压缩历史消息。">
+          <Switch
+            checked={config.compression_enabled}
+            onCheckedChange={(val: boolean) => update('compression_enabled', val)}
+          />
+        </SettingRow>
+        <SettingField label="压缩阈值（上下文比率）" desc="上下文占用超过此比率时触发自动压缩（默认 0.50，即上下文窗口的 50%）。">
+          <Input
+            type="number"
+            min={0.05}
+            max={0.95}
+            step={0.05}
+            value={config.compression_threshold}
+            onChange={e => update('compression_threshold', parseFloat(e.target.value) || 0.5)}
+            className="w-40"
+          />
+        </SettingField>
+        <SettingField label="压缩目标比率" desc="尾部预算占阈值的比例，越大保留越多近期消息（默认 0.20）。">
+          <Input
+            type="number"
+            min={0.05}
+            max={0.95}
+            step={0.05}
+            value={config.compression_target_ratio}
+            onChange={e => update('compression_target_ratio', parseFloat(e.target.value) || 0.3)}
+            className="w-40"
+          />
+        </SettingField>
+        <SettingField label="保护最近消息数" desc="压缩时始终保留最近 N 条完整消息不被压缩（默认 20）。">
+          <Input
+            type="number"
+            min={1}
+            max={100}
+            step={1}
+            value={config.compression_protect_last_n}
+            onChange={e => update('compression_protect_last_n', parseInt(e.target.value) || 4)}
+            className="w-40"
+          />
+        </SettingField>
+      </SectionCard>
 
       {/* 保存按钮 */}
-      <div className="mt-4">
+      <SettingsSaveBar>
         <Button variant="default" size="sm" disabled={saving} onClick={handleSave}>
           {saving ? '保存中…' : '保存配置'}
         </Button>
-      </div>
+      </SettingsSaveBar>
     </div>
   );
 }

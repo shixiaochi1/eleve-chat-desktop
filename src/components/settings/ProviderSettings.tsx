@@ -102,7 +102,7 @@ export default function ProviderSettings({
         {!addProviderOpen ? (
           <button
             type="button"
-            className="min-h-[3.75rem] rounded-xl border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-accent/30 transition-colors grid place-items-center gap-1 cursor-pointer bg-transparent"
+            className="min-h-[3.75rem] rounded-xl border border-dashed border-[var(--ui-stroke-tertiary)] text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-accent/30 transition-colors grid place-items-center gap-1 cursor-pointer bg-transparent"
             onClick={() => setAddProviderOpen(true)}
           >
             <span className="flex items-center gap-1.5 text-xs font-medium">
@@ -110,7 +110,7 @@ export default function ProviderSettings({
             </span>
           </button>
         ) : (
-          <div className="sm:col-span-2 flex flex-col gap-2.5 p-3.5 border border-border rounded-xl bg-card shadow-sm">
+          <div className="sm:col-span-2 flex flex-col gap-2.5 p-3.5 border border-[var(--ui-stroke-tertiary)] rounded-xl bg-card shadow-sm">
           {/* 名称 + 配置ID（两列，对齐 Hermes Name/Provider ID） */}
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="grid gap-1">

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, X, GitBranch, Cog, Users, AlertTriangle, GitMerge, Image as ImageIcon, Check, ChevronDown, Trash2 } from 'lucide-react';
+import { Plus, X, GitBranch, Cog, Users, AlertTriangle, GitMerge, Image as ImageIcon, Check, ChevronDown, Trash2, Clapperboard, Music } from 'lucide-react';
 import { AUX_TASKS, getProviderModels, lookupModelCapabilities, getToolsetModels, selectToolsetModel } from '../../utils/settings-store';
 import type { AuxTaskEntry, ToolsetModelsResponse, ToolsetModelEntry } from '../../utils/settings-store';
 import type { ProviderEntry } from '../../utils/settings-store';
@@ -17,6 +17,7 @@ import {
 } from '../ui/dropdown-menu';
 import { REASONING_EFFORTS } from '../../lib/reasoning-efforts';
 import { selectCls } from '../../lib/ui-styles';
+import { SectionCard } from './SettingBlocks';
 import { notifySuccess, notifyError } from '../../utils/notifications';
 
 // 🔴 G-4：MoA 配置类型（对齐后端 MoaConfig / MoaPresetConfig / MoaSlotConfig）
@@ -259,7 +260,7 @@ export default function ModelSettings({
       {/* 🔴 G-3: stale aux 警告（对齐 Hermes StaleAuxWarning —
           aux 仍 pin 到非主 provider 时提示，防后台调用静默打旧 provider） */}
       {staleAuxSlots.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 mb-3">
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-2.5 text-xs text-warning mb-3">
           <AlertTriangle size={13} strokeWidth={1.5} className="shrink-0" />
           <span className="grow">
             {staleAuxSlots.length} 个辅助任务（{staleAuxSlots.map(s => AUX_TASKS.find(t => t.key === s.task)?.label || s.task).join('、')}）
@@ -279,7 +280,7 @@ export default function ModelSettings({
               type="button"
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-all duration-150 cursor-pointer border-none ${
                 active
-                  ? 'bg-card text-foreground shadow-sm ring-1 ring-border/60'
+                  ? 'bg-card text-foreground shadow-sm ring-1 ring-[var(--ui-stroke-tertiary)]'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
               }`}
               onClick={() => setTab(t.key)}
@@ -295,7 +296,7 @@ export default function ModelSettings({
       {tab === 'fallback' && (
         <div className="space-y-2.5 mt-2">
           <p className="text-xs text-muted-foreground/70 leading-relaxed">主模型不可用时自动切换的备用链路，按顺序尝试。</p>
-          <div className="border border-border/60 rounded-xl overflow-hidden bg-card">
+          <div className="border border-[var(--ui-stroke-tertiary)] rounded-xl overflow-hidden bg-card">
             {/* 表头 */}
             <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_2.25rem] gap-2 px-3 py-1.5 bg-muted/40 text-[11px] text-muted-foreground font-medium">
               <span>提供商</span>
@@ -304,7 +305,7 @@ export default function ModelSettings({
               <span />
             </div>
             {fallbackList.length === 0 ? (
-              <div className="px-3 py-4 text-xs text-muted-foreground/60 text-center border-t border-border/40">
+              <div className="px-3 py-4 text-xs text-muted-foreground/60 text-center border-t border-[var(--ui-stroke-quaternary)]">
                 暂无备用链路。主模型不可用时不会自动切换。
                 点击下方「添加备用链路」，从已配置的模型中选择替代。
               </div>
@@ -318,7 +319,7 @@ export default function ModelSettings({
                 return (
                 <div
                   key={idx}
-                  className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_2.25rem] gap-2 px-3 py-2 items-center border-t border-border/40 first:border-t-0 group/row"
+                  className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_2.25rem] gap-2 px-3 py-2 items-center border-t border-[var(--ui-stroke-quaternary)] first:border-t-0 group/row"
                 >
                   <select
                     className={selectCls}
@@ -361,7 +362,7 @@ export default function ModelSettings({
             )}
           </div>
           <button
-            className="w-full mt-1.5 inline-flex items-center justify-center gap-1 rounded-xl border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-accent/30 transition-colors py-2 text-xs font-medium cursor-pointer bg-transparent"
+            className="w-full mt-1.5 inline-flex items-center justify-center gap-1 rounded-xl border border-dashed border-[var(--ui-stroke-tertiary)]text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-accent/30 transition-colors py-2 text-xs font-medium cursor-pointer bg-transparent"
             onClick={addFallback}
           >
             <Plus size={14} strokeWidth={2} /> 添加备用链路
@@ -382,7 +383,7 @@ export default function ModelSettings({
               const reasoningUnsupported =
                 capsCache[`${auxProvider}/${auxModel}`]?.reasoning === false && !!auxProvider && auxProvider !== 'auto' && !!auxModel;
               return (
-              <div key={t.key} className="border border-border/60 rounded-xl p-3 bg-card space-y-2 min-w-0">
+              <div key={t.key} className="border border-[var(--ui-stroke-tertiary)] rounded-xl p-3 bg-card space-y-2 min-w-0">
                 <div className="text-xs font-medium text-foreground truncate" title={t.label}>{t.label}</div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="grid gap-1 min-w-0">
@@ -428,7 +429,7 @@ export default function ModelSettings({
                       {REASONING_EFFORTS.map(ef => <option key={ef.value} value={ef.value}>{ef.label}</option>)}
                     </select>
                     {reasoningUnsupported && (
-                      <p className="text-[10px] leading-snug text-amber-600/80">该模型不支持思考模式，此设置不会生效</p>
+                      <p className="text-[10px] leading-snug text-warning/80">该模型不支持思考模式，此设置不会生效</p>
                     )}
                   </div>
                   {/* 🔴 温度不在面板暴露（对齐 Hermes：aux temperature 各任务类型有默认值，
@@ -457,7 +458,7 @@ export default function ModelSettings({
       {tab === 'delegation' && (
         <div className="space-y-2.5 mt-2">
           <p className="text-xs text-muted-foreground/70 leading-relaxed">子 Agent 执行委派任务时使用的模型与参数。</p>
-          <div className="border border-border/60 rounded-xl p-3 bg-card grid gap-3 sm:grid-cols-3">
+          <div className="border border-[var(--ui-stroke-tertiary)] rounded-xl p-3 bg-card grid gap-3 sm:grid-cols-3">
             <div className="grid gap-1 min-w-0">
               <label className="block text-[11px] text-muted-foreground">提供商</label>
               <select
@@ -496,7 +497,7 @@ export default function ModelSettings({
             一套组合就是一个预设，预设会以模型形式出现在模型列表，可配置多套随时切换。
           </p>
           {!moa || Object.keys(moaPresets).length === 0 ? (
-            <div className="space-y-3 rounded-xl border border-dashed border-border p-4">
+            <div className="space-y-3 rounded-xl border border-dashed border-[var(--ui-stroke-tertiary)]p-4">
               <p className="text-xs text-muted-foreground/70 leading-relaxed">
                 还没有 MoA 预设。创建默认预设（参考：qwen3.7-plus + deepseek-v4-pro，聚合器：qwen3.7-plus），创建后可自由编辑；或自定义创建空预设。
               </p>
@@ -622,7 +623,7 @@ export default function ModelSettings({
               </div>
 
               {/* 可折叠大卡片（参考模型 + 聚合器；折叠头 = 卡片 header，一体无缝隙） */}
-              <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+              <div className="rounded-xl border border-[var(--ui-stroke-tertiary)] bg-card overflow-hidden">
               <button
                 type="button"
                 className="w-full flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-foreground hover:bg-muted/30 cursor-pointer transition-colors bg-transparent border-none"
@@ -633,7 +634,7 @@ export default function ModelSettings({
                 <span className="text-[10px] text-muted-foreground/60 font-normal">MoA 预设配置</span>
               </button>
               {!moaCollapsed && (
-              <div className="border-t border-border/60 p-3 space-y-3">
+              <div className="border-t border-[var(--ui-stroke-tertiary)] p-3 space-y-3">
               {/* 参考模型槽：并行思考的组员，可多个 */}
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground">参考模型</p>
@@ -642,7 +643,7 @@ export default function ModelSettings({
                   {currentMoaPreset.reference_models.map((slot, idx) => (
                     <div
                       key={idx}
-                      className={`rounded-xl border border-border/60 bg-card px-3 py-2 ${slot.enabled === false ? 'opacity-60' : ''}`}
+                      className={`rounded-xl border border-[var(--ui-stroke-tertiary)] bg-card px-3 py-2 ${slot.enabled === false ? 'opacity-60' : ''}`}
                     >
                       {/* 行头：标题 + 启用开关（对齐 Hermes ListRow action） */}
                       <div className="flex items-center justify-between gap-2">
@@ -726,7 +727,7 @@ export default function ModelSettings({
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground">聚合器（执行模型）</p>
                 <p className="text-[11px] text-muted-foreground/60 -mt-1.5">汇总所有参考模型的回答，综合成最终回复的模型。每套预设一个。</p>
-                <div className="rounded-xl border border-border/60 bg-card px-3 py-2">
+                <div className="rounded-xl border border-[var(--ui-stroke-tertiary)] bg-card px-3 py-2">
                   <div className="text-xs font-medium text-foreground">聚合器</div>
                   <div className="text-[10px] font-mono text-muted-foreground/60 truncate mt-0.5">
                     {currentMoaPreset.aggregator.provider
@@ -766,7 +767,7 @@ export default function ModelSettings({
               </div>
 
               {/* 添加预设（卡片外独立区域，不裹在大卡片里） */}
-              <div className="rounded-xl border border-dashed border-border p-3 space-y-1.5">
+              <div className="rounded-xl border border-dashed border-[var(--ui-stroke-tertiary)]p-3 space-y-1.5">
                 <p className="text-[11px] text-muted-foreground/70">添加预设（复制当前预设内容，创建后可编辑）</p>
                 <div className="flex items-center gap-2">
                   <Input
@@ -799,101 +800,99 @@ export default function ModelSettings({
           取消 FLUX/FAL；implemented=false 的通道灰显「待接入」不可选 */}
       {tab === 'image' && (
         <div className="space-y-3">
-          <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Agent 调用<b className="text-foreground">媒体生成</b>工具时使用的模型（ELEVE 媒体生成后端）。
+          {/* 说明 + 当前生效模型（合并为一张轻量卡） */}
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--ui-stroke-tertiary)] bg-card shadow-xs px-4 py-3">
+            <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
+              Agent 调用<span className="font-medium text-foreground">媒体生成</span>工具时使用的模型（ELEVE 媒体生成后端）。
               点击卡片即切换并保存；标「待接入」的通道后端尚未实现，不可选。
             </p>
+            {imageGen?.has_models && (
+              <div className="flex shrink-0 items-center gap-1.5 text-xs">
+                <span className="text-muted-foreground">当前</span>
+                <span className="font-medium text-foreground">
+                  {imageGen.models.find((m: any) => m.id === imageGen.current)?.display || imageGen.current}
+                </span>
+              </div>
+            )}
           </div>
           {imageLoading ? (
             <p className="text-xs text-muted-foreground/60">加载模型目录…</p>
           ) : !imageGen || !imageGen.has_models ? (
             <p className="text-xs text-muted-foreground/60">该工具集暂无可用模型目录。</p>
           ) : (
-            <>
-              {['图片', '视频', '音乐'].map((cat, catIdx) => {
-                const catModels = (imageGen.models as ToolsetModelEntry[]).filter((m) => m.category === cat);
-                if (catModels.length === 0) return null;
-                const groups = Array.from(new Set(catModels.map((m) => m.group || ''))).filter(Boolean);
-                const implementedCount = catModels.filter((m) => m.implemented !== false).length;
-                return (
-                  <div key={cat} className="space-y-2">
-                    {/* 分类头：大区块视觉（色条 + 名称 + 统计） */}
-                    <div className="flex items-center gap-2 pt-1 border-t border-border/40 first:border-t-0">
-                      <span
-                        className={`size-1.5 rounded-full ${
-                          cat === '图片' ? 'bg-sky-500' : cat === '视频' ? 'bg-violet-500' : 'bg-rose-500'
-                        }`}
-                      />
-                      <span className="text-xs font-semibold text-foreground">{cat}</span>
-                      <span className="text-[10px] text-muted-foreground/60">
-                        {implementedCount} 个已实现 / {catModels.length} 个通道
-                        {catIdx === 0 && <span className="ml-1.5 text-primary/70">（点击已实现模型切换生图模型）</span>}
-                      </span>
-                    </div>
-                    {groups.map((g) => (
-                      <div key={g} className="space-y-1.5">
-                        <div className="text-[10px] text-muted-foreground">{g}</div>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          {/* 已实现模型在前，待接入在后 */}
-                          {[...catModels.filter((m) => m.group === g && m.implemented !== false),
-                            ...catModels.filter((m) => m.group === g && m.implemented === false)].map((m) => {
-                            const implemented = m.implemented !== false;
-                            const active = imageGen.current === m.id;
-                            const saving = imageSaving === m.id;
-                            return (
-                              <button
-                                key={m.id}
-                                type="button"
-                                disabled={saving || !implemented}
-                                onClick={() => void pickImageModel(m.id)}
-                                title={implemented ? `${m.display} — ${m.api_path || ''}` : `${m.display}（后端待接入）— ${m.api_path || ''}`}
-                                className={`rounded-xl border p-3 text-left transition-all bg-transparent ${
-                                  active
-                                    ? 'border-primary bg-primary/5'
-                                    : implemented
-                                      ? 'border-border/60 hover:border-border hover:bg-muted/30 cursor-pointer'
-                                      : 'border-border/40 opacity-55 cursor-not-allowed'
-                                } ${saving ? 'opacity-60' : ''}`}
-                              >
-                                <div className="flex items-center gap-2">
-                                  <span className={`text-xs font-semibold truncate ${implemented ? 'text-foreground' : 'text-muted-foreground/70 line-through'}`}>
-                                    {m.display}
-                                  </span>
-                                  {active && <Check size={13} className="shrink-0 text-primary" />}
-                                  {saving && <span className="text-[10px] text-muted-foreground shrink-0">保存中…</span>}
-                                  {!implemented && (
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted/60 text-muted-foreground/70 shrink-0 no-underline">待接入</span>
-                                  )}
-                                </div>
-                                <div className="text-[10px] font-mono text-muted-foreground/60 truncate mt-0.5">{m.id}</div>
-                                <div className="flex flex-wrap gap-1 mt-1.5">
+            ['图片', '视频', '音乐'].map((cat, catIdx) => {
+              const catModels = (imageGen.models as ToolsetModelEntry[]).filter((m) => m.category === cat);
+              if (catModels.length === 0) return null;
+              const groups = Array.from(new Set(catModels.map((m) => m.group || ''))).filter(Boolean);
+              const implementedCount = catModels.filter((m) => m.implemented !== false).length;
+              const CatIcon = cat === '图片' ? ImageIcon : cat === '视频' ? Clapperboard : Music;
+              return (
+                <SectionCard
+                  key={cat}
+                  icon={CatIcon}
+                  title={cat}
+                  desc={`${implementedCount} 个已实现 / ${catModels.length} 个通道${catIdx === 0 ? ' · 点击已实现模型即切换生图模型' : ''}`}
+                >
+                  {groups.map((g) => (
+                    <div key={g} className="px-4 py-3">
+                      <div className="mb-2 text-[11px] font-medium text-muted-foreground">{g}</div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {/* 已实现模型在前，待接入在后 */}
+                        {[...catModels.filter((m) => m.group === g && m.implemented !== false),
+                          ...catModels.filter((m) => m.group === g && m.implemented === false)].map((m) => {
+                          const implemented = m.implemented !== false;
+                          const active = imageGen.current === m.id;
+                          const saving = imageSaving === m.id;
+                          return (
+                            <button
+                              key={m.id}
+                              type="button"
+                              disabled={saving || !implemented}
+                              onClick={() => void pickImageModel(m.id)}
+                              title={implemented ? `${m.display} — ${m.api_path || ''}` : `${m.display}（后端待接入）— ${m.api_path || ''}`}
+                              className={cn(
+                                'rounded-lg border px-3 py-2.5 text-left transition-colors bg-card',
+                                active
+                                  ? 'border-primary/60 bg-primary/5'
+                                  : implemented
+                                    ? 'border-[var(--ui-stroke-tertiary)] hover:border-[var(--ui-stroke-secondary)] hover:bg-accent/20 cursor-pointer'
+                                    : 'border-[var(--ui-stroke-quaternary)] opacity-55 cursor-not-allowed',
+                                saving && 'opacity-60',
+                              )}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span className={cn('min-w-0 flex-1 truncate text-xs font-medium', implemented ? 'text-foreground' : 'text-muted-foreground/70 line-through')}>
+                                  {m.display}
+                                </span>
+                                {active && <Check size={13} className="shrink-0 text-primary" />}
+                                {saving && <span className="shrink-0 text-[10px] text-muted-foreground">保存中…</span>}
+                              </div>
+                              <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/60">{m.id}</div>
+                              {(m.supports_edit || m.max_reference_images || m.api_path) && (
+                                <div className="mt-1.5 flex flex-wrap gap-1">
                                   {implemented && m.supports_edit && (
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">可编辑</span>
+                                    <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">可编辑</span>
                                   )}
                                   {implemented && !!m.max_reference_images && (
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">参考图 {m.max_reference_images} 张</span>
+                                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">参考图 {m.max_reference_images} 张</span>
                                   )}
                                   {m.api_path && (
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium font-mono">{m.api_path}</span>
+                                    <span className="rounded-full bg-muted px-1.5 py-0.5 font-mono text-[10px] font-medium text-muted-foreground">{m.api_path}</span>
+                                  )}
+                                  {!implemented && (
+                                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">待接入</span>
                                   )}
                                 </div>
-                              </button>
-                            );
-                          })}
-                        </div>
+                              )}
+                            </button>
+                          );
+                        })}
                       </div>
-                    ))}
-                  </div>
-                );
-              })}
-              <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-1.5">
-                <span className="text-[11px] text-muted-foreground">当前生效模型</span>
-                <span className="text-[11px] font-medium text-foreground">
-                  {imageGen.models.find((m: any) => m.id === imageGen.current)?.display || imageGen.current}
-                </span>
-              </div>
-            </>
+                    </div>
+                  ))}
+                </SectionCard>
+              );
+            })
           )}
         </div>
       )}

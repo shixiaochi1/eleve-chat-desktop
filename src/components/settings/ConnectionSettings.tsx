@@ -3,6 +3,7 @@ import { Network, Link2, Loader, CheckCircle2, XCircle } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { notifySuccess, notifyError } from '../../utils/notifications';
+import { SectionCard, SettingField, SettingsSaveBar } from './SettingBlocks';
 import {
   type ConnectionState,
   DEFAULT_CONNECTION,
@@ -22,6 +23,8 @@ import {
  * 🔴 生效方式：保存后写入 settings.json，**下次启动应用**生效（WS 连接
  * base 在启动时决定）。与 Hermes 一致（connection 切换走 setConnection +
  * 重连；ELEVE 最小集 = 重启应用，避免运行时切换的会话断线复杂度）。
+ *
+ * 2026-08-31 卡片 UI 重构：裸表单 → 统一 SectionCard 分组卡片（逻辑不变）。
  */
 export default function ConnectionSettings() {
   const [mode, setMode] = useState<'local' | 'remote'>('local');
@@ -82,45 +85,38 @@ export default function ConnectionSettings() {
   if (!loaded) return <p className="text-xs text-muted-foreground/70">加载中…</p>;
 
   return (
-    <div>
-      {/* 模式切换 */}
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">连接模式</label>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setMode('local')}
-            className={`flex-1 rounded border px-3 py-2 text-xs transition-colors ${
-              mode === 'local'
-                ? 'border-primary bg-primary/10 text-primary font-medium'
-                : 'border-border text-muted-foreground hover:bg-accent'
-            }`}
-          >
-            本地（本机后端）
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('remote')}
-            className={`flex-1 rounded border px-3 py-2 text-xs transition-colors ${
-              mode === 'remote'
-                ? 'border-primary bg-primary/10 text-primary font-medium'
-                : 'border-border text-muted-foreground hover:bg-accent'
-            }`}
-          >
-            远程（直连后端）
-          </button>
-        </div>
-        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          本地模式由桌面应用自动启动本机后端；远程模式直连已部署的远程后端
-          （远程 eleved 需以 --listen 0.0.0.0 --port &lt;端口&gt; 启动）。
-        </p>
-      </div>
+    <div className="max-w-2xl">
+      <SectionCard icon={Network} title="连接模式" desc="本地模式自动启动本机后端；远程模式直连已部署后端">
+        {/* 模式切换 */}
+        <SettingField label="连接模式">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setMode('local')}
+              className={`h-9 flex-1 cursor-pointer rounded-lg border px-3 text-xs transition-colors ${
+                mode === 'local'
+                  ? 'border-primary/60 bg-primary/10 font-medium text-primary'
+                  : 'border-[var(--ui-stroke-tertiary)] text-muted-foreground hover:bg-accent'
+              }`}
+            >
+              本地（本机后端）
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('remote')}
+              className={`h-9 flex-1 cursor-pointer rounded-lg border px-3 text-xs transition-colors ${
+                mode === 'remote'
+                  ? 'border-primary/60 bg-primary/10 font-medium text-primary'
+                  : 'border-[var(--ui-stroke-tertiary)] text-muted-foreground hover:bg-accent'
+              }`}
+            >
+              远程（直连后端）
+            </button>
+          </div>
+        </SettingField>
 
-      {mode === 'remote' && (
-        <>
-          {/* 远程地址 */}
-          <div className="mb-3">
-            <label className="block text-xs text-muted-foreground mb-1">远程后端地址</label>
+        {mode === 'remote' && (
+          <SettingField label="远程后端地址" desc="远程后端的文件/终端/会话操作全部在远端执行。当前为无鉴权模式（LAN 信任），请勿暴露到公网。">
             <div className="flex gap-2">
               <Input
                 type="text"
@@ -156,23 +152,19 @@ export default function ConnectionSettings() {
                 </span>
               </div>
             )}
-            <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-              远程后端的文件/终端/会话操作全部在远端执行。
-              当前为无鉴权模式（LAN 信任），请勿暴露到公网。
-            </p>
-          </div>
-        </>
-      )}
+          </SettingField>
+        )}
+      </SectionCard>
 
       {/* 保存 */}
-      <div className="mt-4">
+      <SettingsSaveBar>
         <Button variant="default" size="sm" disabled={saving} onClick={handleSave}>
           {saving ? '保存中…' : '保存连接配置'}
         </Button>
-      </div>
+      </SettingsSaveBar>
 
       {/* 当前状态 */}
-      <div className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground/70">
+      <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground/70">
         <Network size={12} />
         <span>
           当前：{mode === 'local' ? '本地模式' : `远程模式（${normalizeRemoteBaseUrl(baseUrl) || '未配置地址'}）`}

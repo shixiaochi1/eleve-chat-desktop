@@ -110,7 +110,7 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
   if (!showReasoning || !visible || !cleanText) return null;
 
   return (
-    <div className="border-l-2 border-muted-foreground/30 pl-3 my-2 max-w-[85%]">
+    <div className="border-l-2 border-[var(--ui-stroke-tertiary)] pl-3 my-2 max-w-[85%]">
       {/* 标题行：图标 + "思考" + caret（方向指示） + 计时器 + 复制 */}
       <div className="flex items-center gap-1.5 mb-1">
         <button

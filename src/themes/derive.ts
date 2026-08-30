@@ -347,9 +347,11 @@ function deriveLightColors(accent: string): DerivedColors {
     sidebarBackground: neutral.sidebar,
     sidebarBorder: hexToRgba(neutral.fg, 0.06),
 
-    // ── 用户气泡（🔴 2026-08-18 灰度主题同链加重）──
-    userBubble: hexToRgba(isGrayscale(accent) ? GRAY_PRIMARY_LIGHT : accent, 0.08),
-    userBubbleBorder: hexToRgba(isGrayscale(accent) ? GRAY_PRIMARY_LIGHT : accent, 0.18),
+    // ── 用户气泡（🔴 2026-08-31 老大定调：内部不要主题色填充——背景回归中性
+    //    卡片色（light 纯白 / dark 深灰，与 Agent 气泡同底），主题色只留在边框
+    //    （彩色 12%、灰度 16%），区分靠边框色调 + 圆角方向 + 位置 ──
+    userBubble: neutral.card,
+    userBubbleBorder: hexToRgba(isGrayscale(accent) ? GRAY_PRIMARY_LIGHT : accent, isGrayscale(accent) ? 0.16 : 0.12),
 
     // ── 8 语义色 ──
     semanticRed: semantic.red,
@@ -467,8 +469,9 @@ function deriveDarkColors(accent: string): DerivedColors {
     sidebarBorder: hexToRgba(neutral.fg, 0.08),
 
     // ── 用户气泡（🔴 2026-08-18 灰度主题同链加重）──
-    userBubble: hexToRgba(isGrayscale(adjustedAccent) ? GRAY_PRIMARY_DARK : adjustedAccent, 0.12),
-    userBubbleBorder: hexToRgba(isGrayscale(adjustedAccent) ? GRAY_PRIMARY_DARK : adjustedAccent, 0.22),
+    // 🔴 2026-08-31 老大定调：内部不要主题色填充——背景回归中性卡片色，主题色只留边框（彩色 15%）
+    userBubble: neutral.card,
+    userBubbleBorder: hexToRgba(isGrayscale(adjustedAccent) ? GRAY_PRIMARY_DARK : adjustedAccent, isGrayscale(adjustedAccent) ? 0.20 : 0.15),
 
     // ── 8 语义色 ──
     semanticRed: semantic.red,

@@ -145,7 +145,7 @@ export default function MemoryPanel({ currentProfile }: MemoryPanelProps) {
             const isConfirming = confirmReset === t.key;
             const TargetIcon = t.Icon;
             return (
-              <section key={t.key} className="rounded-lg border border-border bg-card/40 overflow-hidden self-start">
+              <section key={t.key} className="rounded-lg border border-[var(--ui-stroke-tertiary)] bg-card/40 overflow-hidden self-start">
                 {/* 卡片头：标签 + 重置 */}
                 <div className="px-2.5 pt-2 pb-1.5">
                   <div className="flex items-center justify-between gap-1">
@@ -191,7 +191,7 @@ export default function MemoryPanel({ currentProfile }: MemoryPanelProps) {
                     entries.map((mem) => (
                       <div
                         key={mem.id}
-                        className="group relative px-2 py-1.5 rounded border border-border/70 hover:bg-accent/5 transition-colors"
+                        className="group relative px-2 py-1.5 rounded border border-[var(--ui-stroke-quaternary)] hover:bg-accent/5 transition-colors"
                       >
                         <div className="text-xs text-foreground/80 leading-relaxed line-clamp-3 pr-4">{mem.content}</div>
                         <button

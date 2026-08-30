@@ -4,6 +4,9 @@ import { notifySuccess, notifyError } from '../../utils/notifications';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
+import { Terminal } from 'lucide-react';
+import { SectionCard, SettingRow, SettingField, SettingsSaveBar } from './SettingBlocks';
+import { selectCls } from '@/lib/ui-styles';
 import { TERMINAL_FONT_SUGGESTIONS, normalizeTerminalFontFamily, setTerminalFontFamily } from '../../lib/terminal-font';
 
 
@@ -18,6 +21,8 @@ import { TERMINAL_FONT_SUGGESTIONS, normalizeTerminalFontFamily, setTerminalFont
  * - code_exec_mode → code_execution.mode（取值 project/strict，与后端一致）
  * - persistent_shell → terminal.persistent_shell（对齐 Hermes，主要作用 SSH 后端）
  * - file_read_max_chars → 顶层 file_read_max_chars（字符数，对齐 Hermes，默认 100000）
+ *
+ * 2026-08-31 卡片 UI 重构：裸表单 → 统一 SectionCard 分组卡片（逻辑不变）。
  */
 export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void }) {
   const [config, setConfig] = useState({
@@ -87,78 +92,56 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
   if (!loaded) return null;
 
   return (
-    <div>
-      {/* 代码执行模式 */}
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">代码执行模式</label>
-        <select
-          className="flex h-8 w-full items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-          value={config.code_exec_mode}
-          onChange={e => update('code_exec_mode', e.target.value)}
-        >
-          <option value="project">project — 项目沙箱内执行</option>
-          <option value="strict">strict — 严格隔离模式</option>
-        </select>
-        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          控制代码执行的环境隔离策略。
-        </p>
-      </div>
-
-      {/* 持久化 Shell */}
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <label className="block text-xs text-muted-foreground mb-0.5">持久化 Shell</label>
-          <p className="text-xs text-muted-foreground/70 leading-relaxed m-0">
-            保持 Shell 会话跨轮次不中断（主要作用于远程后端；本地连接默认每轮新建以保证隔离）。
-          </p>
-        </div>
-        <Switch
-          checked={config.persistent_shell}
-          onCheckedChange={(val: boolean) => update('persistent_shell', val)}
-        />
-      </div>
-
-      {/* 终端字体（对齐 Hermes terminal.font_family 设置；空 = 默认栈） */}
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">终端字体</label>
-        <Input
-          type="text"
-          list="terminal-font-suggestions"
-          placeholder="JetBrains Mono（空 = 默认）"
-          value={config.terminal_font_family}
-          onChange={e => update('terminal_font_family', e.target.value)}
-        />
-        <datalist id="terminal-font-suggestions">
-          {TERMINAL_FONT_SUGGESTIONS.map(f => <option key={f} value={f} />)}
-        </datalist>
-        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          集成终端字体（支持 Nerd Font，如 MesloLGS NF / JetBrainsMono Nerd Font）。保存后当前终端即时切换，无需重启。
-        </p>
-      </div>
-
-      {/* 文件读取字符上限 */}
-      <div className="mb-3">
-        <label className="block text-xs text-muted-foreground mb-1">文件读取字符上限</label>
-        <Input
-          type="number"
-          className="w-40"
-          min={1000}
-          max={10000000}
-          step={1000}
-          value={config.file_read_max_chars}
-          onChange={e => update('file_read_max_chars', parseInt(e.target.value) || 100000)}
-        />
-        <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-          单次读取文件返回的最大字符数（默认 100000）。
-        </p>
-      </div>
+    <div className="max-w-2xl">
+      {/* 代码执行与终端 */}
+      <SectionCard icon={Terminal} title="代码执行与终端" desc="执行环境隔离与终端行为">
+        <SettingField label="代码执行模式" desc="控制代码执行的环境隔离策略。">
+          <select
+            className={selectCls}
+            value={config.code_exec_mode}
+            onChange={e => update('code_exec_mode', e.target.value)}
+          >
+            <option value="project">project — 项目沙箱内执行</option>
+            <option value="strict">strict — 严格隔离模式</option>
+          </select>
+        </SettingField>
+        <SettingRow label="持久化 Shell" desc="保持 Shell 会话跨轮次不中断（主要作用于远程后端；本地连接默认每轮新建以保证隔离）。">
+          <Switch
+            checked={config.persistent_shell}
+            onCheckedChange={(val: boolean) => update('persistent_shell', val)}
+          />
+        </SettingRow>
+        <SettingField label="终端字体" desc="集成终端字体（支持 Nerd Font，如 MesloLGS NF / JetBrainsMono Nerd Font）。保存后当前终端即时切换，无需重启。">
+          <Input
+            type="text"
+            list="terminal-font-suggestions"
+            placeholder="JetBrains Mono（空 = 默认）"
+            value={config.terminal_font_family}
+            onChange={e => update('terminal_font_family', e.target.value)}
+          />
+          <datalist id="terminal-font-suggestions">
+            {TERMINAL_FONT_SUGGESTIONS.map(f => <option key={f} value={f} />)}
+          </datalist>
+        </SettingField>
+        <SettingField label="文件读取字符上限" desc="单次读取文件返回的最大字符数（默认 100000）。">
+          <Input
+            type="number"
+            className="w-40"
+            min={1000}
+            max={10000000}
+            step={1000}
+            value={config.file_read_max_chars}
+            onChange={e => update('file_read_max_chars', parseInt(e.target.value) || 100000)}
+          />
+        </SettingField>
+      </SectionCard>
 
       {/* 保存按钮 */}
-      <div className="mt-4">
+      <SettingsSaveBar>
         <Button variant="default" size="sm" disabled={saving} onClick={handleSave}>
           {saving ? '保存中…' : '保存配置'}
         </Button>
-      </div>
+      </SettingsSaveBar>
     </div>
   );
 }

@@ -5,7 +5,9 @@ import { notifyError } from '../../utils/notifications';
 import { setShowReasoning } from '../../store/display-settings';
 import { useToolViewMode, setToolViewMode, type ToolViewMode } from '@/store/tool-view';
 import { cn } from '@/lib/utils';
+import { selectCls } from '@/lib/ui-styles';
 import { Switch } from '../ui/switch';
+import { SectionCard, SettingRow, SettingField } from './SettingBlocks';
 
 /**
  * ChatSettings — 聊天设置
@@ -52,76 +54,6 @@ const TIMEZONE_OPTIONS: { value: string; label: string }[] = [
   { value: 'Australia/Sydney', label: '(UTC+10) 悉尼 · 墨尔本' },
   { value: 'Pacific/Auckland', label: '(UTC+12) 奥克兰 · 惠灵顿' },
 ];
-
-/** 分区卡片：标题 + 描述 + 内容 */
-function SectionCard({
-  icon: Icon,
-  title,
-  desc,
-  children,
-}: {
-  icon: typeof User;
-  title: string;
-  desc: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-xl border border-border/60 bg-card overflow-hidden mb-4">
-      <div className="flex items-start gap-2.5 px-4 py-3">
-        <Icon size={15} className="text-muted-foreground mt-0.5 shrink-0" strokeWidth={1.75} />
-        <div>
-          <h3 className="text-sm font-semibold text-foreground leading-tight">{title}</h3>
-          <p className="text-xs text-muted-foreground/70 leading-relaxed mt-0.5">{desc}</p>
-        </div>
-      </div>
-      <div className="p-4 space-y-4">{children}</div>
-    </div>
-  );
-}
-
-/** 设置行：label + 描述 + 右侧控件（开关类） */
-function SettingRow({
-  label,
-  desc,
-  children,
-}: {
-  label: string;
-  desc: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4">
-      <div className="min-w-0">
-        <label className="block text-xs font-medium text-foreground mb-0.5">{label}</label>
-        <p className="text-xs text-muted-foreground/70 leading-relaxed m-0">{desc}</p>
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  );
-}
-
-/** 设置字段：label + 控件 + 描述（输入/选择类） */
-function SettingField({
-  label,
-  desc,
-  children,
-}: {
-  label: string;
-  desc: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label className="block text-xs font-medium text-foreground mb-1.5">{label}</label>
-      {children}
-      <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1.5">{desc}</p>
-    </div>
-  );
-}
-
-/** 设置项通用 select 样式（与项目其它设置页一致） */
-const SELECT_CLASS =
-  'flex h-8 w-full items-center rounded-md border border-input bg-transparent px-3 py-1 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[0.1875rem] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50';
 
 export default function ChatSettings({ onSaved }: { onSaved?: () => void }) {
   const toolViewMode = useToolViewMode();
@@ -197,12 +129,12 @@ export default function ChatSettings({ onSaved }: { onSaved?: () => void }) {
   if (!loaded) return null;
 
   return (
-    <div>
+    <div className="max-w-2xl">
       {/* 对话行为 */}
       <SectionCard icon={User} title="对话行为" desc="控制 Agent 的对话风格与时间感知">
         <SettingField label="对话人格" desc="选择 Agent 的对话风格和人格特征。更改后新对话生效。">
           <select
-            className={SELECT_CLASS}
+            className={selectCls}
             value={config.personality}
             onChange={e => update('personality', e.target.value)}
           >
@@ -226,7 +158,7 @@ export default function ChatSettings({ onSaved }: { onSaved?: () => void }) {
 
         <SettingField label="时区" desc="Agent 使用该时区感知时间。留空自动检测系统时区。">
           <select
-            className={SELECT_CLASS}
+            className={selectCls}
             value={config.timezone}
             onChange={e => update('timezone', e.target.value)}
           >
@@ -264,7 +196,7 @@ export default function ChatSettings({ onSaved }: { onSaved?: () => void }) {
                     'flex flex-col items-center gap-1 p-2.5 rounded-lg cursor-pointer transition-all text-xs text-center flex-1',
                     selected
                       ? 'border border-primary bg-accent/10 text-primary'
-                      : 'border border-border bg-background text-muted-foreground hover:bg-accent/5'
+                      : 'border border-[var(--ui-stroke-tertiary)] bg-background text-muted-foreground hover:bg-accent/5'
                   )}
                 >
                   <Icon size={18} strokeWidth={1.5} className={selected ? 'text-primary' : 'text-muted-foreground'} />
@@ -281,7 +213,7 @@ export default function ChatSettings({ onSaved }: { onSaved?: () => void }) {
 
         <SettingField label="图片输入模式" desc="控制 Agent 如何处理图片输入。auto 会根据模型能力自动选择。">
           <select
-            className={SELECT_CLASS}
+            className={selectCls}
             value={config.image_input_mode}
             onChange={e => update('image_input_mode', e.target.value)}
           >

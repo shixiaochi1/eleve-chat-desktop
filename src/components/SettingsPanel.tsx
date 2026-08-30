@@ -911,7 +911,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       {/* ══════════ 删除确认弹窗 ══════════ */}
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 bg-overlay/50 flex items-center justify-center" onClick={() => setDeleteConfirm(null)}>
-          <div className="bg-card text-card-foreground rounded-xl shadow-lg p-6 max-w-md w-full mx-4" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+          <div className="bg-card text-card-foreground rounded-xl border border-[var(--ui-stroke-tertiary)] shadow-lg p-6 max-w-md w-full mx-4" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
             <h3 className={cn("text-lg font-semibold flex items-center gap-2 mb-2")}>
               <AlertTriangle size={16} strokeWidth={1.5} color="var(--ui-red)" />
               确认删除

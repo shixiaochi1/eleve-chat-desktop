@@ -181,7 +181,7 @@ export default function MessageBubble({ type, content, streaming, messageId, onD
   //   宽度变化由 useSmoothReveal 逐帧驱动（每帧 ≤30 字符）→ 平滑缩放无跳变
   return (
     <div ref={enterRef} className="group relative w-fit max-w-[85%] min-w-0 select-text">
-      <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed border border-border shadow-sm overflow-hidden">
+      <div className="bg-card text-card-foreground rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed border border-[var(--ui-stroke-tertiary)] shadow-sm overflow-hidden">
         <StreamBlocks ref={textRef} text={deferredContent} streaming={!!streaming} sessionId={sessionId} />
         {/* 🔴 2026-08-09 本地媒体块级渲染（对齐 Hermes MediaAttachment）：
             不走 markdown 管线，React 组件直读文件 → img（100% 可控） */}
