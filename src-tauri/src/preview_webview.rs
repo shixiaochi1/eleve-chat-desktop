@@ -56,7 +56,6 @@ fn register_navigation_error_listener(
     app: tauri::AppHandle,
     label: String,
 ) {
-    use tauri::Emitter;
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
     use webview2_com::NavigationCompletedEventHandler;
 
@@ -82,9 +81,15 @@ fn register_navigation_error_listener(
                 if status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED {
                     return Ok(());
                 }
+                // status 名进 payload——前端错误覆盖层/console 直接显示具体
+                // 失败原因（HOST_NAME_NOT_RESOLVED / CONNECTION_REFUSED / …），
+                // 用户报错时无需抓包即可定位（失败 URL 前端用当前地址兜底）
                 let _ = app.emit(
                     "preview-load-error",
-                    serde_json::json!({ "label": label }),
+                    serde_json::json!({
+                        "label": label,
+                        "status": format!("{status:?}"),
+                    }),
                 );
                 Ok(())
             },

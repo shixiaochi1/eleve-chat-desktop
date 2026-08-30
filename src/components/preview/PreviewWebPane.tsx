@@ -281,15 +281,15 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
     };
 
     // 🔴 2026-08-31 对齐 Hermes did-fail-load（preview-pane.tsx L834-860）：
-    // 导航失败原生事件 → console 追加（level 3）+ 错误态。
-    // （Rust 侧 NavigationCompleted IsSuccess=false → emit；
+    // 导航失败原生事件 → console 追加（level 3，带具体 WebErrorStatus/URL
+    // 诊断）+ 错误态。（Rust 侧 NavigationCompleted IsSuccess=false → emit；
     //   OperationCanceled 已在 Rust 侧过滤——取消的导航不算失败。）
-    const onLoadError = (event: { payload: { label: string } }) => {
-      const { label: l } = event.payload;
+    const onLoadError = (event: { payload: { label: string; url?: string; status?: string } }) => {
+      const { label: l, url: errUrl, status } = event.payload;
       if (l !== webviewLabel) return;
       consoleState.append({
         level: 3,
-        message: '页面加载失败（导航错误）——目标服务器不可达或连接被拒绝',
+        message: `页面加载失败：${errUrl || currentUrlRef.current}${status ? ` (${status})` : ''}`,
       });
       setIframeError('serverNotFound');
     };
