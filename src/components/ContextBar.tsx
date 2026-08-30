@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useCallback } from 'react';
-import { Plus, Bot } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ModeSwitchButton from './ModeSwitchButton';
 import MoaToggleButton from './MoaToggleButton';
@@ -35,9 +35,6 @@ interface ContextBarProps {
   onToggleViewMode?: () => void;
   /** Agent 数量（< 2 时宫格按钮禁用） */
   agentCount?: number;
-  /** DeepSeek 嵌入 WebView 显隐 */
-  deepseekVisible?: boolean;
-  onToggleDeepSeek?: () => void;
 }
 
 /**
@@ -53,7 +50,7 @@ interface ContextBarProps {
  * to avoid triggering React re-renders every second. This prevents layout
  * thrashing that destabilizes the virtualizer's scroll position.
  */
-const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNewSession, viewMode = 'single', onToggleViewMode, agentCount = 1, deepseekVisible, onToggleDeepSeek }: ContextBarProps) {
+const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNewSession, viewMode = 'single', onToggleViewMode, agentCount = 1 }: ContextBarProps) {
   const elapsedRef = useRef<HTMLSpanElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -129,21 +126,6 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
           </button>
           {onToggleViewMode && (
             <ModeSwitchButton mode={viewMode} onToggle={onToggleViewMode} agentCount={agentCount} />
-          )}
-          {onToggleDeepSeek && (
-            <button
-              className={cn(
-                'flex items-center gap-1 h-7 px-2.5 text-xs rounded-md transition-colors border bg-card shadow-sm',
-                deepseekVisible
-                  ? 'border-primary/40 text-primary bg-primary/5'
-                  : 'border-[var(--ui-stroke-quaternary)] text-muted-foreground hover:text-foreground hover:bg-accent/50'
-              )}
-              title="DeepSeek 嵌入"
-              onClick={onToggleDeepSeek}
-            >
-              <Bot size={14} strokeWidth={1.5} />
-              <span>DeepSeek</span>
-            </button>
           )}
           {/* MoA 开关 — 滑块样式，config.set 点路径读写 moa.presets.default.enabled */}
           <MoaToggleButton />

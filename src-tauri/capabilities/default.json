@@ -70,7 +70,6 @@
     "allow-get-gateway-port",
     "allow-get-auto-start",
     "allow-set-auto-start",
-    "allow-create-deepseek-webview",
     "allow-toggle-kanban-window",
     "allow-open-canvas-window",
     "allow-toggle-canvas-window",

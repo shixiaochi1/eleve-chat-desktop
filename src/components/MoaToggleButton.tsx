@@ -3,7 +3,7 @@ import { getWsClient } from '@/services/ws-client';
 import { Switch } from './ui/switch';
 
 /**
- * MoA 开关 — 滑块开关样式（工具栏 DeepSeek 按钮右侧）
+ * MoA 开关 — 滑块开关样式（工具栏视图模式按钮右侧）
  *
  * 🔴 2026-08-11：MoA 开启时每轮回复前会先跑参考模型调用 + 聚合器（阻塞式），
  *    若槽位配置了慢的 reasoning 模型，回复前会干等数十秒。此开关提供一键开/关。

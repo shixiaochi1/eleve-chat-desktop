@@ -73,7 +73,6 @@ import Toast from './components/Toast';
 import GridModeView, { type GridModeViewHandle } from './components/GridModeView';
 import EditAgentDialog from './components/EditAgentDialog';
 import { ModelProvider } from './contexts/ModelContext';
-import { toggleDeepSeek, hideDeepSeek } from './utils/deepseek-webview';
 import type { Window } from '@tauri-apps/api/window';
 
 // ── Tauri window API (lazy) ──
@@ -180,8 +179,6 @@ export default function App() {
   useEffect(() => {
     setActiveSessionOverride(viewMode === 'grid' ? focusedGridSessionId : null);
   }, [viewMode, focusedGridSessionId]);
-  const [deepseekVisible, setDeepseekVisible] = useState<boolean>(false);  // DeepSeek 嵌入 WebView 显隐
-  const chatCardRef = useRef<HTMLDivElement>(null);  // DeepSeek WebView 锚点
 
   // 🔴 2026-08-18 画布 × ELEVE 集成 + 2026-08-19 根治修订 + toggle 改造：
   // 画布 = ELEVE 的可拔插插件（浏览器半，由 gateway 同源装载）。
@@ -233,8 +230,6 @@ export default function App() {
   // ── overlay panel state (settings, about) ──
   const [overlayPanel, setOverlayPanel] = useState<string | null>(null);
   const handleOpenOverlay = useCallback((panelName: string) => {
-    // 打开弹出卡片时隐藏 DeepSeek WebView，避免被盖住
-    hideDeepSeek().then(() => setDeepseekVisible(false));
     setOverlayPanel(panelName);
   }, []);
   const handleCloseOverlay = useCallback(() => setOverlayPanel(null), []);
@@ -251,7 +246,6 @@ export default function App() {
   const exitGridRef = useRef<() => void>(() => {});
   const toggleViewMode = useCallback(() => {
     if (viewMode === 'single') {
-      hideDeepSeek().then(() => setDeepseekVisible(false));
       // 🔴 P0 修复：进宫格前重置单视图发送锁（宫格期间 useSSE 禁用 → 单视图 onDone 永不触发 → 锁泄漏）
       resetSendingLockRef.current?.();
       setViewMode('grid');
@@ -259,35 +253,6 @@ export default function App() {
       exitGridRef.current();
     }
   }, [viewMode]);
-
-  // ── DeepSeek 嵌入 toggle ──
-  const handleToggleDeepSeek = useCallback(async () => {
-    const anchor = chatCardRef.current;
-    console.log('[DeepSeek] toggle clicked, anchor:', anchor ? 'found' : 'NULL');
-    if (!anchor) return;
-    const nowVisible = await toggleDeepSeek(anchor);
-    console.log('[DeepSeek] result:', nowVisible);
-    setDeepseekVisible(nowVisible);
-  }, []);
-
-  // ── DeepSeek 内嵌关闭按钮 → 统一走 hideDeepSeek（单一状态权威，防双入口状态错乱）──
-  useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | undefined;
-    import('@tauri-apps/api/event').then(({ listen }) => {
-      if (cancelled) return;
-      listen('deepseek-embed-closed', () => {
-        hideDeepSeek().then(() => setDeepseekVisible(false));
-      }).then((u) => {
-        if (cancelled) u();
-        else unlisten = u;
-      });
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -299,13 +264,6 @@ export default function App() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [toggleViewMode]);
-
-  // ── 面板切换时自动隐藏 DeepSeek WebView ──
-  useEffect(() => {
-    if (deepseekVisible) {
-      hideDeepSeek().then(() => setDeepseekVisible(false));
-    }
-  }, [activePanel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── session management（必须在 handleProfileChange 之前，切换 Agent 需要重置 session） ──
   const sess = useSessions();
@@ -1623,7 +1581,7 @@ export default function App() {
                 />
               </div>
             ) : (
-            <div className="chat-card min-w-[480px]" ref={chatCardRef}>
+            <div className="chat-card min-w-[480px]">
             {responsiveCollapsed && (
               <button
                 className="absolute top-2 left-2 z-20 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground transition-colors"
@@ -1947,7 +1905,7 @@ export default function App() {
                   <div className="px-3 pt-2">
                     <TodoPanel sessionId={sess.sessionId} />
                   </div>
-                  <ContextBar sessionId={sess.sessionId} sessionStartedAt={sessionStartedAt} onNewSession={handleNewSessionWithScope} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount} deepseekVisible={deepseekVisible} onToggleDeepSeek={handleToggleDeepSeek} />
+                  <ContextBar sessionId={sess.sessionId} sessionStartedAt={sessionStartedAt} onNewSession={handleNewSessionWithScope} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount} />
                 </>
               )}
               {/* 🔴 2026-08-28 对齐 Hermes composer status-stack：工具产出的

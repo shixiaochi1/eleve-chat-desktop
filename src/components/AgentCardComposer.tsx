@@ -8,7 +8,7 @@
  * - 输入框单行起、随内容向上自动撑大（max 120px，超出滚动）
  * - `/` 命令补全 — 与单视图 InputArea 共用 useSlashAutocomplete + SlashCommandPopup（零重复）
  * - 模型选择不在这里 — 放卡片顶部工具状态栏（ModelPill）
- * - 不要 DeepSeek（宫格场景用不上）
+ * - DeepSeek 嵌入已移除（2026-08-31：功能由右侧抽屉内嵌 Browser surface 取代）
  * - 语音按钮 P4 解禁（后端 voice.record 已真实接线）；宫格紧凑场景按钮自身传达状态
  *   （录音=红、转录=spinner），不渲染 VoiceActivityBar（严禁两行布局）
  * - 图片附件 per-agent：useImageAttachments 经 getSessionId 绑到本 Agent 的 session

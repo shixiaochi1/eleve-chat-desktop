@@ -17,7 +17,6 @@
 //!   - 当前只打 Windows 包，暂不处理跨平台条件配置
 
 use tauri::Manager;
-use tauri::Emitter;
 use tauri::menu::{MenuBuilder, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use std::path::PathBuf;
@@ -500,10 +499,6 @@ fn set_auto_start(enable: bool) -> Result<bool, String> {
     { let _ = enable; Err("Auto-start is only supported on Windows".into()) }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// DEEPSEEK EMBED — 子 WebView 创建（带 initialization_script 注入）
-// ═══════════════════════════════════════════════════════════════════════════
-
 /// 主窗口 WebView2 additional browser args（tauri.conf.json app.windows[].additionalBrowserArgs 同步值）
 ///
 /// 🔴 铁律：同一 user data folder 内所有 WebView 的 additional browser args 必须一致，
@@ -512,111 +507,6 @@ fn set_auto_start(enable: bool) -> Result<bool, String> {
 /// 动态创建的 WebView（add_child 子 webview / WebviewWindowBuilder 窗口）必须显式带此值。
 pub(crate) const ELEVE_WEBVIEW_ARGS: &str =
     "--disable-background-timer-throttling --disable-backgrounding-occluded-windows";
-
-/// 创建 DeepSeek 嵌入子 WebView（带布局裁剪 + 主题注入）
-///
-/// 前端通过 invoke('create_deepseek_webview', { x, y, width, height }) 调用。
-/// 已存在时复用（show + 重新定位），不重复创建。
-/// 注入脚本通过 include_str! 编译期嵌入，零运行时文件依赖。
-#[tauri::command]
-async fn create_deepseek_webview(
-    window: tauri::Window,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-    bg_r: u8,
-    bg_g: u8,
-    bg_b: u8,
-) -> Result<String, String> {
-    use tauri::{LogicalPosition, LogicalSize};
-
-    eprintln!("[TAURI] create_deepseek_webview called: x={}, y={}, w={}, h={}, bg=({},{},{})", x, y, width, height, bg_r, bg_g, bg_b);
-
-    const LABEL: &str = "deepseek-embed";
-
-    // 已存在 → 复用：show + 重新定位 + 聚焦
-    for wv in window.webviews() {
-        if wv.label() == LABEL {
-            eprintln!("[TAURI] DeepSeek webview exists, reusing");
-            wv.show().map_err(|e| e.to_string())?;
-            wv.set_position(LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
-            wv.set_size(LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
-            wv.set_focus().map_err(|e| e.to_string())?;
-            return Ok(LABEL.to_string());
-        }
-    }
-
-    // 组合注入脚本：主题 CSS 通过全局变量传给 inject_js，
-    // 由 inject_js 在 DOMContentLoaded 时机统一注入（document-start 时 head 尚不存在，
-    // 即时 appendChild 会抛 TypeError 导致 CSS 丢失 —— 这是圆角不生效的根因）
-    let theme_css = include_str!("../inject/deepseek-theme.css");
-    let inject_js = include_str!("../inject/deepseek-inject.js");
-    let init_script = format!(
-        "window.__ELEVE_DEEPSEEK_THEME__ = {:?};\nwindow.__ELEVE_DEEPSEEK_BG__ = 'rgb({},{},{})';\n{}",
-        theme_css, bg_r, bg_g, bg_b, inject_js
-    );
-
-    let url = "https://chat.deepseek.com/"
-        .parse()
-        .map_err(|e| format!("URL parse error: {}", e))?;
-
-    eprintln!("[TAURI] Building webview...");
-
-    let builder = tauri::webview::WebviewBuilder::new(
-        LABEL,
-        tauri::WebviewUrl::External(url),
-    )
-    .initialization_script(&init_script)
-    // 🔴 必须与主窗口同 additional_browser_args（同一 user data folder 内 args 必须一致）
-    // 缺此 → WebView2 创建挂起/失败（看板 0x8007139F 同款，2026-08-13 修复）
-    .additional_browser_args(ELEVE_WEBVIEW_ARGS)
-    // 颜色匹配法：WebView 原生背景 = Eleve 背板色（不透明）
-    // body CSS 做 12px 圆角裁剪，四角露出 WebView 底色 = 背板色 = 视觉无缝
-    // （WebView2 子窗口是独立 HWND，不支持逐像素透明合成，不能用 transparent）
-    .background_color(tauri::webview::Color(bg_r, bg_g, bg_b, 255))
-    .focused(true)
-    .disable_drag_drop_handler();
-
-    eprintln!("[TAURI] Calling add_child...");
-
-    let wv = window
-        .add_child(
-            builder,
-            LogicalPosition::new(x, y),
-            LogicalSize::new(width, height),
-        )
-        .map_err(|e| {
-            eprintln!("[TAURI] add_child FAILED: {}", e);
-            format!("create deepseek webview failed: {}", e)
-        })?;
-
-    eprintln!("[TAURI] DeepSeek webview created: {}", wv.label());
-    Ok(wv.label().to_string())
-}
-
-/// 关闭 DeepSeek 嵌入 WebView（注入脚本浮动关闭按钮调用）
-///
-/// 安全：capability 已限 deepseek-embed webview 最小权限（仅此命令），
-/// 这里再做 URL 双保险（仅允许 chat.deepseek.com 域名页面触发）。
-/// 只发事件不直接 hide——前端监听 deepseek-embed-closed 统一走 hideDeepSeek()
-/// （单一状态权威：与工具栏 toggle 双入口共享 JS 模块级 visible 状态，
-/// Rust 直接 hide 会造成前端状态错乱）。
-#[tauri::command]
-fn deepseek_webview_close(window: tauri::Window) -> Result<(), String> {
-    const LABEL: &str = "deepseek-embed";
-    if let Some(wv) = window.webviews().into_iter().find(|w| w.label() == LABEL) {
-        let is_official = wv
-            .url()
-            .map(|u| u.as_str().starts_with("https://chat.deepseek.com"))
-            .unwrap_or(false);
-        if !is_official {
-            return Err("forbidden: caller is not chat.deepseek.com".into());
-        }
-        let _ = window.emit("deepseek-embed-closed", ());
-    }
-    Ok(())
-}
 
 /// 看板窗口 toggle（老大 2026-08-11 需求：
 /// 点看板按钮 = 弹出/隐藏切换；点窗口关闭 = 真实关闭）
@@ -1291,8 +1181,6 @@ pub fn run() {
             // 🔴 W-1 死代码清除（2026-08-05）：resolve_media 命令全库零调用——
             // MEDIA 处理唯一消费链 src/utils/media.ts → WS media.resolve
             // （后端 misc_service 权威实现），此命令为早期 Tauri 本地处理遗留
-            create_deepseek_webview,
-            deepseek_webview_close,
             toggle_kanban_window,
             // 画布插件化 S5（2026-08-18）：画布窗口单例 + 图片处理 + 状态持久化
             // （命令名与画布 src-tauri 原命令一致，前端 invoke 零改动）

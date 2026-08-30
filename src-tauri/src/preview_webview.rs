@@ -8,7 +8,7 @@
 //!     创建注册 / 关闭注销，杜绝远程页面伪造 label 注入
 //!   - Webview 句柄不跨命令缓存：每次操作从 window.webviews() 实时查找
 //!     （避免句柄失效；查找开销 O(webview 数)，预览场景 ≤ 数 个，可忽略）
-//!   - console 捕获注入脚本 include_str! 编译期嵌入（对齐 deepseek-inject.js 模式），
+//!   - console 捕获注入脚本 include_str! 编译期嵌入（零运行时文件依赖），
 //!     label 硬编码进脚本 —— 远程页面拿到的就是自己的 label，无伪造空间
 //!
 //! 生命周期语义：
