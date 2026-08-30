@@ -27,6 +27,16 @@ export function base64FromDataURL(dataUrl: string): string {
   return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
 }
 
+/**
+ * base64（纯内容，无前缀）→ 字节。HTTP 直传附件用（原始字节零 base64 膨胀）。
+ */
+export function base64ToUint8Array(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
 /** 从文件扩展名推断 MIME（本地路径读图/读文件预览用；对齐后端扩展名白名单） */
 export function mimeFromExt(path: string): string | undefined {
   const ext = path.split('.').pop()?.toLowerCase() ?? '';

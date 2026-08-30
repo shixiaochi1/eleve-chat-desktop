@@ -13,11 +13,37 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { getWsClient, type ImageAttachResponse } from '@/services/ws-client';
-import { readFileAsDataURL, base64FromDataURL, mimeFromExt, arrayBufferToBase64 } from '@/utils/file';
+import { readFileAsDataURL, base64FromDataURL, mimeFromExt, arrayBufferToBase64, base64ToUint8Array } from '@/utils/file';
 import { isRemoteMode, loadConnection } from '@/lib/connection';
 // 🔴 2026-08-31 图片缩放重试不在前端做：后端 conversation_loop.rs 已有 Hermes
 // 对齐实现（shrink_image_parts_in_messages，LLM 层 4MB/2048）；attach 层前后端
 // 同为 25MB 硬顶且 Hermes 也无 attach 重试——前端再包一层纯属重复造轮子。
+
+/**
+ * 🔴 A 通道（本地模式）：附件字节落盘 AppData/attach-cache → 返回绝对路径，
+ * 走 image.attach 路径引用——后端直读原文件，零 base64 零 25MB 压力。
+ * 浏览器模式 / plugin-fs 不可用 → null（调用方降级字节通道）。
+ */
+async function stageLocalFile(dataUrl: string, name: string): Promise<string | null> {
+  try {
+    const { writeFile, mkdir, BaseDirectory } = await import('@tauri-apps/plugin-fs');
+    try {
+      await mkdir('attach-cache', { baseDir: BaseDirectory.AppData, recursive: true });
+    } catch {
+      /* 已存在 */
+    }
+    const ext = (name.match(/\.[a-z0-9]+$/i)?.[0] || '.png').toLowerCase();
+    const rel = `attach-cache/${crypto.randomUUID()}${ext}`;
+    await writeFile(rel, base64ToUint8Array(base64FromDataURL(dataUrl)), {
+      baseDir: BaseDirectory.AppData,
+    });
+    const { appDataDir } = await import('@tauri-apps/api/path');
+    const dir = await appDataDir();
+    return `${dir.replace(/[\\/]+$/, '')}/${rel}`;
+  } catch {
+    return null;
+  }
+}
 
 export interface AttachedImage {
   /** 本地唯一 ID（用于 React key + 删除定位） */
@@ -211,27 +237,57 @@ export function useImageAttachments(options?: {
     let lastError: string | undefined;
 
     for (const img of pending) {
-      try {
-        const contentBase64 = base64FromDataURL(img.preview);
-        const result: ImageAttachResponse = await wsClient.imageAttachBytes(
-          contentBase64,
-          img.name,
-          sessionId,
-        );
-        console.info(`[uploadUnuploaded] attach result for ${img.name}:`, result);
-        if (result.attached && result.path) {
-          updatedPaths.set(img.id, result.path);
-        } else {
-          allOk = false;
-          const msg = (result as unknown as { error?: string }).error || `后端未确认附件`;
-          lastError = msg;
-          setError(`图片上传失败: ${img.name}（${msg}）`);
+      let result: ImageAttachResponse | null = null;
+      let lastMsg: string | undefined;
+
+      // 🔴 2026-08-31 传输分流（用户拍板 A+B）：
+      // A 本地模式 → plugin-fs 落盘 + image.attach 路径引用（后端直读原文件，
+      //   零 base64 零 25MB 压力）；B remote 模式 → HTTP /v1/images/attach
+      //   原始字节直传（无 base64 膨胀）；C 两者不可用/失败 → 回退 WS
+      //   attach_bytes（旧后端兼容）。三条通道落盘/会话附着语义完全一致。
+      if (!isRemoteMode(loadConnection())) {
+        const localPath = await stageLocalFile(img.preview, img.name);
+        if (localPath) {
+          try {
+            const r = await wsClient.imageAttach(localPath, sessionId);
+            if (r.attached && r.path) {
+              result = r;
+            } else {
+              lastMsg = (r as unknown as { error?: string }).error || '后端未确认附件';
+            }
+          } catch (err) {
+            lastMsg = err instanceof Error ? err.message : String(err);
+          }
         }
-      } catch (err) {
+      }
+      if (!result) {
+        try {
+          const bytes = base64ToUint8Array(base64FromDataURL(img.preview));
+          result = await wsClient.imageAttachHttp(bytes, img.name, sessionId);
+        } catch (err) {
+          lastMsg = err instanceof Error ? err.message : String(err);
+        }
+      }
+      if (!result) {
+        try {
+          const contentBase64 = base64FromDataURL(img.preview);
+          const r = await wsClient.imageAttachBytes(contentBase64, img.name, sessionId);
+          if (r.attached && r.path) {
+            result = r;
+          } else {
+            lastMsg = (r as unknown as { error?: string }).error || `后端未确认附件`;
+          }
+        } catch (err) {
+          lastMsg = err instanceof Error ? err.message : String(err);
+        }
+      }
+      if (result && result.attached === true && typeof result.path === 'string' && result.path) {
+        updatedPaths.set(img.id, result.path);
+        console.info(`[uploadUnuploaded] attach OK for ${img.name}:`, result.path);
+      } else {
         allOk = false;
-        const msg = err instanceof Error ? err.message : String(err);
-        lastError = msg;
-        setError(`图片上传失败: ${msg}`);
+        lastError = lastMsg || (result as unknown as { error?: string } | null)?.error;
+        setError(`图片上传失败: ${img.name}（${lastError || '未知错误'}）`);
       }
     }
 

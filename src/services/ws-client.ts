@@ -635,6 +635,28 @@ export class GatewayWsClient {
     return result as ImageAttachResponse
   }
 
+  /** 🔴 2026-08-31 图片附件 HTTP 直传 — POST /v1/images/attach 原始字节
+   * 零 base64 膨胀（WS JSON + base64 要 +33%，4K 图贴死 25MB）。
+   * 旧后端无此端点（404/405）→ 调用方回退 imageAttachBytes。
+   */
+  async imageAttachHttp(bytes: Uint8Array, filename: string, sessionId: string): Promise<ImageAttachResponse> {
+    const resp = await fetch(
+      `${getApiBase()}/v1/images/attach?session_id=${encodeURIComponent(sessionId)}&filename=${encodeURIComponent(filename)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: bytes as unknown as BodyInit,
+      },
+    )
+    const json: any = await resp.json().catch(() => ({}))
+    if (!resp.ok || json.attached !== true) {
+      const err = new Error(json.error || `HTTP ${resp.status}`) as Error & { status?: number }
+      err.status = resp.status
+      throw err
+    }
+    return json as ImageAttachResponse
+  }
+
   /** 文件附件 staging — 对齐 Hermes file.attach：三 case（workspace 内直用 / 外复制 / data_url 写入）
    * 返回 {attached, name, path, ref_path, ref_text, uploaded}，ref_text 注入 prompt 文本
    */
