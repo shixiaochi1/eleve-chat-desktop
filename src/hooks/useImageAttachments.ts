@@ -29,20 +29,17 @@ const ATTACH_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 async function cleanupAttachCache(): Promise<void> {
   try {
-    const { readDir, remove, stat, BaseDirectory } = await import('@tauri-apps/plugin-fs');
+    const { readDir, remove, BaseDirectory } = await import('@tauri-apps/plugin-fs');
     const entries = await readDir('attach-cache', { baseDir: BaseDirectory.AppData });
     const cutoff = Date.now() - ATTACH_CACHE_TTL_MS;
     for (const entry of entries) {
-      if (entry.isDirectory) continue;
+      if (entry.isDirectory || !entry.name) continue;
+      // 从文件名解析创建时间戳（stageLocalFile 命名：{ms}-{uuid}{ext}）；
+      // 无时间戳前缀的旧版文件无法判龄 → 跳过（量少，不冒险）
+      const ts = Number.parseInt(entry.name.split('-')[0], 10);
+      if (!Number.isFinite(ts) || ts <= 0 || ts >= cutoff) continue;
       try {
-        const s = await stat(`attach-cache/${entry.name}`, { baseDir: BaseDirectory.AppData });
-        const mtime =
-          s.modifiedAt instanceof Date
-            ? s.modifiedAt.getTime()
-            : ((s as unknown as { modifiedAtSec?: number }).modifiedAtSec ?? 0) * 1000;
-        if (mtime > 0 && mtime < cutoff) {
-          await remove(`attach-cache/${entry.name}`, { baseDir: BaseDirectory.AppData });
-        }
+        await remove(`attach-cache/${entry.name}`, { baseDir: BaseDirectory.AppData });
       } catch {
         /* 单个文件失败跳过 */
       }
@@ -66,7 +63,9 @@ async function stageLocalFile(dataUrl: string, name: string): Promise<string | n
       /* 已存在 */
     }
     const ext = (name.match(/\.[a-z0-9]+$/i)?.[0] || '.png').toLowerCase();
-    const rel = `attach-cache/${crypto.randomUUID()}${ext}`;
+    // 🔴 2026-09-01 文件名内嵌创建时间戳（ms）——plugin-fs FileInfo 不暴露
+    // mtime，TTL 清理从文件名解析龄期
+    const rel = `attach-cache/${Date.now()}-${crypto.randomUUID()}${ext}`;
     await writeFile(rel, base64ToUint8Array(base64FromDataURL(dataUrl)), {
       baseDir: BaseDirectory.AppData,
     });

@@ -19,7 +19,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ExternalLink, AlertCircle, Loader2, Globe, RefreshCw, Bug, PanelBottom, Copy, Check, ArrowLeft, ArrowRight, House } from 'lucide-react';
+import { ExternalLink, AlertCircle, Loader2, Globe, RefreshCw, Bug, PanelBottom, Copy, Check, ArrowLeft, ArrowRight, House, FolderOpen } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getWsClient } from '@/services/ws-client';
@@ -102,16 +102,31 @@ export function normalizePreviewAddress(value: string): null | string {
   }
 }
 
-/** 预览 URL 安全校验：仅允许 http:/https: 协议（同现有 iframe 白名单） */
+/** 预览 URL 安全校验：允许 http:/https:/file: 协议。
+ *  🔴 2026-09-01 放行 file:——Rust preview_webview_create 白名单本就含 file
+ *  （file HTML 走真浏览器 guest，iframe srcDoc 解析不了相对资源），此前前端
+ *  校验比 Rust 窄，本地文件（地址栏手输/文件选择按钮）永远到不了 webview。 */
 function isSafePreviewUrl(raw: string): boolean {
   const trimmed = raw.trim();
   if (!trimmed) return false;
   try {
     const u = new URL(trimmed);
-    return u.protocol === 'http:' || u.protocol === 'https:';
+    return u.protocol === 'http:' || u.protocol === 'https:' || u.protocol === 'file:';
   } catch {
     return false;
   }
+}
+
+/** 本地路径 → file:// URL（文件选择按钮产物；Rust from_file_path 同款归一化）。
+ *  Windows 盘符 C:\a\b.html → file:///C:/a/b.html；UNC \\srv\share → file://srv/share；
+ *  POSIX /a/b → file:///a/b。逐段 encodeURIComponent（空格/中文/文件名含 # ? 均安全；
+ *  盘符冒号还原保留）。 */
+function localPathToFileUrl(path: string): string {
+  const p = path.trim().replace(/\\/g, '/');
+  const enc = (seg: string) => encodeURIComponent(seg).replace(/%3A/gi, ':');
+  if (/^[a-zA-Z]:\//.test(p)) return `file:///${p.split('/').map(enc).join('/')}`;
+  if (p.startsWith('//')) return `file:${p.split('/').map(enc).join('/')}`;
+  return `file://${p.split('/').map(enc).join('/')}`;
 }
 
 /** module mime 错误检测（对齐 Hermes preview-pane isModuleMimeError） */
@@ -457,6 +472,29 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
     navigateTo(url.trim() || tab.target.url);
   }, [navigateTo, url, tab.target.url]);
 
+  // 🔴 2026-09-01 选择本地文件（用户需求：空白页想看本地文件必须手输完整路径）——
+  // 复用 @tauri-apps/plugin-dialog（AttachMenu 同款动态 import，capability 已有
+  // dialog:default，零新依赖零新机制）。路径 → file:// URL → commitAddress
+  // （about:blank tab 回写 target.url 触发 webview 创建；Rust from_file_path 归一化）。
+  const pickLocalFile = useCallback(async () => {
+    if (!isTauri) return;
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({
+        multiple: false,
+        title: '选择要在预览中打开的文件',
+        filters: [
+          { name: '网页/文档/图片', extensions: ['html', 'htm', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'md', 'txt', 'xml', 'json'] },
+          { name: '所有文件', extensions: ['*'] },
+        ],
+      });
+      if (!selected || typeof selected !== 'string') return;
+      commitAddress(localPathToFileUrl(selected));
+    } catch (err) {
+      console.error('[PreviewWebPane] local file dialog failed:', err);
+    }
+  }, [isTauri, commitAddress]);
+
   // 🔴 2026-08-29 对齐 Hermes 浏览器导航历史：per-tab URL 栈——用户提交与页面
   // 自导航（点击链接/重定向）都入栈；back/forward 移动指针，指针位置的导航
   // （回放历史）不再入栈。上限 50 条防无界增长。
@@ -654,6 +692,16 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
         >
           <ExternalLink size={13} />
         </button>
+        {/* 🔴 2026-09-01 选择本地文件（桌面版）——空白页看本地文件免手输路径 */}
+        {isTauri && (
+          <button
+            onClick={() => void pickLocalFile()}
+            className="flex items-center justify-center w-6 h-6 shrink-0 rounded text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] hover:text-[var(--ui-text-primary)] transition-colors"
+            title="打开本地文件（HTML/PDF/图片等）"
+          >
+            <FolderOpen size={13} />
+          </button>
+        )}
         {/* devtools 开关（对齐 Hermes devtoolsOpen；仅子 webview 模式可用） */}
         {webviewActive && (
           <button
@@ -722,7 +770,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
         ) : !isSafePreviewUrl(currentUrl) ? (
           <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
             <AlertCircle size={32} strokeWidth={1} className="text-[var(--ui-yellow)]" />
-            <span className="text-xs">仅支持 http:// 或 https:// 地址</span>
+            <span className="text-xs">仅支持 http://、https:// 或本地文件地址</span>
           </div>
         ) : webviewActive ? (
           /* 子 webview：原生层渲染，容器仅承担定位锚点（Rust 按容器 rect 摆位）；
@@ -731,6 +779,13 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
         ) : isTauri ? (
           /* webview 创建中（label 未就绪）：空占位，不渲染 iframe（Tauri 模式无 iframe 降级） */
           <div className="w-full h-full" />
+        ) : currentUrl.toLowerCase().startsWith('file:') ? (
+          /* 🔴 2026-09-01 浏览器 dev 模式无原生 webview，file:// iframe 被 Chrome 拒绝
+             （跨源 file 协议）——明确降级提示而非空白 */
+          <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
+            <AlertCircle size={32} strokeWidth={1.5} className="text-[var(--ui-yellow)]" />
+            <span className="text-xs">本地文件预览仅桌面应用支持</span>
+          </div>
         ) : (
           /*
            * 浏览器模式 fallback iframe（非 Tauri dev）：无页面 console（注入脚本
