@@ -116,3 +116,35 @@ export async function resolveMediaSrc(path: string): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * 🔴 2026-08-31 任意 src → 可编辑 data URL（图片编辑器入口归一化）。
+ *
+ * 编辑器合成走 canvas.drawImage + toDataURL——跨域 http 图会 taint canvas 直接
+ * SecurityError；本地路径/http URL /media 相对路径必须先归一成 data URL。
+ * - data: → 原样（已是 data URL）
+ * - 其余 → resolveMediaSrc（本地路径读文件 / /media 拼 gateway base / http 透传）
+ *   → 若结果仍是 http(s)（/media 相对 URL 拼接后的 gateway 地址、远程 URL）→
+ *   fetch → blob → data URL（gateway CORS 默认谓词放行 tauri.localhost——含 "localhost"）
+ * 失败 → null（调用方显示错误，禁用编辑）。
+ */
+export async function resolveToEditableDataUrl(src: string): Promise<string | null> {
+  if (src.startsWith('data:')) return src;
+  try {
+    const resolved = await resolveMediaSrc(src);
+    if (!resolved) return null;
+    if (resolved.startsWith('data:')) return resolved;
+    const resp = await fetch(resolved);
+    if (!resp.ok) return null;
+    const blob = await resp.blob();
+    return await new Promise<string | null>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.onabort = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}

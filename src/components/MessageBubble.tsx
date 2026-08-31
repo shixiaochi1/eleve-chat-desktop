@@ -7,6 +7,7 @@ import StreamBlocks from './StreamBlocks';
 import UserMessageText from './UserMessageText';
 import { useSmoothReveal } from '@/hooks/useSmoothReveal';
 import { useEnterAnimation } from '@/hooks/useEnterAnimation';
+import { useImageEditor } from '@/store/image-editor';
 
 interface MessageBubbleProps {
   type: string;
@@ -75,7 +76,11 @@ function MediaImage({ path, name, onZoom }: { path: string; name: string; onZoom
 export default function MessageBubble({ type, content, streaming, messageId, onDelete, sessionId }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [zoomedSrc, setZoomedSrc] = useState<string | null>(null);
+  const [zoomedName, setZoomedName] = useState<string | undefined>(undefined);
   const textRef = useRef<HTMLDivElement | null>(null);
+  // 🔴 2026-08-31 生成结果图再编辑入口（打通"灯箱 → 编辑器 → 新附件 → 再生图"循环）：
+  // zoomedSrc 可能是 data URL（本地路径经 resolveMediaSrc）或 gateway http URL
+  // （/media 相对路径）——ImageEditorModal 内部统一归一成 data URL 再进 canvas。
 
   // 🔴 2026-08-09 本地媒体解析（方案 C：块级 MediaImage 组件，不走 markdown 管线）：
   // MEDIA:path 独立行 → 从文本提取 → 气泡文本下方渲染 React 图片组件
@@ -188,7 +193,7 @@ export default function MessageBubble({ type, content, streaming, messageId, onD
         {mediaRefs.refs.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
             {mediaRefs.refs.map((ref, i) => (
-              <MediaImage key={`${ref.path}-${i}`} path={ref.path} name={ref.name} onZoom={setZoomedSrc} />
+              <MediaImage key={`${ref.path}-${i}`} path={ref.path} name={ref.name} onZoom={(src) => { setZoomedSrc(src); setZoomedName(ref.name) }} />
             ))}
           </div>
         )}
@@ -224,11 +229,21 @@ export default function MessageBubble({ type, content, streaming, messageId, onD
           style={{ background: 'var(--ui-bg-chrome)', cursor: 'zoom-out' }}
           onClick={() => setZoomedSrc(null)}
         >
-          <img
-            src={zoomedSrc}
-            className="max-w-[95vw] max-h-[95vh] object-contain"
-            alt="放大预览"
-          />
+          <div className="flex flex-col items-center gap-2" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={zoomedSrc}
+              className="max-w-[95vw] max-h-[85vh] object-contain"
+              alt="放大预览"
+            />
+            {/* 🔴 2026-08-31 再编辑入口（对齐用户消息图灯箱）——编辑器内部归一
+                src 为 data URL，产物走 addExternalImage 新附件 → 闭环再生图 */}
+            <button
+              onClick={() => useImageEditor().openImageEditor(zoomedSrc, zoomedName)}
+              className="rounded-lg px-4 py-1.5 text-sm bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer"
+            >
+              ✏️ 编辑图片（涂抹标记后重新生图）
+            </button>
+          </div>
         </div>,
         document.body
       )}

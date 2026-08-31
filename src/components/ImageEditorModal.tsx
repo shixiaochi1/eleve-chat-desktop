@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { insertPngAnnotatedText } from '@/lib/pngAnnotated'
+import { resolveToEditableDataUrl } from '@/utils/media'
 
 type ToolMode = 'brush' | 'eraser' | 'rect' | 'polygon'
 
@@ -49,6 +50,27 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
 
   const ctx = () => maskCanvasRef.current?.getContext('2d') ?? null
 
+  // 🔴 2026-08-31 src 归一化：入口可能是 data URL / 本地路径 / gateway http URL
+  //（生成结果图 MEDIA: 标签经 resolveMediaSrc 解析）——canvas.drawImage + toDataURL
+  // 跨域 http 图会 taint 抛 SecurityError，必须统一归一成 data URL 再进编辑器。
+  const [resolvedSrc, setResolvedSrc] = useState<string | null>(null)
+  const [resolveFailed, setResolveFailed] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    setResolveFailed(false)
+    if (src.startsWith('data:')) {
+      setResolvedSrc(src)
+      return () => { cancelled = true }
+    }
+    setResolvedSrc(null)
+    resolveToEditableDataUrl(src).then((d) => {
+      if (cancelled) return
+      if (d) setResolvedSrc(d)
+      else setResolveFailed(true)
+    })
+    return () => { cancelled = true }
+  }, [src])
+
   // 🔴 v3：蒙版绘制 = 实色红 1.0（对齐画布 InpaintNode brush：strokeStyle
   // rgba(255,50,50,1.0) + shadowBlur 羽化）；显示透明度由容器 opacity 控制）
   const MASK_RED = 'rgba(255,50,50,1)'
@@ -66,10 +88,11 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
   }
 
   // 🔴 v2：初始化——canvas 像素尺寸 = img 实际显示尺寸（对齐坐标）
+  // 🔴 2026-08-31 依赖改 resolvedSrc：img 只在归一化完成后挂载
   useEffect(() => {
     const canvas = maskCanvasRef.current
     const img = imgRef.current
-    if (!canvas || !img) return
+    if (!resolvedSrc || !canvas || !img) return
     const onLoad = () => {
       const r = img.getBoundingClientRect()
       if (r.width === 0 || r.height === 0) return
@@ -86,7 +109,7 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
     else img.addEventListener('load', onLoad)
     return () => img.removeEventListener('load', onLoad)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src])
+  }, [resolvedSrc])
 
   // 🔴 v2：撤销快照——入栈的是【当前状态】（操作前），undo 回到它
   const pushUndo = useCallback(() => {
@@ -490,10 +513,20 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
         className="flex-1 relative flex items-center justify-center overflow-hidden"
         onDoubleClick={() => { if (tool === 'polygon') closePolygon() }}
       >
+        {resolveFailed ? (
+          <div className="text-sm text-red-300 border border-red-400/40 rounded-md px-4 py-3 bg-black/50">
+            图片加载失败（路径/网络不可达或跨域受限），无法编辑
+          </div>
+        ) : !resolvedSrc ? (
+          <div className="flex items-center gap-2 text-sm text-white/70">
+            <span className="inline-block size-4 border-2 border-white/30 border-t-transparent rounded-full animate-spin" />
+            正在加载图片…
+          </div>
+        ) : (
         <div className="relative" style={{ maxWidth: '100%', maxHeight: '100%' }}>
           <img
             ref={imgRef}
-            src={src}
+            src={resolvedSrc}
             alt={name ?? '编辑图片'}
             className="block max-w-full max-h-full select-none pointer-events-none"
             draggable={false}
@@ -510,6 +543,7 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
             onDoubleClick={() => { if (tool === 'polygon') closePolygon() }}
           />
         </div>
+        )}
       </div>
 
       {/* 🔴 v2：工具条在图片下方（对齐画布重绘节点布局） */}
