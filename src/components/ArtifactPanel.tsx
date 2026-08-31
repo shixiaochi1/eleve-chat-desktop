@@ -27,7 +27,7 @@ import ModeSwitcher, { type ModeOption } from '@/components/preview/ModeSwitcher
 import WindowedSourceView from '@/components/preview/WindowedSourceView';
 import ArtifactsGallery from '@/components/ArtifactsGallery';
 import { TextTab, TextTabMeta } from '@/components/ui/text-tab';
-import { useArtifactsGallery } from '@/lib/useArtifactsGallery';
+import { useArtifactsGallery } from '@/hooks/useArtifactsGallery';
 import { collectArtifactsForSession, type GalleryArtifact } from '@/lib/artifacts-gallery';
 import { useRefreshHotkey } from '@/hooks/use-refresh-hotkey';
 import { call } from '@/utils/bridge';

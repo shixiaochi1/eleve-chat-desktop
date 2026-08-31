@@ -31,7 +31,7 @@ import { loadConnection, isRemoteMode } from './lib/connection';
 import { getRememberedWorkspaceCwd, rememberWorkspaceCwd } from './lib/workspace-cwd';
 import { getActiveProfile } from './utils/api';
 import { getWsClient, setWsActiveProfile, type SessionCreateResponse } from './services/ws-client';
-import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer, loadProfilePointers, saveProfilePointer, removeProfilePointer } from './utils/session';
+import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer, loadProfilePointers, saveProfilePointer, removeProfilePointer, latestSessionForDomain, shortSessionLabel } from './utils/session';
 import { notifyError, notifyInfo } from './utils/notifications';
 import type { ChatMessage } from './types';
 import { Minus, Square, X, FileText } from 'lucide-react';
@@ -85,31 +85,9 @@ let tauriWindow: Window | null = null;
 })();
 
 // ── helpers ──
-
-// 🔴 2026-08-12 联动重构（老大需求：选 Agent → 点项目/HOME → 消息区 + 右侧文件联动）：
-//   找某 Agent 某域的最新活跃会话：
-//   - 项目域（path 非空）= 会话 cwd 在 path 下（前缀匹配 + 路径边界，防 C:\projAB 误判属于 C:\projA）
-//   - HOME 域 = 该 Agent workspace 路径（后端注入 Home 桶 path；匹配 workspace 下会话）
-//   按 last_active 降序取最新；无匹配返回 null
-/** 🔴 2026-08-17 阶段4：会话短标签（后台会话交互卡片显示） */
-function shortSessionLabel(sid: string): string {
-  return sid.length > 16 ? `${sid.slice(0, 8)}…${sid.slice(-6)}` : sid
-}
-
-function latestSessionForDomain(
-  sessions: Array<{ id: string; cwd?: string | null; last_active: number }>,
-  profile: string,
-  path: string,
-): { id: string; cwd?: string | null; last_active: number } | null {
-  const p = path.toLowerCase(); // Windows 路径大小写不敏感
-  const matches = sessions.filter((s) => {
-    if (!sessionIdMatchesProfile(s.id, profile)) return false;
-    const c = (s.cwd ?? '').toLowerCase();
-    if (path) return !!c && (c === p || c.startsWith(p + '\\') || c.startsWith(p + '/'));
-    return !c;
-  });
-  return matches.sort((a, b) => b.last_active - a.last_active)[0] ?? null;
-}
+// 🔴 2026-08-12 联动重构（老大需求：选 Agent → 点项目/HOME → 消息区 + 右侧文件联动）
+// 的域匹配纯函数（latestSessionForDomain / shortSessionLabel）已于 2026-09-01
+// 归位 utils/session.ts（App 减负：纯函数不驻组件文件）。
 
 // 🔴 2026-08-18 画布 × ELEVE 集成 + 2026-08-19 根治修订：
 // 画布 = ELEVE 的可拔插插件（浏览器半，由 gateway 同源装载）。

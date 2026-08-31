@@ -15,6 +15,8 @@ import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
 import { getWsClient } from '../services/ws-client';
 import type { CronJob } from '@/types/eleve';
+// 🔴 2026-09-01 收敛：格式化实现统一到 utils/time（本处保留 null/NaN 业务兜底）
+import { formatShortDateTime } from '../utils/time';
 import {
   NewIcon, DeleteIcon, PlayIcon, PauseIcon,
   PencilIcon, TrashIcon, ClockIcon, HistoryIcon,
@@ -142,7 +144,7 @@ function scheduleSummary(preset: string, expr: string): string {
 function formatTime(ts: string | null | undefined): string {
   if (!ts) return '—';
   const d = new Date(ts);
-  return isNaN(d.getTime()) ? ts : d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return isNaN(d.getTime()) ? ts : formatShortDateTime(d);
 }
 
 // schedule 字段运行时兼容（类型声明为对象 {expr}，防御历史字符串形态）

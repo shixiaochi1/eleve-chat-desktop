@@ -21,7 +21,9 @@ export default defineConfig({
       output: {
         manualChunks: {
           xterm: ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-web-links'],
-          marked: ['marked'],
+          // 🔴 2026-09-01：移除 marked 独立 chunk——markdown 已统一 unified/rehype
+          // 管线（utils/markdown.ts），marked 依赖已卸载，残留 chunk 入口会导致
+          // 构建失败（Could not resolve entry module "marked"）。
           dompurify: ['dompurify'],
           virtual: ['@tanstack/react-virtual'],
           radix: [

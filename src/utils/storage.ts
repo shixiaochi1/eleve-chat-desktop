@@ -262,8 +262,14 @@ export function load(key: string, fallback: unknown = null): unknown {
  * 保存数据（同步写内存缓存 + 后台异步持久化到 AppService）
  */
 export function save(key: string, value: unknown): void {
-  _cache.set(key, JSON.stringify(value));
-  _persist(key, JSON.stringify(value));
+  // 🔴 2026-09-01 内存修复（审查 P0-1 放大器）：消除双重 stringify——
+  // 原实现对同一 value 序列化两次（内存缓存 + 持久化各一次）。msg_cache
+  // 全量回写路径（每 turn 一次，见 useMessageStream saveCache 调用点）下，
+  // 大 JSON 的重复序列化是主线程 CPU 尖峰与瞬时内存翻倍的主源之一。
+  // 复用同一次序列化结果，行为语义不变（两处持有同一字符串内容）。
+  const raw = JSON.stringify(value);
+  _cache.set(key, raw);
+  _persist(key, raw);
 }
 
 /**

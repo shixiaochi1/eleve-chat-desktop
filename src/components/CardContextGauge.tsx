@@ -23,13 +23,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-
-/** 格式化数字（如 134800 → "134.8k"） */
-function fmtNum(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
-  return String(n);
-}
+// 🔴 2026-09-01 收敛：fmtNum 局部复制版删除，统一 utils/format.formatCompactTokens
+import { formatCompactTokens as fmtNum } from '@/utils/format';
 
 interface CardContextGaugeProps {
   /** 本卡片 Agent 的会话 id（null = 未建会话，显示占位） */

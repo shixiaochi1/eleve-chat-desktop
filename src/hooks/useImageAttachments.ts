@@ -14,6 +14,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { getWsClient, type ImageAttachResponse } from '@/services/ws-client';
 import { readFileAsDataURL, base64FromDataURL, mimeFromExt, arrayBufferToBase64, base64ToUint8Array } from '@/utils/file';
+import { formatFileSize } from '@/utils/format';
 import { isRemoteMode, loadConnection } from '@/lib/connection';
 // 🔴 2026-08-31 图片缩放重试不在前端做：后端 conversation_loop.rs 已有 Hermes
 // 对齐实现（shrink_image_parts_in_messages，LLM 层 4MB/2048）；attach 层前后端
@@ -90,7 +91,7 @@ export function useImageAttachments(options?: {
 
     // 2. 客户端预检：文件大小
     if (file.size > MAX_IMAGE_SIZE) {
-      setError(`图片过大: ${(file.size / 1024 / 1024).toFixed(1)}MB（上限 25MB）`);
+      setError(`图片过大: ${formatFileSize(file.size)}（上限 25MB）`);
       return null;
     }
 
@@ -156,7 +157,7 @@ export function useImageAttachments(options?: {
       const info = await stat(path);
       fileSize = Number(info.size ?? 0);
       if (fileSize > MAX_IMAGE_SIZE) {
-        setError(`图片过大: ${(fileSize / 1024 / 1024).toFixed(1)}MB（上限 25MB）`);
+        setError(`图片过大: ${formatFileSize(fileSize)}（上限 25MB）`);
         return null;
       }
       // 读文件字节 → data URL（预览用；Tauri 环境 plugin-fs，浏览器模式不可达）

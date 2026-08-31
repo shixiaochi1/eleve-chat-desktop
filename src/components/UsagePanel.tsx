@@ -18,12 +18,9 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from './ui/skeleton';
-
-function fmtNum(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
-  return n.toLocaleString();
-}
+// 🔴 2026-09-01 收敛：fmtNum 局部复制版删除，统一 utils/format.formatTokens
+//（K 大写风格一致；0 值由 "0" 统一为 "—"，语义为无数据）
+import { formatTokens as fmtNum } from '@/utils/format';
 
 function fmtCost(n: number): string {
   if (!n || n <= 0) return '$0';

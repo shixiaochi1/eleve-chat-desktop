@@ -536,6 +536,22 @@ export class GatewayWsClient {
     this.unsubscribeSession(sessionId)
   }
 
+  // 🔴 2026-09-01 内存/事件量治理（审查 P1-3）：订阅注册表上限。此前只增
+  // 不减：看过的所有会话 id 永驻，且每次重连对全部条目 re-attach（后端逐
+  // 会话推全量 session.info）。宫格多卡片并发订阅是合法语义 → 不能按
+  // "切走即退订"治理；改为 LRU 容量上限（Set 迭代序 = 插入序），当前全局
+  // 会话受保护。32 覆盖宫格全卡片 + 单视图近期切换历史，绰绰有余。
+  private static readonly ATTACHED_SESSIONS_MAX = 32
+
+  private pruneAttachedSessions(): void {
+    if (this.attachedSessions.size <= GatewayWsClient.ATTACHED_SESSIONS_MAX) return
+    for (const sid of this.attachedSessions) {
+      if (this.attachedSessions.size <= GatewayWsClient.ATTACHED_SESSIONS_MAX) break
+      if (sid === this.sessionId) continue // 当前全局会话受保护
+      this.attachedSessions.delete(sid)
+    }
+  }
+
   // 🔴 2026-08-13 架构统一：会话订阅（多视图统一接入，替代仅单视图 switchSession 的隐式订阅）。
   // 单视图 switchSession / 宫格卡片 / 独立窗口 统一走 subscribeSession——
   // ① 加入 attachedSessions 重连恢复注册表（重连批量 re-attach → session.info 快照恢复）
@@ -544,7 +560,10 @@ export class GatewayWsClient {
   subscribeSession(sessionId: string): void {
     if (!sessionId) return
     const isNew = !this.attachedSessions.has(sessionId)
+    // LRU 序刷新：重复订阅置顶（delete+add），防活跃会话被误淘汰
+    if (!isNew) this.attachedSessions.delete(sessionId)
     this.attachedSessions.add(sessionId)
+    this.pruneAttachedSessions()
     if (isNew && this._state === 'connected') {
       this.sendRpc('session.attach', { session_id: sessionId }).catch((e) => { console.warn('[ws] session.attach failed:', e) })
     }

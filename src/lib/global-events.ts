@@ -16,6 +16,7 @@
  */
 import { getWsClient } from '@/services/ws-client';
 import { playWakeSound, dispatchWakeDetected } from './wake-events';
+import { releaseAgentTerminal } from './agent-terminal-stream';
 
 /**
  * 处理全局 WS 事件（无 session_id）。
@@ -48,11 +49,21 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
       }).catch(() => {});
       return true;
 
-    case 'terminal.close':
-      import('@/store/terminals').then(({ closeAgentTerminalByProc }) => {
-        closeAgentTerminalByProc((payload.process_id as string) || '');
+    case 'terminal.close': {
+      // 🔴 2026-09-01 内存修复（审查 P1-1）：进程退出 → 释放 agent 终端流的
+      // 进程级缓冲（backlog ≤256KB + lastSnapshots + 命令头，此前永不删除）
+      // 与 terminals surfacedProcs 记录。本 case 是单视图（useSSE
+      // onTerminalClose）与宫格（useGridChat）共享的汇聚点，一处挂钩全覆盖。
+      // 已打开 tab 的 xterm buffer 独立持有显示内容不受影响；进程已死，
+      // 重开 tab 不回放（回放价值归零）。幂等。
+      const procId = (payload.process_id as string) || '';
+      releaseAgentTerminal(procId);
+      import('@/store/terminals').then(({ closeAgentTerminalByProc, releaseAgentProc }) => {
+        releaseAgentProc(procId);
+        closeAgentTerminalByProc(procId);
       }).catch(() => {});
       return true;
+    }
 
     case 'terminal.read.request': {
       const requestId = typeof payload.request_id === 'string' ? payload.request_id : '';

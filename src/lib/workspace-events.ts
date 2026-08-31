@@ -13,25 +13,17 @@
  * 与 Hermes store/workspace-events.ts 完全同构。
  */
 
-import { useSyncExternalStore } from 'react';
+import { createAtomStore } from './store-factory';
 
 const MIN_INTERVAL_MS = 500;
-let tick = 0;
 let lastFired = 0;
 let trailing: number | null = null;
-const listeners = new Set<() => void>();
-const emit = () => listeners.forEach((l) => l());
-const subscribe = (l: () => void) => {
-  listeners.add(l);
-  return () => {
-    listeners.delete(l);
-  };
-};
+// 🔴 2026-09-01 收敛：手写 listeners/emit/subscribe 样板 → createAtomStore（tick 计数器）
+const tickStore = createAtomStore<number>(0);
 
 function fire(): void {
   lastFired = Date.now();
-  tick += 1;
-  emit();
+  tickStore.set((t) => t + 1);
 }
 
 // ── 精准失效负载（对齐 Hermes pendingDirs/pendingFull）──
@@ -82,7 +74,7 @@ export function notifyWorkspaceChanged(changedPath?: string): void {
 
 /** 订阅 tick（消费方：文件树自动刷新） */
 export function useWorkspaceTick(): number {
-  return useSyncExternalStore(subscribe, () => tick);
+  return tickStore.useAtom();
 }
 
 /** 后端 workspace.changed 事件入口（外部文件变更权威源）

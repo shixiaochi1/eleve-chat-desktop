@@ -4,7 +4,7 @@ import { setMessages as storeSetMessages } from '../store/messages';
 import { setMonitor } from '../store/debug';
 import { getWsClient } from '../services/ws-client';
 import { clearSessionPointer, persistSessionPointer, profileFromSessionId, removeProfilePointer, sessionIdMatchesProfile } from '../utils/session';
-import type { SessionManagerHandle } from './useMessageStream';
+import type { SessionManagerHandle } from './useSessions';
 import { textPart } from '@/lib/chat-messages'
 import type { ChatMessage } from '@/types';
 

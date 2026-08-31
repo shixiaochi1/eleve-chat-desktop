@@ -23,6 +23,7 @@ import { readFile, readTextFile, stat, writeTextFile } from '@tauri-apps/plugin-
 import { AlertCircle, Download, File, Loader2, Pencil, RefreshCw, X } from 'lucide-react';
 import type { PreviewTab } from '@/store/preview';
 import { renderMarkdown } from '@/utils/markdown';
+import { formatFileSize } from '@/utils/format';
 import { cn } from '@/lib/utils';
 import { setPreviewDirty } from '@/lib/preview-edit';
 import { notifyWorkspaceChanged } from '@/lib/workspace-events';
@@ -535,7 +536,8 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
         </span>
         {!editing && byteSize > 0 && (
           <span className="text-[10px] text-[var(--ui-text-tertiary)] shrink-0">
-            {(byteSize / 1024).toFixed(byteSize > 1024 * 1024 ? 1 : 0)} KB
+            {/* 🔴 2026-09-01 收敛：统一 formatFileSize（原固定 KB 显示，大文件现在自适应为 MB） */}
+            {formatFileSize(byteSize)}
           </span>
         )}
         {editing ? (
@@ -670,7 +672,7 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
               <File size={32} strokeWidth={1} />
               <span className="text-xs text-[var(--ui-text-secondary)]">文件较大，未加载内容</span>
               <span className="text-[10px] text-[var(--ui-text-tertiary)]">
-                {(byteSize / 1024 / 1024).toFixed(1)} MB（超过 {(LARGE_FILE_THRESHOLD / 1024 / 1024).toFixed(0)} MB）
+                {formatFileSize(byteSize)}（超过 {formatFileSize(LARGE_FILE_THRESHOLD, 0)}）
               </span>
               <button
                 onClick={handleForcePreview}

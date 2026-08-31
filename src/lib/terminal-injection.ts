@@ -5,37 +5,34 @@
  * 把文档化移除命令排进活跃终端跑，用户看到实际执行了什么。
  * ELEVE 目前 provider 均为配置文件管理（无 CLI disconnect_command 场景），
  * 协议先行移植，消费侧 = UserTerminalView flush（活跃 tab + session open）。
+ *
+ * 🔴 2026-09-01 收敛：手写 listeners/emit/subscribe 样板 → lib/store-factory
+ * createAtomStore（导出 API 签名不变，消费方零改动）。
  */
-import { useSyncExternalStore } from 'react';
+import { createAtomStore } from './store-factory';
 
-let injection: string | null = null;
-const listeners = new Set<() => void>();
-const emit = () => listeners.forEach((l) => l());
+const store = createAtomStore<string | null>(null);
 
 export function subscribeTerminalInjection(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  return store.subscribe(listener);
 }
 
 export function getTerminalInjectionSnapshot(): string | null {
-  return injection;
+  return store.get();
 }
 
 /** 打开终端面板并排队一条命令（活跃 tab + session ready 后 flush，清空防重放） */
 export function runInTerminal(command: string): void {
   const trimmed = command.trim();
   if (!trimmed) return;
-  injection = trimmed;
-  emit();
+  store.set(trimmed);
 }
 
 export function clearTerminalInjection(): void {
-  injection = null;
+  store.set(null);
 }
 
 /** React 消费（对齐 Hermes useStore($terminalInjection)） */
 export function useTerminalInjection(): string | null {
-  return useSyncExternalStore(subscribeTerminalInjection, getTerminalInjectionSnapshot);
+  return store.useAtom();
 }

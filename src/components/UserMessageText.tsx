@@ -5,7 +5,7 @@ import { DirectiveText } from './DirectiveText';
  * UserMessageText — 用户消息最小 Markdown 渲染（对齐 Hermes UserMessageText）
  *
  * 只渲染两种结构（Hermes 同款设计原则：用户输入很少含结构化文档，
- * 不引入完整 marked 管线，成本最低）：
+ * 不引入完整 unified 渲染管线，成本最低）：
  * - ``` fenced block → 代码块（pre + code，保留原始换行与缩进）
  * - `inline code` → 行内代码高亮
  * - 其余全部按纯文本（React 文本节点自动转义，无 XSS 风险，不经过 DOMPurify）

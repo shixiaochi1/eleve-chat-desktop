@@ -5,40 +5,33 @@
  * VS Code 风格"已修改"圆点，无需把编辑状态穿透到 tab 条。
  * 唯一写入方 = PreviewFilePane（编辑态 + dirty）；唯一读取方 = PreviewTabBar。
  *
- * 存储模式对齐 ELEVE store/preview-console.ts：useSyncExternalStore +
- * 事件订阅，零新机制。
+ * 🔴 2026-09-01 收敛：手写 listeners/emit/subscribe 样板 → lib/store-factory
+ * createAtomStore（导出 API 签名不变，消费方零改动）。
  */
 
-import { useSyncExternalStore } from 'react';
+import { createAtomStore } from './store-factory';
 
-let dirtyUrls: Record<string, boolean> = {};
-const listeners = new Set<() => void>();
-const emit = () => listeners.forEach((l) => l());
-const subscribe = (l: () => void) => {
-  listeners.add(l);
-  return () => {
-    listeners.delete(l);
-  };
-};
+const store = createAtomStore<Record<string, boolean>>({});
 
 export function setPreviewDirty(url: string, dirty: boolean): void {
   if (!url) return;
-  if (dirty === Boolean(dirtyUrls[url])) return;
-  if (dirty) {
-    dirtyUrls = { ...dirtyUrls, [url]: true };
-  } else {
-    const next = { ...dirtyUrls };
-    delete next[url];
-    dirtyUrls = next;
-  }
-  emit();
+  if (dirty === Boolean(store.get()[url])) return;
+  store.set((prev) => {
+    const next = { ...prev };
+    if (dirty) {
+      next[url] = true;
+    } else {
+      delete next[url];
+    }
+    return next;
+  });
 }
 
 export function isPreviewDirty(url: string): boolean {
-  return Boolean(dirtyUrls[url]);
+  return Boolean(store.get()[url]);
 }
 
 /** React 订阅（tab 条渲染圆点用） */
 export function usePreviewDirty(url: string): boolean {
-  return useSyncExternalStore(subscribe, () => isPreviewDirty(url));
+  return store.useSelector((dirtyUrls) => Boolean(dirtyUrls[url]));
 }

@@ -4,7 +4,7 @@
  *
  * 职责分层对齐 Hermes：图标抓取/解析/排名全在主进程（ELEVE = src-tauri
  * external_fetch.rs::fetch_favicon，"the thorough way" 阶梯），本模块只做
- * 请求、等待与占位。缓存/in-flight 去重/订阅广播复用 lib/use-link-title.ts
+ * 请求、等待与占位。缓存/in-flight 去重/订阅广播复用 use-link-title.ts
  * 同款模式（铁律 4 共享模式）。
  *
  * Hermes 语义：data URL 而非链接（渲染免二次网络往返、站点挂了图标仍在、
@@ -14,12 +14,14 @@
  * 有意偏差：Hermes 组件 pending 态渲染 spinner（连接器 logo 场景，单个大
  * 图标）；ELEVE 用于画廊行内 14px 小格，成排转圈噪音大于价值，pending
  * 直接显示 fallback 字形。
+ *
+ * 🔴 2026-09-01 分层归位：lib/ → hooks/（hook 文件归位 hooks 层，纯移动）。
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '@/lib/utils';
-import { isTitleFetchable, normalizeExternalUrl } from '@/lib/use-link-title';
+import { isTitleFetchable, normalizeExternalUrl } from '@/hooks/use-link-title';
 
 /** url → data URL；'' = 已失败不重试。模块级缓存：重挂载不再跨 IPC */
 const resolved = new Map<string, string>();

@@ -6,6 +6,12 @@ import * as storage from '../utils/storage';
 import { persistSessionPointer, clearSessionPointer, profileFromSessionId } from '../utils/session';
 import { toChatMessages, type SessionMessage } from '@/lib/chat-messages';
 import { getWsClient } from '../services/ws-client';
+import {
+  pruneMsgCache,
+  touchAndPruneMsgCache,
+  dropMsgCacheEntry,
+  findTouchedKey,
+} from '@/lib/msg-cache';
 
 export function useSessions(): {
   sessionId: string | null
@@ -34,7 +40,15 @@ export function useSessions(): {
 } {
   const [sessionId, setSessionIdState] = useState<string | null>(() => (storage.load('session_id', null) as string | null));
   const [sessions, setSessions] = useState<Session[]>(() => (storage.load('sessions', null) as Session[]) || []);
-  const [msgCache, setMsgCache] = useState<Record<string, ChatMessage[]>>(() => (storage.load('msg_cache', null) as Record<string, ChatMessage[]>) || {});
+  const [msgCache, setMsgCache] = useState<Record<string, ChatMessage[]>>(() => {
+    const loaded = (storage.load('msg_cache', null) as Record<string, ChatMessage[]> | null) || {};
+    // 🔴 2026-09-01 内存修复（审查 P0-1）：启动恢复旧全量数据 → 立即裁剪并
+    // 回写落盘。存量用户磁盘上的 msg_cache 可能已是几十 MB（历史上限），
+    // 不裁剪则首次重启前内存照旧。淘汰安全（msgCache 非权威源，见 lib/msg-cache.ts）。
+    const pruned = pruneMsgCache(loaded);
+    if (pruned !== loaded) storage.save('msg_cache', pruned);
+    return pruned;
+  });
   const [titles, setTitles] = useState<Record<string, string>>(() => (storage.load('titles', null) as Record<string, string>) || {});
   // ── freshDraftReady — 对齐 Eleve startFreshSessionDraft 懒创建标记
   // true = 用户点了"新建会话"但还没发首条消息，后端 session 尚未创建
@@ -66,8 +80,18 @@ export function useSessions(): {
   const saveCache = useCallback((updater: ((cache: Record<string, ChatMessage[]>) => Record<string, ChatMessage[]>) | Record<string, ChatMessage[]>): void => {
     setMsgCache((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
-      storage.save('msg_cache', next);
-      return next;
+      // 🔴 2026-09-01 内存修复（审查 P0-1）：LRU 容量治理——只留最近
+      // MSG_CACHE_MAX_SESSIONS(10) 个会话。此前缓存所有打开过的会话全量消息
+      // （含工具 args/result 大字符串）且每 turn 全量回写，无界增长。
+      // touch 目标 = 本次写入的会话（写点恒为 { ...cache, [sid]: msgs }
+      // 引用新建形态，引用 diff 识别，调用方零改动）。淘汰安全：msgCache
+      // 非权威源，读取点仅"秒显"且恒被 loadHistory 后端数据覆盖。
+      const touchedKey = findTouchedKey(prev, next);
+      const pruned = touchedKey
+        ? touchAndPruneMsgCache(next, touchedKey)
+        : pruneMsgCache(next);
+      storage.save('msg_cache', pruned);
+      return pruned;
     });
   }, []);
 
@@ -131,6 +155,8 @@ export function useSessions(): {
     try { await api.deleteSession(id); } catch { /* ignore */ }
     setSessions((prev) => prev.filter((s) => s.id !== id));
     saveCache((prev) => { const c = { ...prev }; delete c[id]; return c; });
+    // 🔴 2026-09-01 内存修复：LRU 序号联动清理（防脏序号残留）
+    dropMsgCacheEntry(id);
     if (sessionId === id) {
       setSessionIdSync(null);
       // 🔴 P1-4: 收敛到权威函数（禁止裸调 storage.remove，防僵尸指针）
@@ -180,3 +206,11 @@ export function useSessions(): {
     setTitle, getTitle, saveCache, saveTitles, loadHistory,
   };
 }
+
+/**
+ * 会话管理器句柄 — 单一权威源（🔴 2026-09-01 收敛，审查：接口重复定义）。
+ * 此前 useMessageStream.ts 存在一份几乎逐字重复的平行定义（已漂移：create
+ * 签名缺 cwd、缺 sessionReady 门禁）。消费方（useSessionActions/usePromptActions）
+ * 统一 import 本类型；ReturnType 推导零手抄，杜绝再次漂移。
+ */
+export type SessionManagerHandle = ReturnType<typeof useSessions>;

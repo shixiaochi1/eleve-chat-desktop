@@ -196,6 +196,15 @@ export function openAgentTerminal(procId: string, title: string): void {
   emitChange();
 }
 
+/** 🔴 2026-09-01 内存修复（审查 P1-1）：进程退出 → 清 surface 记录。
+ *  surfacedProcs 此前只 add 不 delete，随历史进程数无界累积。注意只在
+ *  terminal.close（进程退出）调用——用户手动关 tab 时进程仍在跑，
+ *  清了会被下次轮询重新 surface（见 ensureAgentTerminal 防复活语义）。 */
+export function releaseAgentProc(procId: string): void {
+  if (!procId) return;
+  surfacedProcs.delete(procId);
+}
+
 /** Guarantee at least one tab exists */
 export function ensureTerminal(): void {
   if (terminals.length === 0) createTerminal();

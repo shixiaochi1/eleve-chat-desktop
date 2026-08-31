@@ -9,7 +9,7 @@ import { getWsClient } from '../services/ws-client';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
 
 import type { ChatMessage } from '@/types'
-import type { SessionManagerHandle } from './useMessageStream';
+import type { SessionManagerHandle } from './useSessions';
 
 // 对齐 Hermes: Hard guard — at most one prompt.submit in flight per session
 const _submitInFlight = new Set<string>()

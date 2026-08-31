@@ -18,8 +18,8 @@ import {
 import ImageLightbox from '@/components/ImageLightbox';
 import { notifyError, notifySuccess } from '@/utils/notifications';
 import { openLink } from '@/lib/external-open';
-import { useLinkTitle } from '@/lib/use-link-title';
-import { Favicon } from '@/lib/use-favicon';
+import { useLinkTitle } from '@/hooks/use-link-title';
+import { Favicon } from '@/hooks/use-favicon';
 import { cn } from '@/lib/utils';
 import {
   ARTIFACT_FILTERS,

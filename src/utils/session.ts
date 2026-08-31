@@ -173,3 +173,31 @@ export function batchSaveProfilePointers(entries: Record<string, string>): void 
   Object.assign(map, entries);
   storage.save('profile_session_map', map);
 }
+
+// ── 会话联动查询（🔴 2026-09-01 从 App.tsx 搬出：纯函数归位工具层，App 减负）──
+
+/** 会话短标签（后台会话交互卡片显示）：长 id 取头尾，短 id 原样 */
+export function shortSessionLabel(sid: string): string {
+  return sid.length > 16 ? `${sid.slice(0, 8)}…${sid.slice(-6)}` : sid
+}
+
+/**
+ * 找某 Agent 某域的最新活跃会话（🔴 2026-08-12 联动重构需求，2026-09-01 归位）：
+ * - 项目域（path 非空）= 会话 cwd 在 path 下（前缀匹配 + 路径边界，防 C:\projAB 误判属于 C:\projA）
+ * - HOME 域 = 该 Agent workspace 路径（后端注入 Home 桶 path；匹配 workspace 下会话）
+ * 按 last_active 降序取最新；无匹配返回 null
+ */
+export function latestSessionForDomain(
+  sessions: Array<{ id: string; cwd?: string | null; last_active: number }>,
+  profile: string,
+  path: string,
+): { id: string; cwd?: string | null; last_active: number } | null {
+  const p = path.toLowerCase(); // Windows 路径大小写不敏感
+  const matches = sessions.filter((s) => {
+    if (!sessionIdMatchesProfile(s.id, profile)) return false;
+    const c = (s.cwd ?? '').toLowerCase();
+    if (path) return !!c && (c === p || c.startsWith(p + '\\') || c.startsWith(p + '/'));
+    return !c;
+  });
+  return matches.sort((a, b) => b.last_active - a.last_active)[0] ?? null;
+}

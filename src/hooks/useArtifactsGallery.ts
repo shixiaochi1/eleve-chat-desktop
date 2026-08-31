@@ -6,6 +6,8 @@
  * 本 hook 只负责数据，UI 由消费方（ArtifactPanel）与 ArtifactsGallery 拆分承载。
  *
  * 数据链路：session.list(30) → 每会话 session.history 全量 → collectArtifactsForSession 纯函数提取。
+ *
+ * 🔴 2026-09-01 分层归位：lib/ → hooks/（hook 文件归位 hooks 层，纯移动）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { call } from '@/utils/bridge';

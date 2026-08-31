@@ -164,7 +164,7 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
       {/* 内容区 — markdown 渲染（对齐 Hermes ReasoningTextPart → MarkdownTextContent）：
           thinking 内容自带 markdown 语法（行内 code / 代码围栏 / 粗体 / 列表），纯文本直出会
           裸奔反引号与围栏标记；走与主气泡相同的 StreamBlocks 管线（merge → autolink →
-          repair → split → marked）→ 行内 code 样式化、代码围栏变代码卡片、强调/列表正常排版。
+          repair → split → renderMarkdown）→ 行内 code 样式化、代码围栏变代码卡片、强调/列表正常排版。
           pending（流式）时尾块延迟高亮 + useDeferredValue 降载（对齐 Hermes defer）。
           🔴 折叠态 = 2 行滚动窗口（v3 起思考中/思考后统一，不再用 line-clamp-2）：
           .reasoning-preview（CSS 侧 3.3em=恰好两行 + 内容行网格强制 1.65 +

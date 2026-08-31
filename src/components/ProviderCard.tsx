@@ -6,6 +6,8 @@ import { Input } from './ui/input';
 import { lookupModelCapabilities, testProviderConnection } from '@/utils/settings-store';
 import { selectCls } from '@/lib/ui-styles';
 import type { ProviderModel } from '@/utils/settings-store';
+// 🔴 2026-09-01 收敛：fmtTokens 局部版删除，统一 utils/format.formatTokens（实现一致）
+import { formatTokens as fmtTokens } from '@/utils/format';
 
 interface Provider {
   id: string;
@@ -35,14 +37,6 @@ interface ProviderCardProps {
   onDisconnect?: (id: string) => void;
   onSave?: () => void;
   keyVisible: boolean;
-}
-
-/** 数字格式化：128000 → 128K */
-function fmtTokens(n: number | undefined | null): string {
-  if (!n || n <= 0) return '—';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
-  if (n >= 1000) return `${Math.round(n / 1000)}K`;
-  return String(n);
 }
 
 /**

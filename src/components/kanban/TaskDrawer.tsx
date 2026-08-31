@@ -18,6 +18,7 @@ import {
   deleteKanbanLink, createKanbanLink, getKanbanTaskLog, getKanbanDiagnostics,
   getApiBase, getKanbanProfiles, getKanbanOrchestration, reassignKanbanTask, estimateKanbanTaskById,
 } from '@/utils/api';
+import { formatFileSize } from '@/utils/format';
 import type { KanbanTask, CommentRecord, AttachmentRecord, RunRecord, KanbanEvent } from './types';
 import { isBlocked, isDone, fmtAge, fmtDuration } from './helpers';
 import { COLUMNS, LOCKED_DROP_COLUMNS } from './constants';
@@ -1065,7 +1066,7 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                     <div key={i} className="flex items-center gap-2 text-[0.8rem] px-3 py-2 rounded border border-[var(--ui-stroke-tertiary)]">
                       <Paperclip size={12} className="shrink-0 text-[var(--ui-text-tertiary)]" />
                       <span className="truncate text-[var(--ui-text-primary)]">{a.filename || a.name || `附件 ${i + 1}`}</span>
-                      {a.size && <span className="text-[0.65rem] text-[var(--ui-text-quaternary)] ml-auto">{(a.size / 1024).toFixed(1)}KB</span>}
+                      {a.size && <span className="text-[0.65rem] text-[var(--ui-text-quaternary)] ml-auto">{formatFileSize(a.size)}</span>}
                       <button onClick={() => { const base = getApiBase(); const p = getWsActiveProfile(); const prefix = p ? `/p/${p}` : ''; window.open(`${base}${prefix}/api/kanban/attachments/${a.id}?board=${encodeURIComponent(board)}`, '_blank'); }} title="下载附件"
                         className="text-[var(--kanban-hover-bg)] hover:text-[var(--kanban-hover-bg)] transition-colors ml-1"><Download size={11} strokeWidth={1.5} /></button>
                       <button onClick={async () => { try { await deleteKanbanAttachment(a.id!, board); const data = await getKanbanAttachments(task.id, board); setAttachments(data?.attachments || data || []); } catch {} }} title="删除附件"

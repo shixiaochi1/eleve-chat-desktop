@@ -54,6 +54,8 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
   const webglRef = useRef<any>(null);
   const initializedRef = useRef(false);
   const unregisterReaderRef = useRef<(() => void) | null>(null);
+  // 🔴 2026-09-01 内存修复（审查 P1-2）：async init 卸载竞态的代数令牌
+  const initGenerationRef = useRef(0);
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
 
@@ -100,12 +102,23 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
   const init = useCallback(() => {
     if (initializedRef.current) return;
 
+    // 🔴 2026-09-01 内存修复（审查 P1-2）：异步 init 卸载竞态——代数失效机制
+    // （每次 init 自增新代；cleanup 也自增使进行中的 init 失效；旧代 IIFE 在
+    // 检查点放弃。StrictMode 双挂载安全：第二次 mount 的 init 持新代，第一次
+    // 的旧代在检查点 1 放弃）。原实现 cleanup 只 dispose terminalRef 当时
+    // 已有的实例 → await 期间卸载后创建的 xterm + WebGL 实例永不释放
+    // （WebGL context 是显存级重资源）。
+    const generation = ++initGenerationRef.current;
+
     (async () => {
       try {
         const { Terminal } = await import('@xterm/xterm');
         const { FitAddon } = await import('@xterm/addon-fit');
         const { Unicode11Addon } = await import('@xterm/addon-unicode11');
         const { WebglAddon } = await import('@xterm/addon-webgl');
+
+        // 竞态检查点 1：动态 import 期间已卸载/重启 → 零资源创建直接放弃
+        if (initGenerationRef.current !== generation) return;
 
         const fitAddon = new FitAddon();
 
@@ -196,6 +209,12 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
           onSelectionChangeRef.current?.(text, host && text.trim() ? terminalSelectionAnchor(host) : null);
         });
 
+        // 竞态检查点 2：cleanup 已跑 → 立即释放刚创建的实例（含 WebGL addon）
+        if (initGenerationRef.current !== generation) {
+          try { term.dispose(); } catch { /* ignore */ }
+          return;
+        }
+
         fitAddonRef.current = fitAddon;
         terminalRef.current = term;
 
@@ -236,6 +255,9 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
       init();
     }
     return () => {
+      // 🔴 2026-09-01 内存修复（审查 P1-2）：使进行中的 async init 失效
+      //（代数自增 → await 期间卸载的 init 在检查点自行 dispose 新建实例）
+      initGenerationRef.current++;
       // Cleanup buffer reader（对齐 Hermes: unregister on dispose）
       if (unregisterReaderRef.current) {
         unregisterReaderRef.current();

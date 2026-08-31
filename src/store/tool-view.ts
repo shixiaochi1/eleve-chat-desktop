@@ -5,9 +5,12 @@
  * technical（技术）: 显示完整原始输入/输出及底层细节
  *
  * 持久化键 'display.tool_view_mode'（沿用旧 AppearanceSettings 的键，
- * 存量用户选择不丢失）。useSyncExternalStore 模式与 store/terminals.ts 一致。
+ * 存量用户选择不丢失）。
+ *
+ * 🔴 2026-09-01 收敛：手写 listeners/emit/subscribe 样板 → lib/store-factory
+ * createAtomStore（导出 API 签名不变，消费方零改动）。
  */
-import { useSyncExternalStore } from 'react';
+import { createAtomStore } from '../lib/store-factory';
 import * as storage from '../utils/storage';
 
 export type ToolViewMode = 'product' | 'technical';
@@ -19,25 +22,19 @@ function loadInitial(): ToolViewMode {
   return storage.load(STORAGE_KEY, 'technical') === 'technical' ? 'technical' : 'product';
 }
 
-let mode: ToolViewMode = typeof window === 'undefined' ? 'technical' : loadInitial();
-const listeners = new Set<() => void>();
+const store = createAtomStore<ToolViewMode>(typeof window === 'undefined' ? 'technical' : loadInitial());
 
 export function getToolViewMode(): ToolViewMode {
-  return mode;
+  return store.get();
 }
 
 export function setToolViewMode(next: ToolViewMode): void {
-  if (mode === next) return;
-  mode = next;
-  storage.save(STORAGE_KEY, next);
-  listeners.forEach(l => l());
-}
-
-function subscribe(cb: () => void): () => void {
-  listeners.add(cb);
-  return () => { listeners.delete(cb); };
+  // set 返回"是否实际变更"——值没变不重复落盘
+  if (store.set(next)) {
+    storage.save(STORAGE_KEY, next);
+  }
 }
 
 export function useToolViewMode(): ToolViewMode {
-  return useSyncExternalStore(subscribe, getToolViewMode, getToolViewMode);
+  return store.useAtom();
 }

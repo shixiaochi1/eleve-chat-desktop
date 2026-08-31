@@ -17,7 +17,8 @@
  */
 
 import { isDesktop } from '@/utils/bridge';
-import { normalizeExternalUrl } from './use-link-title';
+// 🔴 2026-09-01 分层归位：use-link-title 已从 lib/ 迁至 hooks/
+import { normalizeExternalUrl } from '@/hooks/use-link-title';
 
 export async function openExternal(target: string): Promise<void> {
   if (isDesktop()) {

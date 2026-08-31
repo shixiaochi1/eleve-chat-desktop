@@ -14,7 +14,7 @@ import { setScrolledUp } from '@/store/scroll'
 import { useIsStreaming } from '@/store/messages'
 import { useMessage, useMessageSignature, setMessages } from '@/store/messages'
 import MessageRow from './MessageRow'
-import { formatTimeSeparator } from '../utils/time'
+import { formatTimeSeparator, toSeconds } from '../utils/time'
 import ThreadTimeline from './ThreadTimeline'
 import { isSettingsReady } from '@/utils/settings-store'
 
@@ -39,8 +39,8 @@ function GroupTimeSeparator({ index, prevIndex }: { index: number; prevIndex: nu
   if (ts == null) return null
   const prevTs = prev?.timestamp
   // 🔴 单位归一：秒（<1e12）与毫秒混源时统一按秒比较（历史=后端秒，流式新消息可能=Date.now 毫秒）
-  const norm = (t: number) => (t < 1e12 ? t : t / 1000)
-  const show = prevIndex == null || prevTs == null || norm(ts) - norm(prevTs) > TIME_SEPARATOR_GAP_SEC
+  // 🔴 2026-09-01 收敛：局部 norm 平行实现删除，统一 utils/time.toSeconds
+  const show = prevIndex == null || prevTs == null || toSeconds(ts) - toSeconds(prevTs) > TIME_SEPARATOR_GAP_SEC
   if (!show) return null
   return (
     <div className="flex items-center justify-center py-1 select-none">

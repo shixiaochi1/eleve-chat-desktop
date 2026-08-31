@@ -1,5 +1,8 @@
 import { useRef, useCallback, useEffect, type MutableRefObject } from 'react';
 import { useSSE, type SSECallbacks } from './useSSE';
+// 🔴 2026-09-01 收敛：SessionManagerHandle 单一权威源 = useSessions（ReturnType 推导），
+// 删除本文件原有的平行 interface 定义（已漂移：create 缺 cwd、缺 sessionReady）
+import type { SessionManagerHandle } from './useSessions';
 import * as storage from '../utils/storage';
 import { profileFromSessionId, persistSessionPointer } from '../utils/session';
 import { handleGlobalEvent } from '@/lib/global-events';
@@ -52,32 +55,37 @@ function buildDelegateProgressDebugLine(
   }
 }
 
+// 🔴 2026-09-01 内存修复（审查 P0-3）：delegateTasks 生命周期治理——此前
+// 只增不减：每个历史子 Agent 的 outputTail/toolArgs/thinkingText/lastText/
+// files* 大字段跨会话、跨 turn 永驻（长跑编排场景线性增长，无任何上限）。
+// 策略：终态条目剥离大体积低回看价值字段（完成卡片仍展示 summary/status/
+// duration/tokens/cost/trace 等小字段）；总量超上限按插入序淘汰最旧终态
+// 条目。running 条目受 ToolStatusBar delegation.status 水合依赖保护，永不
+// 淘汰、不剥离（活跃卡片需 trace/lastText 实时渲染）。
+const DELEGATE_TASKS_MAX = 40;
+const DELEGATE_TERMINAL_STATUSES = new Set(['completed', 'failed', 'error', 'aborted', 'cancelled']);
+
+function stripDelegateHeavyFields(t: Record<string, unknown>): Record<string, unknown> {
+  // 保留 trace（cap 60 行文本，完成卡片"过程回看"价值高）；剥离大字段：
+  // outputTail（输出尾部快照）、toolArgs（工具完整参数 JSON）、
+  // thinkingText/lastText（子 Agent 输出全文）、files*（读/写文件列表）。
+  const { outputTail, toolArgs, thinkingText, lastText, filesRead, filesWritten, ...rest } = t;
+  return rest;
+}
+
+function governDelegateTasks(tasks: Record<string, unknown>): Record<string, unknown> {
+  const entries = Object.entries(tasks);
+  const isTerminal = (t: unknown) =>
+    DELEGATE_TERMINAL_STATUSES.has(String((t as { status?: unknown } | undefined)?.status ?? ''));
+  const running = entries.filter(([, t]) => !isTerminal(t));
+  let done = entries.filter(([, t]) => isTerminal(t));
+  // 超限淘汰最旧终态（Object.entries 序 = 插入序，保留最新的 40 条）
+  if (done.length > DELEGATE_TASKS_MAX) done = done.slice(done.length - DELEGATE_TASKS_MAX);
+  return Object.fromEntries([...running, ...done.map(([k, t]) => [k, stripDelegateHeavyFields(t as Record<string, unknown>)])]);
+}
+
 
 // ── Props type ──
-
-export interface SessionManagerHandle {
-  sessionId: string | null
-  /** 🔴 2026-08-27 同步读 sessionId（ref 双写）——发送路径专用，规避 React state 异步 stale */
-  getSessionId: () => string | null
-  sessions: Session[]
-  msgCache: Record<string, ChatMessage[]>
-  titles: Record<string, string>
-  freshDraftReady: boolean
-  setFreshDraftReady: React.Dispatch<React.SetStateAction<boolean>>
-  pendingTitle: string | null
-  setPendingTitle: React.Dispatch<React.SetStateAction<string | null>>
-  setSessionId: (id: string | null) => void
-  saveCache: (updater: ((cache: Record<string, ChatMessage[]>) => Record<string, ChatMessage[]>) | Record<string, ChatMessage[]>) => void
-  saveTitles: (updater: ((prev: Record<string, string>) => Record<string, string>) | Record<string, string>) => void
-  refresh: () => void
-  create: (options?: { model?: string; provider?: string; profile?: string }) => Promise<string | null>
-  reset: () => Promise<void>
-  remove: (id: string) => Promise<void>
-  switchTo: (id: string) => void
-  setTitle: (id: string, text: string) => void
-  getTitle: (s: Session) => string
-  loadHistory: (id: string) => Promise<ChatMessage[] | null>
-}
 
 export interface UseMessageStreamProps {
   genId: () => string
@@ -1143,7 +1151,8 @@ export function useMessageStream({
               : (prior.lastText as string | undefined),
             trace,
           };
-          return { ...prev, delegateTasks: tasks };
+          // 🔴 2026-09-01 内存修复（审查 P0-3）：写入前治理（终态剥离 + 上限）
+          return { ...prev, delegateTasks: governDelegateTasks(tasks) };
         });
       }
     },

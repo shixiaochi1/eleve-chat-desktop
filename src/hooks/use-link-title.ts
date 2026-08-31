@@ -7,6 +7,8 @@
  * 通道差异：Hermes 走 Electron 主进程桥（hermesDesktop.fetchLinkTitle，Node.js
  * 无 CORS）；ELEVE 走 Tauri invoke('fetch_link_title')（Rust reqwest，同样
  * 无 CORS）。无桥/失败 → 返回空串，调用方降级显示 URL 末段（Hermes 同款）。
+ *
+ * 🔴 2026-09-01 分层归位：lib/ → hooks/（hook 文件归位 hooks 层，纯移动）。
  */
 
 import { useEffect, useMemo, useState } from 'react';

@@ -1,13 +1,18 @@
 /**
- * API 客户端 v3 — HTTP 统一版
+ * API 客户端 v3 — 领域命令层（桌面模式 & 浏览器模式统一）
  *
- * 桌面模式 & 浏览器模式统一走 HTTP API
- * 通过 bridge.js 的 discoverPort 动态获取网关端口
+ * 🔴 2026-09-01 定位正名（架构审查：原"⚠️ DEPRECATED 冻结"标记名实不符——
+ * 本文件 100+ 具名命令封装被 39 个文件消费，services/ws-client 自身也依赖
+ * getApiBase，是事实上的标准命令层而非遗留物）。对齐 DSH command 层语义：
  *
- * ⚠️ DEPRECATED（2026-07-31 系统审查 Phase 4 确立）：
- * 本文件是 bridge.call 的遗留薄包装层，已冻结——禁止新增函数。
- * 新代码直接用 bridge.call（lib/bridge.ts，COMMAND_TO_WS_METHOD 路由）
- * 或经 hooks 层封装。存量函数随消费方迁移逐步删除。
+ *   utils/bridge.ts   = 传输层（WS RPC 路由 / HTTP fallback，transport）
+ *   utils/api.ts      = 领域命令层（具名命令 + 参数形状 + 返回类型，command）
+ *   hooks/*           = 领域状态编排（消费 api.ts，不直接散调 call）
+ *
+ * 规则：
+ * - 新命令一律加在本文件（带参数/返回类型），禁止在组件里散裸 call('xxx')——
+ *   消灭命令字符串散落（此前 invoke/call 散落 14+ 文件的教训）
+ * - 纯传输/无领域语义的调用（如 ping）可直接用 bridge.call
  */
 import { call, discoverPort, setHttpBase, getHttpBase } from './bridge';
 

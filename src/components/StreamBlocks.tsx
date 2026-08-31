@@ -15,7 +15,7 @@ import { openLink } from '@/lib/external-open';
  * 架构（对应 Hermes markdown-text.tsx 的 parseMarkdownIntoBlocks + 块数组）：
  * - 文本按空行切分成块（fence 感知，代码块内空行不切），split 结果走 LRU 缓存
  *   （对齐 Hermes blockCache：同一文本重新挂载/多 surface 渲染直接命中）
- * - 每块独立渲染为 HTML（marked + DOMPurify + hljs），React.memo 按
+ * - 每块独立渲染为 HTML（utils/markdown renderMarkdown：unified/rehype 管线 + DOMPurify），React.memo 按
  *   (text, highlight) 跳过稳定块的重渲染 → 流式 flush 只有"活动尾块"重解析
  * - 流式/完成共用同一渲染管线 → 消息落定时无 DOM 结构切换、无高度突变
  * - 代码高亮 defer（对齐 Hermes Shiki defer={isStreaming}）：流式尾块不高亮
@@ -30,7 +30,7 @@ import { openLink } from '@/lib/external-open';
  * - 块间间距统一 --paragraph-gap（0.7rem），首尾块零外边距
  *
  * 大文本降级（对齐 Hermes MAX_MARKDOWN_CHARS / HugeTextFallback）：
- * - 流式中 >40k 字符：跳过解析管线直接纯文本（防每 flush 全量 marked+hljs 卡顿）
+ * - 流式中 >40k 字符：跳过解析管线直接纯文本（防每 flush 全量 markdown 解析+高亮卡顿）
  * - 完成态 >100k 字符：同样降级（一次性解析也重，分块 + content-visibility 渲染）
  */
 const MAX_STREAM_RENDER_CHARS = 40_000;

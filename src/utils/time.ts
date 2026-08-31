@@ -10,6 +10,11 @@ function toMs(ts: number): number {
   return ts < 1e12 ? ts * 1000 : ts
 }
 
+/** 秒归一（比较/差值用）：毫秒（≥1e12）÷1000 转秒，秒原样。toMs 的对偶 */
+export function toSeconds(ts: number): number {
+  return ts < 1e12 ? ts : ts / 1000
+}
+
 export function formatMessageTime(ts: number): string {
   const d = new Date(toMs(ts))
   const h = d.getHours()
@@ -28,4 +33,13 @@ export function formatTimeSeparator(ts: number): string {
   if (d.toDateString() === now.toDateString()) return hm
   if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${hm}`
+}
+
+/**
+ * 短日期时间（MM/DD HH:mm，zh-CN 2-digit）— 上次运行时间等紧凑场景。
+ * 🔴 2026-09-01 收敛：原 CronPanel 局部 formatTime 的格式化实现（调用方
+ * 保留 null 兜底与 NaN 原串返回等业务语义）。
+ */
+export function formatShortDateTime(d: Date): string {
+  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }

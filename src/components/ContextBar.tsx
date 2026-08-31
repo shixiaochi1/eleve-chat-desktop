@@ -4,15 +4,9 @@ import { cn } from '@/lib/utils';
 import ModeSwitchButton from './ModeSwitchButton';
 import MoaToggleButton from './MoaToggleButton';
 import { useSessionContext } from '../hooks/useSessionContext';
-
-/**
- * 格式化数字（如 134800 → "134.8k"）
- */
-function fmtNum(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
-  return String(n);
-}
+// 🔴 2026-09-01 收敛：fmtNum 局部复制版删除，统一 utils/format.formatCompactTokens
+//（别名过渡：调用处 fmtNum 零改动）
+import { formatCompactTokens as fmtNum } from '@/utils/format';
 
 interface ContextData {
   total_tokens?: number;
