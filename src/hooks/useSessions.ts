@@ -12,6 +12,7 @@ import {
   dropMsgCacheEntry,
   findTouchedKey,
 } from '@/lib/msg-cache';
+import { setMessages as storeSetMessages, getHistoryCursor, setHistoryCursor } from '../store/messages';
 
 export function useSessions(): {
   sessionId: string | null
@@ -37,6 +38,8 @@ export function useSessions(): {
   saveCache: (updater: ((cache: Record<string, ChatMessage[]>) => Record<string, ChatMessage[]>) | Record<string, ChatMessage[]>) => void
   saveTitles: (updater: ((prev: Record<string, string>) => Record<string, string>) | Record<string, string>) => void
   loadHistory: (id: string) => Promise<ChatMessage[] | null>
+  /** 🔴 2026-09-01 单视图分页：上翻加载更早（before_id 游标续拉，prepend 进 store） */
+  loadMoreHistory: (id: string) => Promise<void>
 } {
   const [sessionId, setSessionIdState] = useState<string | null>(() => (storage.load('session_id', null) as string | null));
   const [sessions, setSessions] = useState<Session[]>(() => (storage.load('sessions', null) as Session[]) || []);
@@ -184,18 +187,59 @@ export function useSessions(): {
   }, [titles]);
 
   // ── load history from API ──
+  // 🔴 2026-09-01 单视图分页接线：复用后端 get_session_messages 原生 limit/
+  // before_id 分页（宫格 useGridChat 同一链路，零新机制）。首屏只拉最新一页，
+  // 堵住超长会话全量拉取的内存/GC 峰值；has_more/oldest_id 写入 store
+  // historyCursor，上翻经 loadMoreHistory 游标续拉。
+  // 注：不做单视图头部 evict（区别于宫格 WINDOW_MAX）——evict 会位移虚拟列表
+  // index 与测量缓存（useMessage(index)/buildGroups 按 index 定位），风险大于
+  // 收益；上翻是用户主动行为，工作集可控，且 msgCache LRU 已限制缓存侧。
+  const HISTORY_PAGE_SIZE = 50; // 主视图单屏大（宫格卡片 PAGE_SIZE=20）
+
   const loadHistory = useCallback(async (id: string): Promise<ChatMessage[] | null> => {
     try {
-      const data = await api.getSessionHistory(id) as { messages?: unknown[] };
+      const data = await api.getSessionHistory(id, { limit: HISTORY_PAGE_SIZE }) as {
+        messages?: unknown[]; has_more?: boolean; oldest_id?: number | null;
+      };
+      // 游标写入做会话一致性守卫（getSessionId 同步 ref 读）：响应期间切走
+      // 会话时丢弃游标，防陈旧游标污染新会话的上翻。
+      if (getSessionId() === id) {
+        setHistoryCursor({ sessionId: id, hasMore: Boolean(data?.has_more), oldestId: data?.oldest_id ?? null, loading: false });
+      }
       if (data?.messages?.length) {
         // 1:1 with Eleve: backend SessionMessage[] → toChatMessages() → ChatMessage[]
         return toChatMessages(data.messages as SessionMessage[]);
       }
     } catch (e) {
       console.warn('[loadHistory] Failed to load history for session', id, e);
+      if (getSessionId() === id) {
+        setHistoryCursor({ sessionId: id, hasMore: false, oldestId: null, loading: false });
+      }
     }
     return null;
-  }, []);
+  }, [getSessionId]);
+
+  /** 上翻加载更早（before_id 游标续拉，prepend 进 store；宫格 loadMore 同款语义） */
+  const loadMoreHistory = useCallback(async (id: string): Promise<void> => {
+    const cursor = getHistoryCursor();
+    // 游标归属校验（防跨会话混用/重复触发）+ 防重入 + 终态短路
+    if (cursor.sessionId !== id || !cursor.hasMore || cursor.loading || cursor.oldestId == null) return;
+    setHistoryCursor({ ...cursor, loading: true });
+    try {
+      const data = await api.getSessionHistory(id, { limit: HISTORY_PAGE_SIZE, beforeId: cursor.oldestId }) as {
+        messages?: unknown[]; has_more?: boolean; oldest_id?: number | null;
+      };
+      // 过期守卫（宫格 P1-10 同款）：响应期间切走会话 → 丢弃，不污染新视图
+      if (getSessionId() !== id) return;
+      const older = toChatMessages((data?.messages ?? []) as SessionMessage[]);
+      if (older.length > 0) {
+        storeSetMessages((prev) => [...older, ...prev]);
+      }
+      setHistoryCursor({ sessionId: id, hasMore: Boolean(data?.has_more), oldestId: data?.oldest_id ?? null, loading: false });
+    } catch {
+      setHistoryCursor((c) => (c.sessionId === id ? { ...c, loading: false } : c));
+    }
+  }, [getSessionId]);
 
   return {
     sessionId, setSessionId: setSessionIdSync, getSessionId, sessions, msgCache, titles,
@@ -203,7 +247,7 @@ export function useSessions(): {
     sessionReady, setSessionReady,
     pendingTitle, setPendingTitle,
     refresh, create, reset, remove, switchTo,
-    setTitle, getTitle, saveCache, saveTitles, loadHistory,
+    setTitle, getTitle, saveCache, saveTitles, loadHistory, loadMoreHistory,
   };
 }
 

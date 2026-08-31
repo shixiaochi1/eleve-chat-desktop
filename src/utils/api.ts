@@ -48,8 +48,19 @@ export async function activateSession(id: string): Promise<any> {
   return call('activate_session', { session_id: id });
 }
 
-export async function getSessionHistory(id: string): Promise<any> {
-  return call('get_session_messages', { session_id: id });
+export async function getSessionHistory(
+  id: string,
+  opts?: { limit?: number; beforeId?: number },
+): Promise<any> {
+  // 🔴 2026-09-01 单视图分页接线：后端 get_session_messages 原生支持可选
+  // limit/before_id（gateway ws/mod.rs：传 limit → api_session_messages_paginated，
+  // 返回 messages/has_more/oldest_id；不传保持全量兼容）。宫格 useGridChat
+  // 已传 PAGE_SIZE；单视图此前不传 → 超长会话全量拉取（内存/GC 峰值根因）。
+  return call('get_session_messages', {
+    session_id: id,
+    ...(opts?.limit !== undefined ? { limit: opts.limit } : {}),
+    ...(opts?.beforeId !== undefined ? { before_id: opts.beforeId } : {}),
+  });
 }
 
 export async function fetchSessionContext(sessionId: string | null | undefined): Promise<any> {

@@ -1624,6 +1624,7 @@ export default function App() {
                     onOpenSettings={handleOpenSettings}
                     hasModels={modelDiscovery.models.length > 0}
                     sessionKey={sess.sessionId ?? null}
+                    onLoadMore={sess.loadMoreHistory}
                   />
 
                   {/* 🔴 2026-08-09 附件预览条——聊天区底部（对齐 Hermes AttachmentList）：

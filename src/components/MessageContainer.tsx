@@ -10,9 +10,10 @@ import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, memo } from 'react'
 
 import { cn } from '@/lib/utils'
+import { Loader2 } from 'lucide-react'
 import { setScrolledUp } from '@/store/scroll'
 import { useIsStreaming } from '@/store/messages'
-import { useMessage, useMessageSignature, setMessages } from '@/store/messages'
+import { useMessage, useMessageSignature, setMessages, useHistoryCursor } from '@/store/messages'
 import MessageRow from './MessageRow'
 import { formatTimeSeparator, toSeconds } from '../utils/time'
 import ThreadTimeline from './ThreadTimeline'
@@ -98,6 +99,8 @@ interface VirtualizedThreadProps {
   onOpenSettings?: () => void
   /** 池是否有可用模型（P1：从 App 层 useModels 传入，不再读 settings.json providers） */
   hasModels?: boolean
+  /** 🔴 2026-09-01 单视图分页上翻：到顶/点击时拉更早消息（useSessions.loadMoreHistory） */
+  onLoadMore?: (sessionId: string) => void
 }
 
 export function VirtualizedThread({
@@ -105,7 +108,8 @@ export function VirtualizedThread({
   gatewayOnline,
   onGatewayRetry,
   onOpenSettings,
-  hasModels
+  hasModels,
+  onLoadMore
 }: VirtualizedThreadProps) {
   const messageSignature = useMessageSignature()
   const groups = useMemo(() => buildGroups(messageSignature ?? ''), [messageSignature])
@@ -135,6 +139,34 @@ export function VirtualizedThread({
     virtualizer
   })
 
+  // 🔴 2026-09-01 单视图分页接线（宫格 AgentChatCard handleScroll 同款语义）：
+  // 到顶触发上翻。⚠️ 与 useThreadScrollAnchor 的分工：anchor 管贴底跟随/解除，
+  // 本 handler 只管"到顶拉更早"，不碰 stickBottom——上翻时 anchor 必然已
+  // disarm，下方补偿的程序化滚动也不会被误判（onScroll 的 heightGrew 门控放行）。
+  const historyCursor = useHistoryCursor()
+  const cursorActive = !!sessionKey && historyCursor.sessionId === sessionKey && historyCursor.hasMore
+  const handleTopScroll = useCallback(() => {
+    const el = scrollerRef.current
+    if (!el || !cursorActive || historyCursor.loading || !onLoadMore || !sessionKey) return
+    if (el.scrollTop < 40) onLoadMore(sessionKey)
+  }, [cursorActive, historyCursor.loading, onLoadMore, sessionKey])
+
+  // ── 上翻 prepend 后保持视口位置（scrollHeight 差值补偿，宫格 AgentChatCard 同款）：
+  // 首条 group id 变化 = 发生了 prepend，把 scrollTop 补上新增内容的高度差，
+  // 用户视口停留的消息不跳。
+  const prevTopIdRef = useRef<string | null>(null)
+  const prevScrollHeightRef = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    const topId = groups[0]?.id ?? null
+    if (prevTopIdRef.current && topId && topId !== prevTopIdRef.current && prevScrollHeightRef.current != null) {
+      el.scrollTop = el.scrollHeight - prevScrollHeightRef.current
+    }
+    prevTopIdRef.current = topId
+    prevScrollHeightRef.current = el.scrollHeight
+  }, [groups])
+
   const virtualItems = virtualizer.getVirtualItems()
   const totalSize = virtualizer.getTotalSize()
   const paddingTop = virtualItems[0]?.start ?? 0
@@ -149,6 +181,7 @@ export function VirtualizedThread({
         className="size-full overflow-x-hidden overflow-y-auto overscroll-contain"
         data-slot="aui_thread-viewport"
         ref={scrollerRef}
+        onScroll={handleTopScroll}
       >
         {renderEmpty ? (
           <div
@@ -228,6 +261,21 @@ export function VirtualizedThread({
             )}
             data-slot="aui_thread-content"
           >
+            {/* 🔴 2026-09-01 单视图分页：上翻指示（宫格 AgentChatCard 同款） */}
+            {cursorActive && (
+              <div className="flex justify-center pb-1">
+                {historyCursor.loading ? (
+                  <Loader2 size={13} className="animate-spin text-muted-foreground/40" />
+                ) : (
+                  <button
+                    className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                    onClick={() => onLoadMore?.(sessionKey!)}
+                  >
+                    ↑ 加载更早消息
+                  </button>
+                )}
+              </div>
+            )}
             {/* Natural-flow virtualization: mounted items render as normal
                 flex siblings so `position: sticky` on the human bubble
                 resolves against the scroller without transform interference.

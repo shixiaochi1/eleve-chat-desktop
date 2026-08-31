@@ -60,6 +60,44 @@ export function useIsStreaming(): boolean {
   return useSyncExternalStore(subscribeIsStreaming, getIsStreamingSnapshot, getIsStreamingSnapshot)
 }
 
+// ── History pagination cursor（🔴 2026-09-01 单视图分页接线）──
+// 与 isStreaming 同款 standalone atom。hasMore/oldestId 由 useSessions.loadHistory
+//（首屏分页）与 loadMoreHistory（上翻续拉）写入；MessageContainer 经
+// useHistoryCursor() 渲染"加载更早消息"指示 + 到顶触发门控。loading 防重入。
+// sessionId 字段 = 游标归属会话（防跨会话混用：切换后残留游标不得被新会话
+// 的上翻消费——oldest_id 是 DB 全局锚点，跨会话混用语义错乱）。
+export interface HistoryCursor {
+  sessionId: string | null
+  hasMore: boolean
+  oldestId: number | null
+  loading: boolean
+}
+
+const EMPTY_HISTORY_CURSOR: HistoryCursor = { sessionId: null, hasMore: false, oldestId: null, loading: false }
+let _historyCursor: HistoryCursor = EMPTY_HISTORY_CURSOR
+let _historyCursorListeners = new Set<ListenerCallback>()
+
+export function setHistoryCursor(next: HistoryCursor | ((prev: HistoryCursor) => HistoryCursor)): void {
+  const prev = _historyCursor
+  _historyCursor = typeof next === 'function' ? next(prev) : next
+  if (_historyCursor !== prev) {
+    _historyCursorListeners.forEach(cb => cb())
+  }
+}
+
+/** 同步读取（非 React 上下文用 — useSessions.loadMoreHistory 门控） */
+export function getHistoryCursor(): HistoryCursor {
+  return _historyCursor
+}
+
+export function useHistoryCursor(): HistoryCursor {
+  const subscribeCursor = useCallback((cb: ListenerCallback): Unsubscribe => {
+    _historyCursorListeners.add(cb)
+    return () => { _historyCursorListeners.delete(cb) }
+  }, [])
+  return useSyncExternalStore(subscribeCursor, () => _historyCursor, () => _historyCursor)
+}
+
 function scheduleFlush(): void {
   if (pendingFlush) return
   pendingFlush = true
