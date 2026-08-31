@@ -612,6 +612,8 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   }, [restart, currentUrl]);
 
   const webviewActive = isTauri && webviewLabel !== null && isSafePreviewUrl(currentUrl);
+  // 🔴 2026-09-01 本地文件 tab：重启预览服务器语义无效（无 dev server 可重启）
+  const isFileUrl = currentUrl.toLowerCase().startsWith('file:');
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-[var(--ui-bg-editor)]">
@@ -738,15 +740,15 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
         )}
         <button
           onClick={handleRestart}
-          disabled={!url.trim() || isRestarting}
+          disabled={!url.trim() || isRestarting || isFileUrl}
           className={cn(
             'flex items-center gap-1 px-2 h-6 rounded text-xs font-medium transition-colors',
             isRestarting
               ? 'bg-[var(--ui-bg-tertiary)] text-[var(--ui-text-tertiary)] cursor-wait'
               : 'bg-primary text-primary-foreground hover:bg-primary/90',
-            !url.trim() && 'opacity-40 cursor-not-allowed',
+            (!url.trim() || isFileUrl) && 'opacity-40 cursor-not-allowed',
           )}
-          title="重启预览服务器"
+          title={isFileUrl ? '本地文件无需重启服务器' : '重启预览服务器'}
         >
           {isRestarting ? (
             <Loader2 size={12} className="animate-spin" />

@@ -22,6 +22,18 @@ import { normalizeExternalUrl } from '@/hooks/use-link-title';
 
 export async function openExternal(target: string): Promise<void> {
   if (isDesktop()) {
+    // 🔴 2026-09-01 file:// 走 opener openPath（shell:allow-open ACL 仅放行
+    // http/https，file 会被拒 → 降级 window.open 也无反应——预览本地文件后
+    // "外部打开"按钮静默失效）。opener:allow-open-path capability 已授权 path **。
+    if (target.toLowerCase().startsWith('file:')) {
+      try {
+        const { openPath } = await import('@tauri-apps/plugin-opener');
+        await openPath(fileUrlToPath(target));
+        return;
+      } catch {
+        /* fall through to window.open */
+      }
+    }
     try {
       const { open: shellOpen } = await import('@tauri-apps/plugin-shell');
       await shellOpen(target);
@@ -31,6 +43,17 @@ export async function openExternal(target: string): Promise<void> {
     }
   }
   window.open(target, '_blank', 'noopener,noreferrer');
+}
+
+/** file:// URL → 本地路径（openPath 用）。file:///C:/a%20b.html → C:\a b.html
+ *  （Windows 反斜杠归一）；UNC file://srv/share → \\srv\share；POSIX 原样。 */
+function fileUrlToPath(url: string): string {
+  const u = new URL(url);
+  let p = decodeURIComponent(u.pathname);
+  if (/^\/[a-zA-Z]:\//.test(p)) p = p.slice(1);
+  const isWindows = /win/i.test(navigator.platform);
+  if (isWindows && !p.startsWith('//')) p = p.replace(/\//g, '\\');
+  return p;
 }
 
 /** 对齐 Hermes wantsNativeBrowser（external-link.tsx L214-220）：中键 /
