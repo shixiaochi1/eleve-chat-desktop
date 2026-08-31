@@ -11,7 +11,7 @@
  * 架构：纯状态管理层，不涉及 UI 渲染（UI 由 InputArea 负责）
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { getWsClient, type ImageAttachResponse } from '@/services/ws-client';
 import { readFileAsDataURL, base64FromDataURL, mimeFromExt, arrayBufferToBase64, base64ToUint8Array } from '@/utils/file';
 import { formatFileSize } from '@/utils/format';
@@ -19,6 +19,38 @@ import { isRemoteMode, loadConnection } from '@/lib/connection';
 // 🔴 2026-08-31 图片缩放重试不在前端做：后端 conversation_loop.rs 已有 Hermes
 // 对齐实现（shrink_image_parts_in_messages，LLM 层 4MB/2048）；attach 层前后端
 // 同为 25MB 硬顶且 Hermes 也无 attach 重试——前端再包一层纯属重复造轮子。
+
+/**
+ * 🔴 2026-09-01 残留治理：attach-cache TTL 清理（best-effort，启动惰性执行）。
+ * A 通道 staged 文件在部分路径（异常中断、clearImages 后被会话引用等）可能
+ * 遗留成为孤儿——删除 mtime > 7 天的文件。失败静默（console.warn），不影响主流程。
+ */
+const ATTACH_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function cleanupAttachCache(): Promise<void> {
+  try {
+    const { readDir, remove, stat, BaseDirectory } = await import('@tauri-apps/plugin-fs');
+    const entries = await readDir('attach-cache', { baseDir: BaseDirectory.AppData });
+    const cutoff = Date.now() - ATTACH_CACHE_TTL_MS;
+    for (const entry of entries) {
+      if (entry.isDirectory) continue;
+      try {
+        const s = await stat(`attach-cache/${entry.name}`, { baseDir: BaseDirectory.AppData });
+        const mtime =
+          s.modifiedAt instanceof Date
+            ? s.modifiedAt.getTime()
+            : ((s as unknown as { modifiedAtSec?: number }).modifiedAtSec ?? 0) * 1000;
+        if (mtime > 0 && mtime < cutoff) {
+          await remove(`attach-cache/${entry.name}`, { baseDir: BaseDirectory.AppData });
+        }
+      } catch {
+        /* 单个文件失败跳过 */
+      }
+    }
+  } catch (err) {
+    console.warn('[attach-cache] TTL 清理失败（忽略）:', err);
+  }
+}
 
 /**
  * 🔴 A 通道（本地模式）：附件字节落盘 AppData/attach-cache → 返回绝对路径，
@@ -82,6 +114,14 @@ export function useImageAttachments(options?: {
   const [error, setError] = useState<string | null>(null);
   /** 正在上传的文件名集合（防止重复上传） */
   const uploadingFiles = useRef<Set<string>>(new Set());
+
+  // 🔴 2026-09-01 残留治理：启动惰性清理 attach-cache（TTL 7 天，best-effort）
+  const cleanupRanRef = useRef(false);
+  useEffect(() => {
+    if (cleanupRanRef.current) return;
+    cleanupRanRef.current = true;
+    void cleanupAttachCache();
+  }, []);
 
   const addImage = useCallback(async (file: File): Promise<AttachedImage | null> => {    // 1. 客户端预检：MIME 类型
     if (!file.type.startsWith(ACCEPTED_MIME_PREFIX)) {
@@ -213,6 +253,17 @@ export function useImageAttachments(options?: {
         // 后端 detach 失败不阻塞 UI，记录错误即可
         console.warn('[useImageAttachments] detach failed:', err);
       }
+      // 🔴 2026-09-01 残留治理：A 通道 staged 文件（AppData/attach-cache）同步
+      // 删除——用户显式删附件 = 明确不要了（agent 也不应再读它）；仅限
+      // attach-cache 路径（B/C 通道文件归后端 ELEVE_HOME 管辖）。best-effort。
+      if (image.path.includes('attach-cache')) {
+        try {
+          const { remove } = await import('@tauri-apps/plugin-fs');
+          await remove(image.path);
+        } catch (err) {
+          console.warn('[useImageAttachments] staged file cleanup failed:', err);
+        }
+      }
     }
   }, [attachedImages]);
 
@@ -270,6 +321,17 @@ export function useImageAttachments(options?: {
         }
       }
       if (!result) {
+        // 🔴 2026-09-01 残留治理：C 通道（WS 兼容）25MB 预检——仅旧后端（无
+        // A/B 端点）才会走到 C；超限给出可行动的错误而非含糊的连接失败
+        //（新后端 A 路径引用 / B HTTP 50MB 均无此限制）
+        const commaIdx = img.preview.indexOf(',');
+        const approxBytes = Math.floor((img.preview.length - Math.max(commaIdx, 0)) * 0.75);
+        if (approxBytes > MAX_IMAGE_SIZE) {
+          allOk = false;
+          lastError = `图片 ${img.name} 超过 WS 兼容通道 25MB 上限（A/B 直传通道不可用，请升级后端或压缩图片）`;
+          setError(`图片上传失败: ${img.name}（${lastError}）`);
+          continue;
+        }
         try {
           const contentBase64 = base64FromDataURL(img.preview);
           const r = await wsClient.imageAttachBytes(contentBase64, img.name, sessionId);
