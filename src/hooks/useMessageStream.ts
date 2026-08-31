@@ -58,18 +58,30 @@ function buildDelegateProgressDebugLine(
 // 🔴 2026-09-01 内存修复（审查 P0-3）：delegateTasks 生命周期治理——此前
 // 只增不减：每个历史子 Agent 的 outputTail/toolArgs/thinkingText/lastText/
 // files* 大字段跨会话、跨 turn 永驻（长跑编排场景线性增长，无任何上限）。
-// 策略：终态条目剥离大体积低回看价值字段（完成卡片仍展示 summary/status/
-// duration/tokens/cost/trace 等小字段）；总量超上限按插入序淘汰最旧终态
-// 条目。running 条目受 ToolStatusBar delegation.status 水合依赖保护，永不
-// 淘汰、不剥离（活跃卡片需 trace/lastText 实时渲染）。
+// 策略：终态条目剥离大体积低回看价值字段 + 截断保留有显示价值的文本字段
+// （复核修正：SubagentMonitor 完成卡片消费 thinkingText/lastText 渲染
+// "思考：/回复："行——整字段剥离 = 丢显示，改为 cap 200 字符截断保留）；
+// 总量超上限按插入序淘汰最旧终态条目。running 条目受 ToolStatusBar
+// delegation.status 水合依赖保护，永不淘汰、不剥离（活跃卡片需全量渲染）。
 const DELEGATE_TASKS_MAX = 40;
 const DELEGATE_TERMINAL_STATUSES = new Set(['completed', 'failed', 'error', 'aborted', 'cancelled']);
+/** 完成态文本保留上限：SubagentMonitor 显示 truncate 一行 + title 悬停预览，200 字符足够 */
+const DONE_TEXT_KEEP_CHARS = 200;
+
+function clampDoneText(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  return v.length > DONE_TEXT_KEEP_CHARS ? v.slice(0, DONE_TEXT_KEEP_CHARS) + '…' : v;
+}
 
 function stripDelegateHeavyFields(t: Record<string, unknown>): Record<string, unknown> {
-  // 保留 trace（cap 60 行文本，完成卡片"过程回看"价值高）；剥离大字段：
-  // outputTail（输出尾部快照）、toolArgs（工具完整参数 JSON）、
-  // thinkingText/lastText（子 Agent 输出全文）、files*（读/写文件列表）。
-  const { outputTail, toolArgs, thinkingText, lastText, filesRead, filesWritten, ...rest } = t;
+  // 剥离：outputTail（输出尾部快照）、toolArgs（工具完整参数 JSON）、files*（读/写文件列表）——无消费方
+  // 截断保留：thinkingText/lastText（完成卡片"思考：/回复："行，cap 200）
+  // 保留：trace（cap 60 行，过程回看）、summary/status/duration/tokens/cost 等
+  const { outputTail, toolArgs, filesRead, filesWritten, thinkingText, lastText, ...rest } = t;
+  const ct = clampDoneText(thinkingText);
+  const cl = clampDoneText(lastText);
+  if (ct !== undefined) rest.thinkingText = ct;
+  if (cl !== undefined) rest.lastText = cl;
   return rest;
 }
 

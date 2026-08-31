@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useSyncExternalStore } from 'react'
+import { createAtomStore } from '../lib/store-factory'
 import type {
   ChatMessage,
   ListenerCallback,
@@ -61,11 +62,13 @@ export function useIsStreaming(): boolean {
 }
 
 // ── History pagination cursor（🔴 2026-09-01 单视图分页接线）──
-// 与 isStreaming 同款 standalone atom。hasMore/oldestId 由 useSessions.loadHistory
-//（首屏分页）与 loadMoreHistory（上翻续拉）写入；MessageContainer 经
-// useHistoryCursor() 渲染"加载更早消息"指示 + 到顶触发门控。loading 防重入。
-// sessionId 字段 = 游标归属会话（防跨会话混用：切换后残留游标不得被新会话
-// 的上翻消费——oldest_id 是 DB 全局锚点，跨会话混用语义错乱）。
+// hasMore/oldestId 由 useSessions.loadHistory（首屏分页）与 loadMoreHistory
+//（上翻续拉）写入；MessageContainer 经 useHistoryCursor() 渲染"加载更早消息"
+// 指示 + 到顶触发门控。loading 防重入。sessionId 字段 = 游标归属会话（防跨
+// 会话混用：切换后残留游标不得被新会话的上翻消费——oldest_id 是 DB 全局
+// 锚点，跨会话混用语义错乱）。
+// 🔴 复核修正：走 createAtomStore 工厂（新 store 禁止手抄样板——本文件
+// isStreaming 是工厂诞生前的既有例外，勿效仿）。
 export interface HistoryCursor {
   sessionId: string | null
   hasMore: boolean
@@ -73,29 +76,21 @@ export interface HistoryCursor {
   loading: boolean
 }
 
-const EMPTY_HISTORY_CURSOR: HistoryCursor = { sessionId: null, hasMore: false, oldestId: null, loading: false }
-let _historyCursor: HistoryCursor = EMPTY_HISTORY_CURSOR
-let _historyCursorListeners = new Set<ListenerCallback>()
+const historyCursorStore = createAtomStore<HistoryCursor>({
+  sessionId: null, hasMore: false, oldestId: null, loading: false,
+})
 
 export function setHistoryCursor(next: HistoryCursor | ((prev: HistoryCursor) => HistoryCursor)): void {
-  const prev = _historyCursor
-  _historyCursor = typeof next === 'function' ? next(prev) : next
-  if (_historyCursor !== prev) {
-    _historyCursorListeners.forEach(cb => cb())
-  }
+  historyCursorStore.set(next)
 }
 
 /** 同步读取（非 React 上下文用 — useSessions.loadMoreHistory 门控） */
 export function getHistoryCursor(): HistoryCursor {
-  return _historyCursor
+  return historyCursorStore.get()
 }
 
 export function useHistoryCursor(): HistoryCursor {
-  const subscribeCursor = useCallback((cb: ListenerCallback): Unsubscribe => {
-    _historyCursorListeners.add(cb)
-    return () => { _historyCursorListeners.delete(cb) }
-  }, [])
-  return useSyncExternalStore(subscribeCursor, () => _historyCursor, () => _historyCursor)
+  return historyCursorStore.useAtom()
 }
 
 function scheduleFlush(): void {

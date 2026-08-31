@@ -24,6 +24,9 @@ export interface UsePreviewWebviewOptions {
   reloadKey?: unknown;
   /** 每次重建前同步调用（调用方重置 per-webview 运行态：console 游标/错误态等） */
   onRecreate?: () => void;
+  /** 🔴 2026-09-01 创建失败回调（此前 catch 只 console.error，UI 黑屏无任何
+   *  反馈——调用方据此显示错误态而非静默空白） */
+  onCreateError?: (err: unknown) => void;
 }
 
 export interface UsePreviewWebviewResult {
@@ -40,6 +43,7 @@ export function usePreviewWebview({
   url,
   reloadKey,
   onRecreate,
+  onCreateError,
 }: UsePreviewWebviewOptions): UsePreviewWebviewResult {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const labelRef = useRef<string | null>(null);
@@ -50,6 +54,8 @@ export function usePreviewWebview({
   urlRef.current = url;
   const onRecreateRef = useRef(onRecreate);
   onRecreateRef.current = onRecreate;
+  const onCreateErrorRef = useRef(onCreateError);
+  onCreateErrorRef.current = onCreateError;
 
   // ── 创建/销毁 ──
   useEffect(() => {
@@ -76,6 +82,7 @@ export function usePreviewWebview({
       })
       .catch((e) => {
         console.error('[preview-webview] create failed:', e);
+        onCreateErrorRef.current?.(e);
       });
 
     return () => {

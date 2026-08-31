@@ -30,6 +30,14 @@ export interface PreviewArtifact {
 const MAX_PER_SESSION = 4
 
 let bySession: Record<string, PreviewArtifact[]> = {}
+/**
+ * 🔴 2026-09-01 BUG 修复（用户报"网址条关不掉，切会话/项目一直在"）：
+ * 用户 dismiss 过的 target 记忆表（per session）。ToolEntry 的上报 effect
+ * 无依赖数组（每次渲染重报），dismiss 后任何重渲染都会把条目复活——
+ * 记录 dismissed 后 record 端跳过，直到 clearPreviewArtifacts（发送新消息
+ * = 新一轮工具输出，重新允许显示，对齐 Hermes clearPreviewArtifacts 语义）。
+ */
+let dismissedBySession: Record<string, Set<string>> = {}
 const listeners = new Set<() => void>()
 const emit = () => listeners.forEach((l) => l())
 const subscribe = (l: () => void) => {
@@ -42,6 +50,8 @@ const subscribe = (l: () => void) => {
 /** 记录一条检测到的可预览目标（幂等：已存在保持槽位与顺序，不 churn） */
 export function recordPreviewArtifact(sid: string, target: string, cwd: string): void {
   if (!sid || !target) return
+  // 🔴 用户 dismiss 过的 target 不复活（重报跳过；发新消息时解除）
+  if (dismissedBySession[sid]?.has(target)) return
   const current = bySession[sid] ?? []
   if (current.some((item) => item.id === target)) return
   const label = target.split(/[\\/]/).filter(Boolean).pop() || target
@@ -51,7 +61,7 @@ export function recordPreviewArtifact(sid: string, target: string, cwd: string):
   emit()
 }
 
-/** 移除一条（状态行 dismiss 按钮） */
+/** 移除一条（状态行 dismiss 按钮）——记入 dismissed，防 ToolEntry 重报复活 */
 export function removePreviewArtifact(sid: string, id: string): void {
   const current = bySession[sid]
   if (!current?.some((item) => item.id === id)) return
@@ -62,14 +72,31 @@ export function removePreviewArtifact(sid: string, id: string): void {
   } else {
     bySession = { ...bySession, [sid]: next }
   }
+  // dismissed 记忆（防复活）；上限 16 防无界增长（超出即遗忘最旧的）
+  const dismissed = dismissedBySession[sid] ?? new Set<string>()
+  dismissed.add(id)
+  dismissedBySession[sid] = dismissed
+  if (dismissed.size > 16) {
+    const first = dismissed.values().next().value
+    if (first !== undefined) dismissed.delete(first)
+  }
   emit()
 }
 
-/** 清空会话 feed（发送新消息时——对齐 Hermes clearPreviewArtifacts） */
+/** 清空会话 feed（发送新消息时——对齐 Hermes clearPreviewArtifacts）；
+ *  同步解除 dismissed 记忆：新一轮的工具输出重新允许显示 */
 export function clearPreviewArtifacts(sid: string): void {
-  if (!bySession[sid]) return
-  const { [sid]: _dropped, ...rest } = bySession
-  bySession = rest
+  const hadFeed = !!bySession[sid]
+  const hadDismissed = !!dismissedBySession[sid]
+  if (!hadFeed && !hadDismissed) return
+  if (hadFeed) {
+    const { [sid]: _dropped, ...rest } = bySession
+    bySession = rest
+  }
+  if (hadDismissed) {
+    const { [sid]: _d, ...restD } = dismissedBySession
+    dismissedBySession = restD
+  }
   emit()
 }
 

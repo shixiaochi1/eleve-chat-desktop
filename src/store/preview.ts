@@ -261,8 +261,26 @@ export const BROWSER_DEFAULT_HOME = 'https://chat.deepseek.com/'
 /** 🔴 2026-08-31 对齐 Hermes openBrowserTab（store/preview.ts L400-403）：
  *  Show the Browser — **the surface, not a page**。已有 Browser tab 则前置它
  *  （保留上次页面——再次唤起不清空）；没有则落默认主页（用户定制：DeepSeek，
- *  覆盖 Hermes 的 about:blank 空态）。消费方：网页窗口按钮主点击。 */
+ *  覆盖 Hermes 的 about:blank 空态）。消费方：网页窗口按钮主点击。
+ *
+ *  🔴 2026-09-01 BUG 修复（用户报"关了 DeepSeek 后不知道从哪再打开"）：
+ *  前置优先级升级——tabs 里有多个 Browser tab 时（如残留的 about:blank 新
+ *  标签页 / CDP 打开的页面 tab），旧逻辑前置"最后一个"（可能不是 DeepSeek），
+ *  用户点按钮看到的不是预期主页。现优先前置**当前页面 = 默认主页**的 tab
+ *  （用户主用 DeepSeek 的意图最贴切）；都没有才回退 surface 语义（最后激活
+ *  / 最后一个 Browser tab）。 */
 export function openBrowserTab(): string {
+  const homeId = state.tabs.find(
+    (t) =>
+      t.target.kind === 'url' &&
+      ((state.browserPages[t.id] ?? t.target.url) === BROWSER_DEFAULT_HOME ||
+        (state.browserPages[t.id] ?? t.target.url).startsWith('https://chat.deepseek.com')),
+  )
+  if (homeId) {
+    update({ activeId: homeId.id })
+    requestPaneOpen()
+    return homeId.id
+  }
   const id = browserTabId()
   const current = state.tabs.find((t) => t.id === id)
   if (current) {

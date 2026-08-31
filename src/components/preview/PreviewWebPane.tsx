@@ -19,7 +19,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ExternalLink, AlertCircle, Loader2, Globe, RefreshCw, Bug, PanelBottom, Copy, Check, ArrowLeft, ArrowRight } from 'lucide-react';
+import { ExternalLink, AlertCircle, Loader2, Globe, RefreshCw, Bug, PanelBottom, Copy, Check, ArrowLeft, ArrowRight, House } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getWsClient } from '@/services/ws-client';
@@ -31,6 +31,7 @@ import { createPreviewConsoleState, isNearConsoleBottom } from '@/store/preview-
 import { PreviewConsolePanel, formatLogLine } from './PreviewConsolePanel';
 import {
   type PreviewTab,
+  BROWSER_DEFAULT_HOME,
   beginPreviewRestart,
   commitBrowserPage,
   commitBrowserTabUrl,
@@ -79,7 +80,12 @@ export function normalizePreviewAddress(value: string): null | string {
   // 所以先做显式 scheme 测试再猜主机
   const scheme = /^(about|blob|chrome|data|devtools|file|ftp|https?|javascript|view-source):/i.exec(address)?.[1]
   const loopback = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?(?:[/?#]|$)/i.test(address)
-  const candidate = scheme ? address : `${loopback ? 'http' : 'https'}://${address}`
+  // 🔴 2026-09-01 BUG 修复（用户报"空白页输入网址报错"）：裸 IPv4 地址
+  // （192.168.x.x / 10.x.x.x 内网 dev server 等）此前被强补 https → dev server
+  // 无 TLS → TLS 握手失败 → 报"无法连接到服务器"。裸 IP 的真实场景几乎全是
+  // http（公网 https 服务用户会带 https:// 前缀），与 loopback 同策略补 http。
+  const bareIpv4 = /^\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?(?:[/?#]|$)/.test(address)
+  const candidate = scheme ? address : `${loopback || bareIpv4 ? 'http' : 'https'}://${address}`
 
   // 带脚本的 scheme 在用户正在看的页面内部执行（或铸造攻击者任选内容的
   // 文档）——那是披着导航外衣的注入，任何浏览器地址栏也不受理它
@@ -128,6 +134,10 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   // 浏览器模式 iframe 重建计数
   const [iframeKey, setIframeKey] = useState(0);
   const [iframeError, setIframeError] = useState<'serverNotFound' | 'failed' | 'moduleMime' | null>(null);
+  // 🔴 2026-09-01 BUG 修复：导航失败的具体原因（WebView2 WebErrorStatus，如
+  // HOST_NAME_NOT_RESOLVED / CONNECTION_REFUSED / 证书错误）透传到错误覆盖层
+  // ——此前统一显示"无法连接到服务器"，用户无法定位真实原因
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   // 页面控制台（per pane 实例，对齐 Hermes per-pane consoleState）
   const [consoleState] = useState(() => createPreviewConsoleState());
@@ -162,6 +172,17 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
       consoleState.reset();
       setDevtoolsOpen(false);
       setIframeError(null);
+      setErrorDetail(null);
+    },
+    // 🔴 2026-09-01 创建失败不再静默黑屏（此前 catch 只 console.error）：
+    // 显示错误覆盖层 + console 诊断，用户可重试/外部打开
+    onCreateError: (err) => {
+      consoleState.append({
+        level: 3,
+        message: `预览 webview 创建失败：${err instanceof Error ? err.message : String(err)}`,
+      });
+      setErrorDetail(String(err));
+      setIframeError('failed');
     },
   });
 
@@ -170,6 +191,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   useEffect(() => {
     setUrl(tab.target.url);
     setIframeError(null);
+    setErrorDetail(null);
   }, [tab.target.url]);
 
   // 🔴 2026-08-31 tab 激活变化（切走再切回同 tab）→ 清错误态：错误是 webview
@@ -177,6 +199,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   // 被隐藏（旧误报期的 webview 实际加载成功，切回时必须重新可见）
   useEffect(() => {
     setIframeError(null);
+    setErrorDetail(null);
   }, [tab.id]);
 
   // 页面移动（或重定向落到别处）后，真实地址取代我们请求的地址（对齐 Hermes：
@@ -298,6 +321,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
         level: 3,
         message: `页面加载失败：${errUrl || currentUrlRef.current}${status ? ` (${status})` : ''}`,
       });
+      setErrorDetail(status ?? null);
       setIframeError('serverNotFound');
     };
 
@@ -411,6 +435,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
       setIframeKey((k) => k + 1);
       setIframeError(null);
     }
+    setErrorDetail(null);
   }, [isTauri, consoleState]);
 
   // 地址栏提交（对齐 Hermes commit：normalize → draft 清空 → pending 接管显示）；
@@ -570,6 +595,16 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
         >
           <ArrowRight size={13} />
         </button>
+        {/* 🔴 2026-09-01 主页按钮（用户定制默认主页 = DeepSeek）：关闭 Browser tab 后
+            再点网页窗口按钮会前置残留的其他 Browser tab（surface 语义保留上次页面），
+            用户"不知道从哪再打开 DeepSeek"——主页按钮提供永远可用的一键入口 */}
+        <button
+          onClick={() => commitAddress(BROWSER_DEFAULT_HOME)}
+          className="flex items-center justify-center w-6 h-6 shrink-0 rounded text-[var(--ui-text-secondary)] hover:bg-[var(--ui-control-hover-background)] hover:text-[var(--ui-text-primary)] transition-colors"
+          title="打开主页（DeepSeek）"
+        >
+          <House size={13} />
+        </button>
         <Globe size={14} className="text-[var(--ui-text-tertiary)] shrink-0" />
         {/* 🔴 2026-08-29 对齐 Hermes preview-browser-bar：地址输入（draft 模式 +
             Escape 取消 + Enter 提交 normalize + 内联复制按钮） */}
@@ -721,11 +756,16 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
             <AlertCircle size={32} className="text-[var(--ui-yellow)]" strokeWidth={1.5} />
             <span className="text-xs text-[var(--ui-text-secondary)]">
               {iframeError === 'serverNotFound'
-                ? '无法连接到服务器'
+                ? '页面加载失败'
                 : iframeError === 'moduleMime'
                   ? '页面启动失败（模块加载错误）'
                   : '预览加载失败'}
             </span>
+            {errorDetail && (
+              <span className="max-w-[80%] truncate text-[10px] text-[var(--ui-text-tertiary)]" title={errorDetail}>
+                {errorDetail}
+              </span>
+            )}
             <span
               className="text-[10px] text-[var(--ui-text-tertiary)] max-w-[80%] truncate"
               title={currentUrl}
