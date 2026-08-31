@@ -23,16 +23,24 @@ import { useMonitorDelegateTasks, type DelegateTask } from '../store/debug';
 import { steerSubagent, interruptSubagent, getSubagentHistory, type SubagentHistoryMessage } from '../utils/api';
 import { notifyError, notifySuccess } from '../utils/notifications';
 
+// 🔴 2026-09-01 对齐后端终态枚举（delegate/types.rs: completed/failed/interrupted/error）：
+// 此前缺 interrupted/error 的 label/配色，中断与出错的子 Agent 显示原始英文词。
 const STATUS_LABEL: Record<string, string> = {
   running: '运行中',
   completed: '已完成',
   failed: '失败',
+  interrupted: '已中断',
+  error: '出错',
+  timeout: '超时',
 };
 
 const STATUS_CLS: Record<string, string> = {
   running: 'text-primary',
   completed: 'text-success',
   failed: 'text-destructive',
+  interrupted: 'text-warning',
+  error: 'text-destructive',
+  timeout: 'text-warning',
 };
 
 /** 历史消息角色标签（紧凑渲染用；未知角色回退原样显示） */

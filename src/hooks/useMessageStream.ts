@@ -64,7 +64,13 @@ function buildDelegateProgressDebugLine(
 // 总量超上限按插入序淘汰最旧终态条目。running 条目受 ToolStatusBar
 // delegation.status 水合依赖保护，永不淘汰、不剥离（活跃卡片需全量渲染）。
 const DELEGATE_TASKS_MAX = 40;
-const DELEGATE_TERMINAL_STATUSES = new Set(['completed', 'failed', 'error', 'aborted', 'cancelled']);
+// 🔴 2026-09-01 复核对齐后端枚举（crates/eleve-tools-native/src/delegate/types.rs:39-40
+// "completed, failed, interrupted, error" + interrupted_result()；eleve-core lib.rs:2910
+// 文档另声称 timeout 对齐 Hermes）——原白名单漏 'interrupted'（父 Agent 中断子任务的
+// JoinError cancelled 路径，常见操作）→ 被中断的子 Agent 条目误判 running → 大字段
+// 永不剥离 + 永不参与上限淘汰 = 泄漏。白名单语义"宁多勿缺"：漏判=泄漏，多判=无害
+// （后端 running 恒为 'running' 字面量；aborted/cancelled/timeout 为防御性保留）。
+const DELEGATE_TERMINAL_STATUSES = new Set(['completed', 'failed', 'error', 'interrupted', 'timeout', 'aborted', 'cancelled']);
 /** 完成态文本保留上限：SubagentMonitor 显示 truncate 一行 + title 悬停预览，200 字符足够 */
 const DONE_TEXT_KEEP_CHARS = 200;
 
