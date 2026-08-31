@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   pruneMsgCache,
   touchAndPruneMsgCache,
+  clampCacheTails,
   dropMsgCacheEntry,
   findTouchedKey,
   MSG_CACHE_MAX_SESSIONS,
@@ -68,5 +69,20 @@ describe('msg-cache LRU（2026-09-01 内存修复 P0-1）', () => {
   it('findTouchedKey 无引用变更返回 null', () => {
     const prev: Record<string, number[]> = { a: [1] };
     expect(findTouchedKey(prev, { a: prev.a })).toBeNull();
+  });
+
+  it('clampCacheTails 对超限会话做 tail 截断（保留最新）', () => {
+    const big = Array.from({ length: 150 }, (_, i) => i);
+    const cache: Record<string, number[]> = { s1: big, s2: [1, 2] };
+    const clamped = clampCacheTails(cache);
+    expect(clamped.s1.length).toBe(100);
+    expect(clamped.s1[0]).toBe(50); // 头部 50 条被裁，保留最新
+    expect(clamped.s1[99]).toBe(149);
+    expect(clamped.s2).toBe(cache.s2); // 未超限原引用
+  });
+
+  it('clampCacheTails 全部未超限返回原引用（零拷贝）', () => {
+    const cache: Record<string, number[]> = { s1: [1, 2] };
+    expect(clampCacheTails(cache)).toBe(cache);
   });
 });

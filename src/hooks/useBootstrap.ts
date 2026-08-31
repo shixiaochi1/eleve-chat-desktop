@@ -10,7 +10,7 @@ import { getWsClient, setWsActiveProfile } from '../services/ws-client';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { notifyInfo } from '../utils/notifications';
 import { getMessages } from '../store/messages';
-import { touchAndPruneMsgCache } from '../lib/msg-cache';
+import { touchAndPruneMsgCache, clampCacheTails } from '../lib/msg-cache';
 import { loadDisplaySettings } from '../store/display-settings';
 import type { ChatMessage } from '../types';
 import type { useSessions } from './useSessions';
@@ -260,8 +260,9 @@ export function useBootstrap({ sess }: { sess: ReturnType<typeof useSessions> })
         const cache = storage.load('msg_cache', {} as Record<string, ChatMessage[]>) as Record<string, ChatMessage[]>;
         cache[sid] = getMessages();
         // 🔴 2026-09-01 内存修复：落盘前 touch+裁剪（防止 beforeunload 快照
-        // 突破 LRU 上限——旧实现直接全量 saveBeacon）
-        storage.saveBeacon('msg_cache', touchAndPruneMsgCache(cache, sid));
+        // 突破 LRU 上限——旧实现直接全量 saveBeacon）；
+        // 🔴 复核补充：tail 截断——上翻工作集不得经 beforeunload 全量回灌
+        storage.saveBeacon('msg_cache', clampCacheTails(touchAndPruneMsgCache(cache, sid)));
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);

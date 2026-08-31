@@ -9,6 +9,7 @@ import { getWsClient } from '../services/ws-client';
 import {
   pruneMsgCache,
   touchAndPruneMsgCache,
+  clampCacheTails,
   dropMsgCacheEntry,
   findTouchedKey,
 } from '@/lib/msg-cache';
@@ -48,7 +49,7 @@ export function useSessions(): {
     // 🔴 2026-09-01 内存修复（审查 P0-1）：启动恢复旧全量数据 → 立即裁剪并
     // 回写落盘。存量用户磁盘上的 msg_cache 可能已是几十 MB（历史上限），
     // 不裁剪则首次重启前内存照旧。淘汰安全（msgCache 非权威源，见 lib/msg-cache.ts）。
-    const pruned = pruneMsgCache(loaded);
+    const pruned = clampCacheTails(pruneMsgCache(loaded));
     if (pruned !== loaded) storage.save('msg_cache', pruned);
     return pruned;
   });
@@ -90,9 +91,11 @@ export function useSessions(): {
       // 引用新建形态，引用 diff 识别，调用方零改动）。淘汰安全：msgCache
       // 非权威源，读取点仅"秒显"且恒被 loadHistory 后端数据覆盖。
       const touchedKey = findTouchedKey(prev, next);
+      // 🔴 复核补充：tail 截断——上翻工作集经 getMessages() 回灌时不得全量入缓存
+      const clamped = clampCacheTails(next);
       const pruned = touchedKey
-        ? touchAndPruneMsgCache(next, touchedKey)
-        : pruneMsgCache(next);
+        ? touchAndPruneMsgCache(clamped, touchedKey)
+        : pruneMsgCache(clamped);
       storage.save('msg_cache', pruned);
       return pruned;
     });

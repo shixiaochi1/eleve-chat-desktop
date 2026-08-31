@@ -23,6 +23,32 @@
 /** 缓存容量上限（会话数） */
 export const MSG_CACHE_MAX_SESSIONS = 10;
 
+/**
+ * 单会话消息数上限（tail 截断）。
+ * 🔴 2026-09-01 复核补充：上翻加载的工作集（用户主动拉取的更早消息）会经
+ * turn 边界 saveCache(getMessages()) 与 beforeunload 全量回灌 cache，绕过
+ * 首屏分页的内存收益；存量用户的磁盘数据也可能是单会话全量。缓存的角色是
+ * "切会话秒显遮罩"（显示最新消息）而非完整副本——tail 截断零功能损失
+ * （更早消息上翻时从 DB 游标续拉）。
+ */
+export const MSG_CACHE_MAX_MESSAGES_PER_SESSION = 100;
+
+/** 对 cache 中每个会话的消息数组做 tail 截断（超限保留最新 N 条） */
+export function clampCacheTails<T>(cache: Record<string, T[]>): Record<string, T[]> {
+  let changed = false;
+  const next: Record<string, T[]> = {};
+  for (const k of Object.keys(cache)) {
+    const arr = cache[k];
+    if (Array.isArray(arr) && arr.length > MSG_CACHE_MAX_MESSAGES_PER_SESSION) {
+      next[k] = arr.slice(-MSG_CACHE_MAX_MESSAGES_PER_SESSION);
+      changed = true;
+    } else {
+      next[k] = arr;
+    }
+  }
+  return changed ? next : cache;
+}
+
 const lastTouched = new Map<string, number>();
 
 /** 按 lastTouched 升序淘汰超出容量的最旧条目（容量内原引用返回，零拷贝） */
