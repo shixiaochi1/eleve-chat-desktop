@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useMessageCount, setMessages as storeSetMessages, getIsStreaming } from './store/messages';
 import {
   addDebugEvent,
@@ -58,7 +58,6 @@ import SlashConfirmCard from './components/SlashConfirmCard';
 import AppShell from './components/AppShell';
 import PaneShell, { Pane, PaneMain, PaneCollapseBtn } from './components/PaneShell';
 import FileBrowserPanel from './components/FileBrowserPanel';
-import TerminalPanel from './components/TerminalPanel';
 import PreviewCenter from './components/preview/PreviewCenter';
 import ImageLightbox from './components/ImageLightbox';
 import ImageEditorModal from './components/ImageEditorModal';
@@ -74,6 +73,14 @@ import GridModeView, { type GridModeViewHandle } from './components/GridModeView
 import EditAgentDialog from './components/EditAgentDialog';
 import { ModelProvider } from './contexts/ModelContext';
 import type { Window } from '@tauri-apps/api/window';
+
+// ── 终端面板懒加载（2026-09-02）：把 xterm 移出首屏依赖链 ──
+// TerminalPanel → terminal-extras → @xterm/addon-web-links 是一条静态引用链，
+// 静态 import 会让 xterm（334KB）进入 index.html 的 modulepreload，首屏无条件
+// 下载并解析，即使终端从未打开。terminalMounted 门控只延迟了「渲染」，并未
+// 延迟「模块加载」——改 lazy 后 xterm 退化为动态 chunk，仅首次打开终端时才加载。
+// 用 React 官方 lazy + Suspense（不手写加载状态），失败由外层 ErrorBoundary 兜底。
+const TerminalPanel = lazy(() => import('./components/TerminalPanel'));
 
 // ── Tauri window API (lazy) ──
 let tauriWindow: Window | null = null;
@@ -1945,7 +1952,11 @@ export default function App() {
                 终端空白“什么都没有”（Hermes persistent.tsx 注释明确禁止 0×0 启动） */}
             {terminalMounted && (
               <div className={rightOpen && rightTab === 'terminal' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}>
-                <TerminalPanel cwd={sessionCwd} sessionId={sess.sessionId ?? undefined} />
+                {/* fallback=null：外层容器已具备真实尺寸（terminalMounted 门控保证），
+                    xterm open 依赖非零尺寸；lazy chunk 本地加载极快，无需占位符 */}
+                <Suspense fallback={null}>
+                  <TerminalPanel cwd={sessionCwd} sessionId={sess.sessionId ?? undefined} />
+                </Suspense>
               </div>
             )}
           </Pane>
