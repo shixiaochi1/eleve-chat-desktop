@@ -1,7 +1,7 @@
 /**
  * session-window.ts — 会话独立窗口（对齐 Hermes openSession target='window'）
  *
- * 复用 kanban-window.ts 的多窗口模式（WebviewWindow + ?panel= URL 路由）：
+ * 多窗口模式（WebviewWindow + ?panel= URL 路由）：
  * 新建一个独立窗口渲染指定会话（?panel=session&session_id=<id>&profile=<p>），
  * 不干扰主窗口；重复为同一会话打开 → 聚焦已存在窗口。
  */

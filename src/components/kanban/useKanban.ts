@@ -331,8 +331,8 @@ export function useKanban({ board = 'default' }: { board?: string }) {
 
   useEffect(() => { const i = setInterval(() => loadBoard(), 60000); return () => clearInterval(i); }, [loadBoard]);
 
-  // 🔴 2026-08-15 前端普查待办②：monitorState prop 悬空清理——KanbanWindowApp
-  // 从不传 delegateTasks，合并链恒为空对象（mergeTasks 空输入原样返回，此处
+  // 🔴 2026-08-15 前端普查待办②：monitorState prop 悬空清理——看板（现为侧边栏
+  // KanbanPanelForSidebar）从不传 delegateTasks，合并链恒为空对象（mergeTasks 空输入原样返回，此处
   // 直接 apiTasks 行为逐字节等价）。subagent 任务在看板的呈现属未来特性
   // （如需再接，用 SubagentMonitor 数据源 + 显式接线，不走隐式 prop）。
   const allTasks = useMemo(() => apiTasks, [apiTasks]);

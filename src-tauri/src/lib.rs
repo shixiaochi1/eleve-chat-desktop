@@ -508,60 +508,11 @@ fn set_auto_start(enable: bool) -> Result<bool, String> {
 pub(crate) const ELEVE_WEBVIEW_ARGS: &str =
     "--disable-background-timer-throttling --disable-backgrounding-occluded-windows";
 
-/// 看板窗口 toggle（老大 2026-08-11 需求：
-/// 点看板按钮 = 弹出/隐藏切换；点窗口关闭 = 真实关闭）
-///
-/// 🔴 根治 0x8007139F：预注册窗口（tauri.conf.json label=kanban）被真实关闭销毁后，
-/// JS 侧 new WebviewWindow 无法传 additionalBrowserArgs（Tauri v2 JS API 不支持）→
-/// WebView2 多 webview args 不一致 → 创建失败。此 command 在 Rust 侧重建，
-/// 用 WebviewWindowBuilder 显式设置与主窗口一致的 additional_browser_args
-/// （同一 WebView2 Environment）→ 重建必成功。
-///
-/// 语义：
-/// - 窗口存在且可见 → hide（点按钮收起）
-/// - 窗口存在且隐藏 → show + focus（点按钮弹出）
-/// - 窗口不存在（已被真实关闭销毁）→ 重建（带 args）+ show
-#[tauri::command]
-async fn toggle_kanban_window(app: tauri::AppHandle) -> Result<String, String> {
-    const LABEL: &str = "kanban";
-
-    // 已存在 → toggle
-    if let Some(w) = app.get_webview_window(LABEL) {
-        let visible = w.is_visible().unwrap_or(false);
-        if visible {
-            let _ = w.hide();
-            eprintln!("[TAURI] kanban toggle: hide");
-            return Ok("hidden".to_string());
-        } else {
-            let _ = w.show();
-            let _ = w.set_focus();
-            let _ = w.unminimize();
-            eprintln!("[TAURI] kanban toggle: show");
-            return Ok("shown".to_string());
-        }
-    }
-
-    // 不存在（已销毁）→ 重建：与主窗口同 additional_browser_args，防 0x8007139F
-    let url = tauri::WebviewUrl::App("index.html?panel=kanban".into());
-    let builder = tauri::WebviewWindowBuilder::new(&app, LABEL, url)
-        .title("看板 — Eleve")
-        .inner_size(960.0, 680.0)
-        .min_inner_size(600.0, 400.0)
-        .center()
-        .resizable(true)
-        .decorations(false)
-        .visible(false)
-        .additional_browser_args(ELEVE_WEBVIEW_ARGS);
-
-    let w = builder.build().map_err(|e| {
-        eprintln!("[TAURI] kanban rebuild FAILED: {}", e);
-        format!("kanban window create failed: {}", e)
-    })?;
-    let _ = w.show();
-    let _ = w.set_focus();
-    eprintln!("[TAURI] kanban rebuilt + shown");
-    Ok("rebuilt-shown".to_string())
-}
+// 🔴 2026-09-02 死代码清除：看板独立窗口（toggle_kanban_window）已废弃。
+// 看板已迁移至主窗口 SidePanel（SidePanel.tsx → KanbanPanelForSidebar），
+// 前端 utils/kanban-window.ts 与 components/KanbanWindowApp.tsx 同步删除。
+// 保留此说明：该命令零调用方，残留会误导维护者误判「仍存在独立看板窗口」
+// （2026-09-02 内存排查即因此误判看板占一个 renderer）。
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ELEVED 子进程管理
@@ -1181,7 +1132,7 @@ pub fn run() {
             // 🔴 W-1 死代码清除（2026-08-05）：resolve_media 命令全库零调用——
             // MEDIA 处理唯一消费链 src/utils/media.ts → WS media.resolve
             // （后端 misc_service 权威实现），此命令为早期 Tauri 本地处理遗留
-            toggle_kanban_window,
+            // 🔴 2026-09-02 死代码清除：toggle_kanban_window（看板已迁至主窗口 SidePanel）
             // 画布插件化 S5（2026-08-18）：画布窗口单例 + 图片处理 + 状态持久化
             // （命令名与画布 src-tauri 原命令一致，前端 invoke 零改动）
             canvas_commands::toggle_canvas_window,
@@ -1415,14 +1366,14 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 let label = window.label().to_string();
-                // 只有主窗口关闭才退出应用，其他窗口（如看板）只关闭窗口本身
+                // 只有主窗口关闭才退出应用，其他窗口（如画布）只关闭窗口本身
                 if label == "main" {
                     let app = window.app_handle().clone();
                     // 同步执行关闭流程（阻塞直到 eleved 完全退出）
                     // 不能用 std::thread::spawn — app.exit(0) 会抢在 cleanup 之前
                     cleanup_and_exit(&app);
                 }
-                // 非主窗口（kanban 等）：默认行为即关闭该窗口，不退出应用
+                // 非主窗口（画布 / 会话独立窗口等）：默认行为即关闭该窗口，不退出应用
             }
         })
         .run(tauri::generate_context!())

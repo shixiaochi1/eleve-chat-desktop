@@ -41,7 +41,7 @@ export default function SessionWindowApp() {
   const [portReady, setPortReady] = useState(false);
   const [profiles, setProfiles] = useState<AgentProfileInfo[]>([]);
 
-  // 1. WS 端口探测（对齐 KanbanWindowApp 模式）
+  // 1. WS 端口探测（独立窗口通用模式）
   useEffect(() => {
     let cancelled = false;
     void discoverPort().then((ok) => { if (!cancelled) setPortReady(ok); });

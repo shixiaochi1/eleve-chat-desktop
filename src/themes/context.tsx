@@ -324,7 +324,7 @@ export function applyThemeCSS(
 // ─── Boot-time paint ────────────────────────────────────────────────────────
 
 /** 🔴 2026-08-18 读取全部外观选项（边栏色调/降低透明度/减弱动态/文字大小）——
- *  主窗口 boot paint 与看板独立窗口（KanbanWindowApp）共用，保持多窗口一致 */
+ *  主窗口 boot paint 与会话独立窗口共用，保持多窗口一致 */
 export function loadThemeAppearanceOptions(): ThemeAppearanceOptions {
   return {
     sidebarTint: loadSidebarTint(),
