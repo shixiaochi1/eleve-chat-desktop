@@ -15,6 +15,29 @@ import { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
 const titleCache = new Map<string, string>();
+// 🔴 2026-09-02 内存治理（第三轮复核）：LRU 上限——titleCache 此前无上限线性
+// 累积（标题字符串，量级小于 favicon data URL 但同模式）。命中/写入置顶，
+// 超限驱逐最旧（驱逐后重进页面会重新抓取，语义无损）。
+const TITLE_CACHE_MAX = 256;
+
+function getTitleCached(key: string): string | undefined {
+  const v = titleCache.get(key);
+  if (v !== undefined) {
+    titleCache.delete(key);
+    titleCache.set(key, v);
+  }
+  return v;
+}
+
+function cacheTitle(key: string, title: string): void {
+  titleCache.delete(key);
+  titleCache.set(key, title);
+  if (titleCache.size > TITLE_CACHE_MAX) {
+    const oldest = titleCache.keys().next().value;
+    if (oldest !== undefined) titleCache.delete(oldest);
+  }
+}
+
 const titleInflight = new Map<string, Promise<string>>();
 const titleSubs = new Map<string, Set<(value: string) => void>>();
 
@@ -69,7 +92,7 @@ export async function fetchLinkTitle(url: string): Promise<string> {
     return '';
   }
   if (titleCache.has(key)) {
-    return titleCache.get(key) ?? '';
+    return getTitleCached(key) ?? '';
   }
   const pending = titleInflight.get(key);
   if (pending) {
@@ -81,7 +104,7 @@ export async function fetchLinkTitle(url: string): Promise<string> {
     .then((clean) => (clean && !ERROR_TITLE_RE.test(clean) ? clean : ''))
     .catch(() => '')
     .then((safe) => {
-      titleCache.set(key, safe);
+      cacheTitle(key, safe);
       titleInflight.delete(key);
       titleSubs.get(key)?.forEach((sub) => sub(safe));
       return safe;
@@ -95,10 +118,10 @@ export async function fetchLinkTitle(url: string): Promise<string> {
 export function useLinkTitle(url?: null | string): string {
   const normalizedUrl = useMemo(() => (url ? normalizeExternalUrl(url) : ''), [url]);
   const key = useMemo(() => (normalizedUrl ? titleCacheKey(normalizedUrl) : ''), [normalizedUrl]);
-  const [title, setTitle] = useState(() => (key ? (titleCache.get(key) ?? '') : ''));
+  const [title, setTitle] = useState(() => (key ? (getTitleCached(key) ?? '') : ''));
 
   useEffect(() => {
-    setTitle(key ? (titleCache.get(key) ?? '') : '');
+    setTitle(key ? (getTitleCached(key) ?? '') : '');
 
     if (!key || !isTitleFetchable(normalizedUrl)) {
       return;

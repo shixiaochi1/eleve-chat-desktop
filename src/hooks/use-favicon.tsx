@@ -23,8 +23,33 @@ import { invoke } from '@tauri-apps/api/core';
 import { cn } from '@/lib/utils';
 import { isTitleFetchable, normalizeExternalUrl } from '@/hooks/use-link-title';
 
-/** url → data URL；'' = 已失败不重试。模块级缓存：重挂载不再跨 IPC */
+/** url → data URL；'' = 已失败不重试。模块级缓存：重挂载不再跨 IPC
+ *  🔴 2026-09-02 内存治理（第三轮复核）：加 LRU 上限——值为 base64 data URL
+ *  （几 KB~几十 KB/条），此前无上限线性累积（长跑 + 大量外链会话场景）。
+ *  LRU 序由 Map 保序实现（命中/写入置顶，超限驱逐最旧）。''（失败标记）同样
+ *  入缓存占位——防重试语义与 LRU 驱逐后可重抓并存（驱逐即遗忘失败标记）。 */
 const resolved = new Map<string, string>();
+const RESOLVED_MAX = 256;
+
+function getResolved(url: string): string | undefined {
+  const v = resolved.get(url);
+  if (v !== undefined) {
+    // LRU 命中置顶
+    resolved.delete(url);
+    resolved.set(url, v);
+  }
+  return v;
+}
+
+function cacheResolved(url: string, icon: string): void {
+  resolved.delete(url);
+  resolved.set(url, icon);
+  if (resolved.size > RESOLVED_MAX) {
+    const oldest = resolved.keys().next().value;
+    if (oldest !== undefined) resolved.delete(oldest);
+  }
+}
+
 const inflight = new Map<string, Promise<string>>();
 const subs = new Map<string, Set<(value: string) => void>>();
 
@@ -35,7 +60,7 @@ export async function fetchFavicon(url: string): Promise<string> {
   if (!normalized || !isTitleFetchable(normalized)) {
     return '';
   }
-  const cached = resolved.get(normalized);
+  const cached = getResolved(normalized);
   if (cached !== undefined) {
     return cached;
   }
@@ -48,7 +73,7 @@ export async function fetchFavicon(url: string): Promise<string> {
     .then((value) => value || '')
     .catch(() => '')
     .then((icon) => {
-      resolved.set(normalized, icon);
+      cacheResolved(normalized, icon);
       inflight.delete(normalized);
       subs.get(normalized)?.forEach((sub) => sub(icon));
       return icon;
@@ -60,10 +85,10 @@ export async function fetchFavicon(url: string): Promise<string> {
 /** 订阅式站点图标 hook（同 URL 多处共享一次抓取与结果广播） */
 export function useFavicon(url?: null | string): string {
   const normalizedUrl = useMemo(() => (url ? normalizeExternalUrl(url) : ''), [url]);
-  const [icon, setIcon] = useState(() => (normalizedUrl ? (resolved.get(normalizedUrl) ?? '') : ''));
+  const [icon, setIcon] = useState(() => (normalizedUrl ? (getResolved(normalizedUrl) ?? '') : ''));
 
   useEffect(() => {
-    setIcon(normalizedUrl ? (resolved.get(normalizedUrl) ?? '') : '');
+    setIcon(normalizedUrl ? (getResolved(normalizedUrl) ?? '') : '');
     if (!normalizedUrl || !isTitleFetchable(normalizedUrl)) {
       return;
     }

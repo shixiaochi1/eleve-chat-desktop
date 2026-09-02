@@ -300,6 +300,11 @@ export class GatewayWsClient {
       p.reject(new Error('WebSocket closed'))
     }
     this.pendingRpc.clear()
+    // 🔴 2026-09-02 内存治理（第三轮复核）：disconnect 同步清空排队 RPC——
+    // 原实现只清 pendingRpc 漏了 pendingQueue，排队项（尤其 prompt.submit 的
+    // 30min watchdog timer）在断连后 Promise 悬挂至超时才自愈，与 pendingRpc
+    // 清理不对称。
+    this.rejectPendingQueue('WebSocket disconnected')
 
     if (this.ws) {
       this.ws.onclose = null // prevent reconnect
