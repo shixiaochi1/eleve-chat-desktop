@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
-import { extractMediaRefs, resolveMediaSrc, mayHaveLocalImage } from '../utils/media';
+import { extractMediaRefs, resolveMediaSrc, mayHaveLocalImage, mediaKind, resolveMediaPlaybackSrc } from '../utils/media';
 import { CopyIcon, CheckIcon, TrashIcon } from './Icons';
 import { cn } from '@/lib/utils';
 import StreamBlocks from './StreamBlocks';
@@ -59,6 +59,109 @@ function MediaImage({ path, name, onZoom }: { path: string; name: string; onZoom
       title={name}
       className="max-w-[320px] max-h-[240px] object-contain rounded-lg border border-[var(--ui-stroke-tertiary)] cursor-zoom-in"
       onClick={() => onZoom(src)}
+    />
+  );
+}
+
+/**
+ * 本地视频块级渲染（🔴 2026-09-03 对齐 Hermes MediaAttachment video 分支）：
+ * resolveMediaPlaybackSrc → <video controls>（gateway ServeDir Range 流式优先，
+ * blob 兜底），失败显示文件名。此前面板无视频渲染路径——MEDIA:xx.mp4 走
+ * MediaImage 按图片渲染必破图。
+ */
+function MediaVideo({ path, name }: { path: string; name: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSrc(null);
+    setFailed(null);
+    resolveMediaPlaybackSrc(path)
+      .then((r) => { if (!cancelled) { if (r.src) setSrc(r.src); else setFailed(r.error || '未知原因'); } })
+      .catch((e) => { if (!cancelled) setFailed(e instanceof Error ? e.message : String(e)); });
+    return () => { cancelled = true; };
+  }, [path]);
+
+  // blob URL 生命周期跟随组件（gateway/ServeDir URL 不 revoke）
+  useEffect(() => () => {
+    if (src?.startsWith('blob:')) URL.revokeObjectURL(src);
+  }, [src]);
+
+  if (failed) {
+    return (
+      <div className="text-xs text-muted-foreground border border-dashed border-[var(--ui-stroke-tertiary)] rounded-md px-3 py-2 max-w-[420px]">
+        <div>{name}（视频加载失败）</div>
+        <div className="mt-1 text-[10px] text-[var(--ui-text-tertiary)] break-all">{failed}</div>
+      </div>
+    );
+  }
+  if (!src) {
+    return (
+      <div className="text-xs text-muted-foreground/70 animate-pulse flex items-center gap-1.5 py-1">
+        <span className="inline-block w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        加载视频：{name}
+      </div>
+    );
+  }
+  return (
+    <video
+      src={src}
+      controls
+      preload="metadata"
+      title={name}
+      onError={() => setFailed(`播放器加载/解码失败（src=${src.slice(0, 60)}…）`)}
+      className="max-w-[420px] w-full rounded-lg border border-[var(--ui-stroke-tertiary)] bg-black"
+    />
+  );
+}
+
+/**
+ * 本地音频块级渲染（🔴 2026-09-03 对齐 Hermes MediaAttachment audio 分支）：
+ * TTS 结果 MEDIA: 标签 → <audio controls> 内联播放（此前走 MediaImage 破图）。
+ */
+function MediaAudio({ path, name }: { path: string; name: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSrc(null);
+    setFailed(null);
+    resolveMediaPlaybackSrc(path)
+      .then((r) => { if (!cancelled) { if (r.src) setSrc(r.src); else setFailed(r.error || '未知原因'); } })
+      .catch((e) => { if (!cancelled) setFailed(e instanceof Error ? e.message : String(e)); });
+    return () => { cancelled = true; };
+  }, [path]);
+
+  useEffect(() => () => {
+    if (src?.startsWith('blob:')) URL.revokeObjectURL(src);
+  }, [src]);
+
+  if (failed) {
+    return (
+      <div className="text-xs text-muted-foreground border border-dashed border-[var(--ui-stroke-tertiary)] rounded-md px-3 py-2 max-w-[420px]">
+        <div>{name}（音频加载失败）</div>
+        <div className="mt-1 text-[10px] text-[var(--ui-text-tertiary)] break-all">{failed}</div>
+      </div>
+    );
+  }
+  if (!src) {
+    return (
+      <div className="text-xs text-muted-foreground/70 animate-pulse flex items-center gap-1.5 py-1">
+        <span className="inline-block w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        加载音频：{name}
+      </div>
+    );
+  }
+  return (
+    <audio
+      src={src}
+      controls
+      preload="metadata"
+      title={name}
+      onError={() => setFailed(`播放器加载/解码失败（src=${src.slice(0, 60)}…）`)}
+      className="w-full max-w-sm"
     />
   );
 }
@@ -191,9 +294,18 @@ export default function MessageBubble({ type, content, streaming, messageId, onD
             不走 markdown 管线，React 组件直读文件 → img（100% 可控） */}
         {mediaRefs.refs.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
-            {mediaRefs.refs.map((ref, i) => (
-              <MediaImage key={`${ref.path}-${i}`} path={ref.path} name={ref.name} onZoom={(src) => { setZoomedSrc(src); setZoomedName(ref.name) }} />
-            ))}
+            {/* 🔴 2026-09-03 按媒体形态分派（对齐 Hermes MediaAttachment）：
+                video/audio → 播放器，image → 图片（lightbox），file → 图片兜底 */}
+            {mediaRefs.refs.map((ref, i) => {
+              const kind = mediaKind(ref.path);
+              if (kind === 'video') {
+                return <MediaVideo key={`${ref.path}-${i}`} path={ref.path} name={ref.name} />;
+              }
+              if (kind === 'audio') {
+                return <MediaAudio key={`${ref.path}-${i}`} path={ref.path} name={ref.name} />;
+              }
+              return <MediaImage key={`${ref.path}-${i}`} path={ref.path} name={ref.name} onZoom={(src) => { setZoomedSrc(src); setZoomedName(ref.name) }} />;
+            })}
           </div>
         )}
       </div>

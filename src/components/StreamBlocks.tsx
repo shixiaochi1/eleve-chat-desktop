@@ -2,7 +2,7 @@ import { forwardRef, memo, useCallback, useEffect, useMemo, useRef } from 'react
 import { renderMarkdown, repairMarkdownTail, splitMarkdownBlocksCached, autolinkOutsideFences, mergeSingleNewlines } from '@/utils/markdown';
 import { detectArtifact, type ArtifactDetection } from '@/lib/artifact-detect';
 import { enhanceRichFences } from '@/lib/rich-fence';
-import { resolveMediaSrc, mediaName } from '@/utils/media';
+import { resolveMediaSrc, mediaName, mediaKind, isPlayableMedia, resolveMediaPlaybackSrc } from '@/utils/media';
 import { ArtifactCard } from './ArtifactCard';
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
 import { getCurrentSessionCwd } from '@/lib/session-cwd';
@@ -119,20 +119,71 @@ const Block = memo(
 );
 
 /**
+ * 音视频 img 占位/直链 → 播放器元素替换（🔴 2026-09-03 对齐 Hermes
+ * MarkdownImage → MediaAttachment 分派："Generated/inline media often arrives
+ * as image markdown — ![clip](clip.mp4). A raw <img> with a video/audio source
+ * renders a broken-image icon, so route those sources to MediaAttachment"）。
+ * DOM API 构建（不进 dangerouslySetInnerHTML 文本流，不经 DOMPurify）。
+ */
+function buildMediaElement(path: string, src: string): HTMLElement {
+  const isAudio = mediaKind(path) === 'audio';
+  const el = document.createElement(isAudio ? 'audio' : 'video');
+  el.setAttribute('controls', '');
+  el.setAttribute('preload', 'metadata');
+  el.setAttribute('title', mediaName(path));
+  el.setAttribute('src', src);
+  // 加载/解码失败 → 播放器原位替换为失败提示（对齐 Hermes MediaAttachment
+  // onError → OpenMediaButton 兜底语义；DOM 直建元素无 React state，用 replaceWith）
+  el.addEventListener('error', () => {
+    const tip = document.createElement('div');
+    tip.className = 'text-xs text-muted-foreground border border-dashed border-[var(--ui-stroke-tertiary)] rounded-md px-3 py-2';
+    tip.textContent = `${mediaName(path)}（媒体加载失败）`;
+    el.replaceWith(tip);
+  }, { once: true });
+  el.className = isAudio
+    ? 'my-1 block w-full max-w-sm'
+    : 'my-2 block max-h-[448px] w-full max-w-[560px] rounded-lg border border-[var(--ui-stroke-tertiary)] bg-black';
+  return el;
+}
+
+/**
  * 本地媒体异步挂载（对齐 Hermes MarkdownImageContent）：
  * 扫描 markdown 渲染产物中的 img[data-media-src] 占位，逐个读文件挂载 img.src。
  * - data-media-src 由 rehypeLocalMediaPlaceholder 插件生成（本地路径 img）
+ * - 🔴 2026-09-03 音视频路径（![](xx.mp4) / MEDIA: 标签外的内联场景）→ 替换
+ *   <video>/<audio> 播放器（此前按 img 渲染必破图）
  * - 加载中标记 data-media-loading 防重复请求（html 变化重扫时跳过）
  * - 失败 → 显示加载失败文案（对齐 Hermes failed → Couldn't load + Open image）
+ * - 🔴 远端直链提升（对齐 Hermes MarkdownImage 拦截 http 视频源）：
+ *   http(s) src 且扩展名为视频/音频 → 播放器元素（无扩展名 CDN URL 归
+ *   file 保持 img，对齐 Hermes mediaKind 语义）
  */
 async function loadLocalMedia(root: HTMLElement) {
   const imgs = Array.from(root.querySelectorAll<HTMLImageElement>('img[data-media-src]'));
-  if (imgs.length === 0) return;
-  await Promise.all(
-    imgs.map(async (img) => {
+  const remote = Array.from(root.querySelectorAll<HTMLImageElement>('img[src]')).filter(
+    (img) => /^(https?:)/i.test(img.getAttribute('src') || '') && isPlayableMedia(img.getAttribute('src') || ''),
+  );
+  if (imgs.length === 0 && remote.length === 0) return;
+  await Promise.all([
+    ...remote.map((img) => {
+      const src = img.getAttribute('src') || '';
+      img.replaceWith(buildMediaElement(src, src));
+    }),
+    ...imgs.map(async (img) => {
       if (img.dataset.mediaLoading === '1') return;
       const path = img.getAttribute('data-media-src') || '';
       img.dataset.mediaLoading = '1';
+      if (isPlayableMedia(path)) {
+        const r = await resolveMediaPlaybackSrc(path);
+        img.removeAttribute('data-media-src');
+        delete img.dataset.mediaLoading;
+        if (r.src) {
+          img.replaceWith(buildMediaElement(path, r.src));
+        } else {
+          img.alt = `${img.alt || mediaName(path)}（媒体加载失败：${r.error || '未知原因'}）`;
+        }
+        return;
+      }
       const src = await resolveMediaSrc(path);
       img.removeAttribute('data-media-src');
       delete img.dataset.mediaLoading;
@@ -142,7 +193,7 @@ async function loadLocalMedia(root: HTMLElement) {
         img.alt = `${img.alt || mediaName(path)}（图片加载失败）`;
       }
     }),
-  );
+  ]);
 }
 
 /** 按行数分块（大文本降级渲染用）— 对齐 Hermes chunkByLines */

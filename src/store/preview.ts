@@ -41,8 +41,10 @@ export interface PreviewTarget {
    *  （'preview' = HTML 执行渲染；'source' = 源码。由 openPreview 按 source 定首值） */
   renderMode?: 'preview' | 'source'
   /** 🔴 2026-08-29 对齐 Hermes previewKind：内容形态——渲染分派优先消费，
-   *  缺省回退扩展名推导（localPreviewTarget 按扩展名填充） */
-  previewKind?: 'binary' | 'html' | 'image' | 'pdf' | 'text'
+   *  缺省回退扩展名推导（localPreviewTarget 按扩展名填充）；
+   *  🔴 2026-09-03 加 'video'（对齐 Hermes 媒体语义：mp4/webm/mov/mkv/avi
+   *  走播放器，不再落 text 被 isLikelyBinary 判"二进制文件无法预览"） */
+  previewKind?: 'binary' | 'html' | 'image' | 'pdf' | 'text' | 'video'
   /** 🔴 2026-08-29 对齐 Hermes mimeType：MIME 类型（扩展名映射；后端嗅探后可覆盖） */
   mimeType?: string
   /** 🔴 2026-08-29 对齐 Hermes binary：二进制文件（嗅探命中，禁编辑走专用渲染） */

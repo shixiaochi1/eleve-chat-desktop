@@ -27,6 +27,9 @@ function isWindowsAbsPath(value: string): boolean {
 // 🔴 2026-08-29 对齐 Hermes local-preview.ts：扩展名 → previewKind（内容形态）
 const HTML_EXTENSIONS = new Set(['html', 'htm', 'xhtml'])
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'])
+// 🔴 2026-09-03 对齐 Hermes MEDIA_BY_EXT video 条目：视频文件走播放器预览，
+// 不再落 text（isLikelyBinary → "二进制文件，无法预览"）
+const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mov', 'mkv', 'avi'])
 
 /** 扩展名 → MIME（对齐 Hermes mimeType 富化；常用子集，后端嗅探可覆盖） */
 const MIME_BY_EXT: Record<string, string> = {
@@ -67,9 +70,11 @@ function filePreviewTarget(path: string): PreviewTarget {
     ? ('html' as const)
     : ext === 'pdf'
       ? ('pdf' as const)
-      : IMAGE_EXTENSIONS.has(ext)
-        ? ('image' as const)
-        : ('text' as const)
+      : VIDEO_EXTENSIONS.has(ext)
+        ? ('video' as const)
+        : IMAGE_EXTENSIONS.has(ext)
+          ? ('image' as const)
+          : ('text' as const)
   const mimeType = MIME_BY_EXT[ext]
   return {
     kind: 'file',

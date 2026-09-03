@@ -23,6 +23,7 @@ import { readFile, readTextFile, stat, writeTextFile } from '@tauri-apps/plugin-
 import { AlertCircle, Download, File, Loader2, Pencil, RefreshCw, X } from 'lucide-react';
 import type { PreviewTab } from '@/store/preview';
 import { renderMarkdown } from '@/utils/markdown';
+import { resolveMediaPlaybackSrc } from '@/utils/media';
 import { formatFileSize } from '@/utils/format';
 import { cn } from '@/lib/utils';
 import { setPreviewDirty } from '@/lib/preview-edit';
@@ -96,6 +97,13 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   // 🔴 PDF 预览（对齐 Hermes previewKind 'pdf'：扩展名归一化判定；blockedByTarget
   //   豁免 = !isImage && !isPdf && ...——PDF 不走 large/binary 拦截，iframe blob 渲染）
   const isPdf = ext === '.pdf';
+  // 🔴 2026-09-03 视频预览（对齐 Hermes previewKind 'video'）：此前 mp4/webm 落
+  //   文本路径 → isLikelyBinary（NUL 字节）→ "二进制文件，无法预览"；且 >512KB
+  //   先命中 large 拦截，用户点"仍要预览"后全量字节读入内存再判二进制 = 纯浪费。
+  //   现豁免 large/binary 拦截（视频本来就要流式），resolveMediaPlaybackSrc 播放。
+  const isVideo =
+    tab.target.previewKind === 'video' ||
+    ['.mp4', '.webm', '.mov', '.mkv', '.avi'].includes(ext);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,6 +116,8 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   // 🔴 PDF blob URL（对齐 Hermes pdfUrl：Chromium PDF viewer 对大 data: URL 在
   //   iframe 中空白，必须走 objectURL；target/字节变化时 revoke）
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  // 🔴 2026-09-03 视频播放源（gateway /media/videos 流式优先，blob 兜底时 revoke）
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   // 🔴 大文件拦截（对齐 Hermes blockedByTarget large：stat 预检后不读内容，
   // 用户点「仍要预览」才读全量，防大文件全量读入内存卡死）
@@ -159,6 +169,10 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     });
     setPdfUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setVideoUrl((prev) => {
+      if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev);
       return null;
     });
 
@@ -213,6 +227,26 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
             if (cancelled) return;
             setPdfUrl(URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })));
           }
+        } else if (isVideo) {
+          // 🔴 2026-09-03 视频：豁免 large/binary 拦截（对齐 Hermes blockedByTarget
+          //   语义），不进文本读取路径。remote 模式（文件在远端机器）→ remoteReadDataUrl
+          //   读字节 → blob（对齐图片分支）；本地 → resolveMediaPlaybackSrc
+          //   （gateway /media/videos Range 流式优先，兜底 blob）
+          if (isFsRemoteMode()) {
+            const mime = ['.webm'].includes(ext) ? 'video/webm' : ['.mov'].includes(ext) ? 'video/quicktime' : 'video/mp4';
+            const { dataUrl } = await remoteReadDataUrl(path, mime);
+            if (cancelled) return;
+            const blob = await (await fetch(dataUrl)).blob();
+            setVideoUrl(URL.createObjectURL(blob));
+          } else {
+            const r = await resolveMediaPlaybackSrc(path);
+            if (cancelled) return;
+            if (r.src) {
+              setVideoUrl(r.src);
+            } else {
+              setError(r.error || '无法解析视频播放源');
+            }
+          }
         } else if (size > LARGE_FILE_THRESHOLD && !forcePreview) {
           // 大文本文件：拦截（不读内容），用户确认后才读
           setLargeBlocked(true);
@@ -256,7 +290,7 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     return () => {
       cancelled = true;
     };
-  }, [path, isImage, isPdf, ext, reloadKey, selfReload]);
+  }, [path, isImage, isPdf, isVideo, ext, reloadKey, selfReload]);
 
   // ── 文件切换/重读 → 退出编辑、清脏标记（对齐 Hermes filePath/reloadKey effect）──
   useEffect(() => {
@@ -659,6 +693,18 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
             title={basename(path)}
             className="h-full w-full border-0 bg-white"
           />
+        ) : isVideo && videoUrl ? (
+          /* 🔴 2026-09-03 视频预览（对齐 Hermes previewKind 'video'）：
+             <video controls> 播放器（ServeDir Range 流式/blob 源），黑底居中 */
+          <div className="flex-1 min-h-0 flex items-center justify-center bg-black/90 p-2">
+            <video
+              src={videoUrl}
+              controls
+              preload="metadata"
+              title={basename(path)}
+              className="max-h-full max-w-full"
+            />
+          </div>
         ) : binary ? (
           <div className="flex-1 min-h-0 overflow-auto">
             <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
