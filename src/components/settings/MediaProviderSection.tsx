@@ -48,7 +48,8 @@ const CATEGORY_DOT: Record<string, string> = {
  *    与画布 ApiSettingsModal 同端点同契约，key 存 profile .env，只回 masked）
  * 2. **引擎**：生图 / 生视频「设为引擎」（WS media.provider.select）
  * 3. **MXAPI 模型分类预设**：图片 / 视频 / 音乐 三大类，组内按通道子分组；
- *    implemented=true 可点选（写 image_gen.mxapi.model），false 灰显「待接入」
+ *    🔴 2026-09-03 收敛为只读能力全览（当前生效模型高亮，分域 current）——
+ *    模型选择唯一入口在「设置 → 模型 → 媒体生成」，消除两页重叠双写
  * 4. **设置**：X-Channel 通道（default/premium）→ config.set 单键写入
  *
  * 2026-08-31 弹窗 UI 重构：统一 SettingBlocks 卡片语言（图标 chip 分区头 +
@@ -162,19 +163,6 @@ export default function MediaProviderSection() {
     }
   };
 
-  const pickMxModel = async (modelId: string) => {
-    setSettingSaving(true);
-    setError(null);
-    try {
-      await setMediaConfigValue('image_gen.mxapi.model', modelId);
-      setMxModel(modelId);
-    } catch (e: any) {
-      setError(e?.message || '保存模型失败');
-    } finally {
-      setSettingSaving(false);
-    }
-  };
-
   const saveMxSettings = async () => {
     setSettingSaving(true);
     setError(null);
@@ -230,11 +218,14 @@ export default function MediaProviderSection() {
     );
   };
 
-  // ── 弹窗内渲染：MXAPI 模型分类预设 ──
+  // ── 弹窗内渲染：MXAPI 模型分类预设（🔴 2026-09-03 收敛为只读能力全览——
+  // 模型选择唯一入口在「设置 → 模型 → 媒体生成」，消除两页重叠双写入口）──
   const renderMxapiChannels = () => {
     const channels = eleveProvider?.mxapi?.channels || [];
     if (channels.length === 0) return null;
     const categories = ['图片', '视频', '音乐'];
+    const currentImage = ((dir?.current as any)?.image_model as string) || '';
+    const currentVideo = ((dir?.current as any)?.video_model as string) || '';
     return (
       <div className="space-y-4">
         {categories.map((cat) => {
@@ -257,26 +248,22 @@ export default function MediaProviderSection() {
                   <div className="text-[10px] font-medium text-muted-foreground">{g.group}</div>
                   <div className="flex flex-wrap gap-1.5">
                     {g.models.map((m) => {
-                      const active = mxModel === m.id;
-                      const implemented = m.implemented;
+                      const active = m.implemented && (cat === '视频' ? currentVideo === m.id : currentImage === m.id);
                       return (
-                        <button
+                        <span
                           key={m.id}
-                          type="button"
-                          disabled={!implemented || settingSaving}
-                          onClick={() => void pickMxModel(m.id)}
-                          title={implemented ? `${m.display} — ${m.apiPath}` : `${m.display}（后端待接入）— ${m.apiPath}`}
-                          className={`h-7 px-2.5 rounded-md border text-[11px] transition-colors ${
-                            active && implemented
+                          title={m.implemented ? `${m.display} — ${m.apiPath}` : `${m.display}（后端待接入）— ${m.apiPath}`}
+                          className={`inline-flex items-center h-7 px-2.5 rounded-md border text-[11px] ${
+                            active
                               ? 'border-primary/60 bg-primary/10 font-medium text-primary'
-                              : implemented
-                                ? 'border-[var(--ui-stroke-tertiary)] text-foreground hover:bg-accent/40 cursor-pointer'
-                                : 'border-[var(--ui-stroke-quaternary)] text-muted-foreground/50 line-through decoration-muted-foreground/40 cursor-not-allowed'
+                              : m.implemented
+                                ? 'border-[var(--ui-stroke-tertiary)] text-foreground'
+                                : 'border-[var(--ui-stroke-quaternary)] text-muted-foreground/50 line-through decoration-muted-foreground/40'
                           }`}
                         >
                           {m.display}
-                          {!implemented && <span className="ml-1 no-underline">待接入</span>}
-                        </button>
+                          {!m.implemented && <span className="ml-1 no-underline">待接入</span>}
+                        </span>
                       );
                     })}
                   </div>
@@ -285,6 +272,9 @@ export default function MediaProviderSection() {
             </div>
           );
         })}
+        <p className="text-[10px] text-muted-foreground/60">
+          模型选择请前往「设置 → 模型 → 媒体生成」（本页为连接与引擎配置，能力全览只读展示）
+        </p>
       </div>
     );
   };
@@ -440,11 +430,11 @@ export default function MediaProviderSection() {
               {renderEngineRow('video', '生视频引擎（ELEVE 媒体生成）', eleveProvider?.domains.video || [])}
             </SectionCard>
 
-            {/* ── 3. 模型分类预设 ── */}
+            {/* ── 3. 模型分类预设（只读能力全览；选择入口在 模型→媒体生成） ── */}
             <SectionCard
               icon={ImageIcon}
               title="生成模型"
-              desc="点击已实现模型即切换生图模型（写入 image_gen.mxapi.model）"
+              desc="通道能力全览（只读）；切换模型请前往「设置 → 模型 → 媒体生成」"
             >
               <div className="px-4 py-3.5">
                 {renderMxapiChannels()}
@@ -493,11 +483,12 @@ export default function MediaProviderSection() {
             </SectionCard>
           </div>
 
-          {/* 底部操作：当前模型状态 + 保存设置 + 关闭 */}
+          {/* 底部操作：当前模型状态（分域） + 保存设置 + 关闭 */}
           <div className="flex items-center justify-between gap-2 pt-1">
             <span className="min-w-0 truncate text-[11px] text-muted-foreground">
-              当前生图模型：<span className="font-medium text-foreground">{mxModel}</span>
-              <span className="ml-1 text-muted-foreground/60">（nano / nano-pro / nano2 / nano2-lite / gpt-image-2）</span>
+              当前生图模型：<span className="font-medium text-foreground">{((dir?.current as any)?.image_model as string) || mxModel || 'nano'}</span>
+              <span className="mx-1.5 text-muted-foreground/40">·</span>
+              当前生视频模型：<span className="font-medium text-foreground">{((dir?.current as any)?.video_model as string) || '（引擎默认）'}</span>
             </span>
             <div className="flex shrink-0 items-center gap-2">
               <Button

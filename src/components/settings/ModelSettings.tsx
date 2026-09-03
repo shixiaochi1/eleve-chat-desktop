@@ -140,16 +140,19 @@ export default function ModelSettings({
   const pickImageModel = useCallback(async (modelId: string) => {
     setImageSaving(modelId);
     try {
-      await selectToolsetModel('image_gen', modelId);
-      setImageGen(prev => (prev ? { ...prev, current: modelId } : prev));
+      const res = await selectToolsetModel('image_gen', modelId);
+      // 🔴 2026-09-03 分域写入（后端按 category 写 image/video_gen.model）：
+      // 重拉目录获取真实分域 active 高亮（乐观更新 current 对视频域无效）
+      await loadImageGen();
+      const domain = (res as any)?.domain || '生图';
       const display = imageGen?.models.find(m => m.id === modelId)?.display || modelId;
-      notifySuccess(`图像生成模型已切换：${display}`);
+      notifySuccess(`${domain}模型已切换：${display}`);
     } catch (e) {
       notifyError(e, '切换失败');
     } finally {
       setImageSaving(null);
     }
-  }, [imageGen]);
+  }, [imageGen, loadImageGen]);
 
   const delModels = getProviderModels(providers, delProvider);
 
@@ -804,16 +807,30 @@ export default function ModelSettings({
           <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--ui-stroke-tertiary)] bg-card shadow-xs px-4 py-3">
             <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
               Agent 调用<span className="font-medium text-foreground">媒体生成</span>工具时使用的模型（ELEVE 媒体生成后端）。
-              点击卡片即切换并保存；标「待接入」的通道后端尚未实现，不可选。
+              点击卡片即切换并保存（图片写入生图引擎、视频写入生视频引擎）；标「待接入」的通道后端尚未实现，不可选。
             </p>
-            {imageGen?.has_models && (
-              <div className="flex shrink-0 items-center gap-1.5 text-xs">
-                <span className="text-muted-foreground">当前</span>
-                <span className="font-medium text-foreground">
-                  {imageGen.models.find((m: any) => m.id === imageGen.current)?.display || imageGen.current}
-                </span>
-              </div>
-            )}
+            {imageGen?.has_models && (() => {
+              // 🔴 2026-09-03 分域 current：生图/生视频各显示各自生效模型
+              const models = imageGen.models as (ToolsetModelEntry & { active?: boolean })[];
+              const activeImage = models.find(m => m.active && m.category !== '视频');
+              const activeVideo = models.find(m => m.active && m.category === '视频');
+              return (
+                <div className="flex shrink-0 items-center gap-3 text-xs">
+                  {activeImage && (
+                    <span className="flex items-center gap-1.5">
+                      <span className="text-muted-foreground">生图</span>
+                      <span className="font-medium text-foreground">{activeImage.display}</span>
+                    </span>
+                  )}
+                  {activeVideo && (
+                    <span className="flex items-center gap-1.5">
+                      <span className="text-muted-foreground">生视频</span>
+                      <span className="font-medium text-foreground">{activeVideo.display}</span>
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           {imageLoading ? (
             <p className="text-xs text-muted-foreground/60">加载模型目录…</p>
@@ -831,7 +848,7 @@ export default function ModelSettings({
                   key={cat}
                   icon={CatIcon}
                   title={cat}
-                  desc={`${implementedCount} 个已实现 / ${catModels.length} 个通道${catIdx === 0 ? ' · 点击已实现模型即切换生图模型' : ''}`}
+                  desc={`${implementedCount} 个已实现 / ${catModels.length} 个通道${catModels.some((m) => m.implemented !== false) ? ` · 点击已实现模型即切换${cat === '视频' ? '生视频' : '生图'}模型` : ''}`}
                 >
                   {groups.map((g) => (
                     <div key={g} className="px-4 py-3">
@@ -841,7 +858,9 @@ export default function ModelSettings({
                         {[...catModels.filter((m) => m.group === g && m.implemented !== false),
                           ...catModels.filter((m) => m.group === g && m.implemented === false)].map((m) => {
                           const implemented = m.implemented !== false;
-                          const active = imageGen.current === m.id;
+                          // 🔴 2026-09-03 分域 current：active 由后端按域计算
+                          // （图片=image_gen.mxapi.model；视频=video_gen.model）
+                          const active = (m as any).active === true;
                           const saving = imageSaving === m.id;
                           return (
                             <button
