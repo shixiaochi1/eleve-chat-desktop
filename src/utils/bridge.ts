@@ -269,6 +269,10 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   projects_tree:          'projects.tree',
   projects_project_sessions: 'projects.project_sessions',
   projects_create:        'projects.create',
+  // 🔴 2026-09-04 P0 连线修复：后端 projects.delete（ws/mod.rs:1538）早已就绪，
+  // 前端 ProjectTreePanel 删除菜单却调用未注册的 projects_delete → bridge 抛
+  // "No WS/HTTP mapping for command: projects_delete"（删除功能全死）。
+  projects_delete:        'projects.delete',
   projects_update:        'projects.update',
   projects_add_folder:    'projects.add_folder',
   projects_remove_folder: 'projects.remove_folder',

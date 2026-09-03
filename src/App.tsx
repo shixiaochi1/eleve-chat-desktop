@@ -24,6 +24,7 @@ import { dragHasPaths, collectDroppedPaths } from '@/lib/paths-dnd';
 import { useSessionActions } from './hooks/useSessionActions';
 import { setActiveSessionOverride } from './store/session-status';
 import { onWakeDetected } from './lib/wake-events';
+import { onProjectsChanged } from './lib/global-events';
 import useModels from './hooks/useModels';
 import * as storage from './utils/storage';
 import { call, isDesktop, discoverPort, getHttpBase } from './utils/bridge';
@@ -474,6 +475,17 @@ export default function App() {
   useEffect(() => {
     if (sessionListVersion > 0) sess.refresh();
   }, [sessionListVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 🔴 2026-09-04 项目数据变化 → 侧栏项目树刷新（跨视图单一订阅点）。
+  // 后端 projects.changed 是无 session_id 的全局广播（工具 project_create/
+  // switch/delete、UI 增删改归档均触发）。此前消费链挂在 useMessageStream 的
+  // SSE 回调上，而该 hook 在宫格模式下 enabled:false → 宫格项目树死不刷新。
+  // 改由 App 订阅 global-events 广播：与视图模式无关，一次注册全覆盖。
+  // profile 参数暂不用于过滤——项目树 fetchTree 自身按 currentProfile 取数，
+  // 且后端 events 语义是"该 profile 的项目库变了"，多刷无害（幂等重建树）。
+  useEffect(() => onProjectsChanged(() => {
+    setSessionListVersion(v => v + 1);
+  }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── model picker state ──
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);

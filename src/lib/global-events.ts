@@ -11,12 +11,33 @@
  *    ✅ terminal.read.request — 终端读取（IIFE 自包含）
  *    ✅ browser.progress — 浏览器连接进度（error/warning → 通知）
  *    ✅ theme.changed — 主题切换（由 display.accent/appearance 驱动，debug 日志）
+ *    ✅ projects.changed — 项目数据变化（侧栏项目树刷新，见文件末尾订阅 API）
  *    ❌ 任何带 session_id 的 per-agent 事件 — 调用方负责
  * ═══════════════════════════════════════════════════════════════════
  */
 import { getWsClient } from '@/services/ws-client';
 import { playWakeSound, dispatchWakeDetected } from './wake-events';
 import { releaseAgentTerminal } from './agent-terminal-stream';
+
+// ── projects.changed 订阅（模块级广播，跨视图共享）──
+// 🔴 2026-09-04 断线修复：此前 `projects.changed` 只有一条消费链——
+//   单视图 useSSE:533 → cbs.onProjectsChanged → useMessageStream bump
+//   sessionListVersion。而 useMessageStream 在 App.tsx:601 是
+//   `enabled: viewMode === 'single'`，宫格模式由 useGridChat 接管 WS 事件、
+//   它只把无 session_id 的事件丢给 handleGlobalEvent（本文件），本文件不认
+//   这个事件名 → **宫格下 agent 建/切/删项目，侧栏项目树永不刷新**。
+//   收敛到此处（全局事件单一权威源）：单视图与宫格共用一条路径，一次注册全覆盖。
+export type ProjectsChangedListener = (profile: string | null) => void
+const projectsChangedListeners = new Set<ProjectsChangedListener>()
+
+/**
+ * 订阅项目数据变化（工具 project_create/switch/delete、UI 增删改归档）。
+ * @returns 退订函数
+ */
+export function onProjectsChanged(fn: ProjectsChangedListener): () => void {
+  projectsChangedListeners.add(fn)
+  return () => { projectsChangedListeners.delete(fn) }
+}
 
 /**
  * 处理全局 WS 事件（无 session_id）。
@@ -90,6 +111,21 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
         }).catch(() => {});
       }
       return true;
+    }
+
+    // projects.changed — 项目数据变化（工具 project_create/switch/delete 或 UI CRUD）
+    // 后端带 profile（ELEVE 单进程多 profile，projects.db per-profile）；
+    // 空串/null = 归属未知 → 消费方按全量刷新处理。
+    case 'projects.changed': {
+      const profile = (payload.profile as string | null | undefined) || null
+      for (const fn of projectsChangedListeners) {
+        try {
+          fn(profile)
+        } catch (err) {
+          console.error('[global-events] projects.changed listener failed', err)
+        }
+      }
+      return true
     }
 
     // skin.changed — 后端 config.set display.skin 推送（ws/mod.rs）；

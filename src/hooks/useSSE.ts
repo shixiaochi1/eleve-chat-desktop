@@ -50,8 +50,8 @@ export interface SSECallbacks {
     filesRead?: string[]; filesWritten?: string[]; outputTail?: unknown[]; costUsd?: number; exitReason?: string
   }) => void
   onSystemNotice?: (data: { text: string; level?: string; kind?: string; ttl_ms?: number; key?: string; id?: string }) => void
-  /** 🔴 2026-08-13 对齐修复：项目数据变化（工具 create/switch/delete/active）→ 前端刷新项目树 */
-  onProjectsChanged?: () => void
+  // 🔴 2026-09-04：onProjectsChanged 已移除——项目数据变化改由 global-events
+  // 统一广播（onProjectsChanged 订阅），单视图/宫格共用，不再走 SSECallbacks。
   onNoticeClear?: (data: { key: string }) => void
   onStatusUpdate?: (data: { kind: string; text: string }) => void
   onClarify?: (data: { session_id?: string; clarify_id: string; question: string; choices?: string[]; multi_select?: boolean }) => void
@@ -73,6 +73,11 @@ export interface SSECallbacks {
     provider: string
     cwd: string
     branch: string | null
+    /** 🔴 2026-09-04 对齐 Hermes `_project_info_for_cwd`：会话归属的**显式**项目
+     *  （{id, slug, name, primary_path}）。未纳入任何项目（自动发现的 repo 根、
+     *  未绑定）→ null，各表面各自回退到 cwd 叶子名（Hermes 同口径）。
+     *  项目切换后随补推的 session.info 一并到达，前端无需等下一轮 turn。 */
+    project?: { id: string; slug: string; name: string; primary_path: string | null } | null
     running: boolean
     title: string
     version: string
@@ -494,6 +499,9 @@ function processEvent(
         provider: (chunk.provider as string) || '',
         cwd: (chunk.cwd as string) || '',
         branch: chunk.branch as string | null,
+        // 🔴 2026-09-04 对齐 Hermes _session_info["project"]：会话归属项目透传
+        // （后端新字段；旧后端无此键时为 undefined → 归一为 null，消费方零改动）
+        project: (chunk.project as { id: string; slug: string; name: string; primary_path: string | null } | null | undefined) ?? null,
         running: (chunk.running as boolean) || false,
         title: (chunk.title as string) || '',
         version: (chunk.version as string) || '',
@@ -528,10 +536,13 @@ function processEvent(
       });
       break;
 
-    // 🔴 2026-08-13 对齐修复：项目数据变化（无 session_id 全局广播放行）→
-    // 前端项目树静默刷新（工具 project_create/switch/delete 后 active 高亮/列表跟随）
+    // 🔴 2026-09-04 收敛：项目数据变化（无 session_id 全局广播）→ 委托
+    // global-events 单一权威源。此前只有本分支 → cbs.onProjectsChanged 一条链，
+    // 而该回调只存在于单视图 useMessageStream（宫格下 enabled:false）→ 宫格
+    // 项目树永不刷新。改走共享处理器后单视图/宫格同一路径（订阅方只需在 App
+    // 注册一次 onProjectsChanged）。
     case 'projects.changed':
-      cbs.onProjectsChanged?.();
+      handleGlobalEvent('projects.changed', chunk as Record<string, unknown>);
       break;
 
     // ── 流生命周期 ──

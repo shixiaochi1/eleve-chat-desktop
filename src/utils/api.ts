@@ -663,6 +663,16 @@ export async function getProjectsTree(previewLimit = 0, includeDiscovered = true
   return call('projects_tree', { preview_limit: previewLimit, include_discovered: includeDiscovered });
 }
 
+/**
+ * 删除显式项目（对齐 Hermes deleteProject：只删 projects.db 记录，不动磁盘文件；
+ * 与 archive 并存——归档保留记录，删除移除记录）。
+ * 🔴 2026-09-04 P0：此前组件直呼 call('projects_delete')，而 bridge 未注册该映射
+ * → 抛 No WS/HTTP mapping，删除永远失败。命令层正名为本项目，组件不再散裸 call。
+ */
+export async function deleteProject(id: string, profile?: string | null): Promise<any> {
+  return call('projects_delete', { id, ...(profile ? { profile } : {}) });
+}
+
 export async function updateKanbanBoard(slug: string, data: Record<string, any>): Promise<any> {
   return call('update_kanban_board', { slug, ...data });
 }

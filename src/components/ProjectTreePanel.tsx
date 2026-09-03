@@ -23,7 +23,7 @@ import { getDismissedWorktrees, dismissWorktree } from '../lib/dismissed-worktre
 import { getProjectOrderIds, setProjectOrderIds, orderProjectsByIds } from '../lib/project-order';
 import { useSortableList } from '../hooks/useSortableList';
 import { deleteSessionAction, toggleArchiveSession } from '../lib/session-actions';
-import { undoSessionTurn, compressSession, branchSession, getSessionUsage } from '../utils/api';
+import { undoSessionTurn, compressSession, branchSession, getSessionUsage, deleteProject } from '../utils/api';
 import { gitWorktreeList, gitWorktreeRemove, type HermesGitWorktree } from '../lib/git';
 import { WorktreeDialog } from './worktree/WorktreeDialog';
 import { pickDirectory } from '../utils/directory-picker';
@@ -415,8 +415,12 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
     if (!deleting || deleteBusy) return;
     setDeleteBusy(true);
     try {
-      await call('projects_delete', { id: deleting.id, profile: currentProfile });
+      await deleteProject(deleting.id, currentProfile);
       notifySuccess(`已删除「${deleting.label}」`);
+      // 🔴 2026-09-04 对齐 Hermes deleteProject（projects.ts L1058-1061）：删掉的
+      // 是激活项目时清掉本地激活态——否则 selectedId 悬空指向已删 id，高亮一个
+      // 树里不存在的节点（后端 normalize_active_id 会兜底归一到 Home，本地不冲突）。
+      if (selectedId === deleting.id) setSelectedId(null);
       setDeleting(null);
       void fetchTree(true);
     } catch (e) {
@@ -424,7 +428,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
     } finally {
       setDeleteBusy(false);
     }
-  }, [deleting, deleteBusy, currentProfile, fetchTree]);
+  }, [deleting, deleteBusy, currentProfile, fetchTree, selectedId]);
 
   // 自动项目「从侧边栏移除」（对齐 Hermes dismissAutoProject：本地隐藏，可刷新恢复）
   const handleDismiss = useCallback((project: ProjectNode) => {

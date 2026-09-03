@@ -566,11 +566,9 @@ export function useMessageStream({
 
   // ── SSE streaming callbacks — aligned with Eleve handleGatewayEvent ──
   sseCallbacks.current = {
-    // 🔴 2026-08-13 对齐修复：项目数据变化 → bump sessionListVersion →
-    // ProjectTreePanel [sessionId, sessionListVersion] effect 自动静默刷新树
-    onProjectsChanged: () => {
-      if (setSessionListVersion) setSessionListVersion(v => v + 1)
-    },
+    // 🔴 2026-09-04：onProjectsChanged 已从此处移除——项目数据变化改由 App 层
+    // 订阅 global-events 的 onProjectsChanged 统一处理（覆盖单视图 + 宫格）。
+    // 保留在此会因 useMessageStream 被 enabled:false 停掉而漏掉宫格。
 
     // ── Text delta — 1:1 with Eleve message.delta ──
     // queueDelta uses the INCREMENTAL delta.
@@ -754,6 +752,8 @@ export function useMessageStream({
       provider: string
       cwd: string
       branch: string | null
+      /** 🔴 2026-09-04 对齐 Hermes：会话归属的显式项目（未归属 → null） */
+      project?: { id: string; slug: string; name: string; primary_path: string | null } | null
       running: boolean
       title: string
       version: string
