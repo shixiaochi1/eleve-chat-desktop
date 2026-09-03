@@ -859,6 +859,16 @@ export async function stopBotRoom(roomId: string, cancelId?: string): Promise<an
   return call('bot_rooms_stop', { room_id: roomId, ...(cancelId ? { cancel_id: cancelId } : {}) });
 }
 
+/** 变更房间成员（对齐 Hermes room.members_changed） */
+export async function changeBotRoomMembers(roomId: string, add: string[], remove: string[]): Promise<any> {
+  return call('bot_rooms_members', { room_id: roomId, add, remove });
+}
+
+/** 房间重命名（对齐 Hermes room.renamed） */
+export async function renameBotRoom(roomId: string, name: string): Promise<any> {
+  return call('bot_rooms_rename', { room_id: roomId, name });
+}
+
 /** 解散房间（永久墓碑） */
 export async function disbandBotRoom(roomId: string): Promise<any> {
   return call('bot_rooms_disband', { room_id: roomId });

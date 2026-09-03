@@ -13,10 +13,10 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { ArrowLeft, Bot, Loader, MessageSquarePlus, Send, Square, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Bot, Loader, MessageSquarePlus, Send, Settings2, Square, Trash2, UserPlus, UserMinus, X } from 'lucide-react';
 import {
-  createBotRoom, disbandBotRoom, fetchBotRoomEvents,
-  fetchBotRooms, fetchBotsRoster, ensureBotChat, sendBotRoomMessage,
+  changeBotRoomMembers, createBotRoom, disbandBotRoom, fetchBotRoomEvents,
+  fetchBotRooms, fetchBotsRoster, ensureBotChat, renameBotRoom, sendBotRoomMessage,
   stopBotRoom,
   type BotRosterEntry, type BotRoom, type BotRoomEvent,
 } from '../utils/api';
@@ -90,6 +90,7 @@ export default function BotsPanel({ onSwitchSession }: BotsPanelProps) {
     return (
       <BotsRoomView
         room={activeRoom}
+        bots={bots}
         onBack={() => { setActiveRoom(null); loadList(); }}
       />
     );
@@ -239,11 +240,14 @@ export default function BotsPanel({ onSwitchSession }: BotsPanelProps) {
 // 房间视图 — 事件流 + 发言 + 停止/解散
 // ══════════════════════════════════════════════════════════════════
 
-function BotsRoomView({ room, onBack }: { room: BotRoom; onBack: () => void }) {
+function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEntry[]; onBack: () => void }) {
   const [events, setEvents] = useState<BotRoomEvent[]>([]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [editName, setEditName] = useState(room.name);
+  const [editError, setEditError] = useState<string | null>(null);
   const latestSeq = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const roomRef = useRef(room);
@@ -321,6 +325,23 @@ function BotsRoomView({ room, onBack }: { room: BotRoom; onBack: () => void }) {
     try { await disbandBotRoom(room.room_id); onBack(); } finally { setBusy(false); }
   };
 
+  // ── 房间编辑（重命名 + 成员增删；对齐 Hermes room.renamed/members_changed）──
+  const saveEdit = async (addProfiles: string[], removeMemberIds: string[]) => {
+    setEditError(null);
+    try {
+      if (editName.trim() && editName.trim() !== room.name) {
+        await renameBotRoom(room.room_id, editName.trim());
+      }
+      if (addProfiles.length || removeMemberIds.length) {
+        await changeBotRoomMembers(room.room_id, addProfiles, removeMemberIds);
+      }
+      setShowEdit(false);
+      onBack(); // 回列表刷新（房间身份已变，重新拉取）
+    } catch (e) {
+      setEditError((e as Error).message);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* 头部 */}
@@ -337,10 +358,26 @@ function BotsRoomView({ room, onBack }: { room: BotRoom; onBack: () => void }) {
         <button className="p-1.5 rounded hover:bg-accent/50" title="停止当前讨论" disabled={busy} onClick={stopRoom}>
           <Square size={13} className="text-muted-foreground" />
         </button>
+        <button className="p-1.5 rounded hover:bg-accent/50" title="群聊设置（重命名/成员）" onClick={() => setShowEdit(true)}>
+          <Settings2 size={13} className="text-muted-foreground" />
+        </button>
         <button className="p-1.5 rounded hover:bg-destructive/20" title="解散群聊" disabled={busy} onClick={disband}>
           <Trash2 size={13} className="text-destructive" />
         </button>
       </div>
+
+      {/* 房间编辑弹层 */}
+      {showEdit && (
+        <RoomEditDialog
+          room={room}
+          bots={bots}
+          editName={editName}
+          setEditName={setEditName}
+          error={editError}
+          onSave={saveEdit}
+          onClose={() => { setShowEdit(false); setEditName(room.name); setEditError(null); }}
+        />
+      )}
 
       {/* 事件流 */}
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-2">
@@ -376,7 +413,11 @@ function BotsRoomView({ room, onBack }: { room: BotRoom; onBack: () => void }) {
           if (ev.kind === 'room.disbanded') {
             return <div key={ev.seq} className="text-center text-[11px] text-destructive py-0.5">— 群聊已解散 —</div>;
           }
-          // 🔴 2026-09-04 turn 终态四分：缺席/取消对用户可见（闭环感知）
+          // 🔴 2026-09-04 turn 终态四分：缺席/取消/轮转中对用户可见（闭环感知）
+          if (ev.kind === 'turn.started') {
+            const h = String(ev.actor.handle || ev.actor.id || '');
+            return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/60 py-0.5">· @{h} 发言中…</div>;
+          }
           if (ev.kind === 'turn.deferred') {
             const h = String(ev.actor.handle || ev.actor.id || '');
             return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— @{h} 暂时缺席 —</div>;
@@ -407,6 +448,102 @@ function BotsRoomView({ room, onBack }: { room: BotRoom; onBack: () => void }) {
         >
           <Send size={14} />
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 房间编辑弹层 — 重命名 + 成员增删（对齐 Hermes room.renamed/members_changed）
+// ══════════════════════════════════════════════════════════════════
+
+function RoomEditDialog({
+  room, bots, editName, setEditName, error, onSave, onClose,
+}: {
+  room: BotRoom;
+  bots: BotRosterEntry[];
+  editName: string;
+  setEditName: (v: string) => void;
+  error: string | null;
+  onSave: (addProfiles: string[], removeMemberIds: string[]) => void;
+  onClose: () => void;
+}) {
+  const [pendingRemove, setPendingRemove] = useState<string[]>([]);
+  const [pendingAdd, setPendingAdd] = useState<string[]>([]);
+  const nextCount = room.members.length - pendingRemove.length + pendingAdd.length;
+  const canSave = nextCount >= 1 && nextCount <= 6;
+
+  const addable = bots.filter(
+    (b) => !room.members.some((m) => m.profile === b.profile) && !pendingAdd.includes(b.profile),
+  );
+
+  return (
+    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-xs rounded-xl border border-[var(--ui-stroke-tertiary)] bg-[var(--panel-bg,#1c1c1e)] p-4 space-y-3 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-foreground">群聊设置</span>
+          <button className="p-1 rounded hover:bg-accent/50" onClick={onClose}>
+            <X size={14} className="text-muted-foreground" />
+          </button>
+        </div>
+
+        <input
+          value={editName}
+          onChange={(e) => setEditName(e.target.value)}
+          placeholder="群聊名称"
+          className="w-full px-2.5 py-1.5 rounded-md bg-accent/30 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+        />
+
+        <div className="max-h-48 overflow-y-auto space-y-1">
+          {/* 当前成员（标记移除） */}
+          {room.members.map((m) => {
+            const marked = pendingRemove.includes(m.member_id);
+            return (
+              <div key={m.member_id} className={cn('flex items-center justify-between px-2 py-1.5 rounded-md', marked ? 'opacity-40' : 'hover:bg-accent/30')}>
+                <span className="text-sm text-foreground">@{m.handle} · {m.display_name}</span>
+                <button
+                  className="p-1 rounded hover:bg-destructive/20"
+                  title={marked ? '撤销移除' : '移除成员'}
+                  onClick={() => setPendingRemove((cur) =>
+                    marked ? cur.filter((id) => id !== m.member_id) : [...cur, m.member_id])}
+                >
+                  {marked ? <UserPlus size={13} className="text-foreground" /> : <UserMinus size={13} className="text-destructive" />}
+                </button>
+              </div>
+            );
+          })}
+          {/* 可添加成员 */}
+          {addable.map((b) => (
+            <div key={b.profile} className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-accent/30">
+              <span className="text-sm text-muted-foreground">@{b.handle} · {b.display_name}</span>
+              <button
+                className="p-1 rounded hover:bg-accent/50"
+                title="添加成员"
+                onClick={() => setPendingAdd((cur) => [...cur, b.profile])}
+              >
+                <UserPlus size={13} className="text-foreground" />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {error && <div className="text-xs text-destructive">{error}</div>}
+
+        <div className="flex items-center justify-between">
+          <span className={cn('text-xs', canSave ? 'text-muted-foreground' : 'text-destructive')}>
+            成员 {nextCount}/1-6
+          </span>
+          <button
+            className="px-3 py-1.5 rounded-md bg-accent text-accent-foreground text-sm font-medium disabled:opacity-40"
+            disabled={!canSave}
+            onClick={() => onSave(pendingAdd, pendingRemove)}
+          >
+            保存
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -166,6 +166,8 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   bot_rooms_state:        'bot.rooms.state',
   bot_rooms_send:         'bot.rooms.send',
   bot_rooms_events:       'bot.rooms.events',
+  bot_rooms_members:      'bot.rooms.members',
+  bot_rooms_rename:       'bot.rooms.rename',
   bot_rooms_stop:         'bot.rooms.stop',
   bot_rooms_disband:      'bot.rooms.disband',
   // 🔴 2026-08-02 断线修复：Agent 编辑卡（EditAgentDialog）读/写 SOUL/MEMORY/USER + 主题色/昵称
