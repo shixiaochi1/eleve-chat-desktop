@@ -350,9 +350,13 @@ export default function MediaProviderSection() {
                     {m.display || m.id}
                   </span>
                 ))}
-                {p.domains.video.length > 0 && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">生视频：待接入</span>
-                )}
+                {/* 🔴 2026-09-03 即梦视频已接通：video 域模型与 image 域同款 chip 渲染
+                    （此前写死「生视频：待接入」——08-20 通道预留期占位未拆） */}
+                {p.domains.video.map((m) => (
+                  <span key={m.id} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground truncate max-w-[12rem]">
+                    {m.display || m.id}
+                  </span>
+                ))}
               </div>
             </button>
           );
@@ -432,7 +436,8 @@ export default function MediaProviderSection() {
             {/* ── 2. 引擎（生图 / 生视频） ── */}
             <SectionCard icon={Zap} title="引擎" desc="媒体生成工具实际使用的后端通道">
               {renderEngineRow('image', '生图引擎（ELEVE 媒体生成）', eleveProvider?.domains.image || [])}
-              {renderEngineRow('video', '生视频引擎（通道待接入）', eleveProvider?.domains.video || [])}
+              {/* 🔴 2026-09-03 即梦视频已接通，删「通道待接入」占位文案 */}
+              {renderEngineRow('video', '生视频引擎（ELEVE 媒体生成）', eleveProvider?.domains.video || [])}
             </SectionCard>
 
             {/* ── 3. 模型分类预设 ── */}
