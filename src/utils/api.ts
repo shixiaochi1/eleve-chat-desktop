@@ -776,6 +776,94 @@ export async function getKanbanConfig(): Promise<any> {
   return call('get_kanban_config', {});
 }
 
+// ====== Bot Mode（bot 联动 + 群聊，对齐 Hermes bot-mode） ======
+
+/** Bot 花名册条目（bots.roster 返回） */
+export interface BotRosterEntry {
+  profile: string;
+  handle: string;
+  display_name: string;
+  color?: string | null;
+  avatar_key?: string | null;
+}
+
+/** 群聊房间事件（bot.rooms.events / bot.room.event 推送） */
+export interface BotRoomEvent {
+  seq: number;
+  event_id: string;
+  kind: string;
+  actor: { kind: string; id: string; display_name?: string; profile?: string; handle?: string };
+  payload: Record<string, unknown>;
+  created_at: number;
+}
+
+/** 群聊房间身份（bot.rooms.list / create） */
+export interface BotRoom {
+  room_id: string;
+  name: string;
+  members: { member_id: string; profile: string; handle: string; display_name: string }[];
+  next_seq: number;
+  created_at: number;
+  disbanded_at?: number | null;
+}
+
+/** Bot 花名册（运行时已注册 profile） */
+export async function fetchBotsRoster(): Promise<BotRosterEntry[]> {
+  const data = await call('bots_roster', {});
+  return Array.isArray(data?.bots) ? data.bots : [];
+}
+
+/** 确保 canonical Bot Chat 存在并取 session_id（打开 bot 私聊入口） */
+export async function ensureBotChat(profile: string): Promise<string> {
+  const data = await call('bot_chat_ensure', { profile });
+  return data?.session_id || '';
+}
+
+/** 某 profile 的 bot 平台会话列表（canonical Bot Chat + "Group: …"） */
+export async function fetchBotChats(profile: string): Promise<any[]> {
+  const data = await call('bot_chats_list', { profile });
+  return Array.isArray(data?.sessions) ? data.sessions : [];
+}
+
+/** 创建群聊房间（2-6 名 bot；同 identity 幂等） */
+export async function createBotRoom(name: string, members: string[]): Promise<BotRoom> {
+  const data = await call('bot_rooms_create', { name, members });
+  return data?.room;
+}
+
+/** 群聊房间列表 */
+export async function fetchBotRooms(includeDisbanded = false): Promise<BotRoom[]> {
+  const data = await call('bot_rooms_list', { include_disbanded: includeDisbanded });
+  return Array.isArray(data?.rooms) ? data.rooms : [];
+}
+
+/** 房间状态（身份 + latest_seq） */
+export async function fetchBotRoomState(roomId: string): Promise<{ room: BotRoom; latest_seq: number } | null> {
+  const data = await call('bot_rooms_state', { room_id: roomId });
+  return data ? { room: data.room, latest_seq: data.latest_seq } : null;
+}
+
+/** 群聊发言（触发后台多 bot 讨论） */
+export async function sendBotRoomMessage(roomId: string, text: string, clientEventId?: string): Promise<{ seq: number; event_id: string }> {
+  return call('bot_rooms_send', { room_id: roomId, text, ...(clientEventId ? { client_event_id: clientEventId } : {}) });
+}
+
+/** 增量拉取房间事件 */
+export async function fetchBotRoomEvents(roomId: string, sinceSeq = 0, limit = 200): Promise<{ events: BotRoomEvent[]; latest_seq: number }> {
+  const data = await call('bot_rooms_events', { room_id: roomId, since_seq: sinceSeq, limit });
+  return { events: Array.isArray(data?.events) ? data.events : [], latest_seq: data?.latest_seq ?? 0 };
+}
+
+/** 停止房间在飞讨论（围栏事件） */
+export async function stopBotRoom(roomId: string, cancelId?: string): Promise<any> {
+  return call('bot_rooms_stop', { room_id: roomId, ...(cancelId ? { cancel_id: cancelId } : {}) });
+}
+
+/** 解散房间（永久墓碑） */
+export async function disbandBotRoom(roomId: string): Promise<any> {
+  return call('bot_rooms_disband', { room_id: roomId });
+}
+
 // ====== API Base URL ======
 
 /**

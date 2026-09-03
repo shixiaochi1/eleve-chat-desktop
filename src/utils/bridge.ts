@@ -157,6 +157,17 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   get_active_profile:     'profiles.get_active',
   create_profile:         'profiles.create',
   delete_profile:         'profiles.delete',
+  // 🔴 2026-09-04 Bot Mode（bot 联动 + 群聊，对齐 Hermes bot-mode）
+  bots_roster:            'bots.roster',
+  bot_chat_ensure:        'bot.chat.ensure',
+  bot_chats_list:         'bot.chats.list',
+  bot_rooms_create:       'bot.rooms.create',
+  bot_rooms_list:         'bot.rooms.list',
+  bot_rooms_state:        'bot.rooms.state',
+  bot_rooms_send:         'bot.rooms.send',
+  bot_rooms_events:       'bot.rooms.events',
+  bot_rooms_stop:         'bot.rooms.stop',
+  bot_rooms_disband:      'bot.rooms.disband',
   // 🔴 2026-08-02 断线修复：Agent 编辑卡（EditAgentDialog）读/写 SOUL/MEMORY/USER + 主题色/昵称
   // 缺映射 → bridge 抛 "No WS/HTTP mapping" → 用户档案空白、保存失败
   get_soul:               'profiles.get_soul',

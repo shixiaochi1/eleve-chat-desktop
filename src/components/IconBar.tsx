@@ -9,7 +9,7 @@ import {
   PaletteIcon, ToolIcon,
   UsageIcon, ChannelsIcon, KanbanIcon, AgentIcon,
 } from './Icons';
-import { FolderGit, BookOpen, Shapes } from 'lucide-react';
+import { FolderGit, BookOpen, Shapes, Bot as BotsIcon } from 'lucide-react';
 // 🔴 2026-08-16（平台受限项 d1 P0-5 闭合）：看板在飞计数（对齐 Hermes
 //   KanbanCount）——IconBar kanban 图标右上角 running+ready 角标
 import { useKanbanActiveCount } from '../hooks/useKanbanActiveCount';
@@ -45,6 +45,8 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
     // 🔴 2026-08-12 老大指示：取消"项目"按钮（项目功能已合并进 Agent 面板）；
     //   文件浏览器图标换成原项目图标（FolderGit），行为不变（开右侧文件抽屉）
     { id: 'files',    icon: FolderGit,  label: '文件浏览器', onClick: onToggleFiles },
+    // 🔴 2026-09-04 Bot Mode：bot 联动 + 群聊（对齐 Hermes bot-mode）
+    { id: 'bots',     icon: BotsIcon,   label: '群聊' },
     { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true, badge: active },
     // 🔴 2026-08-18 画布 × ELEVE 集成：画布按钮——点击弹出 infinite-canvas
     //   应用（独立进程，client_type=canvas WS 注册为 ELEVE 能力，见

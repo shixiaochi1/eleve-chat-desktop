@@ -6,6 +6,7 @@
 import { cn } from '@/lib/utils';
 import type { Session } from '@/types';
 import AgentsPanel from './AgentsPanel';
+import BotsPanel from './BotsPanel';
 import CronPanel from './CronPanel';
 import DebugPanel from './DebugPanel';
 import ToolsPanel from './ToolsPanel';
@@ -21,7 +22,7 @@ import {
   DebugIcon, ToolIcon,
   UsageIcon, ChannelsIcon, AgentIcon, KanbanIcon,
 } from './Icons';
-import { Radio, Activity, GitCommit, BookOpen } from 'lucide-react';
+import { Radio, Activity, GitCommit, BookOpen, Bot as BotIcon } from 'lucide-react';
 
 interface SidePanelProps {
   activePanel?: string | null;
@@ -81,6 +82,8 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
 
   const panels: Record<string, { title: string; Icon: React.ComponentType<any>; component: React.ComponentType<any> }> = {
     agents:   { title: 'Agent', Icon: AgentIcon,   component: AgentsPanel },
+    // 🔴 2026-09-04 Bot Mode：bot 联动 + 群聊面板（自带头部，同 agents 豁免）
+    bots:     { title: '群聊', Icon: BotIcon,      component: BotsPanel },
     kanban:   { title: '看板', Icon: KanbanIcon,   component: KanbanPanelForSidebar },
     gateway:  { title: '网关状态',   Icon: Radio,       component: GatewayPanel },
     // 🔴 2026-08-12：projects 面板已合并进 Agent 面板（AgentsPanel 内嵌项目区），
@@ -103,8 +106,8 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
 
   return (
     <aside role="tabpanel" aria-label={cfg.title} className="h-full flex flex-col overflow-hidden flex-1 min-w-0">
-      {/* 面板头部 — gateway/agents/tools/kanban 面板自带标题或 Tab 栏，隐藏 */}
-      {activePanel !== 'gateway' && activePanel !== 'agents' && activePanel !== 'tools' && activePanel !== 'kanban' && (
+      {/* 面板头部 — gateway/agents/bots/tools/kanban 面板自带标题或 Tab 栏，隐藏 */}
+      {activePanel !== 'gateway' && activePanel !== 'agents' && activePanel !== 'bots' && activePanel !== 'tools' && activePanel !== 'kanban' && (
         <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--ui-stroke-tertiary)] shrink-0">
           <HeaderIcon size={16} strokeWidth={1.5} className="text-muted-foreground" />
           <span className="text-sm font-medium text-foreground">{cfg.title}</span>
