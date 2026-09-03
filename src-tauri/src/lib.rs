@@ -16,6 +16,7 @@
 //!   - agent-browser-win32-x64.exe 仅为 Windows 平台，通过 bundle.resources 打包
 //!   - 当前只打 Windows 包，暂不处理跨平台条件配置
 
+use tauri::Emitter;
 use tauri::Manager;
 use tauri::menu::{MenuBuilder, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -1075,35 +1076,73 @@ fn graceful_shutdown_eleved(state: &TauriAppState) {
 // CLEANUP & EXIT
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// 主窗口退出前，给画布一次落盘机会。
+///
+/// 🔴 画布跑在独立 WebView 里，主窗口 `app.exit(0)` 会连带杀死它。不给机会的话：
+///   ① 关窗前最后一次 debounce（2s）之后的全部改动直接蒸发；
+///   ② 前端的 `endRecoverySession` 不会被调用 → 下次启动必然误报「异常退出」。
+///
+/// 复用画布窗口自己点 X 的同一条链路：emit `app-close-requested`，前端走完
+/// 「弹确认 → 落盘三介质 → 推恢复快照 → force_close_window(destroy)」。
+/// 窗口消失即视为完成；超时则放弃，不阻塞退出。
+fn request_canvas_save_before_exit(app: &tauri::AppHandle) {
+    let Some(w) = app.get_webview_window(canvas_commands::CANVAS_LABEL) else {
+        return; // 画布没开过，无需处理
+    };
+    if !w.is_visible().unwrap_or(false) {
+        // 隐藏状态：用户看不到确认对话框，弹窗会一直卡到超时。
+        // 该场景前端已在 hide 时落过盘（canvas-window-hidden），直接跳过。
+        return;
+    }
+    if !canvas_commands::begin_canvas_closing() {
+        return; // 已在关闭流程中（例如画布刚被单独关掉）
+    }
+    let _ = w.emit("app-close-requested", ());
+
+    // 🔴 固定等待，不是「等前端完成信号」：
+    //    本函数同步阻塞主线程，而 Tauri 的 IPC 也在主线程 event loop 里处理——
+    //    轮询等一个在等待期间根本不会被处理的信号，必然每次都跑满超时。
+    //    这段时间里前端能完成不依赖 IPC 的部分（同步位置、IDB 落盘、
+    //    推恢复快照）；文件落盘（invoke save_state_to_file）可能来不及，
+    //    但 IDB 已是水化时的主力副本，三介质选取会挑出完整的最新那份。
+    std::thread::sleep(std::time::Duration::from_millis(
+        canvas_commands::CANVAS_EXIT_SAVE_WAIT_MS,
+    ));
+    eprintln!("[TAURI] canvas save window elapsed, proceeding with app exit");
+}
+
 fn cleanup_and_exit(app: &tauri::AppHandle) {
-    // 0. 清场所有交互式 PTY（防子进程残留；隐藏窗口前先杀）
+    // 0. 🔴 给画布落盘机会——必须在隐藏窗口**之前**，否则用户看不到确认对话框
+    request_canvas_save_before_exit(app);
+
+    // 1. 清场所有交互式 PTY（防子进程残留；隐藏窗口前先杀）
     pty::dispose_all(app);
 
-    // 1. 立即隐藏所有窗口 — 用户点击关闭后窗口瞬间消失，不卡顿
+    // 2. 立即隐藏所有窗口 — 用户点击关闭后窗口瞬间消失，不卡顿
     //    必须在等 eleved 退出之前，否则窗口冻住 3s 很傻
     for win in app.webview_windows().values() {
         let _ = win.hide();
     }
 
-    // 2. 关闭所有子窗口（看板等），防止残留
+    // 3. 关闭所有子窗口（看板等），防止残留
     for win in app.webview_windows().values() {
         if win.label() != "main" {
             let _ = win.close();
         }
     }
 
-    // 3. 优雅关闭 eleved（阻塞等待，确保 SQLite 连接正常关闭）
+    // 4. 优雅关闭 eleved（阻塞等待，确保 SQLite 连接正常关闭）
     //    此时窗口已隐藏，用户看不到任何卡顿
     if let Some(state) = app.try_state::<TauriAppState>() {
         graceful_shutdown_eleved(&state);
     }
 
-    // 4. 清理 gateway_state.json，防止下次启动读到残留端口
+    // 5. 清理 gateway_state.json，防止下次启动读到残留端口
     let eleve_home = resolve_eleve_home();
     let state_file = eleve_home.join("runtime").join("gateway_state.json");
     let _ = std::fs::remove_file(&state_file);
 
-    // 5. 最后退出 Tauri（此时 eleved 已死，文件句柄已释放）
+    // 6. 最后退出 Tauri（此时 eleved 已死，文件句柄已释放）
     app.exit(0);
 }
 
@@ -1138,6 +1177,7 @@ pub fn run() {
             canvas_commands::toggle_canvas_window,
             canvas_commands::open_canvas_window,
             canvas_commands::close_canvas_window,
+            canvas_commands::force_close_window,
             canvas_commands::save_state_to_file,
             canvas_commands::load_state_from_file,
             canvas_commands::image_compress,
@@ -1364,7 +1404,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let label = window.label().to_string();
                 // 只有主窗口关闭才退出应用，其他窗口（如画布）只关闭窗口本身
                 if label == "main" {
@@ -1372,8 +1412,34 @@ pub fn run() {
                     // 同步执行关闭流程（阻塞直到 eleved 完全退出）
                     // 不能用 std::thread::spawn — app.exit(0) 会抢在 cleanup 之前
                     cleanup_and_exit(&app);
+                } else if label == canvas_commands::CANVAS_LABEL {
+                    // 🔴 2026-09-04 关窗落盘根治：
+                    //   画布前端一直在 listen('app-close-requested')，并在处理器里
+                    //   「同步位置 → 落盘三介质 → 推恢复快照 → force_close_window」。
+                    //   但这个事件**从未被 emit**，且 force_close_window 命令也从未
+                    //   定义过——两头都断，关窗保存对话框是彻底的死代码，关窗前的
+                    //   改动（最后一次 debounce 之后的全部操作）从来没被保存过。
+                    //
+                    //   这里拦下**首次**关闭请求，交给前端走完落盘流程，由前端调
+                    //   force_close_window 真正关闭。
+                    if canvas_commands::begin_canvas_closing() {
+                        api.prevent_close();
+                        let _ = window.emit("app-close-requested", ());
+
+                        // 兜底：前端卡死（对话框无响应 / JS 异常 / gateway 不可达）
+                        // 时仍能关掉窗口。宁可丢一次落盘，也不能让画布关不掉。
+                        let w = window.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_secs(
+                                canvas_commands::CANVAS_CLOSE_FALLBACK_SECS,
+                            ));
+                            eprintln!("[TAURI] canvas close fallback: destroy after timeout");
+                            let _ = w.destroy();
+                        });
+                    }
+                    // 二次事件（force_close_window 内部 destroy 触发）→ 不拦，放行关闭
                 }
-                // 非主窗口（画布 / 会话独立窗口等）：默认行为即关闭该窗口，不退出应用
+                // 其它非主窗口（会话独立窗口等）：默认行为即关闭该窗口，不退出应用
             }
         })
         .run(tauri::generate_context!())

@@ -21,12 +21,74 @@ use image::codecs::webp::WebPEncoder;
 use image::{DynamicImage, GenericImageView, ImageEncoder};
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
+use tauri::Emitter;
 use tauri::Manager; // get_webview_window / path() 等 AppHandle 扩展方法
 
 // ─── 1. 画布窗口 ─────────────────────────────────────────────────────────────
 
 /// 画布窗口标签（全局单例）
-const CANVAS_LABEL: &str = "canvas";
+pub const CANVAS_LABEL: &str = "canvas";
+
+/// 关窗落盘超时兜底（秒）。
+///
+/// 前端收到 `app-close-requested` 后要走「弹确认框 → 落盘三介质 → 推恢复快照
+/// → 调 force_close_window」一串异步流程。若中途卡死（对话框无响应、JS 异常、
+/// gateway 不可达），窗口必须仍然能关掉——否则用户遇到的是「画布关不掉」，
+/// 比丢数据更影响可用性。
+pub const CANVAS_CLOSE_FALLBACK_SECS: u64 = 10;
+
+/// 主窗口退出时，留给画布完成落盘的时间（毫秒）。
+///
+/// 🔴 只能是「尽力而为的固定等待」，不能是「等前端完成信号」：
+///    `cleanup_and_exit` 同步阻塞主线程，而 Tauri 的 IPC 同样在主线程
+///    event loop 里处理——等一个在等待期间根本不会被处理的信号必然超时。
+///    这段时间里前端能完成不依赖 IPC 的部分（IDB 落盘、推恢复快照），
+///    文件落盘（invoke save_state_to_file）可能来不及，但 IDB 已是主力副本。
+pub const CANVAS_EXIT_SAVE_WAIT_MS: u64 = 1000;
+
+/// 画布关闭流程进行中标记。
+///
+/// 🔴 防死循环：`force_close_window` 内部调 `destroy()`，而 destroy 在部分
+/// Tauri 版本会再次触发 `CloseRequested`。若不拦，链路会变成
+/// destroy → CloseRequested → prevent_close + emit → 前端再走一遍保存流程
+/// → 再调 force_close_window → … 无限弹确认框。
+static CANVAS_CLOSING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 标记画布关闭流程开始。
+/// 返回 true = 本次调用开启了关闭流程（调用方应拦截并通知前端落盘）；
+/// 返回 false = 已在关闭流程中（destroy 触发的二次事件，应直接放行）。
+pub fn begin_canvas_closing() -> bool {
+    !CANVAS_CLOSING.swap(true, std::sync::atomic::Ordering::SeqCst)
+}
+
+/// 窗口重建时复位（画布窗口是 destroy 后重建的，标记必须跟着清）
+pub fn reset_canvas_closing() {
+    CANVAS_CLOSING.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// 强制关闭画布窗口（前端关窗保存流程完成后调用）
+///
+/// 🔴 2026-09-04 补实现：前端 `app-close-requested` 处理器末尾一直在
+/// `invoke('force_close_window')`，但该命令此前**从未定义过**——配合
+///「事件也从未被 emit」这个事实，整条关窗落盘链路两头都断，关窗前的
+/// 数据从来没保存过（丢的正是最后一次 debounce 之后的全部改动）。
+///
+/// 与 `close_canvas_window` 的区别：后者服务于插件 unload（破坏性、不保存），
+/// 这里服务于用户主动关窗且**已完成落盘**后的最终关闭。
+#[tauri::command]
+pub fn force_close_window(app: tauri::AppHandle) -> Result<String, String> {
+    match app.get_webview_window(CANVAS_LABEL) {
+        Some(w) => {
+            // 先置位：destroy 触发的二次 CloseRequested 会被 lib.rs 放行
+            begin_canvas_closing();
+            w.destroy()
+                .map_err(|e| format!("Failed to destroy canvas window: {}", e))?;
+            eprintln!("[TAURI] canvas window force-closed (save flow completed)");
+            Ok("closed".to_string())
+        }
+        None => Ok("absent".to_string()),
+    }
+}
 
 /// 确保画布窗口可见（幂等打开）：不存在→建；hidden/最小化→恢复显示+聚焦。
 /// shell.open_canvas 帧的落地语义（打开意图，非 toggle）。
@@ -42,6 +104,10 @@ async fn ensure_canvas_visible(
         tracing::warn!("[CANVAS] ensure: window exists → show+focus");
         return Ok("shown".to_string());
     }
+
+    // 走到这里说明是**重建**（上一次已 destroy）→ 清掉关闭流程标记，
+    // 否则新窗口第一次点 X 会被误判成「destroy 触发的二次事件」而直接放行。
+    reset_canvas_closing();
 
     // 不存在 → 新建。gateway 端口必须就绪（画布资产由 gateway 提供，同源装载）
     let port = crate::resolve_gateway_port_cached(app, state).await?;
@@ -102,6 +168,10 @@ pub async fn toggle_canvas_window(
         let visible = w.is_visible().unwrap_or(false);
         if visible {
             let _ = w.hide();
+            // 🔴 2026-09-04：隐藏前发信号，让前端落盘并标记干净退出。
+            //    此前 hide 后前端完全收不到通知：① 隐藏期间的改动不落盘
+            //    ② 会话永远不会 end → 下次启动必然误报「检测到异常退出」。
+            let _ = w.emit("canvas-window-hidden", ());
             eprintln!("[TAURI] canvas toggle: hide");
             return Ok("hidden".to_string());
         }
