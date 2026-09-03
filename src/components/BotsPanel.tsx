@@ -376,7 +376,16 @@ function BotsRoomView({ room, onBack }: { room: BotRoom; onBack: () => void }) {
           if (ev.kind === 'room.disbanded') {
             return <div key={ev.seq} className="text-center text-[11px] text-destructive py-0.5">— 群聊已解散 —</div>;
           }
-          return null; // turn.* 终态与 room.created 不渲染（信息在气泡与状态行里）
+          // 🔴 2026-09-04 turn 终态四分：缺席/取消对用户可见（闭环感知）
+          if (ev.kind === 'turn.deferred') {
+            const h = String(ev.actor.handle || ev.actor.id || '');
+            return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— @{h} 暂时缺席 —</div>;
+          }
+          if (ev.kind === 'turn.cancelled') {
+            const h = String(ev.actor.handle || ev.actor.id || '');
+            return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— @{h} 的发言已随停止取消 —</div>;
+          }
+          return null; // turn.settled/failed/room.created 不渲染（信息在气泡与状态行里）
         })}
         <div ref={bottomRef} />
       </div>
