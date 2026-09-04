@@ -11,6 +11,7 @@
  */
 
 import { useSyncExternalStore } from 'react'
+import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
 import type { ListenerCallback, Unsubscribe } from '@/types'
 
 export type PreviewTargetKind = 'url' | 'file' | 'artifact'
@@ -450,6 +451,15 @@ export function closeArtifactPreviewTabs(): void {
  *  （对齐 Hermes closePreviewForSource） */
 export function closePreviewForSource(source: string): boolean {
   return closePreviewMatching(source)
+}
+
+/** 🔴 2026-09-05 对齐 Hermes preview-row togglePreview：同目标已开 tab → 关，
+ *  未开 → 解析后打开（应用内预览的开/关双语义）。ToolEntry 行内预览链接与
+ *  状态栈 PreviewStatusStrip 共用此实现——同一目标两个入口行为必须一致 */
+export function togglePreviewTab(rawTarget: string, cwd?: string | null): void {
+  const resolved = normalizeOrLocalPreviewTarget(rawTarget, cwd)
+  if (!resolved) return
+  if (!closePreviewForSource(rawTarget)) openPreview(resolved, 'tool-result')
 }
 
 /** Close the first tab whose source, url, or label matches any candidate.

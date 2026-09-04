@@ -119,3 +119,16 @@ export function normalizeOrLocalPreviewTarget(
 ): PreviewTarget | null {
   return localPreviewTarget(rawTarget, cwd)
 }
+
+/** 🔴 2026-09-05 对齐 Hermes isPreviewableTarget（tool/fallback-model/targets.ts:11）：
+ *  状态栈 feed 只收"产物"目标——file:// URL、.html/.htm 路径、localhost 系 URL。
+ *  agent 访问过的任意 https 文档页/路径不算产物（防 feed 噪音）；行内预览链接
+ *  不受此过滤（显式意图）。ELEVE 适配：Windows 盘符路径（C:\…）也计入 .html 判定 */
+export function isPreviewableTarget(target: string): boolean {
+  return Boolean(
+    target &&
+      (/^file:\/\//i.test(target) ||
+        /^(?:\/|\.{1,2}\/|~\/|[a-zA-Z]:[\\/]).+\.html?$/i.test(target) ||
+        /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/i.test(target)),
+  )
+}

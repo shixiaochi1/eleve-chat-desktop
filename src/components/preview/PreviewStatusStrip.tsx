@@ -12,9 +12,8 @@
 import { ExternalLink, Globe, X } from 'lucide-react';
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
 import { openExternal } from '@/lib/external-open';
-import { closePreviewForSource, openPreview } from '@/store/preview';
+import { togglePreviewTab } from '@/store/preview';
 import {
   removePreviewArtifact,
   usePreviewArtifacts,
@@ -30,10 +29,10 @@ function StatusRow({ item, onDismiss }: { item: PreviewArtifact; onDismiss: (id:
     void openExternal(item.target);
   };
 
+  // 🔴 2026-09-05 开关双语义收口到 store togglePreviewTab（与 ToolEntry 行内
+  // 预览链接共用同一实现——同一目标两个入口行为必须一致）
   const toggleInAppPreview = () => {
-    const target = normalizeOrLocalPreviewTarget(item.target, item.cwd || undefined);
-    if (!target) return;
-    closePreviewForSource(item.target) || openPreview(target, 'tool-result');
+    togglePreviewTab(item.target, item.cwd || undefined);
   };
 
   return (

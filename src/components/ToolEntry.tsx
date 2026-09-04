@@ -12,17 +12,17 @@ import {
   type TerminalCardModel, type SearchCardModel, type ReadCardModel,
   type DelegateCardModel,
 } from './tool-row-model';
-import DiffLines, { inlineDiffFromResult } from './DiffLines';
+import DiffLines, { inlineDiffFromResult, stripInlineDiffChrome } from './DiffLines';
 import { cn } from '@/lib/utils';
 import { firstStringField, truncateOneLine, looksLikeUrl, looksLikePath } from '@/lib/text';
-import { isFileEditTool } from '@/lib/changed-files';
+import { isFileEditTool, countDiffLineStats } from '@/lib/changed-files';
 import { useToolViewMode } from '@/store/tool-view';
 import { extractPreviewTargets, previewName, stripPreviewTargets } from '@/lib/preview-targets';
-import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
+import { normalizeOrLocalPreviewTarget, isPreviewableTarget } from '@/lib/local-preview';
 import { getCurrentSessionCwd } from '@/lib/session-cwd';
 import { recordPreviewArtifact } from '@/store/preview-status';
-import { openPreview } from '@/store/preview';
-import { openLink } from '@/lib/external-open';
+import { togglePreviewTab } from '@/store/preview';
+import { openLink, openExternal } from '@/lib/external-open';
 
 /**
  * product 模式结果摘要（隐藏原始工具数据，显示易读的工具活动）；
@@ -57,7 +57,8 @@ export interface ToolCallItem {
   /** 三值状态（🔴 Phase 3: error 由 part.isError 驱动，消费于 MessageRow） */
   status?: 'pending' | 'done' | 'error';
   resultStr?: string;
-  /** 工具执行耗时（秒）— 渲染于头部行状态图标旁（对齐 CLI "工具完成: X (12.1s)"） */
+  /** 工具执行耗时（秒）— 非编辑类工具行尾显示（对齐 Hermes "!isFileEdit &&
+   *  durationLabel"）；编辑/写入类该位让位给 diff 改动量徽标 +N −M */
   duration?: number;
 }
 
@@ -281,7 +282,8 @@ function ReadCardBody({ card }: { card: ReadCardModel }) {
 
 /**
  * 工具调用全宽单行 — 对齐 DSH ui-tool ToolRow（24px 折叠单行 + 展开体）：
- *   [16px leading: variant 图标 / 错误态 StateDot] [标题] [2×2 分隔点] [摘要 FILL truncate] [耗时] [chevron]
+ *   [16px leading: variant 图标 / 错误态 StateDot] [标题] [2×2 分隔点] [摘要 FILL truncate] [尾注] [chevron]
+ *   尾注：编辑/写入 = diff 改动量 +N −M（对齐 Hermes showDiffStats）；其它 = 耗时
  *
  * - 无边框全宽行，不再是 max-w-fit 小卡片（老大拍板 2026-08-29）；
  * - 标题/摘要由 tool-row-model 派生（variant 分类 + 中文标题 + 摘要键表 + cwd 相对化）；
@@ -445,30 +447,54 @@ const ToolEntry = memo(function ToolEntry({ tool, sessionId }: { tool: ToolCallI
   }, [previewTargets, structuredPreviewTargets]);
 
   // 🔴 2026-08-28 对齐 Hermes tool/fallback.tsx:411：工具行检测到的可预览目标
+  // 🔴 2026-09-05 对齐 Hermes isPreviewableTarget：状态栈 feed 只收"产物"目标
+  // （file:///.html/localhost）——#preview/ 链接是显式预览意图豁免过滤，结构化
+  // url/path 过滤后收录，防 feed 被"访问过的一切"刷平（Hermes curation 语义）
+  const recordablePreviewTargets = useMemo(() => {
+    const explicit = new Set(previewTargets);
+    return allPreviewTargets.filter((t) => explicit.has(t) || isPreviewableTarget(t));
+  }, [allPreviewTargets, previewTargets]);
+
   // 上报 composer 状态行 feed（recordPreviewArtifact 幂等，每次渲染重报不 churn）
   useEffect(() => {
     if (!sessionId) return;
-    for (const t of [...previewTargets, ...structuredPreviewTargets]) {
+    for (const t of recordablePreviewTargets) {
       recordPreviewArtifact(sessionId, t, getCurrentSessionCwd() || '');
     }
   });
 
-  // 点击预览链接 → 打开预览 tab（openPreview 内部自动切右栏）
-  const handlePreviewTarget = useCallback((target: string) => {
-    const resolved = normalizeOrLocalPreviewTarget(target, getCurrentSessionCwd());
-    if (resolved) openPreview(resolved, 'explicit-link');
-  }, []);
+  // 🔴 2026-09-05 对齐 DSH ToolRow fileLink：文件工具折叠摘要 = 可点路径 → 宿主
+  // OS 默认程序打开；错误行保持失败摘要不链接（"a failure must replace, not
+  // supplement, the summary"）。row.filePath 是 cwd 相对化显示值——打开前经
+  // 会话 cwd 解析回绝对路径
+  const fileLink = row.filePath !== undefined && failureLine === null;
+  const openRowFile = useCallback(() => {
+    if (row.filePath === undefined) return;
+    const resolved = normalizeOrLocalPreviewTarget(row.filePath, getCurrentSessionCwd());
+    if (resolved?.url) void openExternal(resolved.url);
+  }, [row.filePath]);
 
   // 提取 inline_diff（对齐 Eleve：优先从 result.inline_diff 字段获取）
   const inlineDiff = useMemo(() => {
     const fromResult = inlineDiffFromResult(parsedResult);
     if (fromResult) return fromResult;
-    // fallback：resultStr 本身可能是 diff 文本（以 --- 开头）
+    // fallback：resultStr 本身可能是 diff 文本（以 --- 开头）——chrome 剥离后
+    // 与 result 字段路径同构（改动量徽标与 DiffLines 渲染同一份干净文本）
     if (tool.resultStr && tool.resultStr.trim().startsWith('---')) {
-      return tool.resultStr.trim();
+      return stripInlineDiffChrome(tool.resultStr);
     }
     return null;
   }, [parsedResult, tool.resultStr]);
+
+  // 🔴 2026-09-05 对齐 Hermes fallback.tsx:481-486：文件编辑工具行尾显示改动量
+  // 徽标（+N −M 占据耗时位——"不展开即知改了多少"）；countDiffLineStats 与
+  // ChangedFiles 聚合共用同一实现（单一权威源），配色同 DiffLines 增删行
+  const isFileEdit = !!tool.name && isFileEditTool(tool.name);
+  const diffStat = useMemo(
+    () => (isFileEdit && inlineDiff ? countDiffLineStats(inlineDiff) : null),
+    [isFileEdit, inlineDiff],
+  );
+  const showDiffStat = isSettled && diffStat !== null && (diffStat.added > 0 || diffStat.removed > 0);
 
   const toggle = () => {
     if (!expanded) {
@@ -515,22 +541,50 @@ const ToolEntry = memo(function ToolEntry({ tool, sessionId }: { tool: ToolCallI
         {summaryText !== '' && (
           <>
             <span aria-hidden className="shrink-0 size-0.5 rounded-full bg-muted-foreground/40" />
-            <span
-              className={cn(
-                'flex-1 min-w-0 truncate text-xs',
-                failureLine !== null ? 'text-destructive' : 'text-muted-foreground',
-              )}
-            >
-              {summaryText}
-            </span>
+            {fileLink ? (
+              <button
+                type="button"
+                className="flex-1 min-w-0 truncate text-left text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+                title={`${row.filePath}（点击打开文件）`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openRowFile();
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); }}
+              >
+                {summaryText}
+              </button>
+            ) : (
+              <span
+                className={cn(
+                  'flex-1 min-w-0 truncate text-xs',
+                  failureLine !== null ? 'text-destructive' : 'text-muted-foreground',
+                )}
+              >
+                {summaryText}
+              </span>
+            )}
           </>
         )}
         {/* 摘要外尾注（对齐 DSH summarySuffix：不参与截断的关键计数，如并行活动任务数） */}
         {summarySuffix !== null && (
           <span className="shrink-0 text-xs font-medium text-muted-foreground">{summarySuffix}</span>
         )}
-        {/* 工具执行耗时 — 已落定时显示（对齐 CLI "工具完成: X (12.1s)"） */}
-        {isSettled && tool.duration !== undefined && tool.duration > 0 && (
+        {/* 文件改动量徽标（对齐 Hermes fallback.tsx:585：编辑/写入行尾 +N −M，
+            不展开即知改了多少——耗时对该类工具无信息量，让位） */}
+        {showDiffStat && diffStat && (
+          <span className="flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums">
+            {diffStat.added > 0 && (
+              <span className="text-success">+{diffStat.added}</span>
+            )}
+            {diffStat.removed > 0 && (
+              <span className="text-danger">−{diffStat.removed}</span>
+            )}
+          </span>
+        )}
+        {/* 工具执行耗时 — 非编辑类已落定时显示（对齐 Hermes fallback.tsx:595
+            "!isFileEdit && durationLabel"；编辑类该位显示改动量徽标） */}
+        {!isFileEdit && isSettled && tool.duration !== undefined && tool.duration > 0 && (
           <span className="text-xs text-muted-foreground shrink-0 font-mono">
             {tool.duration.toFixed(1)}s
           </span>
@@ -612,8 +666,9 @@ const ToolEntry = memo(function ToolEntry({ tool, sessionId }: { tool: ToolCallI
         </div>
       )}
 
-      {/* 🔴 预览链接行 — 工具结果/参数里的可预览目标（对齐 Hermes status-stack preview-row +
-          toolPreviewTarget 结构化提取；点击打开预览 tab） */}
+      {/* 🔴 预览链接行 — 工具结果/参数里的可预览目标（对齐 Hermes toolPreviewTarget
+          结构化提取；点击语义 = 状态栈 PreviewStatusRow 同款，同一目标两个入口
+          行为一致） */}
       {allPreviewTargets.length > 0 && (
         <div className="mt-2 pt-1.5 border-t border-[var(--ui-stroke-tertiary)] space-y-1">
           {allPreviewTargets.map((target) => (
@@ -621,16 +676,17 @@ const ToolEntry = memo(function ToolEntry({ tool, sessionId }: { tool: ToolCallI
               key={target}
               onClick={(e) => {
                 e.stopPropagation();
-                // 🔴 对齐 Hermes PreviewStatusRow：普通点击 = 系统浏览器打开；
-                // Ctrl/⌘+点击 = 应用内预览抽屉
+                // 🔴 2026-09-05 对齐 Hermes PreviewStatusRow：普通点击 = 系统默认
+                // 程序打开；Ctrl/⌘+点击 = 应用内预览 toggle（已开则关）——此前
+                // 普通点击对 web 目标走 openLink 在应用内打开，与注释/状态栈相反
                 if (e.metaKey || e.ctrlKey) {
-                  handlePreviewTarget(target);
+                  togglePreviewTab(target, getCurrentSessionCwd());
                 } else {
-                  void openExternalLink(target);
+                  void openExternal(target);
                 }
               }}
               className="flex items-center gap-1.5 w-full text-xs text-primary hover:underline text-left"
-              title={`${target}（点击浏览器打开，Ctrl/⌘+点击预览）`}
+              title={`${target}（点击系统程序打开，Ctrl/⌘+点击应用内预览开/关）`}
             >
               <ExternalLink size={11} className="shrink-0" />
               <span className="truncate">{previewName(target)}</span>

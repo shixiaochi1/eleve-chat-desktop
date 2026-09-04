@@ -22,8 +22,9 @@ const DIFF_LINE_KINDS = [
   { className: 'text-muted-foreground/70', match: (l: string) => l.startsWith('---') || l.startsWith('+++') || / → /.test(l.slice(0, 60)) },
 ];
 
-/** 去除 diff 文本中的 ANSI 转义码和 review diff 前缀 */
-function stripInlineDiffChrome(value: string): string {
+/** 去除 diff 文本中的 ANSI 转义码和 review diff 前缀（导出：行尾改动量徽标与
+ *  DiffLines 渲染对同一份 chrome-free 文本计数，保证 +N −M 与展开 diff 一致） */
+export function stripInlineDiffChrome(value: string): string {
   // 去除 ANSI 转义码
   let cleaned = value.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
   // 去除 "┊ review diff" 前缀
