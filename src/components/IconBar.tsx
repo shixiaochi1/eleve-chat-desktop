@@ -9,10 +9,13 @@ import {
   PaletteIcon, ToolIcon,
   UsageIcon, ChannelsIcon, KanbanIcon, AgentIcon,
 } from './Icons';
-import { FolderGit, BookOpen, Shapes, Bot as BotsIcon } from 'lucide-react';
+import { FolderGit, BookOpen, Bot as BotsIcon } from 'lucide-react';
 // 🔴 2026-08-16（平台受限项 d1 P0-5 闭合）：看板在飞计数（对齐 Hermes
 //   KanbanCount）——IconBar kanban 图标右上角 running+ready 角标
 import { useKanbanActiveCount } from '../hooks/useKanbanActiveCount';
+// 🔴 2026-09-04 插件底座：IconBar 追加区消费 iconBar.action 贡献
+//   （外挂应用注册/插件快捷动作；画布已迁为 canvas 插件贡献）
+import { AREA_ICON_BAR_ACTION, useContributions, type IconBarActionData } from '../contrib';
 
 interface NavItem {
   id: string;
@@ -32,13 +35,11 @@ interface IconBarProps {
   onOpenOverlay?: (id: string) => void;
   gatewayOnline?: boolean;
   onToggleFiles?: () => void;
-  /** 画布按钮自定义点击（弹出 infinite-canvas 应用，不参与 panel 切换） */
-  onOpenCanvas?: () => void;
   /** 🔴 2026-09-04 Bot Mode：群聊入口点击 = 主区切到 Bots 视图（对齐 Hermes 主窗口 tab） */
   onOpenBots?: () => void;
 }
 
-export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gatewayOnline, onToggleFiles, onOpenCanvas, onOpenBots }: IconBarProps) {
+export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gatewayOnline, onToggleFiles, onOpenBots }: IconBarProps) {
   // 🔴 2026-08-16（d1 P0-5 闭合）：在飞计数——gateway 在线才轮询；
   //   计数仅作角标展示，点击行为仍走 kanban 项既有切换逻辑
   const { running, ready, active } = useKanbanActiveCount(Boolean(gatewayOnline));
@@ -50,10 +51,6 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
     // 🔴 2026-09-04 Bot Mode：bot 联动 + 群聊（主区 Bots 视图，对齐 Hermes 主窗口 tab）
     { id: 'bots',     icon: BotsIcon,   label: '群聊', onClick: onOpenBots },
     { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true, badge: active },
-    // 🔴 2026-08-18 画布 × ELEVE 集成：画布按钮——点击弹出 infinite-canvas
-    //   应用（独立进程，client_type=canvas WS 注册为 ELEVE 能力，见
-    //   docs/refactor/plugin/infinite-canvas-handover-p2-20260818.md）
-    { id: 'canvas',   icon: Shapes,     label: '画布', onClick: onOpenCanvas },
     { id: 'cron',     icon: CronIcon,     label: '定时任务' },
     { id: 'tools',    icon: ToolIcon,     label: '工具' },
     { id: 'learning', icon: BookOpen,    label: '学习' },
@@ -62,6 +59,18 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
     { id: 'usage',    icon: UsageIcon,    label: '用量分析' },
     { id: 'debug',    icon: DebugIcon,    label: '调试' },
   ];
+
+  // 插件 iconBar.action 贡献（order 升序）转追加区 NavItem
+  const pluginActions = useContributions<IconBarActionData>(AREA_ICON_BAR_ACTION);
+  const pluginNavItems: NavItem[] = pluginActions
+    .map(c => ({ c, data: c.data as IconBarActionData }))
+    .sort((a, b) => (a.data.order ?? 100) - (b.data.order ?? 100))
+    .map(({ c, data }) => ({
+      id: c.id,
+      icon: data.icon,
+      label: data.label,
+      onClick: data.activate,
+    }));
 
   const bottomItems: NavItem[] = [
     { id: 'settings', icon: SettingsIcon, label: '设置', isOverlay: true },
@@ -141,6 +150,7 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
       {/* 导航图标 */}
       <div className="flex flex-col items-center gap-0.5 flex-1 py-2">
         {navItems.map(renderButton)}
+        {pluginNavItems.map(renderButton)}
       </div>
 
       {/* 底部 */}

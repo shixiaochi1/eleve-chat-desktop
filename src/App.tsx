@@ -175,21 +175,7 @@ export default function App() {
   // → 推 shell.open_canvas 帧开窗。单例硬约束在壳（canvas 唯一 label），
   // agent 工具 canvas_open 走 canvas.open 幂等（已连 → already_open），
   // 任何路径都不可能开第二个窗口。
-  const handleOpenCanvas = useCallback(async () => {
-    try {
-      const result = await call('canvas_toggle', {});
-      const status = (result as { status?: string } | null)?.status;
-      if (status === 'toggled') {
-        notifyInfo('画布窗口已切换');
-      } else if (status === 'opening') {
-        notifyInfo('已发出打开画布指令，窗口即将弹出');
-      } else {
-        notifyInfo('画布指令已发出');
-      }
-    } catch (e) {
-      notifyError(e, '操作画布窗口失败');
-    }
-  }, []);
+  // 🔴 2026-09-04 画布 Handler 迁为 canvas 插件贡献（plugins/canvas/plugin.tsx）
   // 🔴 2026-08-17 阶段4（per-session 并发轮配套）：交互状态从单槽改为
   // **按会话多槽**（Record<sessionId, interaction>）——后台会话的审批/
   // 澄清/凭据请求必须可见可响应（单槽覆盖 = 前一个会话的工具挂到超时）。
@@ -1533,7 +1519,7 @@ export default function App() {
         >
           {/* 左侧面板：图标栏 + 侧边面板卡片 */}
           <Pane side="left" className="pane-left-column">
-            <IconBar activePanel={activePanel} onPanelChange={setActivePanel} onOpenOverlay={handleOpenOverlay} gatewayOnline={gatewayHealth.online} onToggleFiles={handleToggleFiles} onOpenCanvas={handleOpenCanvas} onOpenBots={handleOpenBotsView} />
+            <IconBar activePanel={activePanel} onPanelChange={setActivePanel} onOpenOverlay={handleOpenOverlay} gatewayOnline={gatewayHealth.online} onToggleFiles={handleToggleFiles} onOpenBots={handleOpenBotsView} />
             {activePanel && (
               <div className="side-panel-card">
                 <SidePanel

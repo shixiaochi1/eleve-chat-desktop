@@ -4,9 +4,11 @@ import SessionWindowApp from './components/SessionWindowApp'
 import ErrorBoundary from './components/ErrorBoundary'
 import { initTauriBridge } from './lib/tauri-bridge'
 import './index.css'
+import { initializePlugins } from './contrib'
 
 // Tauri 桌面桥接初始化（对齐 Hermes Electron clipboard API）
 initTauriBridge()
+initializePlugins()
 
 // React 挂载后淡出启动画面
 const rootEl = document.getElementById('root')
