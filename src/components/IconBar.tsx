@@ -9,7 +9,7 @@ import {
   PaletteIcon, ToolIcon,
   UsageIcon, ChannelsIcon, KanbanIcon, AgentIcon,
 } from './Icons';
-import { FolderGit, BookOpen, Bot as BotsIcon } from 'lucide-react';
+import { FolderGit, BookOpen } from 'lucide-react';
 // 🔴 2026-08-16（平台受限项 d1 P0-5 闭合）：看板在飞计数（对齐 Hermes
 //   KanbanCount）——IconBar kanban 图标右上角 running+ready 角标
 import { useKanbanActiveCount } from '../hooks/useKanbanActiveCount';
@@ -35,11 +35,9 @@ interface IconBarProps {
   onOpenOverlay?: (id: string) => void;
   gatewayOnline?: boolean;
   onToggleFiles?: () => void;
-  /** 🔴 2026-09-04 Bot Mode：群聊入口点击 = 主区切到 Bots 视图（对齐 Hermes 主窗口 tab） */
-  onOpenBots?: () => void;
 }
 
-export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gatewayOnline, onToggleFiles, onOpenBots }: IconBarProps) {
+export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gatewayOnline, onToggleFiles }: IconBarProps) {
   // 🔴 2026-08-16（d1 P0-5 闭合）：在飞计数——gateway 在线才轮询；
   //   计数仅作角标展示，点击行为仍走 kanban 项既有切换逻辑
   const { running, ready, active } = useKanbanActiveCount(Boolean(gatewayOnline));
@@ -48,8 +46,8 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
     // 🔴 2026-08-12 老大指示：取消"项目"按钮（项目功能已合并进 Agent 面板）；
     //   文件浏览器图标换成原项目图标（FolderGit），行为不变（开右侧文件抽屉）
     { id: 'files',    icon: FolderGit,  label: '文件浏览器', onClick: onToggleFiles },
-    // 🔴 2026-09-04 Bot Mode：bot 联动 + 群聊（主区 Bots 视图，对齐 Hermes 主窗口 tab）
-    { id: 'bots',     icon: BotsIcon,   label: '群聊', onClick: onOpenBots },
+    // 🔴 stage-4：bots 主区入口已迁 bots 插件（iconBar.action 贡献——
+    // 禁用 Bot Mode 插件 = 无入口，对齐 Hermes "disable here if unwanted"）
     { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true, badge: active },
     { id: 'cron',     icon: CronIcon,     label: '定时任务' },
     { id: 'tools',    icon: ToolIcon,     label: '工具' },

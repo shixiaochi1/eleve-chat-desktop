@@ -10,9 +10,10 @@ import { isPluginEnabled, publishPlugin, setPluginReloadHandler } from './plugin
 
 import canvasPlugin from '../plugins/canvas/plugin';
 import helloPlugin from '../plugins/hello/plugin';
+import botsPlugin from '../plugins/bots/plugin';
 
 /** bundled 鎻掍欢娓呭崟锛堟柊澧炴彃浠讹細import + 鏁扮粍杩藉姞锛?*/
-const BUNDLED: ElevePlugin[] = [canvasPlugin, helloPlugin];
+const BUNDLED: ElevePlugin[] = [canvasPlugin, helloPlugin, botsPlugin];
 
 function loadOne(plugin: ElevePlugin): void {
   const ctx = createPluginContext(plugin);

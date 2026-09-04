@@ -32,7 +32,6 @@ import { loadConnection, isRemoteMode } from './lib/connection';
 import { getRememberedWorkspaceCwd, rememberWorkspaceCwd } from './lib/workspace-cwd';
 import { getActiveProfile } from './utils/api';
 import { getWsClient, setWsActiveProfile, type SessionCreateResponse } from './services/ws-client';
-import { startBotRelay, stopBotRelay } from './services/bot-relay';
 import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer, loadProfilePointers, saveProfilePointer, removeProfilePointer, latestSessionForDomain, shortSessionLabel } from './utils/session';
 import { notifyError, notifyInfo } from './utils/notifications';
 import type { ChatMessage } from './types';
@@ -41,7 +40,10 @@ import ErrorBoundary from './components/ErrorBoundary';
 import CredentialCard from './components/CredentialCard';
 import { ThemeProvider } from './themes/index';
 import IconBar from './components/IconBar';
-import BotsView from './components/BotsView';
+// 🔴 2026-09-04 stage-4：Bot Mode 主区视图经插件贡献（AREA_MAIN_VIEW）渲染，
+// BotsView 组件本体不再被 App 直接 import（可禁用插件 = 无 Bot Mode 入口）
+import { AREA_MAIN_VIEW, useContributions, type MainViewData } from './contrib';
+import { setPluginHost } from './contrib/host';
 import SidePanel from './components/SidePanel';
 import OverlayView from './components/OverlayView';
 import { useOpenArtifact, clearArtifactRegistry } from './store/artifacts';
@@ -139,13 +141,8 @@ export default function App() {
     }
   }, [artifactOpen, viewMode]);
 
-  // 🔴 2026-09-04 Bot Mode stage-3：跨网关 relay 两循环（Desktop-as-router——
-  // Desktop 持有全部 socket，做 roster 推送与 outbox drain/deliver/reply 中转）。
-  // 循环内部自检连接数 <2 时跳过；stage-4 插件化后由插件生命周期驱动。
-  useEffect(() => {
-    startBotRelay();
-    return () => stopBotRelay();
-  }, []);
+  // 🔴 2026-09-04 stage-4：插件贡献的主区视图（bots 插件 viewId='bots'）
+  const pluginMainViews = useContributions<MainViewData>(AREA_MAIN_VIEW);
 
   // 🔴 预览中心：外部事件（open_preview/close_preview 工具 / #preview 链接 / 文件树双击）
   // 请求打开预览面板。对齐 Hermes $revealInTreeRequest：事件源 → App 消费。
@@ -901,10 +898,25 @@ export default function App() {
     void handleSwitchSession(id, { forceProfile: profile || undefined });
   }, [viewMode, handleSwitchSession]);
 
-  // 🔴 2026-09-04 Bot Mode 主区视图入口（对齐 Hermes Desktop Bots 主窗口 tab）
-  const handleOpenBotsView = useCallback(() => {
-    setViewMode('bots');
+  // 🔴 2026-09-04 stage-4：插件宿主门注入（晚绑定——plugin-host 能力随
+  // App mount 注入/卸载置 null；handleOpenBotChat 是 useCallback（依赖
+  // viewMode/handleSwitchSession），经 latest-ref 保证 host 拿到的永远是
+  // 最新闭包。relay 两循环生命周期已归 bots 插件（startBotRelay 在插件
+  // register 里，禁用插件 = relay 停）。
+  const openBotChatRef = useRef(handleOpenBotChat);
+  openBotChatRef.current = handleOpenBotChat;
+  useEffect(() => {
+    setPluginHost({
+      openSession: (sid) => openBotChatRef.current(sid),
+      openView: (viewId) => setViewMode(viewId as 'single' | 'grid' | 'bots'),
+      openAgentEditor: (profile) => setEditTarget(profile),
+      setPanel: (panel) => setActivePanel(panel),
+    });
+    return () => setPluginHost(null);
   }, []);
+
+  // 🔴 stage-4：Bots 主区视图入口已迁 bots 插件（iconBar.action 贡献
+  // activate → host.openView('bots')）；handleOpenBotsView 删除。
 
   // 🔴 P2-6: 宫格模式侧栏“新建会话”路由进宫格（重置焦点 Agent 卡片，不切单视图）
   // 🔴 2026-08-11 对齐 Hermes openNewSessionTile：宫格新建 = 立即创建后端会话
@@ -1528,7 +1540,7 @@ export default function App() {
         >
           {/* 左侧面板：图标栏 + 侧边面板卡片 */}
           <Pane side="left" className="pane-left-column">
-            <IconBar activePanel={activePanel} onPanelChange={setActivePanel} onOpenOverlay={handleOpenOverlay} gatewayOnline={gatewayHealth.online} onToggleFiles={handleToggleFiles} onOpenBots={handleOpenBotsView} />
+            <IconBar activePanel={activePanel} onPanelChange={setActivePanel} onOpenOverlay={handleOpenOverlay} gatewayOnline={gatewayHealth.online} onToggleFiles={handleToggleFiles} />
             {activePanel && (
               <div className="side-panel-card">
                 <SidePanel
@@ -1574,13 +1586,14 @@ export default function App() {
           {/* 右侧聊天主区域 */}
           <PaneMain>
             {viewMode === 'bots' ? (
+              /* 🔴 stage-4：主区视图经插件贡献渲染（bots 插件的 BotsViewShim
+                 自带 host 门桥接 props；插件禁用 = 此视图空白 + 无入口） */
               <div className="chat-card h-full">
-                <BotsView
-                  onOpenBotChat={handleOpenBotChat}
-                  onEditAgent={setEditTarget}
-                  currentProfile={currentProfile}
-                  onPanelChange={setActivePanel}
-                />
+                {(() => {
+                  const view = pluginMainViews.find(v => v.data?.viewId === 'bots');
+                  const View = view?.data?.component;
+                  return View ? <View /> : null;
+                })()}
               </div>
             ) : viewMode === 'grid' ? (
               <div className="chat-card">

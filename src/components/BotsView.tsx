@@ -23,11 +23,10 @@ import { requestForBot } from '../services/connections';
 import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnread';
 
 interface BotsViewProps {
-  /** 🔴 打开 bot 的 canonical chat（App 层：宫格/Bots 视图先退 + forceProfile） */
+  /** 🔴 打开 bot 的 canonical chat（宿主层：宫格/Bots 视图先退 + forceProfile） */
   onOpenBotChat?: (id: string) => void;
-  /** 🔴 2026-09-04 对齐 Hermes roster 右键 Edit Profile：编辑该 Agent（App 层 EditAgentDialog） */
+  /** 🔴 2026-09-04 对齐 Hermes roster 右键 Edit Profile：编辑该 Agent（宿主层 EditAgentDialog） */
   onEditAgent?: (profile: string) => void;
-  currentProfile?: string;
   /** 面板切换（Agent 不足时引导跳转 Agent 页） */
   onPanelChange?: (panel: string | null) => void;
 }
