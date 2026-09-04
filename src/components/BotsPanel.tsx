@@ -26,12 +26,14 @@ interface BotsPanelProps {
   /** 打开某个会话（bot 私聊入口；App 层会话切换契约，同 SessionsPanel） */
   onSwitchSession?: (id: string) => void;
   currentProfile?: string;
+  /** 面板切换（SidePanel 下发——Agent 不足时引导跳转） */
+  onPanelChange?: (panel: string | null) => void;
 }
 
 const KIND_USER = 'message.user';
 const KIND_MEMBER = 'message.member';
 
-export default function BotsPanel({ onSwitchSession }: BotsPanelProps) {
+export default function BotsPanel({ onSwitchSession, onPanelChange }: BotsPanelProps) {
   const [bots, setBots] = useState<BotRosterEntry[]>([]);
   const [rooms, setRooms] = useState<BotRoom[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,6 +43,9 @@ export default function BotsPanel({ onSwitchSession }: BotsPanelProps) {
   const [newMembers, setNewMembers] = useState<string[]>([]);
   const [activeRoom, setActiveRoom] = useState<BotRoom | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 🔴 2026-09-04 单 Agent 引导：群聊/DM 都需要 ≥2 个 Agent；只有一个时
+  // 明确告知去 Agent 页面创建（此前静默禁用保存按钮，用户完全无感知）
+  const needsMoreAgents = !loading && bots.length < 2;
 
   const loadList = useCallback(async () => {
     try {
@@ -128,6 +133,22 @@ export default function BotsPanel({ onSwitchSession }: BotsPanelProps) {
       )}
 
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-4">
+        {/* ── 单 Agent 引导（Bot Mode 的前提是 ≥2 个 Agent 协作） ── */}
+        {needsMoreAgents && (
+          <div className="rounded-lg border border-[var(--ui-stroke-tertiary)] bg-accent/20 px-3 py-2.5 text-xs text-muted-foreground space-y-2">
+            <div>
+              Bot Mode 需要至少 <span className="text-foreground font-medium">2 个 Agent</span> 才能组群聊或互发私信。
+              当前只有 {bots.length} 个——请先到「Agent」页面新建更多 Agent（各自配好模型），再回来创建群聊。
+            </div>
+            <button
+              className="px-2.5 py-1 rounded-md bg-accent text-accent-foreground text-xs font-medium"
+              onClick={() => onPanelChange?.('agents')}
+            >
+              去 Agent 页面新建 →
+            </button>
+          </div>
+        )}
+
         {/* ── 群聊房间 ── */}
         {rooms.length > 0 && (
           <section>
@@ -200,6 +221,11 @@ export default function BotsPanel({ onSwitchSession }: BotsPanelProps) {
               className="w-full px-2.5 py-1.5 rounded-md bg-accent/30 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
             />
             <div className="max-h-44 overflow-y-auto space-y-1">
+              {bots.length < 2 && (
+                <div className="text-xs text-muted-foreground px-2 py-1.5">
+                  当前只有 {bots.length} 个 Agent——群聊至少需要 2 个。请先到「Agent」页面新建更多 Agent。
+                </div>
+              )}
               {bots.map((bot) => {
                 const checked = newMembers.includes(bot.profile);
                 return (
@@ -248,6 +274,7 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
   const [showEdit, setShowEdit] = useState(false);
   const [editName, setEditName] = useState(room.name);
   const [editError, setEditError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const latestSeq = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const roomRef = useRef(room);
@@ -306,10 +333,15 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     const text = draft.trim();
     if (!text || sending) return;
     setSending(true);
+    const snapshot = draft;
     setDraft('');
     try {
       await sendBotRoomMessage(room.room_id, text);
       await refresh();
+    } catch (e) {
+      // 🔴 2026-09-04 发送失败必须可见（此前静默吞错——用户"发消息没反应"）
+      setError(`发送失败：${(e as Error).message}`);
+      setDraft(snapshot); // 恢复草稿
     } finally {
       setSending(false);
     }
@@ -422,6 +454,18 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             const h = String(ev.actor.handle || ev.actor.id || '');
             return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— @{h} 暂时缺席 —</div>;
           }
+          if (ev.kind === 'turn.failed') {
+            // 🔴 2026-09-04 失败可见（此前渲染 null——成员模型调用失败用户
+            // 完全无感，是"没反应"体验的直接来源之一）
+            const h = String(ev.actor.handle || ev.actor.id || '');
+            const rc = String(ev.payload.reason_code || 'error');
+            const msg = String(ev.payload.error || '').slice(0, 80);
+            return (
+              <div key={ev.seq} className="text-center text-[11px] text-destructive/80 py-0.5">
+                — @{h} 发言失败（{rc}）{msg ? `：${msg}` : ''} —
+              </div>
+            );
+          }
           if (ev.kind === 'turn.cancelled') {
             const h = String(ev.actor.handle || ev.actor.id || '');
             return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— @{h} 的发言已随停止取消 —</div>;
@@ -433,6 +477,12 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
 
       {/* 输入区 */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-t border-[var(--ui-stroke-tertiary)] shrink-0">
+        {error && (
+          <div className="absolute bottom-14 left-3 right-3 px-2.5 py-1.5 rounded-md bg-destructive/10 text-destructive text-xs">
+            {error}
+            <button className="ml-2 underline" onClick={() => setError(null)}>关闭</button>
+          </div>
+        )}
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
