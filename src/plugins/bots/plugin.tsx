@@ -1,30 +1,34 @@
 /**
  * Bot Mode bundled plugin（stage-4——Bot Mode 前端从主代码迁 bundled 插件）。
  *
- * 🔴 2026-09-04 对齐 Hermes bot-mode 架构形态（hermes-bots = bundled plugin，
- * "Ships with the app; disable here if unwanted"）：插件 = default-export
- * ElevePlugin，经 scoped ctx 贡献注册（自动 provenance + id 命名空间化），
- * 从不直接碰 registry/主壳状态——宿主能力走 contrib/host 门。
- *
- * 本插件贡献：
- * - mainView（viewId='bots'）：Bot 花名册 + 群聊主区视图（BotsView 组件
- *   本体仍在 components/，迁 runtime-loader 时随插件整体搬移）
- * - iconBar.action：主区入口（替代原 IconBar 内置 bots 按钮）
- * - 跨网关 relay 两循环生命周期归插件（禁用插件 = relay 停——Desktop-as-router
- *   的开关随插件开关，与 Hermes startBotRelay/stopBotRelay 插件驱动同构）
+ * 🔴 2026-09-05 round-42：布局 1:1 对齐 Hermes Desktop hermes-bots（取证
+ * roster-pane.tsx / canonical-chat.ts）——
+ * - Bots 不是主区 tab，而是**左栏 pane**（Hermes: placement 'left' 260px，
+ *   dock 进 sessions pane 的 zone → "SESSIONS | BOTS tab strip"；点击后
+ *   主区不换内容）。ELEVE 映射 = SidePanel 的 'bots' panel（activePanel
+ *   互斥切换为 tab strip 等价语义）
+ * - 点 bot 行 → 主区打开 canonical Bot Chat（openSession in-place）
+ * - 点群聊行 → 主区打开房间视图（mainView 'bots' 贡献）
+ * 贡献面：
+ * - sidePanel.pane：BotsPane（左栏花名册/群聊列表）
+ * - mainView（viewId='bots'）：BotsRoomMainView（主区房间容器）
+ * - iconBar.action：左栏入口（activate → setPanel('bots')）
+ * - relay 两循环生命周期归插件（禁用插件 = relay 停）
  */
 import { Bot } from 'lucide-react';
 
-import BotsView from '../../components/BotsView';
+import BotsRoomMainView from '../../components/BotsView';
+import BotsPane from '../../components/BotsPane';
 import { getPluginHost } from '../../contrib/host';
 import type { ElevePlugin, PluginContext } from '../../contrib/plugin';
 import { startBotRelay, stopBotRelay } from '../../services/bot-relay';
 
-/** 桥接层：host 门能力 → BotsView 回调 props（插件不碰 App 内部模块）。 */
-function BotsViewShim() {
+/** 左栏 pane 桥接：host 门能力 → BotsPane 回调 props（插件不碰 App 内部模块）。 */
+function BotsPaneShim() {
   return (
-    <BotsView
+    <BotsPane
       onOpenBotChat={(id) => getPluginHost()?.openSession(id)}
+      onOpenBotRoom={() => getPluginHost()?.openView('bots')}
       onEditAgent={(profile) => getPluginHost()?.openAgentEditor(profile)}
       onPanelChange={(panel) => getPluginHost()?.setPanel(panel)}
     />
@@ -34,17 +38,25 @@ function BotsViewShim() {
 const botsPlugin: ElevePlugin = {
   id: 'bots',
   name: 'Bot Mode',
-  description: 'Bot 花名册 / 群聊主区视图 + 跨网关 DM relay 循环',
+  description: 'Bots 左栏面板（花名册/群聊）+ 主区群聊房间视图 + 跨网关 DM relay 循环',
   register(ctx: PluginContext) {
-    // 主区视图贡献（App.tsx 按 viewId='bots' 消费渲染）
+    // 左栏 pane 贡献（SidePanel 按 activePanel='bots' 消费渲染）。
+    // localId='bots'——registry 命名空间化后全 id='bots:bots'，
+    // PluginPaneSlot 以 endsWith(':bots') 匹配 activePanel。
+    ctx.register('sidePanel.pane', {
+      id: 'bots',
+      title: 'Bots',
+      data: { component: BotsPaneShim },
+    });
+
+    // 主区视图贡献（点群聊行后承载房间视图）
     ctx.register('mainView', {
       id: 'bots-view',
       title: 'Bots',
-      data: { viewId: 'bots', label: 'Bots', component: BotsViewShim },
+      data: { viewId: 'bots', label: 'Bots', component: BotsRoomMainView },
     });
 
-    // IconBar 入口（order: 35 = 原 IconBar 内置 bots 按钮的图标区位置；
-    // 内置项已随迁移删除——禁用本插件即无 Bot Mode 入口）
+    // IconBar 入口：打开左栏 Bots 面板（主区不动——对齐 Hermes tab strip 语义）
     ctx.register('iconBar.action', {
       id: 'open-bots',
       title: '群聊',
@@ -52,7 +64,7 @@ const botsPlugin: ElevePlugin = {
         icon: Bot,
         label: '群聊',
         order: 35,
-        activate: () => getPluginHost()?.openView('bots'),
+        activate: () => getPluginHost()?.setPanel('bots'),
       },
     });
 

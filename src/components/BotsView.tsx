@@ -18,6 +18,7 @@ import {
   type BotRosterEntry, type BotRoom, type BotRoomEvent,
 } from '../utils/api';
 import { getWsClient } from '../services/ws-client';
+import { useSelectedRoomId, selectRoom } from '../plugins/bots/state';
 import { fetchUnionRoster, type UnionRosterRow } from '../services/bot-relay';
 import { requestForBot } from '../services/connections';
 import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnread';
@@ -45,364 +46,72 @@ interface ReplicaMetaRow {
 const KIND_USER = 'message.user';
 const KIND_MEMBER = 'message.member';
 
-export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: BotsViewProps) {
-  // 🔴 2026-09-04 stage-3：花名册 UNION——本地 bots.roster + 各远程连接
-  // roster（行带来源/可达性；远端闪断行降级 ghost 不消失，对齐 Hermes
-  // useRoster 全连接 union）
-  const [bots, setBots] = useState<UnionRosterRow[]>([]);
-  const [rooms, setRooms] = useState<BotRoom[]>([]);
+/**
+ * 🔴 2026-09-05 round-42：BotsRoomMainView — 主区群聊房间容器（布局 1:1
+ * 对齐 Hermes Desktop：Bots 是左栏 pane [SESSIONS | BOTS tab strip]，
+ * 主区只承载点开的群聊房间视图；花名册/群聊列表已迁 components/BotsPane.tsx）。
+ *
+ * 选中房间 = plugins/bots/state.ts 插件内 store（侧栏 BotsPane 与本组件
+ * 跨贡献共享）。未选中/房间已解散 → 引导空态。
+ */
+export default function BotsRoomMainView() {
+  const selectedRoomId = useSelectedRoomId();
+  const [room, setRoom] = useState<BotRoom | null>(null);
+  const [localBots, setLocalBots] = useState<BotRosterEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [showCreate, setShowCreate] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newMembers, setNewMembers] = useState<string[]>([]);
-  const [activeRoom, setActiveRoom] = useState<BotRoom | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  // 🔴 2026-09-04 花名册行右键菜单（对齐 Hermes bot 行右键 → Edit Profile）
-  const [rowMenu, setRowMenu] = useState<{ profile: string; x: number; y: number } | null>(null);
-  // 群聊是本网关的 hosted room——成员必须是本地 profile（远端成员跨网关
-  // 群聊属 stage-5 peer/links 体系，不在选择列表里）
-  const localBots = useMemo(() => bots.filter(b => !b.isRemote).map(b => b.entry), [bots]);
-  const remoteCount = useMemo(() => bots.filter(b => b.isRemote).length, [bots]);
-  // 🔴 2026-09-05 stage-5 P2.5：可接管房间（本机 replica，原权威离线后可续跑）
-  const [replicas, setReplicas] = useState<ReplicaMetaRow[]>([]);
-  const takeableReplicas = useMemo(() => replicas.filter(r => r.state === 'replica'), [replicas]);
-  // 🔴 2026-09-04 单 Agent 引导：群聊/DM 都需要 ≥2 个 Agent；只有一个时
-  // 明确告知去 Agent 页面创建（此前静默禁用保存按钮，用户完全无感知）
-  const needsMoreAgents = !loading && localBots.length < 2;
 
-  const loadList = useCallback(async () => {
-    try {
-      const [unionRows, roomList] = await Promise.all([fetchUnionRoster(), fetchBotRooms()]);
-      setBots(unionRows);
-      // 🔴 未读水位线只喂本地行（远端会话不在本进程，其未读信号源 = 远端
-      // roster 轮询，v2 随骑行呈现一并接入）
-      ingestBotRoster(unionRows.filter(r => !r.isRemote).map(r => r.entry));
-      setRooms(roomList);
-      // 🔴 stage-5 P2.5：可接管副本清单（WS RPC——旧后端/无副本时为空）
-      try {
-        const res = await requestForBot<{ replicas?: ReplicaMetaRow[] }>(
-          null, 'bot.rooms.replicas.list', {}, 15_000,
-        );
-        setReplicas(Array.isArray(res?.replicas) ? res.replicas : []);
-      } catch {
-        setReplicas([]);
-      }
-      setError(null);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { loadList(); }, [loadList]);
-
-  // 右键菜单：点任意处/滚动即关（fixed 定位跟随指针，防溢出做下缘钳制）
+  // 房间元信息 + 名册（自持加载——主区不依赖侧栏挂载）
   useEffect(() => {
-    if (!rowMenu) return;
-    const close = () => setRowMenu(null);
-    window.addEventListener('click', close);
-    window.addEventListener('scroll', close, true);
-    return () => {
-      window.removeEventListener('click', close);
-      window.removeEventListener('scroll', close, true);
-    };
-  }, [rowMenu]);
-
-  // ── 创建群聊 ──
-  const submitCreate = async () => {
-    const name = newName.trim();
-    if (!name || newMembers.length < 2 || newMembers.length > 6) return;
-    setCreating(true);
-    try {
-      await createBotRoom(name, newMembers);
-      setNewName('');
-      setNewMembers([]);
-      setShowCreate(false);
-      await loadList();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  // ── 打开 bot 私聊 ──
-  const openBotChat = async (profile: string) => {
-    try {
-      const sid = await ensureBotChat(profile);
-      // 🔴 2026-09-04 打开即已读（对齐 Hermes openBotCanonicalChat 的 ack 语义）
-      markBotRead(profile);
-      if (sid && onOpenBotChat) onOpenBotChat(sid);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
-  // ── 🔴 stage-3 RIDING 最小闭环：点远端 bot 行 → 骑 owner 连接确保远端
-  // canonical Bot Chat 存在（远端就绪后，跨网关私信经 relay 管道投递——
-  // A2A 已通；远端会话在主壳的完整骑行呈现随 stage-4 插件化落地）──
-  const openRemoteBotChat = async (row: UnionRosterRow) => {
-    if (!row.reachable) {
-      setError(`远程连接「${row.connectionLabel}」当前不可达——无法就绪 @${row.entry.handle} 的 Bot Chat`);
+    if (!selectedRoomId) {
+      setRoom(null);
+      setLoading(false);
       return;
     }
-    try {
-      await requestForBot(
-        { connectionId: row.connectionId, profile: 'default' },
-        'bot.chat.ensure',
-        { profile: row.entry.profile },
-        15_000,
-      );
-      markBotRead(row.entry.profile);
-      setNotice(
-        `已在远程连接「${row.connectionLabel}」就绪 @${row.entry.handle} 的 Bot Chat。` +
-        `Agent 间的跨网关私信已可经 relay 管道投递（message_agent 目标用 @${row.entry.handle}@${row.connectionId}）`,
-      );
-    } catch (e) {
-      setError(`远程 Bot Chat 就绪失败：${(e as Error).message}`);
-    }
-  };
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([fetchBotRooms(), fetchUnionRoster()])
+      .then(([roomList, unionRows]) => {
+        if (cancelled) return;
+        setRoom(roomList.find((r) => r.room_id === selectedRoomId) ?? null);
+        setLocalBots(unionRows.filter((r) => !r.isRemote).map((r) => r.entry));
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedRoomId]);
 
-  // ── 🔴 stage-5 P2.5：接管副本房间（显式用户动作——存储原语不决定时机）──
-  const takeoverReplica = async (r: ReplicaMetaRow) => {
-    try {
-      const res = await requestForBot<{ epoch?: number }>(
-        null, 'bot.rooms.replica.promote', { room_id: r.room_id },
-      );
-      setNotice(`房间「${r.room_name}」已在本机接管（epoch ${res?.epoch ?? '?'}）——讨论可继续`);
-      await loadList();
-    } catch (e) {
-      setError(`接管失败：${(e as Error).message}`);
-    }
-  };
+  // 🔴 事件流刷新：房间事件由 WS 推送增量（BotsRoomView 内部订阅），但
+  // 选中切换时需要重置内部状态——BotsRoomView 以 room 对象为 key 重挂。
+  const handleClose = useCallback(() => selectRoom(null), []);
 
-  // ── 布局：左列（花名册 + 群聊列表）+ 右侧（房间视图 / 空态）──
+  if (loading) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2">
+        <Loader size={22} className="animate-spin opacity-60" />
+        <div className="text-sm">加载群聊…</div>
+      </div>
+    );
+  }
+
+  if (!room) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2 px-6 text-center">
+        <Bot size={28} className="opacity-40" />
+        <div className="text-sm">从左侧「群聊」面板选择群聊进入房间，或点击 Agent 打开 Bot Chat 私聊</div>
+        <div className="text-xs text-muted-foreground/70 max-w-sm">
+          群聊里输入 @ 可唤起成员列表；Agent 之间的私信在各自 Bot Chat 里收发（message_agent 工具）。
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="relative flex h-full min-h-0">
-      {/* ═══ 左列 ═══ */}
-      <div className="w-80 shrink-0 border-r border-[var(--ui-stroke-tertiary)] flex flex-col min-h-0">
-      {/* 工具行 */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--ui-stroke-tertiary)] shrink-0">
-        <span className="text-xs text-muted-foreground">
-          {loading
-            ? '加载中…'
-            : `${localBots.length} 本地${remoteCount > 0 ? ` · ${remoteCount} 远程` : ''} · ${rooms.length} 个群聊`}
-        </span>
-        <div className="flex items-center gap-1">
-          <button
-            className="p-1.5 rounded-md hover:bg-accent/50 text-muted-foreground hover:text-foreground"
-            title="刷新"
-            onClick={() => { setLoading(true); loadList(); }}
-          >
-            <Loader size={14} className={cn(loading && 'animate-spin')} />
-          </button>
-          <button
-            className="p-1.5 rounded-md hover:bg-accent/50 text-muted-foreground hover:text-foreground"
-            title="新建群聊"
-            onClick={() => setShowCreate(true)}
-          >
-            <MessageSquarePlus size={15} />
-          </button>
-        </div>
-      </div>
-
-      {error && (
-        <div className="mx-3 mt-2 px-2.5 py-1.5 rounded-md bg-destructive/10 text-destructive text-xs shrink-0">
-          {error}
-        </div>
-      )}
-      {notice && (
-        <div className="mx-3 mt-2 px-2.5 py-1.5 rounded-md bg-accent/40 text-muted-foreground text-xs shrink-0">
-          {notice}
-          <button className="ml-2 underline hover:text-foreground" onClick={() => setNotice(null)}>关闭</button>
-        </div>
-      )}
-
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-4">
-        {/* ── 单 Agent 引导（Bot Mode 的前提是 ≥2 个 Agent 协作） ── */}
-        {needsMoreAgents && (
-          <div className="rounded-lg border border-[var(--ui-stroke-tertiary)] bg-accent/20 px-3 py-2.5 text-xs text-muted-foreground space-y-2">
-            <div>
-              Bot Mode 需要至少 <span className="text-foreground font-medium">2 个 Agent</span> 才能组群聊或互发私信。
-              当前只有 {localBots.length} 个本地 Agent——请先到「Agent」页面新建更多 Agent（各自配好模型），再回来创建群聊。
-            </div>
-            <button
-              className="px-2.5 py-1 rounded-md bg-accent text-accent-foreground text-xs font-medium"
-              onClick={() => onPanelChange?.('agents')}
-            >
-              去 Agent 页面新建 →
-            </button>
-          </div>
-        )}
-
-        {/* ── 🔴 stage-5 P2.5：待接管房间（本机持副本、原权威离线后可续跑） ── */}
-        {takeableReplicas.length > 0 && (
-          <section>
-            <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">待接管房间</div>
-            <div className="space-y-1">
-              {takeableReplicas.map((r) => (
-                <div
-                  key={r.room_id}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-accent/20 text-left"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm text-foreground truncate">{r.room_name}</span>
-                    <span className="block text-xs text-muted-foreground truncate">
-                      原权威「{r.authority_gateway_id}」 · epoch {r.authority_epoch} · 已同步 {r.last_ingested_seq} 条
-                    </span>
-                  </span>
-                  <button
-                    className="px-2 py-1 rounded-md bg-primary/20 text-primary text-xs shrink-0 hover:bg-primary/30 transition-colors"
-                    onClick={() => void takeoverReplica(r)}
-                  >
-                    接管
-                  </button>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* ── 群聊房间 ── */}
-        {rooms.length > 0 && (
-          <section>
-            <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">群聊</div>
-            <div className="space-y-1">
-              {rooms.map((room) => (
-                <button
-                  key={room.room_id}
-                  className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-accent/40 transition-colors"
-                  onClick={() => setActiveRoom(room)}
-                >
-                  <div className="text-sm text-foreground font-medium truncate">{room.name}</div>
-                  <div className="text-xs text-muted-foreground truncate">
-                    {room.members.map((m) => `@${m.handle}`).join(' ')}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* ── Bot 花名册 UNION（点击开私聊；右键编辑 Agent——对齐 Hermes
-            roster Edit Profile；远端行带连接标记与离线 ghost） ── */}
-        <section>
-          <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">Agent</div>
-          <div className="space-y-1">
-            {bots.map((row) => (
-              <BotRosterRow
-                key={`${row.connectionId}:${row.entry.profile}`}
-                row={row}
-                onOpen={() => (row.isRemote ? openRemoteBotChat(row) : openBotChat(row.entry.profile))}
-                onRowMenu={(x, y) => setRowMenu({ profile: row.entry.profile, x, y })}
-              />
-            ))}
-            {!loading && bots.length === 0 && (
-              <div className="text-xs text-muted-foreground px-2 py-1.5">暂无已注册 Agent</div>
-            )}
-          </div>
-        </section>
-        </div>
-
-        {/* ═══ 右侧：房间视图 / 空态 ═══ */}
-        <div className="flex-1 min-w-0 flex flex-col min-h-0">
-          {activeRoom ? (
-            <BotsRoomView
-              room={activeRoom}
-              bots={localBots}
-              onBack={() => { setActiveRoom(null); loadList(); }}
-            />
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2 px-6 text-center">
-              <Bot size={28} className="opacity-40" />
-              <div className="text-sm">选择左侧群聊进入房间，或点击 Agent 打开 Bot Chat 私聊</div>
-              <div className="text-xs text-muted-foreground/70 max-w-sm">
-                群聊里输入 @ 可唤起成员列表；Agent 之间的私信在各自 Bot Chat 里收发（message_agent 工具）。
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── 新建群聊弹层 ── */}
-      {showCreate && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowCreate(false)}>
-          <div
-            className="w-full max-w-xs rounded-xl border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-card-bg)] p-4 space-y-3 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-foreground">新建群聊</span>
-              <button className="p-1 rounded hover:bg-accent/50" onClick={() => setShowCreate(false)}>
-                <X size={14} className="text-muted-foreground" />
-              </button>
-            </div>
-            <input
-              autoFocus
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="群聊名称"
-              className="w-full px-2.5 py-1.5 rounded-md bg-accent/30 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
-            />
-            <div className="max-h-44 overflow-y-auto space-y-1">
-              {localBots.length < 2 && (
-                <div className="text-xs text-muted-foreground px-2 py-1.5">
-                  当前只有 {localBots.length} 个本地 Agent——群聊至少需要 2 个。请先到「Agent」页面新建更多 Agent。
-                </div>
-              )}
-              {localBots.map((bot) => {
-                const checked = newMembers.includes(bot.profile);
-                return (
-                  <label key={bot.profile} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent/30 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => setNewMembers((cur) =>
-                        checked ? cur.filter((p) => p !== bot.profile) : [...cur, bot.profile])}
-                      className="accent-[var(--accent)]"
-                    />
-                    <span className="text-sm text-foreground">{bot.display_name || bot.handle}</span>
-                    <span className="text-xs text-muted-foreground">@{bot.handle}</span>
-                  </label>
-                );
-              })}
-            </div>
-            <div className="flex items-center justify-between">
-              <span className={cn('text-xs', newMembers.length >= 2 && newMembers.length <= 6 ? 'text-muted-foreground' : 'text-destructive')}>
-                已选 {newMembers.length}/2-6
-              </span>
-              <button
-                className="px-3 py-1.5 rounded-md bg-accent text-accent-foreground text-sm font-medium disabled:opacity-40"
-                disabled={!newName.trim() || newMembers.length < 2 || newMembers.length > 6 || creating}
-                onClick={submitCreate}
-              >
-                {creating ? <Loader size={14} className="animate-spin" /> : '创建'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── 花名册行右键菜单（对齐 Hermes bot 行右键 → Edit Profile） ── */}
-      {rowMenu && (
-        <div
-          className="fixed z-50 min-w-36 rounded-lg border border-[var(--ui-stroke-tertiary)] bg-popover text-popover-foreground py-1 shadow-xl"
-          style={{ left: rowMenu.x, top: Math.min(rowMenu.y, window.innerHeight - 90) }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent/50 text-left"
-            onClick={() => { onEditAgent?.(rowMenu.profile); setRowMenu(null); }}
-          >
-            <Pencil size={13} className="text-muted-foreground" />
-            编辑 Agent
-          </button>
-        </div>
-      )}
-    </div>
+    <BotsRoomView
+      key={room.room_id}
+      room={room}
+      bots={localBots}
+      onBack={handleClose}
+    />
   );
 }
 
@@ -411,7 +120,7 @@ export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: 
 // 活动权威 = canonical Bot Chat（行点击打开的就是它，点与会话永不描述两回事）。
 // 🔴 stage-3 UNION 行：远端行带连接标记（🏷 connectionLabel），拉取失败行
 // 降级 ghost（opacity + 不可达提示），不消失（对齐 Hermes annotateBotSource）。
-function BotRosterRow({ row, onOpen, onRowMenu }: {
+export function BotRosterRow({ row, onOpen, onRowMenu }: {
   row: UnionRosterRow;
   onOpen: () => void;
   onRowMenu: (x: number, y: number) => void;

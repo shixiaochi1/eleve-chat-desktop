@@ -887,11 +887,16 @@ export default function App() {
 
   // 🔴 宫格模式：点击会话列表 → 解析归属 Agent → 宫格内切换该 Agent 卡片的会话（修复 BUG2：留宫格，不强行切单视图）。
   // 单视图模式：透传原始 handleSwitchSession。
+  // 🔴 2026-09-05 round-42：bots 主区（群聊房间视图）下点会话 → 退回单视图
+  // （Bots 是左栏面板，主区房间视图非会话态——用户点会话 = 明确的会话意图）。
   const gridAwareSwitchSession = useCallback((id: string) => {
     if (viewMode === 'grid') {
       const profile = profileFromSessionId(id) || currentProfile;
       gridRef.current?.switchToSession(profile, id);
       return;
+    }
+    if (viewMode === 'bots') {
+      setViewMode('single');
     }
     handleSwitchSession(id);
   }, [viewMode, currentProfile, handleSwitchSession]);

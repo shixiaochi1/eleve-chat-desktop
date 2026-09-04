@@ -22,6 +22,14 @@ import {
   UsageIcon, ChannelsIcon, AgentIcon, KanbanIcon,
 } from './Icons';
 import { Radio, Activity, GitCommit, BookOpen, Bot as BotIcon } from 'lucide-react';
+import { useContributions } from '@/contrib/registry';
+import type { Contribution } from '@/contrib/registry';
+
+/** 🔴 2026-09-05 round-42：插件贡献的左栏 pane（sidePanel.pane area——
+ * 对齐 Hermes hermes-bots 的 panes 贡献形态：Bots pane 进左栏 tab strip） */
+interface PluginPaneContribution {
+  component: React.ComponentType<any>;
+}
 
 interface SidePanelProps {
   activePanel?: string | null;
@@ -98,7 +106,12 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
   };
 
   const cfg = panels[activePanel];
-  if (!cfg) return null;
+  if (!cfg) {
+    // 🔴 2026-09-05 round-42：插件贡献 pane 回退（sidePanel.pane area）——
+    // 静态 panels 表未命中时查插件贡献（bots pane 等），props 全量透传
+    // （贡献组件经 shim 桥 host 门回调，与 App 直传等价）。
+    return <PluginPaneSlot panelId={activePanel} panelProps={props} />;
+  }
 
   const PanelComponent = cfg.component;
   const HeaderIcon = cfg.Icon;
@@ -125,6 +138,25 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
             <span className="text-xs text-muted-foreground/60">后续 Phase 实现</span>
           </div>
         )}
+      </div>
+    </aside>
+  );
+}
+
+/** 插件 pane 槽位（sidePanel.pane 贡献的渲染器；无匹配贡献 = 空）。
+ *  独立组件：useContributions 是 hook，必须在组件体内调用。 */
+function PluginPaneSlot({ panelId, panelProps }: { panelId: string; panelProps: Record<string, unknown> }) {
+  const panes = useContributions<PluginPaneContribution>('sidePanel.pane');
+  const match = panes.find((c: Contribution<PluginPaneContribution>) => c.id.endsWith(`:${panelId}`) || c.id === panelId);
+  if (!match?.data) return null;
+  const Comp = match.data.component;
+  if (!Comp) return null;
+  return (
+    <aside role="tabpanel" aria-label={match.title} className="h-full flex flex-col overflow-hidden flex-1 min-w-0">
+      <div className="flex-1 overflow-hidden min-h-0">
+        <div className="panel-enter h-full">
+          <Comp {...panelProps} activePanel={panelId} />
+        </div>
       </div>
     </aside>
   );

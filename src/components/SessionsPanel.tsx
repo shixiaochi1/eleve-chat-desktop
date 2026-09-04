@@ -95,7 +95,9 @@ function SessionArcBorder({ sessionId, isCurrent }: { sessionId: string; isCurre
 // ── 系统会话来源（对齐后端 exclude_sources + Eleve _HIDDEN_SESSION_SOURCES）──
 // 🔴 2026-08-03 修复：加 'cli' —— CLI 后台 review 会话（"Reviewing Conversation..."）无内存
 // SessionActor，右键 undo/compress/branch/usage 全部 Session not found（后端 session.list 已同步排除）
-const HIDDEN_SOURCES = new Set(['tool', 'cron', 'api', 'cli']);
+// 🔴 2026-09-05 round-43：补 'bot'——bot 会话在 Bots 面板单独呈现，
+// 不进主会话列表（对齐后端 WS session.list exclude 词表；此前前端防线漏 bot）
+const HIDDEN_SOURCES = new Set(['tool', 'cron', 'api', 'cli', 'bot']);
 
 // ── 虚拟列表行类型 ──
 type VirtualRow =

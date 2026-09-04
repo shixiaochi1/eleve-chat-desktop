@@ -4,7 +4,8 @@ import { fetchCommands } from '../utils/api';
 import type { CommandDef } from '@/hooks/useSlashAutocomplete';
 
 // ── 系统会话来源（对齐 SessionsPanel HIDDEN_SOURCES）──
-const HIDDEN_SOURCES = new Set(['tool', 'cron', 'api']);
+// 🔴 2026-09-05 round-43：补 'bot'（对齐 SessionsPanel——命令面板同样不列 bot 会话）
+const HIDDEN_SOURCES = new Set(['tool', 'cron', 'api', 'bot']);
 import {
   Search,
   MessageCircle,
