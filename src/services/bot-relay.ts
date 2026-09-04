@@ -16,6 +16,7 @@
  */
 import { requestForBot, listRemoteConnections } from './connections';
 import type { RemoteConnection } from './connections';
+import { getWsClient } from './ws-client';
 import { fetchBotsRoster, type BotRosterEntry } from '../utils/api';
 
 // ── 节奏常量（对齐 relay.ts）──
@@ -202,7 +203,7 @@ async function drainRelayOutboxes(): Promise<void> {
     drainBusy = false;
     if (drainRerun) {
       drainRerun = false;
-      void sleep(RELAY_PUSH_DEBOUNCE_MS).then(() => void drainRelayOutboxes());
+      scheduleRelayPushDrain();
     }
   }
 }
@@ -409,10 +410,36 @@ export function startBotRelay(): void {
   if (drainTimer === null) {
     drainTimer = setInterval(() => void drainRelayOutboxes(), RELAY_DRAIN_INTERVAL_MS);
   }
+  // 🔴 2026-09-05 对齐 Hermes #93091 push-drain：gateway 在 envelope 落盘时
+  // 广播 `bot_relay.outbox.pending`——防抖合并 burst 为一次 drain（30s 轮询
+  // 保持为 backstop）。主连接信号等价（drain 本身遍历全部 outbox）。
+  if (pushUnsub === null) {
+    const ws = getWsClient();
+    pushUnsub = ws.addEventListener((method: string) => {
+      if (method === 'bot_relay.outbox.pending') scheduleRelayPushDrain();
+    });
+  }
+}
+
+let pushUnsub: (() => void) | null = null;
+let pushDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** push 信号防抖：burst 合并为一次 drain（对齐 relay.ts scheduleRelayPushDrain）*/
+function scheduleRelayPushDrain(): void {
+  if (pushDebounceTimer !== null) return;
+  pushDebounceTimer = setTimeout(() => {
+    pushDebounceTimer = null;
+    void drainRelayOutboxes();
+  }, RELAY_PUSH_DEBOUNCE_MS);
 }
 
 export function stopBotRelay(): void {
   drainRerun = false;
+  if (pushUnsub !== null) {
+    try { pushUnsub(); } catch { /* already gone */ }
+    pushUnsub = null;
+  }
+  if (pushDebounceTimer !== null) { clearTimeout(pushDebounceTimer); pushDebounceTimer = null; }
   if (rosterTimer !== null) { clearInterval(rosterTimer); rosterTimer = null; }
   if (drainTimer !== null) { clearInterval(drainTimer); drainTimer = null; }
 }
