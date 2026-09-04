@@ -8,14 +8,14 @@
  *
  * 数据流：命令 → utils/api.ts（bots 命令层）；事件 → ws-client 监听器。
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from 'react';
 import { cn } from '@/lib/utils';
-import { ArrowLeft, Bot, Loader, Send, Settings2, Square, Trash2, UserPlus, UserMinus, X } from 'lucide-react';
+import { ArrowLeft, Bot, Loader, Paperclip, Send, Settings2, Square, Trash2, UserPlus, UserMinus, X } from 'lucide-react';
 import {
   changeBotRoomMembers, disbandBotRoom, fetchBotRoomEvents,
   fetchBotRooms, renameBotRoom, sendBotRoomMessage,
   stopBotRoom,
-  type BotRosterEntry, type BotRoom, type BotRoomEvent,
+  type BotRosterEntry, type BotRoom, type BotRoomEvent, type RoomAttachmentDraft,
 } from '../utils/api';
 import { getWsClient } from '../services/ws-client';
 import { useSelectedRoomId, selectRoom } from '../plugins/bots/state';
@@ -37,6 +37,27 @@ interface BotsViewProps {
 
 const KIND_USER = 'message.user';
 const KIND_MEMBER = 'message.member';
+
+/** 🔴 2026-09-05 round-50：图片降采样缩略图（canvas 长边 320 / jpeg 0.6——
+ * 对齐 Hermes group-attachments downscale；控制事件 payload 体积） */
+async function makeImageThumb(dataUrl: string): Promise<string | undefined> {
+  try {
+    const img = new Image();
+    await new Promise((res, rej) => {
+      img.onload = () => res(null);
+      img.onerror = () => rej(new Error('image load failed'));
+      img.src = dataUrl;
+    });
+    const scale = Math.min(1, 320 / Math.max(img.width || 1, img.height || 1));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round((img.width || 1) * scale));
+    canvas.height = Math.max(1, Math.round((img.height || 1) * scale));
+    canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.6);
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * 🔴 2026-09-05 round-42：BotsRoomMainView — 主区群聊房间容器（布局 1:1
@@ -251,19 +272,56 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [events.length]);
 
+  // 🔴 2026-09-05 round-50：附件（对齐 Hermes group-attachments.ts——
+  // picked/pasted/dropped → dataURL，图片另生成降采样 thumb；15MB/4 个上限）
+  const [attachments, setAttachments] = useState<RoomAttachmentDraft[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const addFiles = useCallback(async (files: FileList | File[] | null) => {
+    if (!files || !files.length) return;
+    const picked: RoomAttachmentDraft[] = [];
+    for (const f of Array.from(files)) {
+      if (picked.length + attachments.length >= 4) {
+        setError('最多 4 个附件');
+        break;
+      }
+      if (f.size > 15_000_000) {
+        setError(`${f.name || '附件'}：超过 15MB 上限`);
+        continue;
+      }
+      const data = await new Promise<string | null>((done) => {
+        const reader = new FileReader();
+        reader.onload = () => done(typeof reader.result === 'string' ? reader.result : null);
+        reader.onerror = () => done(null);
+        reader.readAsDataURL(f);
+      });
+      if (!data) continue;
+      const kind: RoomAttachmentDraft['kind'] = /^image\//.test(f.type || '')
+        ? 'image'
+        : (f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '')) ? 'pdf' : 'file';
+      let thumb: string | undefined;
+      if (kind === 'image') thumb = await makeImageThumb(data);
+      picked.push({ name: f.name || 'file', kind, thumb, data });
+    }
+    if (picked.length) setAttachments((cur) => [...cur, ...picked].slice(0, 4));
+  }, [attachments.length]);
+
   const send = async () => {
     const text = draft.trim();
-    if (!text || sending) return;
+    if ((!text && !attachments.length) || sending) return;
     setSending(true);
     const snapshot = draft;
+    const snapshotAtts = attachments;
     setDraft('');
+    setAttachments([]);
     try {
-      await sendBotRoomMessage(room.room_id, text);
+      await sendBotRoomMessage(room.room_id, text || '（附件）', undefined, snapshotAtts);
       await refresh();
     } catch (e) {
       // 🔴 2026-09-04 发送失败必须可见（此前静默吞错——用户"发消息没反应"）
       setError(`发送失败：${(e as Error).message}`);
       setDraft(snapshot); // 恢复草稿
+      setAttachments(snapshotAtts);
     } finally {
       setSending(false);
     }
@@ -358,9 +416,25 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             的窗口化思路；长房间事件流不无限增长 DOM）——完整日志仍在后端 */}
         {events.slice(-200).map((ev) => {
           if (ev.kind === KIND_USER) {
+            // 🔴 2026-09-05 round-50：附件渲染（图片缩略图 / 文件徽标——
+            // 对齐 Hermes 群聊"members are shown"的附件展示）
+            const atts = Array.isArray(ev.payload.attachments) ? (ev.payload.attachments as Array<{ name?: string; kind?: string; thumb?: string }>) : [];
             return (
               <div key={ev.seq} className="flex justify-end">
                 <div className="max-w-[85%] bg-user-bubble text-foreground border border-user-bubble-border rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm">
+                  {atts.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-1.5">
+                      {atts.map((a, i) =>
+                        a.thumb ? (
+                          <img key={i} src={a.thumb} alt={a.name || 'attachment'} className="h-20 rounded-lg border border-black/10" />
+                        ) : (
+                          <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded bg-black/10 text-[10px]">
+                            📎 {a.name || 'file'}
+                          </span>
+                        ),
+                      )}
+                    </div>
+                  )}
                   {String(ev.payload.text ?? '')}
                 </div>
               </div>
@@ -437,31 +511,76 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
         <div ref={bottomRef} />
       </div>
 
-      {/* 输入区（@ 提及对齐 Hermes GroupMentionInput） */}
-      <div className="relative flex items-center gap-2 px-3 py-2.5 border-t border-[var(--ui-stroke-tertiary)] shrink-0">
+      {/* 输入区（@ 提及对齐 Hermes GroupMentionInput；附件对齐 group-attachments） */}
+      <div
+        className="relative flex flex-col border-t border-[var(--ui-stroke-tertiary)] shrink-0"
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); void addFiles(e.dataTransfer?.files); }}
+      >
         {error && (
-          <div className="absolute bottom-14 left-3 right-3 px-2.5 py-1.5 rounded-md bg-destructive/10 text-destructive text-xs">
+          <div className="mx-3 mt-2 px-2.5 py-1.5 rounded-md bg-destructive/10 text-destructive text-xs">
             {error}
             <button className="ml-2 underline" onClick={() => setError(null)}>关闭</button>
           </div>
         )}
-        <MentionTextarea
-          members={room.members}
-          value={draft}
-          onChange={setDraft}
-          onSubmit={send}
-          placeholder={`发消息到「${room.name}」… 输入 @ 唤起成员`}
-        />
-        {/* 🔴 2026-09-05 round-49：发送/停止双态键（对齐主输入区 InputArea
-            isStreaming 双态——讨论进行中切停止，接房间级 stopBotRoom） */}
-        <button
-          className="p-2 rounded-full bg-accent text-accent-foreground disabled:opacity-40"
-          disabled={roomBusy ? busy : !draft.trim() || sending}
-          onClick={roomBusy ? stopRoom : send}
-          title={roomBusy ? '停止当前讨论' : '发送'}
-        >
-          {roomBusy ? <Square size={14} /> : <Send size={14} />}
-        </button>
+        {/* 🔴 round-50：附件预览条 */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 px-3 pt-2">
+            {attachments.map((a, i) => (
+              <div key={`${a.name}-${i}`} className="relative group">
+                {a.thumb ? (
+                  <img src={a.thumb} alt={a.name} className="h-14 w-14 object-cover rounded-md border border-[var(--ui-stroke-tertiary)]" />
+                ) : (
+                  <div className="h-14 px-2 flex items-center rounded-md border border-[var(--ui-stroke-tertiary)] bg-accent/40 text-[10px] text-muted-foreground max-w-32">
+                    <span className="truncate">{a.name}</span>
+                  </div>
+                )}
+                <button
+                  className="absolute -top-1.5 -right-1.5 p-0.5 rounded-full bg-background border border-[var(--ui-stroke-tertiary)] text-muted-foreground"
+                  onClick={() => setAttachments((cur) => cur.filter((_, j) => j !== i))}
+                  title="移除附件"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center gap-2 px-3 py-2.5">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => { void addFiles(e.target.files); e.target.value = ''; }}
+          />
+          <button
+            className="p-2 rounded-full hover:bg-accent/50 text-muted-foreground shrink-0"
+            onClick={() => fileInputRef.current?.click()}
+            title="添加附件（≤15MB，最多 4 个）"
+            disabled={sending || roomBusy}
+          >
+            <Paperclip size={15} />
+          </button>
+          <MentionTextarea
+            members={room.members}
+            value={draft}
+            onChange={setDraft}
+            onSubmit={send}
+            onPaste={(e) => { const fs = e.clipboardData?.files; if (fs?.length) { e.preventDefault(); void addFiles(fs); } }}
+            placeholder={`发消息到「${room.name}」… 输入 @ 唤起成员，可粘贴/拖入附件`}
+          />
+          {/* 🔴 2026-09-05 round-49：发送/停止双态键（对齐主输入区 InputArea
+              isStreaming 双态——讨论进行中切停止，接房间级 stopBotRoom） */}
+          <button
+            className="p-2 rounded-full bg-accent text-accent-foreground disabled:opacity-40 shrink-0"
+            disabled={roomBusy ? busy : (!draft.trim() && !attachments.length) || sending}
+            onClick={roomBusy ? stopRoom : send}
+            title={roomBusy ? '停止当前讨论' : '发送'}
+          >
+            {roomBusy ? <Square size={14} /> : <Send size={14} />}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -497,12 +616,15 @@ function MentionTextarea({
   onChange,
   onSubmit,
   placeholder,
+  onPaste,
 }: {
   members: BotRoom['members'];
   value: string;
   onChange: (v: string) => void;
   onSubmit: () => void;
   placeholder?: string;
+  /** 🔴 round-50：附件粘贴入口（clipboardData.files → 宿主附件管线） */
+  onPaste?: (e: ReactClipboardEvent<HTMLTextAreaElement>) => void;
 }) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [token, setToken] = useState<MentionToken | null>(null);
@@ -593,6 +715,7 @@ function MentionTextarea({
         placeholder={placeholder}
         className="max-h-40 min-h-[36px] w-full resize-none px-3 py-2 rounded-xl bg-accent/30 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
         onBlur={() => setToken(null)}
+        onPaste={onPaste}
         onChange={(e) => { onChange(e.target.value); refreshToken(e.target); }}
         onClick={(e) => refreshToken(e.target as HTMLTextAreaElement)}
         onKeyDown={(e) => {

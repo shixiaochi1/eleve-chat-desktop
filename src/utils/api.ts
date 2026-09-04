@@ -835,9 +835,28 @@ export async function fetchBotRooms(includeDisbanded = false): Promise<BotRoom[]
   return Array.isArray(data?.rooms) ? data.rooms : [];
 }
 
-/** 群聊发言（触发后台多 bot 讨论） */
-export async function sendBotRoomMessage(roomId: string, text: string, clientEventId?: string): Promise<{ seq: number; event_id: string }> {
-  return call('bot_rooms_send', { room_id: roomId, text, ...(clientEventId ? { client_event_id: clientEventId } : {}) });
+/** 🔴 2026-09-05 round-50：群聊附件（对齐 Hermes group-attachments：
+ * image/pdf/file，data 为 dataURL，thumb 为前端降采样缩略图） */
+export interface RoomAttachmentDraft {
+  name: string;
+  kind: 'image' | 'pdf' | 'file';
+  thumb?: string;
+  data: string;
+}
+
+/** 群聊发言（触发后台多 bot 讨论；可携带附件） */
+export async function sendBotRoomMessage(
+  roomId: string,
+  text: string,
+  clientEventId?: string,
+  attachments?: RoomAttachmentDraft[],
+): Promise<{ seq: number; event_id: string }> {
+  return call('bot_rooms_send', {
+    room_id: roomId,
+    text,
+    ...(clientEventId ? { client_event_id: clientEventId } : {}),
+    ...(attachments?.length ? { attachments } : {}),
+  });
 }
 
 /** 增量拉取房间事件 */
