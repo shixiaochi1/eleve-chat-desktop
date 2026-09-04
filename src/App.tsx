@@ -70,7 +70,9 @@ import { ImageEditorContext, type ImageEditorTarget, type ImageEditorApi } from 
 import { initPreviewEvents } from '@/lib/preview-events';
 import { initPaneReveal } from '@/lib/pane-reveal';
 import { usePaneOpenRequest, getPreviewStoreState, closeTab as closePreviewTab } from '@/store/preview';
+import { useReviewRevealRequest } from '@/store/review';
 import ArtifactPanel from './components/ArtifactPanel';
+import ReviewPane from './components/review/ReviewPane';
 import RightSidebarTabs from './components/RightSidebarTabs';
 import CommandCenter from './components/CommandCenter';
 import Toast from './components/Toast';
@@ -157,6 +159,16 @@ export default function App() {
       setRightTab('preview');
     }
   }, [paneOpenRequest]);
+
+  // 🔴 Review 域揭示请求（对齐 Hermes revealReview：外部事件源 → App 消费）：
+  // ChangedFilesCard 行点击/审查按钮 → 开右栏切「审查」tab
+  const reviewRevealRequest = useReviewRevealRequest();
+  useEffect(() => {
+    if (reviewRevealRequest > 0) {
+      setRightOpen(true);
+      setRightTab('review');
+    }
+  }, [reviewRevealRequest]);
   // 🔴 Phase 4b #4: 宫格焦点 Agent 的实时 sessionId（GridModeView 上抛）→ 侧栏会话列表高亮跟随
   const [focusedGridSessionId, setFocusedGridSessionId] = useState<string | null>(null);
   // 🔴 2026-08-29 对齐 Hermes $sessionTiles：宫格可见会话集合（GridModeView 上抛，
@@ -1984,6 +1996,7 @@ export default function App() {
                 {rightTab === 'artifacts' && (
                   <ArtifactPanel sessionId={sess.sessionId} profile={currentProfile} onSwitchSession={handleSwitchSession} />
                 )}
+                {rightTab === 'review' && <ReviewPane />}
               </>
             )}
             {/* 🔴 预览常驻挂载（2026-08-28 对齐 Hermes + terminal 同款待遇）：

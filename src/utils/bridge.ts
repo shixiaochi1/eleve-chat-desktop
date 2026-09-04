@@ -299,6 +299,14 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   git_branch_list:        'git.branch_list',
   git_base_branch_list:   'git.base_branch_list',
   git_branch_switch:      'git.branch_switch',
+  // ── Review 域（右栏 git 工作区审查；对齐 Hermes review/* IPC）──
+  git_review_list:           'git.review_list',
+  git_review_diff:           'git.review_diff',
+  git_review_stage:          'git.review_stage',
+  git_review_unstage:        'git.review_unstage',
+  git_review_revert:         'git.review_revert',
+  git_review_commit:         'git.review_commit',
+  git_review_commit_context: 'git.review_commit_context',
   // ── llm.oneshot（对齐 Hermes llm.oneshot；项目 idea 生成等辅助任务）──
   llm_oneshot:            'llm.oneshot',
 };

@@ -67,7 +67,13 @@ export function toggleWorkspaceNodeOpen(id: string, defaultOpen = true): void {
 
 /** React hook：订阅展开状态变化 */
 export function useWorkspaceNodeOpen(id: string, defaultOpen = true): [boolean, () => void] {
-  const state = useSyncExternalStore(subscribe, getSnapshot);
+  const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const toggle = useCallback(() => toggleWorkspaceNodeOpen(id, defaultOpen), [id, defaultOpen]);
   return [state[id] ?? defaultOpen, toggle];
+}
+
+/** React hook：整表订阅（动态 id 列表场景——Review 文件树的目录展开态；
+ *  解析语义同 workspaceNodeOpen：absent → defaultOpen 由消费方处理） */
+export function useWorkspaceNodeOpenMap(): Record<string, boolean> {
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }

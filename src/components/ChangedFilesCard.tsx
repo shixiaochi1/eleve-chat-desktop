@@ -2,10 +2,7 @@ import { memo, useMemo } from 'react';
 import { ContextFileIcon } from './Icons';
 import { cn } from '@/lib/utils';
 import { deriveChangedFiles } from '@/lib/changed-files';
-import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
-import { getCurrentSessionCwd } from '@/lib/session-cwd';
-import { openPreview } from '@/store/preview';
-import { notifyError } from '@/utils/notifications';
+import { openReviewForPath, revealReview } from '@/store/review';
 import type { ChatMessagePart } from '@/lib/chat-messages';
 
 /**
@@ -13,11 +10,11 @@ import type { ChatMessagePart } from '@/lib/chat-messages';
  * 每行一个本轮编辑过的文件 + 该文件 +a/-b，收尾最新一轮 assistant 消息。
  * 仅最后一条已落定的 assistant 消息渲染（门控在 MessageRow isLast）。
  *
- * 🔴 2026-09-05 审查联动补齐（对齐 Hermes changed-files-card.tsx 交互语义）：
- * - 文件行可点 → 预览面板打开该文件（对齐 openReviewForPath）；文件有未提交
- *   变更时 PreviewFilePane autoMode 自动落「变更」diff 视图（files_diff 数据）。
- * - 头部「审查更改」→ 打开首个变更文件（对齐 revealReview 的最小档实现；
- *   完整 Review 域——git stage/unstage/revert + ship-bar——另行立项）。
+ * 🔴 2026-09-05 审查域接入（对齐 Hermes changed-files-card.tsx 交互语义）：
+ * - 文件行可点 → 审查面板定位该文件 diff（对齐 openReviewForPath）；
+ * - 头部「审查更改」→ 打开审查面板（对齐 revealReview）。
+ * （早前"最小档直开预览面板"被本审查域取代——Review 面板同样以
+ *   files_diff 数据渲染 diff，且补齐 stage/unstage/revert/commit 处置。）
  */
 const ChangedFilesCard = memo(function ChangedFilesCard({ parts }: { parts: readonly ChatMessagePart[] }) {
   const files = useMemo(() => deriveChangedFiles(parts), [parts]);
@@ -25,16 +22,6 @@ const ChangedFilesCard = memo(function ChangedFilesCard({ parts }: { parts: read
   if (files.length === 0) {
     return null;
   }
-
-  // 相对路径以检测时的会话 cwd 解析回绝对路径（对齐 preview feed 的 cwd 捕获语义）
-  const openFileReview = (path: string) => {
-    const resolved = normalizeOrLocalPreviewTarget(path, getCurrentSessionCwd());
-    if (!resolved) {
-      notifyError(new Error(path), '无法打开文件预览');
-      return;
-    }
-    openPreview(resolved, 'tool-result');
-  };
 
   return (
     <div
@@ -47,8 +34,8 @@ const ChangedFilesCard = memo(function ChangedFilesCard({ parts }: { parts: read
         </span>
         <button
           className="shrink-0 cursor-pointer text-xs text-muted-foreground transition-colors hover:text-foreground"
-          onClick={() => openFileReview(files[0].path)}
-          title="在预览面板查看变更 diff"
+          onClick={() => revealReview()}
+          title="打开审查面板"
         >
           审查更改
         </button>
@@ -58,7 +45,7 @@ const ChangedFilesCard = memo(function ChangedFilesCard({ parts }: { parts: read
           <button
             key={file.path}
             className="row-hover flex w-full items-center gap-2 px-3 py-1 text-left text-xs"
-            onClick={() => openFileReview(file.path)}
+            onClick={() => void openReviewForPath(file.path)}
             title={file.path}
           >
             <ContextFileIcon size={13} className="shrink-0 text-muted-foreground" />
