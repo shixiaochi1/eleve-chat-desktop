@@ -94,6 +94,8 @@ export class GatewayWsClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private pingTimer: ReturnType<typeof setInterval> | null = null
   private intentionallyClosed = false
+  // [multi-connection] remote ws base; when set, doConnect uses it instead of getApiBase
+  private remoteBase: string | null = null
   private _state: WsConnectionState = 'disconnected'
   private stateListeners = new Set<(s: WsConnectionState) => void>()
   // 对齐 Hermes: 唤醒信号（online + visibilitychange）触发立即重连
@@ -165,6 +167,14 @@ export class GatewayWsClient {
 
   // ── 连接管理 ──
 
+  /** [multi-connection] connect an explicit remote ws base; main connection untouched. */
+  connectRemote(wsBase: string): void {
+    this.remoteBase = wsBase.replace(/\/$/, '')
+    this.intentionallyClosed = false
+    this.doConnect()
+    this.registerWakeSignals()
+  }
+
   connect(sessionId?: string, callbacks?: WsConnectionCallbacks): void {
     // 对齐 Hermes Desktop: WS 连接不传 session_id
     // Hermes Desktop: gateway.connect(wsUrl) — URL 里没有 session_id
@@ -173,7 +183,7 @@ export class GatewayWsClient {
     this.connCallbacks = callbacks ?? null
     this.intentionallyClosed = false
 
-    const httpBase = getApiBase()
+    const httpBase = this.remoteBase ?? getApiBase()
     const wsBase = httpBase.replace(/^http/, 'ws')
     // 对齐 Hermes: WS URL 不带 session_id，纯连接
     this.url = `${wsBase}/api/ws`
@@ -193,7 +203,7 @@ export class GatewayWsClient {
     }
 
     // 重连时重新获取 URL（端口可能因 eleved 重启而变化）
-    const httpBase = getApiBase()
+    const httpBase = this.remoteBase ?? getApiBase()
     const wsBase = httpBase.replace(/^http/, 'ws')
     // 🔴 恢复链修复：重连时带 session_id → 后端自动注册 ws_clients + 推送 session.info
     // 首次连接 sessionId=null 不带（对齐 Hermes）；重连/切换后 sessionId 已设置则带上
