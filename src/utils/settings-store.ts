@@ -261,6 +261,8 @@ export interface ToolsetModelEntry {
   category?: string; // 图片 / 视频 / 音乐
   api_path?: string;
   implemented?: boolean; // false = 后端待接入（前端灰显不可选）
+  /** 🔴 2026-09-03 分域 current（后端按域计算：图片=image_gen / 视频=video_gen） */
+  active?: boolean;
 }
 
 export interface ToolsetModelsResponse {
