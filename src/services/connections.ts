@@ -122,16 +122,18 @@ export function getRemoteSocket(id: string): GatewayWsClient {
 /**
  * Route an RPC to the owning connection (aligned with Hermes requestForBot /
  * host.requestProfile): null route = active (main) connection via bridge.
+ * timeoutMs 透传给 sendRpc（bot_relay.deliver 等长处理器需要 900s+ 预算）。
  */
 export async function requestForBot<T = unknown>(
   route: BotRoute | null | undefined,
   method: string,
   params: Record<string, unknown> = {},
+  timeoutMs?: number,
 ): Promise<T> {
   if (route && route.connectionId) {
     const sock = getRemoteSocket(route.connectionId);
     await sock.whenConnected();
-    return sock.sendRpc(method, { ...params, profile: route.profile }) as Promise<T>;
+    return sock.sendRpc(method, { ...params, profile: route.profile }, timeoutMs) as Promise<T>;
   }
   const { call } = await import('../utils/bridge');
   return call(method, params) as Promise<T>;

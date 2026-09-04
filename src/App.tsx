@@ -32,6 +32,7 @@ import { loadConnection, isRemoteMode } from './lib/connection';
 import { getRememberedWorkspaceCwd, rememberWorkspaceCwd } from './lib/workspace-cwd';
 import { getActiveProfile } from './utils/api';
 import { getWsClient, setWsActiveProfile, type SessionCreateResponse } from './services/ws-client';
+import { startBotRelay, stopBotRelay } from './services/bot-relay';
 import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer, loadProfilePointers, saveProfilePointer, removeProfilePointer, latestSessionForDomain, shortSessionLabel } from './utils/session';
 import { notifyError, notifyInfo } from './utils/notifications';
 import type { ChatMessage } from './types';
@@ -137,6 +138,14 @@ export default function App() {
       setRightTab('artifacts');
     }
   }, [artifactOpen, viewMode]);
+
+  // 🔴 2026-09-04 Bot Mode stage-3：跨网关 relay 两循环（Desktop-as-router——
+  // Desktop 持有全部 socket，做 roster 推送与 outbox drain/deliver/reply 中转）。
+  // 循环内部自检连接数 <2 时跳过；stage-4 插件化后由插件生命周期驱动。
+  useEffect(() => {
+    startBotRelay();
+    return () => stopBotRelay();
+  }, []);
 
   // 🔴 预览中心：外部事件（open_preview/close_preview 工具 / #preview 链接 / 文件树双击）
   // 请求打开预览面板。对齐 Hermes $revealInTreeRequest：事件源 → App 消费。

@@ -13,11 +13,13 @@ import { cn } from '@/lib/utils';
 import { ArrowLeft, Bot, Loader, MessageSquarePlus, Pencil, Send, Settings2, Square, Trash2, UserPlus, UserMinus, X } from 'lucide-react';
 import {
   changeBotRoomMembers, createBotRoom, disbandBotRoom, fetchBotRoomEvents,
-  fetchBotRooms, fetchBotsRoster, ensureBotChat, renameBotRoom, sendBotRoomMessage,
+  fetchBotRooms, ensureBotChat, renameBotRoom, sendBotRoomMessage,
   stopBotRoom,
   type BotRosterEntry, type BotRoom, type BotRoomEvent,
 } from '../utils/api';
 import { getWsClient } from '../services/ws-client';
+import { fetchUnionRoster, type UnionRosterRow } from '../services/bot-relay';
+import { requestForBot } from '../services/connections';
 import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnread';
 
 interface BotsViewProps {
@@ -34,7 +36,10 @@ const KIND_USER = 'message.user';
 const KIND_MEMBER = 'message.member';
 
 export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: BotsViewProps) {
-  const [bots, setBots] = useState<BotRosterEntry[]>([]);
+  // 🔴 2026-09-04 stage-3：花名册 UNION——本地 bots.roster + 各远程连接
+  // roster（行带来源/可达性；远端闪断行降级 ghost 不消失，对齐 Hermes
+  // useRoster 全连接 union）
+  const [bots, setBots] = useState<UnionRosterRow[]>([]);
   const [rooms, setRooms] = useState<BotRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -43,18 +48,24 @@ export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: 
   const [newMembers, setNewMembers] = useState<string[]>([]);
   const [activeRoom, setActiveRoom] = useState<BotRoom | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   // 🔴 2026-09-04 花名册行右键菜单（对齐 Hermes bot 行右键 → Edit Profile）
   const [rowMenu, setRowMenu] = useState<{ profile: string; x: number; y: number } | null>(null);
+  // 群聊是本网关的 hosted room——成员必须是本地 profile（远端成员跨网关
+  // 群聊属 stage-5 peer/links 体系，不在选择列表里）
+  const localBots = useMemo(() => bots.filter(b => !b.isRemote).map(b => b.entry), [bots]);
+  const remoteCount = useMemo(() => bots.filter(b => b.isRemote).length, [bots]);
   // 🔴 2026-09-04 单 Agent 引导：群聊/DM 都需要 ≥2 个 Agent；只有一个时
   // 明确告知去 Agent 页面创建（此前静默禁用保存按钮，用户完全无感知）
-  const needsMoreAgents = !loading && bots.length < 2;
+  const needsMoreAgents = !loading && localBots.length < 2;
 
   const loadList = useCallback(async () => {
     try {
-      const [roster, roomList] = await Promise.all([fetchBotsRoster(), fetchBotRooms()]);
-      setBots(roster);
-      // 🔴 2026-09-04 喂给未读 store（单一入口：本视图刷新与后台轮询共用）
-      ingestBotRoster(roster);
+      const [unionRows, roomList] = await Promise.all([fetchUnionRoster(), fetchBotRooms()]);
+      setBots(unionRows);
+      // 🔴 未读水位线只喂本地行（远端会话不在本进程，其未读信号源 = 远端
+      // roster 轮询，v2 随骑行呈现一并接入）
+      ingestBotRoster(unionRows.filter(r => !r.isRemote).map(r => r.entry));
       setRooms(roomList);
       setError(null);
     } catch (e) {
@@ -108,6 +119,31 @@ export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: 
     }
   };
 
+  // ── 🔴 stage-3 RIDING 最小闭环：点远端 bot 行 → 骑 owner 连接确保远端
+  // canonical Bot Chat 存在（远端就绪后，跨网关私信经 relay 管道投递——
+  // A2A 已通；远端会话在主壳的完整骑行呈现随 stage-4 插件化落地）──
+  const openRemoteBotChat = async (row: UnionRosterRow) => {
+    if (!row.reachable) {
+      setError(`远程连接「${row.connectionLabel}」当前不可达——无法就绪 @${row.entry.handle} 的 Bot Chat`);
+      return;
+    }
+    try {
+      await requestForBot(
+        { connectionId: row.connectionId, profile: 'default' },
+        'bot.chat.ensure',
+        { profile: row.entry.profile },
+        15_000,
+      );
+      markBotRead(row.entry.profile);
+      setNotice(
+        `已在远程连接「${row.connectionLabel}」就绪 @${row.entry.handle} 的 Bot Chat。` +
+        `Agent 间的跨网关私信已可经 relay 管道投递（message_agent 目标用 @${row.entry.handle}@${row.connectionId}）`,
+      );
+    } catch (e) {
+      setError(`远程 Bot Chat 就绪失败：${(e as Error).message}`);
+    }
+  };
+
   // ── 布局：左列（花名册 + 群聊列表）+ 右侧（房间视图 / 空态）──
   return (
     <div className="relative flex h-full min-h-0">
@@ -116,7 +152,9 @@ export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: 
       {/* 工具行 */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--ui-stroke-tertiary)] shrink-0">
         <span className="text-xs text-muted-foreground">
-          {loading ? '加载中…' : `${bots.length} 个 Agent · ${rooms.length} 个群聊`}
+          {loading
+            ? '加载中…'
+            : `${localBots.length} 本地${remoteCount > 0 ? ` · ${remoteCount} 远程` : ''} · ${rooms.length} 个群聊`}
         </span>
         <div className="flex items-center gap-1">
           <button
@@ -141,6 +179,12 @@ export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: 
           {error}
         </div>
       )}
+      {notice && (
+        <div className="mx-3 mt-2 px-2.5 py-1.5 rounded-md bg-accent/40 text-muted-foreground text-xs shrink-0">
+          {notice}
+          <button className="ml-2 underline hover:text-foreground" onClick={() => setNotice(null)}>关闭</button>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-4">
         {/* ── 单 Agent 引导（Bot Mode 的前提是 ≥2 个 Agent 协作） ── */}
@@ -148,7 +192,7 @@ export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: 
           <div className="rounded-lg border border-[var(--ui-stroke-tertiary)] bg-accent/20 px-3 py-2.5 text-xs text-muted-foreground space-y-2">
             <div>
               Bot Mode 需要至少 <span className="text-foreground font-medium">2 个 Agent</span> 才能组群聊或互发私信。
-              当前只有 {bots.length} 个——请先到「Agent」页面新建更多 Agent（各自配好模型），再回来创建群聊。
+              当前只有 {localBots.length} 个本地 Agent——请先到「Agent」页面新建更多 Agent（各自配好模型），再回来创建群聊。
             </div>
             <button
               className="px-2.5 py-1 rounded-md bg-accent text-accent-foreground text-xs font-medium"
@@ -180,16 +224,17 @@ export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: 
           </section>
         )}
 
-        {/* ── Bot 花名册（点击开私聊；右键编辑 Agent——对齐 Hermes roster Edit Profile） ── */}
+        {/* ── Bot 花名册 UNION（点击开私聊；右键编辑 Agent——对齐 Hermes
+            roster Edit Profile；远端行带连接标记与离线 ghost） ── */}
         <section>
           <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">Agent</div>
           <div className="space-y-1">
-            {bots.map((bot) => (
+            {bots.map((row) => (
               <BotRosterRow
-                key={bot.profile}
-                bot={bot}
-                onOpen={() => openBotChat(bot.profile)}
-                onRowMenu={(x, y) => setRowMenu({ profile: bot.profile, x, y })}
+                key={`${row.connectionId}:${row.entry.profile}`}
+                row={row}
+                onOpen={() => (row.isRemote ? openRemoteBotChat(row) : openBotChat(row.entry.profile))}
+                onRowMenu={(x, y) => setRowMenu({ profile: row.entry.profile, x, y })}
               />
             ))}
             {!loading && bots.length === 0 && (
@@ -204,7 +249,7 @@ export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: 
           {activeRoom ? (
             <BotsRoomView
               room={activeRoom}
-              bots={bots}
+              bots={localBots}
               onBack={() => { setActiveRoom(null); loadList(); }}
             />
           ) : (
@@ -240,12 +285,12 @@ export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: 
               className="w-full px-2.5 py-1.5 rounded-md bg-accent/30 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
             />
             <div className="max-h-44 overflow-y-auto space-y-1">
-              {bots.length < 2 && (
+              {localBots.length < 2 && (
                 <div className="text-xs text-muted-foreground px-2 py-1.5">
-                  当前只有 {bots.length} 个 Agent——群聊至少需要 2 个。请先到「Agent」页面新建更多 Agent。
+                  当前只有 {localBots.length} 个本地 Agent——群聊至少需要 2 个。请先到「Agent」页面新建更多 Agent。
                 </div>
               )}
-              {bots.map((bot) => {
+              {localBots.map((bot) => {
                 const checked = newMembers.includes(bot.profile);
                 return (
                   <label key={bot.profile} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent/30 cursor-pointer">
@@ -301,16 +346,28 @@ export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: 
 // ── 花名册单行（提取组件：未读点需 useBotUnread 订阅，hook 不能进 map） ──
 // 未读点视觉语义对齐 SessionStatusDot 的 unread 变体（bg-success 稳态点）；
 // 活动权威 = canonical Bot Chat（行点击打开的就是它，点与会话永不描述两回事）。
-function BotRosterRow({ bot, onOpen, onRowMenu }: {
-  bot: BotRosterEntry;
+// 🔴 stage-3 UNION 行：远端行带连接标记（🏷 connectionLabel），拉取失败行
+// 降级 ghost（opacity + 不可达提示），不消失（对齐 Hermes annotateBotSource）。
+function BotRosterRow({ row, onOpen, onRowMenu }: {
+  row: UnionRosterRow;
   onOpen: () => void;
   onRowMenu: (x: number, y: number) => void;
 }) {
+  const bot = row.entry;
   const unread = useBotUnread(bot.profile);
   return (
     <button
-      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent/40 transition-colors text-left"
-      title={`打开与 @${bot.handle} 的私聊`}
+      className={cn(
+        'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent/40 transition-colors text-left',
+        !row.reachable && 'opacity-40',
+      )}
+      title={
+        !row.reachable
+          ? `远程连接「${row.connectionLabel}」不可达`
+          : row.isRemote
+            ? `远程 Agent（${row.connectionLabel}）——点击就绪其 Bot Chat`
+            : `打开与 @${bot.handle} 的私聊`
+      }
       onClick={onOpen}
       onContextMenu={(e) => { e.preventDefault(); onRowMenu(e.clientX, e.clientY); }}
     >
@@ -322,7 +379,14 @@ function BotRosterRow({ bot, onOpen, onRowMenu }: {
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm text-foreground truncate">{bot.display_name || bot.handle}</span>
-        <span className="block text-xs text-muted-foreground truncate">@{bot.handle}</span>
+        <span className="block text-xs text-muted-foreground truncate">
+          @{bot.handle}
+          {row.isRemote && (
+            <span className={cn('ml-1.5 rounded px-1 py-px text-[10px]', row.reachable ? 'bg-accent/60 text-foreground' : 'bg-destructive/20 text-destructive')}>
+              {row.connectionLabel}
+            </span>
+          )}
+        </span>
       </span>
       {unread && (
         <span

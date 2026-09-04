@@ -414,8 +414,11 @@ export class GatewayWsClient {
   // ── 消息收发 ──
 
   /** 发送 JSON-RPC 请求，返回 Promise<result>
-   *  Phase 1: WS 未连接时排队等待，连接后自动发送 */
-  sendRpc(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+   *  Phase 1: WS 未连接时排队等待，连接后自动发送
+   *  🔴 2026-09-04 Bot Mode stage-3：可选 timeoutMs（bot_relay.deliver 等
+   *  长处理器需要 900s+ 预算；未传保持既有默认——prompt.submit 1800s、
+   *  其它 60s） */
+  sendRpc(method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<unknown> {
     // 🔴 S1: 始终盖章 profile（default 也传）— 消灭 null 语义分裂。
     // 桌面端请求永不 fallback 到 ③（R-B 铁则）。
     // activeProfile=null 时盖章 "default"，后端按来源判别：桌面 None→default 永不读 ③。
@@ -425,19 +428,19 @@ export class GatewayWsClient {
     return new Promise((resolve, reject) => {
       // WS 已连接：直接发送
       if (this.ws?.readyState === WebSocket.OPEN) {
-        this.doSendRpc(method, params, resolve, reject)
+        this.doSendRpc(method, params, resolve, reject, timeoutMs)
         return
       }
 
       // WS 正在连接/重连中：排队等待
       if (this._state === 'connecting' || this._state === 'reconnecting') {
-        const timeoutMs = method === 'prompt.submit' ? 1_800_000 : 60_000
+        const queueTimeoutMs = timeoutMs ?? (method === 'prompt.submit' ? 1_800_000 : 60_000)
         const timer = setTimeout(() => {
           // 超时：从队列移除并 reject
           const idx = this.pendingQueue.findIndex(e => e.method === method && e.resolve === resolve)
           if (idx >= 0) this.pendingQueue.splice(idx, 1)
           reject(new RpcError(`RPC timeout waiting for connection: ${method}`, -1))
-        }, timeoutMs)
+        }, queueTimeoutMs)
         this.pendingQueue.push({ method, params, resolve, reject, timer })
         return
       }
@@ -447,13 +450,13 @@ export class GatewayWsClient {
       // "WebSocket not connected (state=disconnected)" 错误横幅，稍等即连上）。
       // 改为排队等待连接（与 connecting 同队列，连接后 flush），真超时才报错。
       if (this._state === 'disconnected') {
-        const timeoutMs = method === 'prompt.submit' ? 1_800_000 : 60_000
+        const queueTimeoutMs = timeoutMs ?? (method === 'prompt.submit' ? 1_800_000 : 60_000)
         const timer = setTimeout(() => {
           // 超时：从队列移除并 reject
           const idx = this.pendingQueue.findIndex(e => e.method === method && e.resolve === resolve)
           if (idx >= 0) this.pendingQueue.splice(idx, 1)
           reject(new RpcError(`RPC timeout waiting for connection: ${method}`, -1))
-        }, timeoutMs)
+        }, queueTimeoutMs)
         this.pendingQueue.push({ method, params, resolve, reject, timer })
         return
       }
@@ -461,14 +464,14 @@ export class GatewayWsClient {
   }
 
   /** 内部：实际发送 RPC 请求 */
-  private doSendRpc(method: string, params: Record<string, unknown>, resolve: (v: unknown) => void, reject: (e: Error) => void): void {
+  private doSendRpc(method: string, params: Record<string, unknown>, resolve: (v: unknown) => void, reject: (e: Error) => void, timeoutOpt?: number): void {
     const id = ++this.rpcId
     const msg: JsonRpcRequest = { jsonrpc: '2.0', id, method, params }
     this.pendingRpc.set(id, { resolve, reject })
     this.ws!.send(JSON.stringify(msg))
 
-    // 对齐 Hermes: prompt.submit 1800s（30分钟），其他 60s
-    const timeoutMs = method === 'prompt.submit' ? 1_800_000 : 60_000
+    // 对齐 Hermes: prompt.submit 1800s（30分钟），其他 60s；调用方可覆盖
+    const timeoutMs = timeoutOpt ?? (method === 'prompt.submit' ? 1_800_000 : 60_000)
     setTimeout(() => {
       if (this.pendingRpc.delete(id)) {
         reject(new RpcError(`RPC timeout: ${method}`, -1))
