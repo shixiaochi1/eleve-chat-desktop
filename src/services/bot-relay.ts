@@ -195,12 +195,136 @@ async function drainRelayOutboxes(): Promise<void> {
         }
       }
     }
+
+    // 🔴 stage-5 P1-b：authority 的 remote 成员轮投递队列（hosted rooms）
+    void drainPeerDispatches();
   } finally {
     drainBusy = false;
     if (drainRerun) {
       drainRerun = false;
       void sleep(RELAY_PUSH_DEBOUNCE_MS).then(() => void drainRelayOutboxes());
     }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 🔴 stage-5 P1-b：跨网关群聊成员轮骑行投递（authority-as-dispatcher）
+// authority 网关的讨论驱动遇 remote 成员 → 签发 grant 入队 → 本循环拉取
+// → 按 UNION roster 找目标连接 → 骑 route 调 bot.rooms.peer.dispatch →
+// 轮询目标 status → 回写 bot.rooms.peer_result（authority 驱动收口）。
+// Desktop 只持有 socket 中转，grant 由 authority 签好（Desktop 无 secret）。
+// ══════════════════════════════════════════════════════════════════
+
+interface PendingDispatch {
+  id: string;
+  room_id: string;
+  room_name: string;
+  turn_id: string;
+  member_id: string;
+  member_profile: string;
+  grant_token: string;
+  dispatch: Record<string, unknown>;
+  prompt: string;
+}
+
+interface PeerTurnStatus {
+  state: 'running' | 'completed' | 'cancelled';
+  reply?: string | null;
+}
+
+/** 在飞轮询防重入（dispatchId → true） */
+const dispatchPollers = new Map<string, boolean>();
+const PEER_POLL_INTERVAL_MS = 5_000;
+const PEER_POLL_MAX_TICKS = 180; // 900s 预算（与后端 REPLY_WAIT_SECONDS 对齐）
+
+/** 按 profile 找归属连接（UNION last-good 缓存是拉取结果的镜像） */
+function findConnectionForProfile(profile: string) {
+  for (const [connId, entries] of unionLastGood) {
+    if (entries.some(e => e.profile === profile)) {
+      const conn = relayConnections().find(c => c.id === connId);
+      if (conn) return conn;
+    }
+  }
+  return undefined;
+}
+
+/** 拉各 authority 的 pending 队列（drain 循环每 tick 调用） */
+async function drainPeerDispatches(): Promise<void> {
+  for (const conn of relayConnections()) {
+    let items: PendingDispatch[] = [];
+    try {
+      const res = await requestForBot<{ dispatches?: PendingDispatch[] }>(
+        routeOf(conn), 'bot.rooms.peer_dispatches.pending', {}, 15_000,
+      );
+      items = Array.isArray(res?.dispatches) ? res.dispatches : [];
+    } catch {
+      continue; // 旧后端/离线——跳过
+    }
+    for (const d of items) {
+      if (d?.id && d?.grant_token && d?.dispatch) void deliverPeerDispatch(conn, d);
+    }
+  }
+}
+
+/** 单条投递：目标连接 dispatch → 轮询 status → peer_result 回写 */
+async function deliverPeerDispatch(authority: { id: string; remote: RemoteConnection | null }, d: PendingDispatch): Promise<void> {
+  if (dispatchPollers.has(d.id)) return;
+  dispatchPollers.set(d.id, true);
+  try {
+    const postResult = async (payload: { reply?: string; error?: string }) => {
+      try {
+        await requestForBot(routeOf(authority), 'bot.rooms.peer_result', { id: d.id, ...payload });
+      } catch {
+        // authority 暂不可达——轮询照跑，authority 超时兜底
+      }
+    };
+
+    const target = findConnectionForProfile(d.member_profile);
+    if (!target) {
+      await postResult({ error: `no connected machine hosts profile '${d.member_profile}'` });
+      return;
+    }
+
+    try {
+      await requestForBot(
+        routeOf(target),
+        'bot.rooms.peer.dispatch',
+        { grant_token: d.grant_token, dispatch: d.dispatch, prompt: d.prompt },
+      );
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      const m = /\[reason=([a-z_]+)\]/.exec(msg);
+      await postResult({ error: msg, ...(m ? { reason: m[1] } : {}) });
+      return;
+    }
+
+    // 轮询目标侧成员轮收口（预算内；cursor 增量）
+    let since = 0;
+    for (let _tick = 0; _tick < PEER_POLL_MAX_TICKS; _tick++) {
+      await sleep(PEER_POLL_INTERVAL_MS);
+      try {
+        const res = await requestForBot<{ status?: PeerTurnStatus; cursor?: number }>(
+          routeOf(target),
+          'bot.rooms.peer.status',
+          { grant_token: d.grant_token, dispatch: d.dispatch, since_seq: since },
+        );
+        since = Number(res?.cursor ?? since);
+        const st = res?.status;
+        if (st?.state === 'completed') {
+          await postResult({ reply: String(st.reply || '') });
+          return;
+        }
+        if (st?.state === 'cancelled') {
+          await postResult({ error: 'cancelled by authority stop fence' });
+          return;
+        }
+      } catch {
+        // 目标暂不可达——预算内继续重试
+      }
+    }
+    await postResult({ error: 'member turn did not finish within budget' });
+  } finally {
+    dispatchPollers.delete(d.id);
   }
 }
 
