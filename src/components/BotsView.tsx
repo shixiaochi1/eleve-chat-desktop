@@ -31,6 +31,17 @@ interface BotsViewProps {
   onPanelChange?: (panel: string | null) => void;
 }
 
+/** 🔴 2026-09-05 stage-5：本机持有的房间副本元数据（bot.rooms.replicas.list） */
+interface ReplicaMetaRow {
+  room_id: string;
+  room_name: string;
+  authority_gateway_id: string;
+  authority_epoch: number;
+  last_ingested_seq: number;
+  /** replica = 可接管；authoritative = 本机已接管；demoted = 已退位 */
+  state: string;
+}
+
 const KIND_USER = 'message.user';
 const KIND_MEMBER = 'message.member';
 
@@ -54,6 +65,9 @@ export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: 
   // 群聊属 stage-5 peer/links 体系，不在选择列表里）
   const localBots = useMemo(() => bots.filter(b => !b.isRemote).map(b => b.entry), [bots]);
   const remoteCount = useMemo(() => bots.filter(b => b.isRemote).length, [bots]);
+  // 🔴 2026-09-05 stage-5 P2.5：可接管房间（本机 replica，原权威离线后可续跑）
+  const [replicas, setReplicas] = useState<ReplicaMetaRow[]>([]);
+  const takeableReplicas = useMemo(() => replicas.filter(r => r.state === 'replica'), [replicas]);
   // 🔴 2026-09-04 单 Agent 引导：群聊/DM 都需要 ≥2 个 Agent；只有一个时
   // 明确告知去 Agent 页面创建（此前静默禁用保存按钮，用户完全无感知）
   const needsMoreAgents = !loading && localBots.length < 2;
@@ -66,6 +80,15 @@ export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: 
       // roster 轮询，v2 随骑行呈现一并接入）
       ingestBotRoster(unionRows.filter(r => !r.isRemote).map(r => r.entry));
       setRooms(roomList);
+      // 🔴 stage-5 P2.5：可接管副本清单（WS RPC——旧后端/无副本时为空）
+      try {
+        const res = await requestForBot<{ replicas?: ReplicaMetaRow[] }>(
+          null, 'bot.rooms.replicas.list', {}, 15_000,
+        );
+        setReplicas(Array.isArray(res?.replicas) ? res.replicas : []);
+      } catch {
+        setReplicas([]);
+      }
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -143,6 +166,19 @@ export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: 
     }
   };
 
+  // ── 🔴 stage-5 P2.5：接管副本房间（显式用户动作——存储原语不决定时机）──
+  const takeoverReplica = async (r: ReplicaMetaRow) => {
+    try {
+      const res = await requestForBot<{ epoch?: number }>(
+        null, 'bot.rooms.replica.promote', { room_id: r.room_id },
+      );
+      setNotice(`房间「${r.room_name}」已在本机接管（epoch ${res?.epoch ?? '?'}）——讨论可继续`);
+      await loadList();
+    } catch (e) {
+      setError(`接管失败：${(e as Error).message}`);
+    }
+  };
+
   // ── 布局：左列（花名册 + 群聊列表）+ 右侧（房间视图 / 空态）──
   return (
     <div className="relative flex h-full min-h-0">
@@ -200,6 +236,34 @@ export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: 
               去 Agent 页面新建 →
             </button>
           </div>
+        )}
+
+        {/* ── 🔴 stage-5 P2.5：待接管房间（本机持副本、原权威离线后可续跑） ── */}
+        {takeableReplicas.length > 0 && (
+          <section>
+            <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">待接管房间</div>
+            <div className="space-y-1">
+              {takeableReplicas.map((r) => (
+                <div
+                  key={r.room_id}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-accent/20 text-left"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm text-foreground truncate">{r.room_name}</span>
+                    <span className="block text-xs text-muted-foreground truncate">
+                      原权威「{r.authority_gateway_id}」 · epoch {r.authority_epoch} · 已同步 {r.last_ingested_seq} 条
+                    </span>
+                  </span>
+                  <button
+                    className="px-2 py-1 rounded-md bg-primary/20 text-primary text-xs shrink-0 hover:bg-primary/30 transition-colors"
+                    onClick={() => void takeoverReplica(r)}
+                  >
+                    接管
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
         )}
 
         {/* ── 群聊房间 ── */}

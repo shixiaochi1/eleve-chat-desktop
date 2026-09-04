@@ -266,6 +266,58 @@ async function drainPeerDispatches(): Promise<void> {
   }
 }
 
+// ── 🔴 stage-5 P2.5：replica 维护循环（参与者网关持权威日志副本——
+// authority 死亡后可显式接管）──
+
+interface ReplicaTarget {
+  authorityId: string;
+  roomId: string;
+  targetConnId: string;
+}
+
+/** peer dispatch 投递成功的房间 → 副本维护三元组 */
+const replicaTargets = new Map<string, ReplicaTarget>(); // key: `${authorityId}:${roomId}`
+
+/** 同步各副本：从 authority 拉房间 + 全量日志（讨论线程 ≤10 条发言，全量
+ *  幂等最简单），骑行写 target 的 replica（ingest 幂等跳过已有序列）。 */
+async function syncReplicas(): Promise<void> {
+  const connections = relayConnections();
+  for (const t of replicaTargets.values()) {
+    const authority = connections.find(c => c.id === t.authorityId);
+    const target = connections.find(c => c.id === t.targetConnId);
+    if (!authority || !target) continue;
+    try {
+      const [roomRes, evRes] = await Promise.all([
+        requestForBot<{ rooms?: Array<{ room_id: string; name: string; members?: unknown[] }> }>(
+          routeOf(authority), 'bot.rooms.list', {}, 15_000,
+        ),
+        requestForBot<{ events?: unknown[] }>(
+          routeOf(authority), 'bot.rooms.events', { room_id: t.roomId, since_seq: 0, limit: 500 }, 15_000,
+        ),
+      ]);
+      const room = roomRes?.rooms?.find(r => r.room_id === t.roomId);
+      if (!room) continue; // authority 侧房间已散（disband/接管转移）——副本保留
+      await requestForBot(
+        routeOf(target),
+        'bot.rooms.replica.ingest',
+        {
+          meta: {
+            room_id: t.roomId,
+            room_name: room.name,
+            members_json: JSON.stringify(room.members ?? []),
+            authority_gateway_id: t.authorityId,
+            authority_epoch: 1,
+          },
+          events: evRes?.events ?? [],
+        },
+        15_000,
+      );
+    } catch {
+      // authority/target 暂不可达——下轮重试
+    }
+  }
+}
+
 /** 单条投递：目标连接 dispatch → 轮询 status → peer_result 回写 */
 async function deliverPeerDispatch(authority: { id: string; remote: RemoteConnection | null }, d: PendingDispatch): Promise<void> {
   if (dispatchPollers.has(d.id)) return;
@@ -291,6 +343,13 @@ async function deliverPeerDispatch(authority: { id: string; remote: RemoteConnec
         'bot.rooms.peer.dispatch',
         { grant_token: d.grant_token, dispatch: d.dispatch, prompt: d.prompt },
       );
+      // 🔴 stage-5 P2.5：本目标网关成为该房间的 replica 持有者——纳入副本
+      // 维护循环（authority 日志增量 → target ingest），authority 死后可接管
+      replicaTargets.set(`${authority.id}:${d.room_id}`, {
+        authorityId: authority.id,
+        roomId: d.room_id,
+        targetConnId: target.id,
+      });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       const m = /\[reason=([a-z_]+)\]/.exec(msg);
@@ -339,8 +398,13 @@ let drainRerun = false;
 
 export function startBotRelay(): void {
   if (rosterTimer === null) {
-    rosterTimer = setInterval(() => void syncRelayRosters(), RELAY_ROSTER_INTERVAL_MS);
+    // 🔴 stage-5 P2.5：副本维护随 roster 循环节奏（60s）——权威日志增量同步
+    rosterTimer = setInterval(() => {
+      void syncRelayRosters();
+      void syncReplicas();
+    }, RELAY_ROSTER_INTERVAL_MS);
     void syncRelayRosters();
+    void syncReplicas();
   }
   if (drainTimer === null) {
     drainTimer = setInterval(() => void drainRelayOutboxes(), RELAY_DRAIN_INTERVAL_MS);
