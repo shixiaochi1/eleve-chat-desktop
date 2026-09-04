@@ -34,9 +34,11 @@ interface IconBarProps {
   onToggleFiles?: () => void;
   /** 画布按钮自定义点击（弹出 infinite-canvas 应用，不参与 panel 切换） */
   onOpenCanvas?: () => void;
+  /** 🔴 2026-09-04 Bot Mode：群聊入口点击 = 主区切到 Bots 视图（对齐 Hermes 主窗口 tab） */
+  onOpenBots?: () => void;
 }
 
-export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gatewayOnline, onToggleFiles, onOpenCanvas }: IconBarProps) {
+export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gatewayOnline, onToggleFiles, onOpenCanvas, onOpenBots }: IconBarProps) {
   // 🔴 2026-08-16（d1 P0-5 闭合）：在飞计数——gateway 在线才轮询；
   //   计数仅作角标展示，点击行为仍走 kanban 项既有切换逻辑
   const { running, ready, active } = useKanbanActiveCount(Boolean(gatewayOnline));
@@ -45,8 +47,8 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
     // 🔴 2026-08-12 老大指示：取消"项目"按钮（项目功能已合并进 Agent 面板）；
     //   文件浏览器图标换成原项目图标（FolderGit），行为不变（开右侧文件抽屉）
     { id: 'files',    icon: FolderGit,  label: '文件浏览器', onClick: onToggleFiles },
-    // 🔴 2026-09-04 Bot Mode：bot 联动 + 群聊（对齐 Hermes bot-mode）
-    { id: 'bots',     icon: BotsIcon,   label: '群聊' },
+    // 🔴 2026-09-04 Bot Mode：bot 联动 + 群聊（主区 Bots 视图，对齐 Hermes 主窗口 tab）
+    { id: 'bots',     icon: BotsIcon,   label: '群聊', onClick: onOpenBots },
     { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true, badge: active },
     // 🔴 2026-08-18 画布 × ELEVE 集成：画布按钮——点击弹出 infinite-canvas
     //   应用（独立进程，client_type=canvas WS 注册为 ELEVE 能力，见

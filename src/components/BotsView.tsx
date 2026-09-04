@@ -1,15 +1,12 @@
 /**
- * BotsPanel — Bot 联动面板（Bot Mode）
+ * BotsView — Bot Mode 主区视图（对齐 Hermes Desktop：Bots 是主窗口 tab，
+ * 群聊视图是 MAIN-window tab——占主区大空间，不是侧边栏窄面板）。
  *
- * 🔴 2026-09-04 对齐 Hermes bot-mode（A2A 私信 + 群聊 Group Chat）：
- *  - Bot 花名册（bots.roster）：运行时已注册的 Agent；点击 → 打开该 bot 的
- *    canonical Bot Chat 会话（bot.chat.ensure 懒创建 → onSwitchSession）
- *  - 群聊房间（bot.rooms.*）：2-6 名 bot 回合制讨论（后端讨论引擎：
- *    @点名 / pass 沉默 / ≤3 轮 / ≤10 条），bot.room.event 实时推送
+ * 🔴 2026-09-04 布局对齐：左列（w-80）= 花名册 + 群聊列表；右侧 = 选中
+ * 群聊的房间视图（大区域聊天流）。点击花名册 bot 行 → 打开该 Agent 的
+ * canonical Bot Chat 到主聊天区（对齐 bot-mode-row-click-mirrors-registry）。
  *
- * 数据流（对齐 2026-09-01 前端架构分层）：
- *   命令 → utils/api.ts（bots 命令层）；事件 → services/ws-client 监听器；
- *   本组件只做编排与渲染，禁止散裸 call()。
+ * 数据流：命令 → utils/api.ts（bots 命令层）；事件 → ws-client 监听器。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -22,18 +19,18 @@ import {
 } from '../utils/api';
 import { getWsClient } from '../services/ws-client';
 
-interface BotsPanelProps {
-  /** 🔴 2026-09-04 打开 bot 的 canonical chat（App 层：宫格先退 + forceProfile） */
+interface BotsViewProps {
+  /** 🔴 打开 bot 的 canonical chat（App 层：宫格/Bots 视图先退 + forceProfile） */
   onOpenBotChat?: (id: string) => void;
   currentProfile?: string;
-  /** 面板切换（SidePanel 下发——Agent 不足时引导跳转） */
+  /** 面板切换（Agent 不足时引导跳转 Agent 页） */
   onPanelChange?: (panel: string | null) => void;
 }
 
 const KIND_USER = 'message.user';
 const KIND_MEMBER = 'message.member';
 
-export default function BotsPanel({ onOpenBotChat, onPanelChange }: BotsPanelProps) {
+export default function BotsView({ onOpenBotChat, onPanelChange }: BotsViewProps) {
   const [bots, setBots] = useState<BotRosterEntry[]>([]);
   const [rooms, setRooms] = useState<BotRoom[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,19 +87,11 @@ export default function BotsPanel({ onOpenBotChat, onPanelChange }: BotsPanelPro
     }
   };
 
-  // ── 房间视图 ──
-  if (activeRoom) {
-    return (
-      <BotsRoomView
-        room={activeRoom}
-        bots={bots}
-        onBack={() => { setActiveRoom(null); loadList(); }}
-      />
-    );
-  }
-
+  // ── 布局：左列（花名册 + 群聊列表）+ 右侧（房间视图 / 空态）──
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="relative flex h-full min-h-0">
+      {/* ═══ 左列 ═══ */}
+      <div className="w-80 shrink-0 border-r border-[var(--ui-stroke-tertiary)] flex flex-col min-h-0">
       {/* 工具行 */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--ui-stroke-tertiary)] shrink-0">
         <span className="text-xs text-muted-foreground">
@@ -198,13 +187,33 @@ export default function BotsPanel({ onOpenBotChat, onPanelChange }: BotsPanelPro
             )}
           </div>
         </section>
+        </div>
+
+        {/* ═══ 右侧：房间视图 / 空态 ═══ */}
+        <div className="flex-1 min-w-0 flex flex-col min-h-0">
+          {activeRoom ? (
+            <BotsRoomView
+              room={activeRoom}
+              bots={bots}
+              onBack={() => { setActiveRoom(null); loadList(); }}
+            />
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2 px-6 text-center">
+              <Bot size={28} className="opacity-40" />
+              <div className="text-sm">选择左侧群聊进入房间，或点击 Agent 打开 Bot Chat 私聊</div>
+              <div className="text-xs text-muted-foreground/70 max-w-sm">
+                群聊里输入 @ 可唤起成员列表；Agent 之间的私信在各自 Bot Chat 里收发（message_agent 工具）。
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── 新建群聊弹层 ── */}
       {showCreate && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowCreate(false)}>
           <div
-            className="w-full max-w-xs rounded-xl border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-bg-card)] backdrop-blur-sm p-4 space-y-3 shadow-2xl"
+            className="w-full max-w-xs rounded-xl border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-card-bg)] p-4 space-y-3 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
@@ -667,7 +676,7 @@ function RoomEditDialog({
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className="w-full max-w-xs rounded-xl border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-bg-card)] backdrop-blur-sm p-4 space-y-3 shadow-2xl"
+        className="w-full max-w-xs rounded-xl border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-card-bg)] p-4 space-y-3 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">

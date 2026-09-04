@@ -40,6 +40,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import CredentialCard from './components/CredentialCard';
 import { ThemeProvider } from './themes/index';
 import IconBar from './components/IconBar';
+import BotsView from './components/BotsView';
 import SidePanel from './components/SidePanel';
 import OverlayView from './components/OverlayView';
 import { useOpenArtifact, clearArtifactRegistry } from './store/artifacts';
@@ -124,7 +125,7 @@ export default function App() {
   const messageCount = useMessageCount();
   const [commandCenterOpen, setCommandCenterOpen] = useState<boolean>(false);
   const [sessionListVersion, setSessionListVersion] = useState<number>(0);  // 刷新会话列表
-  const [viewMode, setViewMode] = useState<'single' | 'grid'>('single');  // 多 Agent 视图模式
+  const [viewMode, setViewMode] = useState<'single' | 'grid' | 'bots'>('single');  // 多 Agent 视图模式（bots = Bot Mode 主区视图）
 
   // 🔴 Artifact 右栏化（对齐 Hermes openArtifact → 打开右栏 tab）：
   // 消息内卡片点击 openArtifact() 后，单视图自动打开右栏并切到「产物」tab；
@@ -895,14 +896,20 @@ export default function App() {
   // bot-mode-row-click-mirrors-registry——"点击必须落在那个会话"）。
   // 与 gridAwareSwitchSession 的区别：bot chat 是跨 Agent 通信会话，被
   // exclude 出主列表，塞进宫格卡片语义混乱（用户实测抱怨）→
-  // ① 宫格先退单视图 ② forceProfile 声明归属（绕过串台校验的静默丢弃）。
+  // ① 宫格/Bots 视图先退回单视图 ② forceProfile 声明归属（绕过串台校验
+  // 的静默丢弃）。
   const handleOpenBotChat = useCallback((id: string) => {
     const profile = profileFromSessionId(id);
-    if (viewMode === 'grid') {
-      handleExitGrid();
+    if (viewMode !== 'single') {
+      setViewMode('single');
     }
     void handleSwitchSession(id, { forceProfile: profile || undefined });
-  }, [viewMode, handleExitGrid, handleSwitchSession]);
+  }, [viewMode, handleSwitchSession]);
+
+  // 🔴 2026-09-04 Bot Mode 主区视图入口（对齐 Hermes Desktop Bots 主窗口 tab）
+  const handleOpenBotsView = useCallback(() => {
+    setViewMode('bots');
+  }, []);
 
   // 🔴 P2-6: 宫格模式侧栏“新建会话”路由进宫格（重置焦点 Agent 卡片，不切单视图）
   // 🔴 2026-08-11 对齐 Hermes openNewSessionTile：宫格新建 = 立即创建后端会话
@@ -1526,7 +1533,7 @@ export default function App() {
         >
           {/* 左侧面板：图标栏 + 侧边面板卡片 */}
           <Pane side="left" className="pane-left-column">
-            <IconBar activePanel={activePanel} onPanelChange={setActivePanel} onOpenOverlay={handleOpenOverlay} gatewayOnline={gatewayHealth.online} onToggleFiles={handleToggleFiles} onOpenCanvas={handleOpenCanvas} />
+            <IconBar activePanel={activePanel} onPanelChange={setActivePanel} onOpenOverlay={handleOpenOverlay} gatewayOnline={gatewayHealth.online} onToggleFiles={handleToggleFiles} onOpenCanvas={handleOpenCanvas} onOpenBots={handleOpenBotsView} />
             {activePanel && (
               <div className="side-panel-card">
                 <SidePanel
@@ -1571,7 +1578,15 @@ export default function App() {
 
           {/* 右侧聊天主区域 */}
           <PaneMain>
-            {viewMode === 'grid' ? (
+            {viewMode === 'bots' ? (
+              <div className="chat-card h-full">
+                <BotsView
+                  onOpenBotChat={handleOpenBotChat}
+                  currentProfile={currentProfile}
+                  onPanelChange={setActivePanel}
+                />
+              </div>
+            ) : viewMode === 'grid' ? (
               <div className="chat-card">
                 <GridModeView
                   ref={gridRef}
