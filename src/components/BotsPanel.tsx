@@ -204,7 +204,7 @@ export default function BotsPanel({ onOpenBotChat, onPanelChange }: BotsPanelPro
       {showCreate && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowCreate(false)}>
           <div
-            className="w-full max-w-xs rounded-xl border border-[var(--ui-stroke-tertiary)] bg-[var(--panel-bg,#1c1c1e)] p-4 space-y-3 shadow-xl"
+            className="w-full max-w-xs rounded-xl border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-bg-card)] backdrop-blur-sm p-4 space-y-3 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
@@ -421,7 +421,7 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
           if (ev.kind === KIND_USER) {
             return (
               <div key={ev.seq} className="flex justify-end">
-                <div className="max-w-[85%] px-3 py-1.5 rounded-2xl rounded-br-sm bg-accent text-accent-foreground text-sm whitespace-pre-wrap break-words">
+                <div className="max-w-[85%] bg-user-bubble text-foreground border border-user-bubble-border rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm">
                   {String(ev.payload.text ?? '')}
                 </div>
               </div>
@@ -433,7 +433,7 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             return (
               <div key={ev.seq} className="flex flex-col items-start">
                 <span className="text-[11px] text-muted-foreground mb-0.5 px-1">@{handle} · {display}</span>
-                <div className="max-w-[85%] px-3 py-1.5 rounded-2xl rounded-bl-sm bg-[var(--ui-stroke-tertiary)]/40 text-sm text-foreground whitespace-pre-wrap break-words">
+                <div className="max-w-[85%] bg-card text-card-foreground border border-[var(--ui-stroke-tertiary)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm">
                   {String(ev.payload.text ?? '')}
                 </div>
               </div>
@@ -595,7 +595,7 @@ function MentionTextarea({
   return (
     <div className="relative min-w-0 flex-1">
       {open ? (
-        <div className="absolute bottom-full left-0 z-50 mb-1 max-h-48 w-64 overflow-y-auto rounded-md border border-[var(--ui-stroke-tertiary)] bg-[var(--panel-bg,#1c1c1e)] py-1 shadow-lg">
+        <div className="absolute bottom-full left-0 z-50 mb-1 max-h-48 w-64 overflow-y-auto rounded-md border border-[var(--ui-stroke-tertiary)] bg-popover text-popover-foreground py-1 shadow-lg">
           {options.map((option, index) => (
             <button
               key={option.handle}
@@ -667,7 +667,7 @@ function RoomEditDialog({
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className="w-full max-w-xs rounded-xl border border-[var(--ui-stroke-tertiary)] bg-[var(--panel-bg,#1c1c1e)] p-4 space-y-3 shadow-xl"
+        className="w-full max-w-xs rounded-xl border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-bg-card)] backdrop-blur-sm p-4 space-y-3 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
