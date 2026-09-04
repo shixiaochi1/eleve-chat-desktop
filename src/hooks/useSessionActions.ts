@@ -42,7 +42,7 @@ export function useSessionActions({
   /** 🔴 2026-08-13 P2-1：切会话前归属校验（串台防御纵深） */
   currentProfile?: string
 }): {
-  handleSwitchSession: (id: string) => Promise<void>
+  handleSwitchSession: (id: string, opts?: { forceProfile?: string }) => Promise<void>
   handleDeleteSession: (id: string) => Promise<void>
   /** 🔴 2026-08-12 新增 cwd 参数：新建会话绑定选中项目（scope 烙印），
    *  reset 返回新 id 后 session.cwd.set —— 新会话空闲可烙，失败静默（后端 resolve 兜底） */
@@ -50,13 +50,17 @@ export function useSessionActions({
 } {
   // ── session switch handler ──
   // 🔴 后端是消息唯一权威源，始终 loadHistory，缓存仅秒显占位
-  const handleSwitchSession = useCallback(async (id: string) => {
+  const handleSwitchSession = useCallback(async (id: string, opts?: { forceProfile?: string }) => {
     if (id === sess.sessionId) return;
     // 🔴 2026-08-13 P2-1：串台防御纵深——切会话前校验归属。
     // id 来源均为后端权威列表（session.list / projects.tree / 刚创建的 sid），
     // 此校验为兑底：防未知来源 id 串台 + 防未校验 id 经 switchTo 污染 profile_session_map。
     // 旧格式 id（纯 UUID）无法判定 → sessionIdMatchesProfile 放行。
-    if (currentProfile && !sessionIdMatchesProfile(id, currentProfile)) return;
+    // 🔴 2026-09-04 Bot Mode：forceProfile = 调用方声明会话归属（如 Bots 面板
+    // 打开别的 Agent 的 Bot Chat——bot 会话被 exclude 出主列表，必须显式
+    // 跨 Agent 打开）。此前校验直接静默 return = "点花名册没反应"的根因之一。
+    const expectedProfile = opts?.forceProfile ?? currentProfile;
+    if (expectedProfile && !sessionIdMatchesProfile(id, expectedProfile)) return;
     resetSendingLock?.();
     // 🔴 串台根因修复：同步锁定过滤 ref 到目标 session
     resetStream?.(id);

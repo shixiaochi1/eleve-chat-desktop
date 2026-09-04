@@ -23,8 +23,8 @@ import {
 import { getWsClient } from '../services/ws-client';
 
 interface BotsPanelProps {
-  /** 打开某个会话（bot 私聊入口；App 层会话切换契约，同 SessionsPanel） */
-  onSwitchSession?: (id: string) => void;
+  /** 🔴 2026-09-04 打开 bot 的 canonical chat（App 层：宫格先退 + forceProfile） */
+  onOpenBotChat?: (id: string) => void;
   currentProfile?: string;
   /** 面板切换（SidePanel 下发——Agent 不足时引导跳转） */
   onPanelChange?: (panel: string | null) => void;
@@ -33,7 +33,7 @@ interface BotsPanelProps {
 const KIND_USER = 'message.user';
 const KIND_MEMBER = 'message.member';
 
-export default function BotsPanel({ onSwitchSession, onPanelChange }: BotsPanelProps) {
+export default function BotsPanel({ onOpenBotChat, onPanelChange }: BotsPanelProps) {
   const [bots, setBots] = useState<BotRosterEntry[]>([]);
   const [rooms, setRooms] = useState<BotRoom[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,7 +84,7 @@ export default function BotsPanel({ onSwitchSession, onPanelChange }: BotsPanelP
   const openBotChat = async (profile: string) => {
     try {
       const sid = await ensureBotChat(profile);
-      if (sid && onSwitchSession) onSwitchSession(sid);
+      if (sid && onOpenBotChat) onOpenBotChat(sid);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -475,20 +475,20 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
         <div ref={bottomRef} />
       </div>
 
-      {/* 输入区 */}
-      <div className="flex items-center gap-2 px-3 py-2.5 border-t border-[var(--ui-stroke-tertiary)] shrink-0">
+      {/* 输入区（@ 提及对齐 Hermes GroupMentionInput） */}
+      <div className="relative flex items-center gap-2 px-3 py-2.5 border-t border-[var(--ui-stroke-tertiary)] shrink-0">
         {error && (
           <div className="absolute bottom-14 left-3 right-3 px-2.5 py-1.5 rounded-md bg-destructive/10 text-destructive text-xs">
             {error}
             <button className="ml-2 underline" onClick={() => setError(null)}>关闭</button>
           </div>
         )}
-        <input
+        <MentionTextarea
+          members={room.members}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder={`发消息到「${room.name}」…`}
-          className="flex-1 px-3 py-1.5 rounded-full bg-accent/30 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+          onChange={setDraft}
+          onSubmit={send}
+          placeholder={`发消息到「${room.name}」… 输入 @ 唤起成员`}
         />
         <button
           className="p-2 rounded-full bg-accent text-accent-foreground disabled:opacity-40"
@@ -499,6 +499,143 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
           <Send size={14} />
         </button>
       </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// @ 提及输入 — 对齐 Hermes GroupMentionInput（group-chat-parts.tsx:138-330）：
+// 光标前 @token 解析 → 浮层（@all/@everyone + 成员前缀过滤）→ 键盘导航
+// （↑↓/Enter/Tab/Esc）+ IME composition 守卫（中文输入法 Enter 不误插）→
+// 插入 `@handle ` 恢复光标。
+// ══════════════════════════════════════════════════════════════════
+
+interface MentionOption {
+  handle: string;
+  meta: string;
+}
+
+interface MentionToken {
+  query: string;
+  start: number;
+}
+
+function mentionTokenAt(text: string, caret: number): MentionToken | null {
+  const upto = String(text || '').slice(0, caret);
+  const match = /(^|\s)@([a-z0-9._-]*)$/i.exec(upto);
+  if (!match) return null;
+  return { query: match[2].toLowerCase(), start: caret - match[2].length - 1 };
+}
+
+function MentionTextarea({
+  members,
+  value,
+  onChange,
+  onSubmit,
+  placeholder,
+}: {
+  members: BotRoom['members'];
+  value: string;
+  onChange: (v: string) => void;
+  onSubmit: () => void;
+  placeholder?: string;
+}) {
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [token, setToken] = useState<MentionToken | null>(null);
+  const [selected, setSelected] = useState(0);
+
+  const options: MentionOption[] = [];
+  if (token) {
+    // @all/@everyone 优先（全员响应语义，对齐 Hermes group.everyoneMeta）
+    for (const pick of ['everyone', 'all']) {
+      if (pick.startsWith(token.query)) {
+        options.push({ handle: pick, meta: '全体成员' });
+      }
+    }
+    for (const member of members) {
+      const handle = String(member.handle || '').trim();
+      const display = String(member.display_name || handle).trim();
+      if (!handle) continue;
+      if (
+        token.query &&
+        !handle.toLowerCase().startsWith(token.query) &&
+        !display.toLowerCase().startsWith(token.query)
+      ) {
+        continue;
+      }
+      options.push({ handle, meta: display });
+    }
+  }
+
+  const open = Boolean(token) && options.length > 0;
+  const active = open ? Math.min(selected, options.length - 1) : 0;
+
+  const refreshToken = (el: HTMLTextAreaElement) => {
+    setToken(mentionTokenAt(el.value, el.selectionStart ?? el.value.length));
+    setSelected(0);
+  };
+
+  const insert = (handle: string) => {
+    if (!token) return;
+    const caret = inputRef.current?.selectionStart ?? value.length;
+    const next = `${value.slice(0, token.start)}@${handle} ${value.slice(caret)}`;
+    onChange(next);
+    setToken(null);
+    // 光标恢复到插入的 mention 之后（对齐 Hermes insert L231-256）
+    const pos = token.start + handle.length + 2;
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (el) {
+        el.focus();
+        try { el.setSelectionRange(pos, pos); } catch { /* noop */ }
+      }
+    });
+  };
+
+  return (
+    <div className="relative min-w-0 flex-1">
+      {open ? (
+        <div className="absolute bottom-full left-0 z-50 mb-1 max-h-48 w-64 overflow-y-auto rounded-md border border-[var(--ui-stroke-tertiary)] bg-[var(--panel-bg,#1c1c1e)] py-1 shadow-lg">
+          {options.map((option, index) => (
+            <button
+              key={option.handle}
+              className={cn(
+                'flex w-full items-baseline gap-2 px-2 py-1 text-left text-xs',
+                index === active ? 'bg-accent/50 text-foreground' : 'text-muted-foreground',
+              )}
+              // preventDefault 保持输入框焦点（对齐 Hermes mousedown 语义）
+              onMouseDown={(e) => { e.preventDefault(); insert(option.handle); }}
+              onMouseEnter={() => setSelected(index)}
+            >
+              <span className="font-medium">@{option.handle}</span>
+              <span className="truncate text-[0.65rem] opacity-60">{option.meta}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <textarea
+        ref={inputRef}
+        rows={1}
+        value={value}
+        placeholder={placeholder}
+        className="max-h-40 min-h-[36px] w-full resize-none px-3 py-2 rounded-xl bg-accent/30 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+        onBlur={() => setToken(null)}
+        onChange={(e) => { onChange(e.target.value); refreshToken(e.target); }}
+        onClick={(e) => refreshToken(e.target as HTMLTextAreaElement)}
+        onKeyDown={(e) => {
+          // IME composition 守卫（对齐 Hermes：中文输入法 Enter 是确认拼音，
+          // 不得插入 mention/提交；nativeEvent.isComposing 覆盖 Chromium，
+          // keyCode 229 覆盖 macOS 中文 IME）
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+          if (open) {
+            if (e.key === 'ArrowDown') { e.preventDefault(); setSelected((active + 1) % options.length); return; }
+            if (e.key === 'ArrowUp') { e.preventDefault(); setSelected((active - 1 + options.length) % options.length); return; }
+            if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insert(options[active].handle); return; }
+            if (e.key === 'Escape') { e.preventDefault(); setToken(null); return; }
+          }
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); }
+        }}
+      />
     </div>
   );
 }

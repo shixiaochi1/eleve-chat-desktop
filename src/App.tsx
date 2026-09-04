@@ -891,6 +891,19 @@ export default function App() {
     handleSwitchSession(id);
   }, [viewMode, currentProfile, handleSwitchSession]);
 
+  // 🔴 2026-09-04 Bot Mode：打开 bot 的 canonical chat（对齐 Hermes Desktop
+  // bot-mode-row-click-mirrors-registry——"点击必须落在那个会话"）。
+  // 与 gridAwareSwitchSession 的区别：bot chat 是跨 Agent 通信会话，被
+  // exclude 出主列表，塞进宫格卡片语义混乱（用户实测抱怨）→
+  // ① 宫格先退单视图 ② forceProfile 声明归属（绕过串台校验的静默丢弃）。
+  const handleOpenBotChat = useCallback((id: string) => {
+    const profile = profileFromSessionId(id);
+    if (viewMode === 'grid') {
+      handleExitGrid();
+    }
+    void handleSwitchSession(id, { forceProfile: profile || undefined });
+  }, [viewMode, handleExitGrid, handleSwitchSession]);
+
   // 🔴 P2-6: 宫格模式侧栏“新建会话”路由进宫格（重置焦点 Agent 卡片，不切单视图）
   // 🔴 2026-08-11 对齐 Hermes openNewSessionTile：宫格新建 = 立即创建后端会话
   // 🔴 2026-08-12（老大需求：新建会话自动绑定当前 Agent + 选中项目）：
@@ -1538,6 +1551,7 @@ export default function App() {
                   sessionId={viewMode === 'grid' ? (focusedGridSessionId ?? sess.sessionId) : sess.sessionId}
                   sessions={sess.sessions}
                   onSwitchSession={gridAwareSwitchSession}
+                  onOpenBotChat={handleOpenBotChat}
                   onDeleteSession={gridAwareDeleteSession}
                   sessionTitles={sess.titles}
                   onRenameTitle={sess.setTitle}

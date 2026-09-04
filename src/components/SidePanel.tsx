@@ -61,6 +61,8 @@ interface SidePanelProps {
   sessionId?: string | null;
   sessions?: Session[];
   onSwitchSession?: (id: string) => void;
+  /** 🔴 2026-09-04 Bot Mode：打开 bot 的 canonical chat（宫格先退单视图 + forceProfile） */
+  onOpenBotChat?: (id: string) => void;
   onDeleteSession?: (id: string) => void;
   sessionTitles?: Record<string, string>;
   onRenameTitle?: (id: string, title: string) => void;
