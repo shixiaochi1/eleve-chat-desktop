@@ -34,7 +34,10 @@ mod preview_file_watch;
 mod preview_webview;
 mod pty;
 mod clipboard;
-// 画布插件化 S5（2026-08-18）：画布窗口单例 + 图片处理 + 状态持久化
+// 应用状态文件存储（通用 KV：画布 / apiStore / historyStore / projectStore 共用）
+// 🔴 2026-09-04 从 canvas_commands 拆出——按概念归属，它不是画布能力
+mod app_state_store;
+// 画布插件化 S5（2026-08-18）：画布窗口单例 + 图片处理
 mod canvas_commands;
 
 pub use preview_console::PreviewConsoleState;
@@ -1172,19 +1175,20 @@ pub fn run() {
             // MEDIA 处理唯一消费链 src/utils/media.ts → WS media.resolve
             // （后端 misc_service 权威实现），此命令为早期 Tauri 本地处理遗留
             // 🔴 2026-09-02 死代码清除：toggle_kanban_window（看板已迁至主窗口 SidePanel）
-            // 画布插件化 S5（2026-08-18）：画布窗口单例 + 图片处理 + 状态持久化
-            // （命令名与画布 src-tauri 原命令一致，前端 invoke 零改动）
+            // 画布插件化 S5（2026-08-18）：画布窗口单例 + 图片处理
             canvas_commands::toggle_canvas_window,
             canvas_commands::open_canvas_window,
             canvas_commands::close_canvas_window,
             canvas_commands::force_close_window,
-            canvas_commands::save_state_to_file,
-            canvas_commands::load_state_from_file,
             canvas_commands::image_compress,
             canvas_commands::image_crop_grid,
             canvas_commands::image_merge,
             canvas_commands::drawing_composite,
             canvas_commands::imgbb_upload,
+            // 应用状态文件存储（通用 KV，非画布专属）
+            app_state_store::save_state_to_file,
+            app_state_store::load_state_from_file,
+            app_state_store::delete_state_file,
             mark_restarting,
             // 预览控制台：子 Webview 生命周期 + console 缓冲治理
             preview_console::preview_console_push,

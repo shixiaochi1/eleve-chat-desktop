@@ -5,11 +5,14 @@
 //!
 //! 1. `toggle_canvas_window` — 画布窗口单例管理（toggle 语义，仿 kanban）。
 //!    🔴 单例硬约束：canvasStore 是唯一真相源，多窗口 = 多真相源（红线）
-//! 2. 画布状态持久化（save/load_state_to_file，从画布 src-tauri 搬入，
-//!    命令名不变，前端 invoke 零改动）
-//! 3. 图片处理命令（image_compress/image_crop_grid/image_merge/
+//! 2. 图片处理命令（image_compress/image_crop_grid/image_merge/
 //!    drawing_composite/imgbb_upload，从画布 src-tauri 搬入——
 //!    imgbb 是 MXAPI 平台要求，老大禁删）
+//!
+//! 🔴 2026-09-04：原本在这里的 `save_state_to_file` / `load_state_from_file`
+//! 已拆到 `app_state_store` —— 那是**壳的通用 KV 能力**（apiStore / historyStore /
+//! projectStore 都在用），不是画布能力，只是历史上随画布一起搬进来了。
+//! 命令名不变，前端 invoke 零改动。
 //!
 //! 错误类型：画布 image_ops 原用 AppError::Internal(String) 单一变体，
 //! 搬入后直接用 Result<T, String>（tauri command 等价序列化，零行为变化）。
@@ -191,61 +194,7 @@ pub fn close_canvas_window(app: tauri::AppHandle) -> Result<String, String> {
     }
 }
 
-// ─── 2. 画布状态持久化（搬入，命令名不变）─────────────────────────────────
-
-/// 同步保存状态到文件（画布关窗前调用，确保数据落盘）
-#[tauri::command]
-pub fn save_state_to_file(app: tauri::AppHandle, key: String, data: String) -> Result<(), String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-
-    let state_dir = app_data_dir.join("canvas-state");
-    std::fs::create_dir_all(&state_dir)
-        .map_err(|e| format!("Failed to create state dir: {}", e))?;
-
-    let file_path = state_dir.join(format!("{}.json", key));
-    std::fs::write(&file_path, &data)
-        .map_err(|e| format!("Failed to write state file: {}", e))?;
-
-    eprintln!(
-        "[TAURI] canvas state saved: {:?} ({} bytes)",
-        file_path,
-        data.len()
-    );
-    Ok(())
-}
-
-/// 从文件读取状态（画布启动时调用）
-#[tauri::command]
-pub fn load_state_from_file(
-    app: tauri::AppHandle,
-    key: String,
-) -> Result<Option<String>, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-
-    let file_path = app_data_dir.join("canvas-state").join(format!("{}.json", key));
-
-    if file_path.exists() {
-        let data = std::fs::read_to_string(&file_path)
-            .map_err(|e| format!("Failed to read state file: {}", e))?;
-        eprintln!(
-            "[TAURI] canvas state loaded: {:?} ({} bytes)",
-            file_path,
-            data.len()
-        );
-        Ok(Some(data))
-    } else {
-        eprintln!("[TAURI] canvas state not found: {:?}", file_path);
-        Ok(None)
-    }
-}
-
-// ─── 3. 图片处理命令（从画布 src-tauri image_ops.rs 搬入，行为等价）──────
+// ─── 2. 图片处理命令（从画布 src-tauri image_ops.rs 搬入，行为等价）──────
 
 /// 图片输出格式
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
