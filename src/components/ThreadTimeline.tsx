@@ -17,7 +17,7 @@ const ROW_CLASS =
   'row-hover relative flex w-full min-w-0 max-w-full select-none overflow-hidden rounded-md px-2 py-1 text-left outline-hidden'
 
 const POPOVER_SHELL =
-  'absolute right-full top-1/2 z-50 max-h-[min(22rem,calc(100vh-8rem))] w-80 max-w-[min(20rem,calc(100vw-2rem))] -translate-y-1/2 overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg border p-1 text-popover-foreground transition-[opacity,transform] duration-100 ease-out'
+  'absolute right-full top-1/2 z-50 max-h-[min(22rem,calc(100vh-8rem))] w-80 max-w-[min(20rem,calc(100vw-2rem))] -translate-y-1/2 overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-card-bg)] p-1 text-popover-foreground shadow-md transition-[opacity,transform] duration-100 ease-out'
 
 const listRef =
   <T,>(refs: React.RefObject<(T | null)[]>, index: number) =>

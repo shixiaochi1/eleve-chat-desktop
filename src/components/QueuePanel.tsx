@@ -35,7 +35,7 @@ export default function QueuePanel({ entries, busy, subagentActive = false, edit
   if (entries.length === 0) return null;
 
   return (
-    <div className="mx-3 mb-1.5 rounded-lg border border-[var(--ui-stroke-tertiary)] bg-muted/30 px-2.5 py-1.5">
+    <div className="mx-3 mb-1.5 rounded-lg border border-[var(--ui-stroke-tertiary)] bg-[var(--ui-card-bg)] px-2.5 py-1.5">
       {/* 标题行（对齐 Hermes StatusSection: layers 图标 + "已排队(N)"） */}
       <div className="flex items-center gap-1.5 mb-1">
         <Layers size={12} className="text-muted-foreground/70 shrink-0" />
