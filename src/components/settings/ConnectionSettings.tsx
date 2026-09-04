@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Network, Link2, Loader, CheckCircle2, XCircle } from 'lucide-react';
+import { Network, Link2, Loader, CheckCircle2, XCircle, Server } from 'lucide-react';
+import RemoteConnectionsRegistry from './RemoteConnectionsRegistry';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { notifySuccess, notifyError } from '../../utils/notifications';
@@ -171,6 +172,16 @@ export default function ConnectionSettings() {
           {mode === 'remote' && remoteVersion ? ` · v${remoteVersion}` : ''}
         </span>
       </div>
+
+      {/* 远程 bot 连接注册表（🔴 2026-09-04 Bot Mode stage-2：多连接底座；
+          stage-3 花名册 UNION / requestForBot 骑行消费同一份注册表） */}
+      <SectionCard
+        icon={Server}
+        title="远程 Bot 连接"
+        desc="注册其它网关实例，供 Bots 花名册合并与跨网关私信使用；不影响上方主连接"
+      >
+        <RemoteConnectionsRegistry />
+      </SectionCard>
     </div>
   );
 }
