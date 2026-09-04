@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { ArrowLeft, Bot, Loader, MessageSquarePlus, Send, Settings2, Square, Trash2, UserPlus, UserMinus, X } from 'lucide-react';
+import { ArrowLeft, Bot, Loader, MessageSquarePlus, Pencil, Send, Settings2, Square, Trash2, UserPlus, UserMinus, X } from 'lucide-react';
 import {
   changeBotRoomMembers, createBotRoom, disbandBotRoom, fetchBotRoomEvents,
   fetchBotRooms, fetchBotsRoster, ensureBotChat, renameBotRoom, sendBotRoomMessage,
@@ -18,10 +18,13 @@ import {
   type BotRosterEntry, type BotRoom, type BotRoomEvent,
 } from '../utils/api';
 import { getWsClient } from '../services/ws-client';
+import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnread';
 
 interface BotsViewProps {
   /** 🔴 打开 bot 的 canonical chat（App 层：宫格/Bots 视图先退 + forceProfile） */
   onOpenBotChat?: (id: string) => void;
+  /** 🔴 2026-09-04 对齐 Hermes roster 右键 Edit Profile：编辑该 Agent（App 层 EditAgentDialog） */
+  onEditAgent?: (profile: string) => void;
   currentProfile?: string;
   /** 面板切换（Agent 不足时引导跳转 Agent 页） */
   onPanelChange?: (panel: string | null) => void;
@@ -30,7 +33,7 @@ interface BotsViewProps {
 const KIND_USER = 'message.user';
 const KIND_MEMBER = 'message.member';
 
-export default function BotsView({ onOpenBotChat, onPanelChange }: BotsViewProps) {
+export default function BotsView({ onOpenBotChat, onEditAgent, onPanelChange }: BotsViewProps) {
   const [bots, setBots] = useState<BotRosterEntry[]>([]);
   const [rooms, setRooms] = useState<BotRoom[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +43,8 @@ export default function BotsView({ onOpenBotChat, onPanelChange }: BotsViewProps
   const [newMembers, setNewMembers] = useState<string[]>([]);
   const [activeRoom, setActiveRoom] = useState<BotRoom | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 🔴 2026-09-04 花名册行右键菜单（对齐 Hermes bot 行右键 → Edit Profile）
+  const [rowMenu, setRowMenu] = useState<{ profile: string; x: number; y: number } | null>(null);
   // 🔴 2026-09-04 单 Agent 引导：群聊/DM 都需要 ≥2 个 Agent；只有一个时
   // 明确告知去 Agent 页面创建（此前静默禁用保存按钮，用户完全无感知）
   const needsMoreAgents = !loading && bots.length < 2;
@@ -48,6 +53,8 @@ export default function BotsView({ onOpenBotChat, onPanelChange }: BotsViewProps
     try {
       const [roster, roomList] = await Promise.all([fetchBotsRoster(), fetchBotRooms()]);
       setBots(roster);
+      // 🔴 2026-09-04 喂给未读 store（单一入口：本视图刷新与后台轮询共用）
+      ingestBotRoster(roster);
       setRooms(roomList);
       setError(null);
     } catch (e) {
@@ -58,6 +65,18 @@ export default function BotsView({ onOpenBotChat, onPanelChange }: BotsViewProps
   }, []);
 
   useEffect(() => { loadList(); }, [loadList]);
+
+  // 右键菜单：点任意处/滚动即关（fixed 定位跟随指针，防溢出做下缘钳制）
+  useEffect(() => {
+    if (!rowMenu) return;
+    const close = () => setRowMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [rowMenu]);
 
   // ── 创建群聊 ──
   const submitCreate = async () => {
@@ -81,6 +100,8 @@ export default function BotsView({ onOpenBotChat, onPanelChange }: BotsViewProps
   const openBotChat = async (profile: string) => {
     try {
       const sid = await ensureBotChat(profile);
+      // 🔴 2026-09-04 打开即已读（对齐 Hermes openBotCanonicalChat 的 ack 语义）
+      markBotRead(profile);
       if (sid && onOpenBotChat) onOpenBotChat(sid);
     } catch (e) {
       setError((e as Error).message);
@@ -159,28 +180,17 @@ export default function BotsView({ onOpenBotChat, onPanelChange }: BotsViewProps
           </section>
         )}
 
-        {/* ── Bot 花名册（点击开私聊） ── */}
+        {/* ── Bot 花名册（点击开私聊；右键编辑 Agent——对齐 Hermes roster Edit Profile） ── */}
         <section>
           <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">Agent</div>
           <div className="space-y-1">
             {bots.map((bot) => (
-              <button
+              <BotRosterRow
                 key={bot.profile}
-                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent/40 transition-colors text-left"
-                title={`打开与 @${bot.handle} 的私聊`}
-                onClick={() => openBotChat(bot.profile)}
-              >
-                <span
-                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[11px] font-semibold text-white"
-                  style={{ background: bot.color || 'var(--accent)' }}
-                >
-                  {(bot.display_name || bot.handle).slice(0, 1).toUpperCase()}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm text-foreground truncate">{bot.display_name || bot.handle}</span>
-                  <span className="block text-xs text-muted-foreground truncate">@{bot.handle}</span>
-                </span>
-              </button>
+                bot={bot}
+                onOpen={() => openBotChat(bot.profile)}
+                onRowMenu={(x, y) => setRowMenu({ profile: bot.profile, x, y })}
+              />
             ))}
             {!loading && bots.length === 0 && (
               <div className="text-xs text-muted-foreground px-2 py-1.5">暂无已注册 Agent</div>
@@ -267,7 +277,62 @@ export default function BotsView({ onOpenBotChat, onPanelChange }: BotsViewProps
           </div>
         </div>
       )}
+
+      {/* ── 花名册行右键菜单（对齐 Hermes bot 行右键 → Edit Profile） ── */}
+      {rowMenu && (
+        <div
+          className="fixed z-50 min-w-36 rounded-lg border border-[var(--ui-stroke-tertiary)] bg-popover text-popover-foreground py-1 shadow-xl"
+          style={{ left: rowMenu.x, top: Math.min(rowMenu.y, window.innerHeight - 90) }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent/50 text-left"
+            onClick={() => { onEditAgent?.(rowMenu.profile); setRowMenu(null); }}
+          >
+            <Pencil size={13} className="text-muted-foreground" />
+            编辑 Agent
+          </button>
+        </div>
+      )}
     </div>
+  );
+}
+
+// ── 花名册单行（提取组件：未读点需 useBotUnread 订阅，hook 不能进 map） ──
+// 未读点视觉语义对齐 SessionStatusDot 的 unread 变体（bg-success 稳态点）；
+// 活动权威 = canonical Bot Chat（行点击打开的就是它，点与会话永不描述两回事）。
+function BotRosterRow({ bot, onOpen, onRowMenu }: {
+  bot: BotRosterEntry;
+  onOpen: () => void;
+  onRowMenu: (x: number, y: number) => void;
+}) {
+  const unread = useBotUnread(bot.profile);
+  return (
+    <button
+      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent/40 transition-colors text-left"
+      title={`打开与 @${bot.handle} 的私聊`}
+      onClick={onOpen}
+      onContextMenu={(e) => { e.preventDefault(); onRowMenu(e.clientX, e.clientY); }}
+    >
+      <span
+        className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[11px] font-semibold text-white"
+        style={{ background: bot.color || 'var(--accent)' }}
+      >
+        {(bot.display_name || bot.handle).slice(0, 1).toUpperCase()}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm text-foreground truncate">{bot.display_name || bot.handle}</span>
+        <span className="block text-xs text-muted-foreground truncate">@{bot.handle}</span>
+      </span>
+      {unread && (
+        <span
+          className="inline-block size-2 rounded-full bg-success shrink-0"
+          role="status"
+          title="有新的私聊消息"
+          aria-label="有新的私聊消息"
+        />
+      )}
+    </button>
   );
 }
 

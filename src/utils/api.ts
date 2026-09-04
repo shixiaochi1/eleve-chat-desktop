@@ -785,6 +785,10 @@ export interface BotRosterEntry {
   display_name: string;
   color?: string | null;
   avatar_key?: string | null;
+  /** 🔴 2026-09-04 活动信号：canonical Bot Chat 会话 id（对齐 Hermes RosterRow.canonical_session） */
+  canonical_session_id?: string | null;
+  /** 🔴 活动信号：canonical Bot Chat 最近活动（epoch 秒；对齐 Hermes RosterRow.last_active） */
+  last_active?: number | null;
 }
 
 /** 群聊房间事件（bot.rooms.events / bot.room.event 推送） */

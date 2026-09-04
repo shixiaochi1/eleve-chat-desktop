@@ -1582,6 +1582,7 @@ export default function App() {
               <div className="chat-card h-full">
                 <BotsView
                   onOpenBotChat={handleOpenBotChat}
+                  onEditAgent={setEditTarget}
                   currentProfile={currentProfile}
                   onPanelChange={setActivePanel}
                 />
