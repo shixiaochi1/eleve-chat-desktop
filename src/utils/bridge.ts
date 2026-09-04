@@ -149,6 +149,9 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   search_skills_hub:      'skills.hub.search',
   install_skill:          'skills.hub.install',
   list_hub_skills:        'skills.hub.list',
+  // 🔴 2026-09-05 Hub 落地页（功能对齐 Hermes /api/skills/hub/sources）：
+  //   未搜索前展示 sources + featured + installed，修 Hub 标签空白
+  list_hub_sources:       'skills.hub.sources',
   list_hub_taps:          'skills.hub.taps',
   manage_hub_tap:         'skills.hub.tap.manage',
   list_tools:             'tools.list',

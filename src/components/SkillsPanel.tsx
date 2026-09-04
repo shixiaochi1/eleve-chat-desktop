@@ -40,6 +40,45 @@ function trustBadge(level: string | undefined, source: string | undefined) {
   return t.label ? <span className={cn('px-1.5 py-0.5 text-[10px] rounded', t.cls)}>{t.label}</span> : null;
 }
 
+/**
+ * Hub 技能卡片 — 搜索结果与 featured 落地页共用
+ * （功能对齐 Hermes SkillsPage hub browser 卡片：名称/信任徽标/描述/安装按钮/已安装徽标）
+ */
+function HubSkillCard({ r, installing, installMsg, installed, onInstall }: {
+  r: SkillItem;
+  installing?: Record<string, boolean>;
+  installMsg?: Record<string, string>;
+  installed: boolean;
+  onInstall?: (identifier: string) => void;
+}) {
+  const id = r.identifier || '';
+  return (
+    <div className="p-2 rounded border border-[var(--ui-stroke-tertiary)]">
+      <div className="flex items-center gap-1 mb-0.5">
+        <span className="text-xs text-foreground truncate flex-1">{r.name}</span>
+        {trustBadge(r.trust_level, r.source)}
+      </div>
+      <div className="text-[10px] text-muted-foreground/60 mb-1">{r.description || '(无描述)'}</div>
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-muted-foreground/50 truncate">{r.source} — {id}</span>
+        {installed ? (
+          <span className="px-2 py-0.5 text-[10px] rounded bg-success/10 text-success shrink-0">已安装</span>
+        ) : onInstall ? (
+          <button
+            className="px-2 py-0.5 text-[10px] bg-accent text-accent-foreground rounded hover:bg-accent/90 transition-colors disabled:opacity-50"
+            disabled={installing?.[id] || installMsg?.[id] === 'ok'}
+            onClick={() => onInstall(id)}>
+            {installing?.[id] ? '安装中...' : installMsg?.[id] === 'ok' ? '已安装' : '安装'}
+          </button>
+        ) : null}
+      </div>
+      {installMsg?.[id] && installMsg[id] !== 'ok' && (
+        <div className="text-[10px] text-destructive mt-1">{installMsg[id]}</div>
+      )}
+    </div>
+  );
+}
+
 export default function SkillsPanel({ currentProfile }: { currentProfile?: string }) {
   const [tab, setTab] = useState('installed');
   const [query, setQuery] = useState('');
@@ -55,8 +94,13 @@ export default function SkillsPanel({ currentProfile }: { currentProfile?: strin
   const [taps, setTaps] = useState<TapItem[]>([]);
   const [tapRepo, setTapRepo] = useState('');
   const [tapMsg, setTapMsg] = useState('');
+  // 🔴 2026-09-05 Hub 落地页（功能对齐 Hermes SkillsPage：featured + installed 徽标）
+  const [featured, setFeatured] = useState<SkillItem[]>([]);
+  const [installedMap, setInstalledMap] = useState<Record<string, { name?: string }>>({});
+  const [searched, setSearched] = useState(false);
+  const [timedOut, setTimedOut] = useState<string[]>([]);
 
-  useEffect(() => { refreshInstalled(); refreshLocal(); refreshTaps(); }, []);
+  useEffect(() => { refreshInstalled(); refreshLocal(); refreshTaps(); refreshSources(); }, []);
 
   const refreshInstalled = useCallback(async () => {
     setInstLoading(true);
@@ -83,14 +127,38 @@ export default function SkillsPanel({ currentProfile }: { currentProfile?: strin
     } catch { setTaps([]); }
   }, []);
 
+  // Hub 落地页：sources + featured + installed 映射（功能对齐 Hermes getSkillHubSources）
+  const refreshSources = useCallback(async () => {
+    try {
+      const data = await call('list_hub_sources', {});
+      setFeatured(Array.isArray(data?.featured) ? data.featured : []);
+      setInstalledMap(
+        data?.installed && typeof data.installed === 'object' && !Array.isArray(data.installed)
+          ? data.installed
+          : {},
+      );
+    } catch {
+      // 落地页失败保持空态（对齐 Hermes："leave landing minimal on failure"）
+      setFeatured([]);
+    }
+  }, []);
+
   const doSearch = useCallback(async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!query.trim()) return;
     setSearching(true);
     setSearchError(null);
+    setSearched(true);
     try {
-      const data: SkillItem[] = await call('search_skills_hub', { query, limit: 15 });
-      setResults(Array.isArray(data) ? data : []);
+      // 功能对齐 Hermes searchSkillsHub 返回 {results, source_counts, timed_out}；
+      // 兼容旧数组形状（老后端）
+      const data = await call('search_skills_hub', { query, limit: 15 });
+      const items = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];
+      setResults(items);
+      setTimedOut(Array.isArray(data?.timed_out) ? data.timed_out : []);
+      if (data?.installed && typeof data.installed === 'object' && !Array.isArray(data.installed)) {
+        setInstalledMap((prev) => ({ ...prev, ...data.installed }));
+      }
     } catch (err: unknown) {
       setSearchError((err as Error).message);
       setResults([]);
@@ -106,6 +174,7 @@ export default function SkillsPanel({ currentProfile }: { currentProfile?: strin
       if (data?.ok) {
         setInstallMsg((prev) => ({ ...prev, [identifier]: 'ok' }));
         refreshInstalled();
+        refreshSources();
       } else {
         setInstallMsg((prev) => ({ ...prev, [identifier]: `failed: ${data?.error || 'unknown'}` }));
       }
@@ -113,7 +182,7 @@ export default function SkillsPanel({ currentProfile }: { currentProfile?: strin
       setInstallMsg((prev) => ({ ...prev, [identifier]: `failed: ${(err as Error).message}` }));
     }
     setInstalling((prev) => ({ ...prev, [identifier]: false }));
-  }, [refreshInstalled]);
+  }, [refreshInstalled, refreshSources]);
 
   const doTapAction = useCallback(async (action: string, repo: string) => {
     setTapMsg('');
@@ -148,6 +217,11 @@ export default function SkillsPanel({ currentProfile }: { currentProfile?: strin
   }, [currentProfile]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === 'Enter') doSearch(); };
+
+  const isInstalled = useCallback(
+    (s: SkillItem) => Boolean(s.identifier && installedMap[s.identifier]),
+    [installedMap],
+  );
 
   const allSkills = [...installed, ...localSkills];
 
@@ -251,35 +325,57 @@ export default function SkillsPanel({ currentProfile }: { currentProfile?: strin
 
           {searchError && <div className="text-xs text-destructive">{searchError}</div>}
 
-          {results.length > 0 && (
-            <div className="space-y-1">
-              {results.map((r, i) => (
-                <div key={i} className="p-2 rounded border border-[var(--ui-stroke-tertiary)]">
-                  <div className="flex items-center gap-1 mb-0.5">
-                    <span className="text-xs text-foreground truncate flex-1">{r.name}</span>
-                    {trustBadge(r.trust_level, r.source)}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground/60 mb-1">{r.description || '(无描述)'}</div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-muted-foreground/50">{r.source} — {r.identifier}</span>
-                    <button
-                      className="px-2 py-0.5 text-[10px] bg-accent text-accent-foreground rounded hover:bg-accent/90 transition-colors disabled:opacity-50"
-                      disabled={installing[r.identifier || ''] || installMsg[r.identifier || ''] === 'ok'}
-                      onClick={() => doInstall(r.identifier || '', r.name || '')}>
-                      {installing[r.identifier || ''] ? '安装中...' :
-                       installMsg[r.identifier || ''] === 'ok' ? '已安装' : '安装'}
-                    </button>
-                  </div>
-                  {installMsg[r.identifier || ''] && installMsg[r.identifier || ''] !== 'ok' && (
-                    <div className="text-[10px] text-destructive mt-1">{installMsg[r.identifier || '']}</div>
-                  )}
-                </div>
-              ))}
-            </div>
+          {/* 单源超时可见化（功能对齐 Hermes search 返回 timed_out，不再无声空白） */}
+          {timedOut.length > 0 && (
+            <div className="text-[10px] text-muted-foreground/70">部分源超时：{timedOut.join('、')}（结果可能不全，可重试）</div>
           )}
 
-          {!searching && !searchError && results.length === 0 && query && (
-            <div className="flex flex-col items-center py-4 text-xs text-muted-foreground gap-1">未找到匹配 &ldquo;{query}&rdquo; 的技能</div>
+          {!searched ? (
+            /* 落地页：featured 技能（功能对齐 Hermes SkillsPage "Landing: featured skills (before any search)"）*/
+            <>
+              <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
+                <PackageIcon size={12} /> 精选技能{featured.length > 0 ? ` (${featured.length})` : ''}
+              </div>
+              {featured.length > 0 ? (
+                <div className="space-y-1">
+                  {featured.map((r, i) => (
+                    <HubSkillCard
+                      key={i}
+                      r={r}
+                      installing={installing}
+                      installMsg={installMsg}
+                      installed={isInstalled(r)}
+                      onInstall={(id) => void doInstall(id, r.name || '')}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center py-4 text-xs text-muted-foreground gap-1">
+                  <span>用上方搜索浏览可安装技能</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {results.length > 0 && (
+                <div className="space-y-1">
+                  {results.map((r, i) => (
+                    <HubSkillCard
+                      key={i}
+                      r={r}
+                      installing={installing}
+                      installMsg={installMsg}
+                      installed={isInstalled(r)}
+                      onInstall={(id) => void doInstall(id, r.name || '')}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {!searching && !searchError && results.length === 0 && query && (
+                <div className="flex flex-col items-center py-4 text-xs text-muted-foreground gap-1">未找到匹配 &ldquo;{query}&rdquo; 的技能</div>
+              )}
+            </>
           )}
         </div>
       )}
