@@ -1,10 +1,10 @@
 /**
- * BotsView — Bot Mode 主区视图（对齐 Hermes Desktop：Bots 是主窗口 tab，
- * 群聊视图是 MAIN-window tab——占主区大空间，不是侧边栏窄面板）。
+ * BotsView — Bot Mode 主区视图。
  *
- * 🔴 2026-09-04 布局对齐：左列（w-80）= 花名册 + 群聊列表；右侧 = 选中
- * 群聊的房间视图（大区域聊天流）。点击花名册 bot 行 → 打开该 Agent 的
- * canonical Bot Chat 到主聊天区（对齐 bot-mode-row-click-mirrors-registry）。
+ * 🔴 2026-09-05 round-42 布局 1:1 对齐 Hermes Desktop（推翻 round-12 判定）：
+ * Bots 不是主区 tab，而是左栏 sidebar pane（与 Sessions 并列的 tab strip，
+ * 260px）——花名册/群聊列表在 components/BotsPane.tsx；本文件只承载
+ * 主区房间视图（BotsRoomMainView，点群聊行后进入）与 BotRosterRow。
  *
  * 数据流：命令 → utils/api.ts（bots 命令层）；事件 → ws-client 监听器。
  */
@@ -78,6 +78,26 @@ export default function BotsRoomMainView() {
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
+  }, [selectedRoomId]);
+
+  // 🔴 2026-09-05 P3-4：房间元信息事件刷新——此前 room 对象仅在切换房间时
+  // 拉取一次，其他端改名/改成员/解散后本端视图陈旧（发消息才报错可见）。
+  // 元信息类事件（members_changed/renamed/disbanded——P2-1 修复后解散事件
+  // 必达）触发重新拉取房间列表；解散 → room=null 回空态。
+  useEffect(() => {
+    if (!selectedRoomId) return;
+    const ws = getWsClient();
+    const unsubscribe = ws.addEventListener((eventName, data) => {
+      if (eventName !== 'bot.room.event') return;
+      const payload = data as { room_id?: string; event?: { kind?: string } };
+      if (payload?.room_id !== selectedRoomId) return;
+      const kind = payload.event?.kind || '';
+      if (kind !== 'room.members_changed' && kind !== 'room.renamed' && kind !== 'room.disbanded') return;
+      void fetchBotRooms()
+        .then(list => setRoom(list.find(r => r.room_id === selectedRoomId) ?? null))
+        .catch(() => { /* 下次切换/事件兜底 */ });
+    });
+    return unsubscribe;
   }, [selectedRoomId]);
 
   // 🔴 事件流刷新：房间事件由 WS 推送增量（BotsRoomView 内部订阅），但

@@ -91,8 +91,27 @@ async function relayAgentsOn(
   }
 }
 
-/** roster loop 单步：每连接推"其它连接"的 agents 联合名册。 */
+/** roster loop 单步：每连接推"其它连接"的 agents 联合名册（防重入包装）。 */
 async function syncRelayRosters(): Promise<void> {
+  if (rosterBusy) {
+    rosterRerun = true; // 在飞期间有新信号 → 收口后补一轮（对齐 drain 框架）
+    return;
+  }
+  rosterBusy = true;
+  try {
+    await syncRelayRostersUnlocked();
+  } finally {
+    rosterBusy = false;
+    if (rosterRerun && !relayStopped) {
+      rosterRerun = false;
+      void syncRelayRosters();
+    } else {
+      rosterRerun = false;
+    }
+  }
+}
+
+async function syncRelayRostersUnlocked(): Promise<void> {
   const connections = relayConnections();
   if (connections.length < 2) return;
 
@@ -238,12 +257,20 @@ const dispatchPollers = new Map<string, boolean>();
 const PEER_POLL_INTERVAL_MS = 5_000;
 const PEER_POLL_MAX_TICKS = 180; // 900s 预算（与后端 REPLY_WAIT_SECONDS 对齐）
 
-/** 按 profile 找归属连接（UNION last-good 缓存是拉取结果的镜像） */
+/** 按 profile 找归属连接。
+ * 🔴 2026-09-05 P1-3 修复：路由解析不能只依赖 UI 层填充的 unionLastGood
+ * （仅 BotsPane/BotsView 挂载时 fetchUnionRoster 写入——用户不开 Bots
+ * 面板则恒空，跨网关成员投递全部 "no connected machine hosts profile"
+ * 静默失败）。relayAgentsCache 由 roster 循环常驻填充（与 UI 无关），
+ * 作为等价数据源的 fallback。 */
 function findConnectionForProfile(profile: string) {
-  for (const [connId, entries] of unionLastGood) {
-    if (entries.some(e => e.profile === profile)) {
-      const conn = relayConnections().find(c => c.id === connId);
-      if (conn) return conn;
+  const sources: Array<Map<string, Array<{ profile: string }>>> = [unionLastGood, relayAgentsCache];
+  for (const source of sources) {
+    for (const [connId, entries] of source) {
+      if (entries.some(e => e.profile === profile)) {
+        const conn = relayConnections().find(c => c.id === connId);
+        if (conn) return conn;
+      }
     }
   }
   return undefined;
@@ -280,8 +307,28 @@ interface ReplicaTarget {
 const replicaTargets = new Map<string, ReplicaTarget>(); // key: `${authorityId}:${roomId}`
 
 /** 同步各副本：从 authority 拉房间 + 全量日志（讨论线程 ≤10 条发言，全量
- *  幂等最简单），骑行写 target 的 replica（ingest 幂等跳过已有序列）。 */
+ *  幂等最简单），骑行写 target 的 replica（ingest 幂等跳过已有序列）。
+ *  🔴 P2-7：防重入包装（与 syncRelayRosters 同框架）。 */
 async function syncReplicas(): Promise<void> {
+  if (replicaBusy) {
+    replicaRerun = true;
+    return;
+  }
+  replicaBusy = true;
+  try {
+    await syncReplicasUnlocked();
+  } finally {
+    replicaBusy = false;
+    if (replicaRerun && !relayStopped) {
+      replicaRerun = false;
+      void syncReplicas();
+    } else {
+      replicaRerun = false;
+    }
+  }
+}
+
+async function syncReplicasUnlocked(): Promise<void> {
   const connections = relayConnections();
   for (const t of replicaTargets.values()) {
     const authority = connections.find(c => c.id === t.authorityId);
@@ -361,7 +408,31 @@ async function deliverPeerDispatch(authority: { id: string; remote: RemoteConnec
     // 轮询目标侧成员轮收口（预算内；cursor 增量）
     let since = 0;
     for (let _tick = 0; _tick < PEER_POLL_MAX_TICKS; _tick++) {
+      // 🔴 P2-6：插件禁用/重载时终止在飞轮询（此前僵尸循环对远程网关
+      // 继续打 status RPC 最长 900s）
+      if (relayStopped) return;
       await sleep(PEER_POLL_INTERVAL_MS);
+      if (relayStopped) return;
+      // 🔴 P2-3 传播链（每 ~30s 感知一次 authority 侧 stop/disband 取消）：
+      // authority 行已 cancelled → 调目标网关 peer.cancel（stop permission
+      // 围栏 cancelled_set，对齐 Hermes "persist stop intent → peer ack"
+      // 两段式）→ authority stop 分支已自行收口，无需回写。
+      if (_tick % 6 === 5) {
+        try {
+          const st = await requestForBot<{ status?: string | null }>(
+            routeOf(authority), 'bot.rooms.peer_dispatches.state', { id: d.id }, 10_000,
+          );
+          if (st?.status === 'cancelled') {
+            try {
+              await requestForBot(
+                routeOf(target), 'bot.rooms.peer.cancel',
+                { grant_token: d.grant_token, dispatch: d.dispatch }, 10_000,
+              );
+            } catch { /* 目标不可达——围栏丢失可接受（authority 已收口） */ }
+            return;
+          }
+        } catch { /* authority 暂不可达——下个窗口再查 */ }
+      }
       try {
         const res = await requestForBot<{ status?: PeerTurnStatus; cursor?: number }>(
           routeOf(target),
@@ -396,8 +467,17 @@ let rosterTimer: ReturnType<typeof setInterval> | null = null;
 let drainTimer: ReturnType<typeof setInterval> | null = null;
 let drainBusy = false;
 let drainRerun = false;
+/** 🔴 P2-6：插件禁用标志——在飞 peer 轮询每 tick 检查，禁用即终止 */
+let relayStopped = false;
+/** 🔴 P2-7：roster/replica 同步在飞防重入（对齐 drain 的 busy/rerun 框架——
+ * WS 断连时 requestForBot 排队最长 60s，interval 触发的并发轮会堆积） */
+let rosterBusy = false;
+let rosterRerun = false;
+let replicaBusy = false;
+let replicaRerun = false;
 
 export function startBotRelay(): void {
+  relayStopped = false;
   if (rosterTimer === null) {
     // 🔴 stage-5 P2.5：副本维护随 roster 循环节奏（60s）——权威日志增量同步
     rosterTimer = setInterval(() => {
@@ -434,6 +514,7 @@ function scheduleRelayPushDrain(): void {
 }
 
 export function stopBotRelay(): void {
+  relayStopped = true;
   drainRerun = false;
   if (pushUnsub !== null) {
     try { pushUnsub(); } catch { /* already gone */ }

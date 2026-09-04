@@ -823,12 +823,6 @@ export async function ensureBotChat(profile: string): Promise<string> {
   return data?.session_id || '';
 }
 
-/** 某 profile 的 bot 平台会话列表（canonical Bot Chat + "Group: …"） */
-export async function fetchBotChats(profile: string): Promise<any[]> {
-  const data = await call('bot_chats_list', { profile });
-  return Array.isArray(data?.sessions) ? data.sessions : [];
-}
-
 /** 创建群聊房间（2-6 名 bot；同 identity 幂等） */
 export async function createBotRoom(name: string, members: string[]): Promise<BotRoom> {
   const data = await call('bot_rooms_create', { name, members });
@@ -839,12 +833,6 @@ export async function createBotRoom(name: string, members: string[]): Promise<Bo
 export async function fetchBotRooms(includeDisbanded = false): Promise<BotRoom[]> {
   const data = await call('bot_rooms_list', { include_disbanded: includeDisbanded });
   return Array.isArray(data?.rooms) ? data.rooms : [];
-}
-
-/** 房间状态（身份 + latest_seq） */
-export async function fetchBotRoomState(roomId: string): Promise<{ room: BotRoom; latest_seq: number } | null> {
-  const data = await call('bot_rooms_state', { room_id: roomId });
-  return data ? { room: data.room, latest_seq: data.latest_seq } : null;
 }
 
 /** 群聊发言（触发后台多 bot 讨论） */
