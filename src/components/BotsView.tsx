@@ -269,6 +269,18 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     }
   };
 
+  // 🔴 2026-09-05 round-49：讨论进行中推导（对齐主输入区 isStreaming 语义）
+  // ——事件流里最后一个 turn.* 若是 turn.started（未配对终态）= 成员轮在跑，
+  // 发送键切停止态（对齐 Hermes 群聊视图的运行态指示）
+  const roomBusy = useMemo(() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const k = events[i].kind;
+      if (k === 'turn.started') return true;
+      if (k.startsWith('turn.')) return false;
+    }
+    return false;
+  }, [events]);
+
   const stopRoom = async () => {
     setBusy(true);
     try { await stopBotRoom(room.room_id); await refresh(); } finally { setBusy(false); }
@@ -440,13 +452,15 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
           onSubmit={send}
           placeholder={`发消息到「${room.name}」… 输入 @ 唤起成员`}
         />
+        {/* 🔴 2026-09-05 round-49：发送/停止双态键（对齐主输入区 InputArea
+            isStreaming 双态——讨论进行中切停止，接房间级 stopBotRoom） */}
         <button
           className="p-2 rounded-full bg-accent text-accent-foreground disabled:opacity-40"
-          disabled={!draft.trim() || sending}
-          onClick={send}
-          title="发送"
+          disabled={roomBusy ? busy : !draft.trim() || sending}
+          onClick={roomBusy ? stopRoom : send}
+          title={roomBusy ? '停止当前讨论' : '发送'}
         >
-          <Send size={14} />
+          {roomBusy ? <Square size={14} /> : <Send size={14} />}
         </button>
       </div>
     </div>
@@ -493,6 +507,15 @@ function MentionTextarea({
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [token, setToken] = useState<MentionToken | null>(null);
   const [selected, setSelected] = useState(0);
+
+  // 🔴 2026-09-05 round-49：自动调高（对齐主输入区 InputArea syncHeight：
+  // 随内容增长到上限 160px，长文本不再固定单行滚动）
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [value]);
 
   const options: MentionOption[] = [];
   if (token) {

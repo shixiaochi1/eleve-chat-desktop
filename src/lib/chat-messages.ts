@@ -629,6 +629,20 @@ function timelineDisplayContent(message: SessionMessage, content: string): strin
         ? `${base}（1 项）`
         : `${base}（${count} 项）`
   }
+  // 🔴 2026-09-05 round-49：Bot DM 回信行（对齐 Hermes bot_mode_dm.py 的
+  // completion notification 形态——回信经通知路径到达发送方下一轮，会话流
+  // 不出现回信原文消息条目）。从注入文本头提取归属（[BOT DM REPLY/FAILED —
+  // @handle (display)]），正文截断 160 字符摘要；完整全文仅供 Agent 消化。
+  if (message.display_kind === 'bot_dm') {
+    const head = /^\[BOT DM (REPLY|FAILED) — @([a-zA-Z0-9._-]+)[^\]]*\]\n*/.exec(content)
+    const who = head ? `@${head[2]}` : '队友'
+    const failed = head?.[1] === 'FAILED'
+    const body = head ? content.slice(head[0].length) : content
+    const trimmed = body.replace(/\n\[Replied to: "[\s\S]*"\]\s*$/, '').trim()
+    const digest = trimmed.length > 160 ? `${trimmed.slice(0, 160)}…` : trimmed
+    const label = failed ? '的 DM 未能送达回信' : '的回信已送达'
+    return digest ? `${who} ${label}：${digest}` : `${who} ${label}`
+  }
   return content
 }
 
@@ -811,7 +825,8 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
     const displayRole: MessageRole =
       message.display_kind === 'model_switch' ||
       message.display_kind === 'async_delegation_complete' ||
-      message.display_kind === 'auto_continue'
+      message.display_kind === 'auto_continue' ||
+      message.display_kind === 'bot_dm'
         ? 'system'
         : (message.role as MessageRole)
     const displayContent = transcriptContent(
