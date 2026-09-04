@@ -1,4 +1,4 @@
-import { Shield, Zap, Lock, Power, FolderOpen, Brain, Wrench, Plug, MessageCircle, ShieldCheck, Mic, Network, type LucideIcon } from 'lucide-react';
+import { Shield, Zap, Puzzle, Lock, Power, FolderOpen, Brain, Wrench, Plug, MessageCircle, ShieldCheck, Mic, Network, type LucideIcon } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 interface NavItem {
@@ -17,6 +17,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'safety', label: '安全防护', icon: ShieldCheck },
   { id: 'voice', label: '语音', icon: Mic },
   { id: 'mcp', label: 'MCP', icon: Plug },
+  { id: 'plugins', label: '插件', icon: Puzzle },
   // 🔴 2026-08-10 网关功能已搬入 LOGO 面板（GatewayPanel），设置里移除重复入口
   { id: 'connection', label: '连接', icon: Network },
   { id: 'security', label: '密钥安全', icon: Lock },

@@ -17,6 +17,7 @@ import SecuritySettings from './settings/SecuritySettings';
 import ChatSettings from './settings/ChatSettings';
 import SafetySettings from './settings/SafetySettings';
 import VoiceSettings from './settings/VoiceSettings';
+import PluginsSettings from './settings/PluginsSettings';
 import AdvancedSettings from './settings/AdvancedSettings';
 import MCPSettings from './settings/MCPSettings';
 // 🔴 2026-08-10 网关功能已搬入 LOGO 面板（GatewayPanel），GatewaySettings 已移除
@@ -856,6 +857,8 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
             setAutoStart={setAutoStart}
           />
         );
+      case 'plugins':
+        return <PluginsSettings />;
       case 'advanced':
         return <AdvancedSettings onSaved={() => {}} />;
       default:
