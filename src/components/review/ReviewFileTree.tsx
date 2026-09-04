@@ -9,7 +9,7 @@
  *   staged 绿点（对齐 file-tree.tsx:423-462）
  * - 单击 = 选中看 diff；双击 = 预览面板打开文件（对齐 openInPreview）
  */
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { ChevronRight, Folder, FolderOpen, Plus, Minus, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -24,6 +24,7 @@ import { getCurrentSessionCwd } from '@/lib/session-cwd';
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
 import { openPreview } from '@/store/preview';
 import { notifyError } from '@/utils/notifications';
+import DiffCount from '@/components/ui/DiffCount';
 import {
   selectReviewFile,
   stageReviewFile,
@@ -45,16 +46,6 @@ function statusTone(status: string): string {
     default:
       return 'text-warning';
   }
-}
-
-/** 增删计数（对齐 Hermes DiffCount：+N 绿 / −M 红，零值暗显） */
-function DiffCount({ added, removed }: { added: number; removed: number }) {
-  return (
-    <span className="flex shrink-0 items-center gap-1 font-mono text-[0.64rem] leading-4 tabular-nums">
-      {added > 0 && <span className="text-success">+{added}</span>}
-      {removed > 0 && <span className="text-destructive">−{removed}</span>}
-    </span>
-  );
 }
 
 /** 行内悬停动作（stage/unstage + revert，对齐 file-tree.tsx:423-445） */
@@ -127,7 +118,7 @@ function FileRow({ node, depth }: { node: ReviewTreeNode; depth: number }) {
       </span>
       <RowActions file={file} />
       <span className={cn('group-hover/review-row:hidden')}>
-        <DiffCount added={node.added} removed={node.removed} />
+        <DiffCount added={node.added} removed={node.removed} className="text-[0.64rem] leading-4" />
       </span>
       {file.staged && (
         <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-success/70" title="已暂存" />
@@ -147,7 +138,7 @@ function DirRow({ node, depth, open, onToggle }: { node: ReviewTreeNode; depth: 
       <ChevronRight size={12} className={cn('shrink-0 transition-transform', open && 'rotate-90')} />
       {open ? <FolderOpen size={13} className="shrink-0" /> : <Folder size={13} className="shrink-0" />}
       <span className="min-w-0 flex-1 truncate">{node.name}</span>
-      <DiffCount added={node.added} removed={node.removed} />
+      <DiffCount added={node.added} removed={node.removed} className="text-[0.64rem] leading-4" />
     </div>
   );
 }

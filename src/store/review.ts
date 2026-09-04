@@ -15,7 +15,6 @@
 import { useSyncExternalStore } from 'react';
 import { call } from '@/utils/bridge';
 import { getCurrentSessionCwd } from '@/lib/session-cwd';
-import { notifyError } from '@/utils/notifications';
 
 /** 单个变更文件（对齐 HermesReviewFile，global.d.ts:1356） */
 export interface ReviewFile {
@@ -274,13 +273,18 @@ async function runShip<T>(action: () => Promise<T>): Promise<T> {
   }
 }
 
-export async function commitChanges(message: string, opts: { push?: boolean } = {}): Promise<void> {
+export async function commitChanges(message: string, opts: { push?: boolean } = {}): Promise<{ pushed: boolean; push_error: string | null }> {
   const cwd = repoCwd();
   const trimmed = message.trim();
-  if (!cwd || !trimmed) return;
-  await runShip(async () => {
-    await call('git_review_commit', { path: cwd, message: trimmed, push: Boolean(opts.push) });
+  if (!cwd || !trimmed) return { pushed: false, push_error: null };
+  return runShip(async () => {
+    // push 失败不回滚 commit（后端契约）：结果如实上浮，调用方呈现 toast
+    const res = await call('git_review_commit', { path: cwd, message: trimmed, push: Boolean(opts.push) }) as {
+      pushed?: boolean;
+      push_error?: string | null;
+    };
     await refreshReview();
+    return { pushed: Boolean(res?.pushed), push_error: res?.push_error ?? null };
   });
 }
 
@@ -340,10 +344,4 @@ export function useReviewRevealRequest(): number {
     () => revealRequest,
     () => revealRequest,
   );
-}
-
-// ── 错误包装（调用方 catch → toast 统一出口）──
-
-export function notifyReviewError(err: unknown, action: string): void {
-  notifyError(err, action);
 }

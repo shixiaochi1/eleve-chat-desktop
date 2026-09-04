@@ -16,12 +16,39 @@
  * `#preview/src/index.html` 生成相对 file target → 文件读取失败。
  */
 
+import { useSyncExternalStore } from 'react';
+
 let currentSessionCwd: string | null = null;
 
 export function setCurrentSessionCwd(cwd: string | null | undefined): void {
-  currentSessionCwd = cwd?.trim() ? cwd : null;
+  const next = cwd?.trim() ? cwd : null;
+  if (next === currentSessionCwd) return;
+  currentSessionCwd = next;
+  cwdListeners.forEach((l) => l());
 }
 
 export function getCurrentSessionCwd(): string | null | undefined {
   return currentSessionCwd;
+}
+
+// ── 订阅（🔴 2026-09-05 Review 域新增：cwd 变更 = 审查面板的"仓库移动"边界，
+// 对齐 Hermes $currentCwd.subscribe → onReviewRepoMoved。原设计"无需 React
+// 订阅"对点击时读取成立，对"面板持续跟随活动会话仓库"不成立）──
+
+const cwdListeners = new Set<() => void>();
+
+function subscribeCwd(l: () => void): () => void {
+  cwdListeners.add(l);
+  return () => {
+    cwdListeners.delete(l);
+  };
+}
+
+function getCwdSnapshot(): string | null {
+  return currentSessionCwd;
+}
+
+/** React 订阅：活动会话 cwd 变化（useSyncExternalStore；值语义 null=无活动仓库） */
+export function useSessionCwd(): string | null {
+  return useSyncExternalStore(subscribeCwd, getCwdSnapshot, getCwdSnapshot);
 }

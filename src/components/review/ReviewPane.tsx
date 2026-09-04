@@ -3,15 +3,25 @@
  * app/right-sidebar/review/index.tsx，ELEVE tailwind token 重绘）
  *
  * 组成：header（树/列表切换 + 全部暂存 + 全部丢弃 + 刷新）→ 变更文件列表/树 →
- * 选中文件 diff（复用 DiffLines，staged 标志切 diff 源）→ ShipBar → revert 确认框。
- * 刷新边界（workspace tick / 变更操作后 / focus / 打开）接线在 store + 本组件 effect。
+ * 选中文件 diff（复用 DiffLines，staged 标志切 diff 源）→ ShipBar → revert 确认框
+ * （复用 ui/confirm-dialog，不手搓浮层）。
+ *
+ * 刷新边界（对齐 Hermes 事件驱动不轮询）：
+ * - 挂载 → refresh（openReview/revealReview 已触发，此处兜底手点 tab 首开）
+ * - workspace tick（tool.complete/外部变更；总线自带 500ms 去抖，变化才刷）
+ * - 窗口 focus
+ * - 活动会话 cwd 变化 = "仓库移动"→ 先清列表+选区再刷（对齐 onReviewRepoMoved，
+ *   防闪现上一个仓库的 diff；useSessionCwd 订阅）
  */
-import { useEffect } from 'react';
-import { RefreshCw, List, FolderTree, Plus, RotateCcw, X } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { RefreshCw, List, FolderTree, Plus, Minus, RotateCcw, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DiffLines from '@/components/DiffLines';
+import DiffCount from '@/components/ui/DiffCount';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { notifyError } from '@/utils/notifications';
 import { useWorkspaceTick } from '@/lib/workspace-events';
+import { useSessionCwd } from '@/lib/session-cwd';
 import {
   cancelRevert,
   clearReviewSelection,
@@ -30,22 +40,41 @@ const ACTION_BTN =
   'grid size-5 place-items-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent/60 hover:text-foreground disabled:opacity-40';
 
 export default function ReviewPane() {
-  const review = useReview();
   const {
     files, loading, isRepo, selectedPath, diff, diffLoading, treeMode, revertTarget, shipBusy,
-  } = review;
+  } = useReview();
 
   const selectedFile = files.find((f) => f.path === selectedPath) ?? null;
   const hasFiles = files.length > 0;
   const revertingAll = revertTarget?.path == null;
 
-  // 刷新边界：workspace tick（tool.complete/外部变更，500ms 去抖）+ 窗口 focus。
-  // 打开时的首次加载由 openReview()/revealReview() 驱动（对齐 Hermes 事件驱动不轮询）。
-  const workspaceTick = useWorkspaceTick();
+  // 挂载即刷（手点 tab 首开时 openReview 未经过；重复刷由 store seq 守卫幂等）
   useEffect(() => {
-    if (workspaceTick > 0) void refreshReview();
+    void refreshReview();
+  }, []);
+
+  // workspace tick：tool.complete/外部文件变更（跳过挂载首轮——上面已刷）
+  const workspaceTick = useWorkspaceTick();
+  const lastTickRef = useRef(workspaceTick);
+  useEffect(() => {
+    if (workspaceTick !== lastTickRef.current) {
+      lastTickRef.current = workspaceTick;
+      void refreshReview();
+    }
   }, [workspaceTick]);
 
+  // cwd 变化 = 仓库移动（对齐 Hermes onReviewRepoMoved）：先清列表+选区再刷，
+  // 面板直接落加载骨架，不闪现上一个仓库的 diff
+  const sessionCwd = useSessionCwd();
+  const lastCwdRef = useRef(sessionCwd);
+  useEffect(() => {
+    if (sessionCwd !== lastCwdRef.current) {
+      lastCwdRef.current = sessionCwd;
+      void refreshReview();
+    }
+  }, [sessionCwd]);
+
+  // 窗口 focus：外部终端可能动过仓库
   useEffect(() => {
     const onFocus = () => void refreshReview();
     window.addEventListener('focus', onFocus);
@@ -55,7 +84,7 @@ export default function ReviewPane() {
   const errWrap = (action: string) => (err: unknown) => notifyError(err, action);
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
       {/* Header */}
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--ui-stroke-tertiary)] px-2.5">
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
@@ -124,10 +153,7 @@ export default function ReviewPane() {
             >
               {selectedFile.path}
             </span>
-            <span className="flex shrink-0 items-center gap-1 font-mono text-[0.64rem] tabular-nums">
-              {selectedFile.added > 0 && <span className="text-success">+{selectedFile.added}</span>}
-              {selectedFile.removed > 0 && <span className="text-destructive">−{selectedFile.removed}</span>}
-            </span>
+            <DiffCount added={selectedFile.added} removed={selectedFile.removed} className="text-[0.64rem] leading-4" />
             <button
               aria-label={selectedFile.staged ? '取消暂存' : '暂存'}
               className={ACTION_BTN}
@@ -139,9 +165,14 @@ export default function ReviewPane() {
                 ).catch(errWrap('暂存'))
               }
             >
-              {selectedFile.staged ? <RotateCcw size={12} /> : <Plus size={12} />}
+              {selectedFile.staged ? <Minus size={12} /> : <Plus size={12} />}
             </button>
-            <button aria-label="关闭 diff" className={ACTION_BTN} title="关闭" onClick={clearReviewSelection}>
+            <button
+              aria-label="关闭 diff"
+              className={ACTION_BTN}
+              title="关闭"
+              onClick={clearReviewSelection}
+            >
               <X size={12} />
             </button>
           </div>
@@ -159,42 +190,20 @@ export default function ReviewPane() {
 
       <ReviewShipBar />
 
-      {/* revert 确认（不可逆，对齐 Hermes ConfirmDialog 语义：先关框后执行，失败 toast） */}
-      {revertTarget !== undefined && (
-        <div className="absolute inset-0 z-50 grid place-items-center bg-black/40" onClick={cancelRevert}>
-          <div
-            className="w-72 rounded-xl border border-[var(--ui-stroke-secondary)] bg-card p-4 shadow-lg"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <p className="text-xs font-medium text-foreground">{revertingAll ? '丢弃全部变更？' : '丢弃该文件变更？'}</p>
-            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-              将丢弃未提交的改动（含已暂存），此操作不可恢复。
-              {!revertingAll && revertTarget.path && (
-                <span className="mt-1 block truncate font-mono text-[0.66rem]" title={revertTarget.path}>
-                  {revertTarget.path}
-                </span>
-              )}
-            </p>
-            <div className="mt-3 flex justify-end gap-2">
-              <button
-                className="rounded border border-[var(--ui-stroke-tertiary)] px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent"
-                onClick={cancelRevert}
-              >
-                取消
-              </button>
-              <button
-                className="rounded bg-destructive px-2.5 py-1 text-xs font-medium text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:opacity-50"
-                disabled={shipBusy}
-                onClick={() => {
-                  void confirmRevert().catch((err) => notifyError(err, '丢弃变更'));
-                }}
-              >
-                {revertingAll ? '全部丢弃' : '丢弃'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* revert 确认（不可逆；先关框后执行，失败落 toast——对齐 Hermes ConfirmDialog 语义） */}
+      <ConfirmDialog
+        open={revertTarget !== undefined}
+        title={revertingAll ? '丢弃全部变更？' : '丢弃该文件变更？'}
+        message={
+          '将丢弃未提交的改动（含已暂存），此操作不可恢复。' +
+          (!revertingAll && revertTarget?.path ? `\n${revertTarget.path}` : '')
+        }
+        confirmLabel={revertingAll ? '全部丢弃' : '丢弃'}
+        tone="danger"
+        busy={shipBusy}
+        onCancel={cancelRevert}
+        onConfirm={() => void confirmRevert().catch((err) => notifyError(err, '丢弃变更'))}
+      />
     </div>
   );
 }

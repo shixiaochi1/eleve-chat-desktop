@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react';
 import { ContextFileIcon } from './Icons';
-import { cn } from '@/lib/utils';
+import DiffCount from '@/components/ui/DiffCount';
 import { deriveChangedFiles } from '@/lib/changed-files';
 import { openReviewForPath, revealReview } from '@/store/review';
 import type { ChatMessagePart } from '@/lib/chat-messages';
@@ -50,10 +50,7 @@ const ChangedFilesCard = memo(function ChangedFilesCard({ parts }: { parts: read
           >
             <ContextFileIcon size={13} className="shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate text-muted-foreground">{file.name}</span>
-            <span className="shrink-0 tabular-nums text-success">+{file.added}</span>
-            <span className={cn('shrink-0 tabular-nums', file.removed > 0 ? 'text-destructive' : 'text-muted-foreground/40')}>
-              -{file.removed}
-            </span>
+            <DiffCount added={file.added} removed={file.removed} showZero className="text-xs" />
           </button>
         ))}
       </div>

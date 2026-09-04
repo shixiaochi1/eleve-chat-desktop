@@ -13,6 +13,7 @@ import {
   type DelegateCardModel,
 } from './tool-row-model';
 import DiffLines, { inlineDiffFromResult, stripInlineDiffChrome } from './DiffLines';
+import DiffCount from '@/components/ui/DiffCount';
 import { cn } from '@/lib/utils';
 import { firstStringField, truncateOneLine, looksLikeUrl, looksLikePath } from '@/lib/text';
 import { isFileEditTool, countDiffLineStats } from '@/lib/changed-files';
@@ -573,14 +574,7 @@ const ToolEntry = memo(function ToolEntry({ tool, sessionId }: { tool: ToolCallI
         {/* 文件改动量徽标（对齐 Hermes fallback.tsx:585：编辑/写入行尾 +N −M，
             不展开即知改了多少——耗时对该类工具无信息量，让位） */}
         {showDiffStat && diffStat && (
-          <span className="flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums">
-            {diffStat.added > 0 && (
-              <span className="text-success">+{diffStat.added}</span>
-            )}
-            {diffStat.removed > 0 && (
-              <span className="text-danger">−{diffStat.removed}</span>
-            )}
-          </span>
+          <DiffCount added={diffStat.added} removed={diffStat.removed} className="text-xs" />
         )}
         {/* 工具执行耗时 — 非编辑类已落定时显示（对齐 Hermes fallback.tsx:595
             "!isFileEdit && durationLabel"；编辑类该位显示改动量徽标） */}

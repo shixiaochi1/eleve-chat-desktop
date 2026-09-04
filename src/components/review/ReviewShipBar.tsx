@@ -55,7 +55,11 @@ export default function ReviewShipBar() {
 
   const runCommit = (action: CommitAction) => {
     void commitChanges(message, { push: action === 'commitPush' })
-      .then(() => setMessage(''))
+      .then((res) => {
+        // push 失败不回滚 commit（后端契约）——如实 toast，不静默吞掉
+        if (res.push_error) notifyError(new Error(res.push_error), '推送');
+        setMessage('');
+      })
       .catch((err) => notifyError(err, action === 'commitPush' ? '提交并推送' : '提交'));
   };
 
