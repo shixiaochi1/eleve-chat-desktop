@@ -257,23 +257,25 @@ const dispatchPollers = new Map<string, boolean>();
 const PEER_POLL_INTERVAL_MS = 5_000;
 const PEER_POLL_MAX_TICKS = 180; // 900s 预算（与后端 REPLY_WAIT_SECONDS 对齐）
 
-/** 按 profile 找归属连接。
+/** 按 profile 找归属连接（返回 null=不可达，返回 ambiguous=跨连接同名歧义）。
  * 🔴 2026-09-05 P1-3 修复：路由解析不能只依赖 UI 层填充的 unionLastGood
  * （仅 BotsPane/BotsView 挂载时 fetchUnionRoster 写入——用户不开 Bots
  * 面板则恒空，跨网关成员投递全部 "no connected machine hosts profile"
  * 静默失败）。relayAgentsCache 由 roster 循环常驻填充（与 UI 无关），
- * 作为等价数据源的 fallback。 */
-function findConnectionForProfile(profile: string) {
+ * 作为等价数据源的 fallback。
+ * 🔴 2026-09-05 round-48：同名 profile 出现在多个连接 → 返回 ambiguous
+ * （对齐 Hermes 跨连接 @name-device 消歧的保守面——两台机器都跑 "dixie"
+ * 时盲选第一台会把投递送错机器；诚实失败优于错误路由）。 */
+function findConnectionForProfile(profile: string): { conn?: { id: string; remote: RemoteConnection | null }; ambiguous: boolean } {
+  const matchedConnIds = new Set<string>();
   const sources: Array<Map<string, Array<{ profile: string }>>> = [unionLastGood, relayAgentsCache];
   for (const source of sources) {
     for (const [connId, entries] of source) {
-      if (entries.some(e => e.profile === profile)) {
-        const conn = relayConnections().find(c => c.id === connId);
-        if (conn) return conn;
-      }
+      if (entries.some(e => e.profile === profile)) matchedConnIds.add(connId);
     }
   }
-  return undefined;
+  const connections = relayConnections().filter(c => matchedConnIds.has(c.id));
+  return { conn: connections[0], ambiguous: connections.length > 1 };
 }
 
 /** 拉各 authority 的 pending 队列（drain 循环每 tick 调用） */
@@ -379,9 +381,17 @@ async function deliverPeerDispatch(authority: { id: string; remote: RemoteConnec
       }
     };
 
-    const target = findConnectionForProfile(d.member_profile);
+    const { conn: target, ambiguous } = findConnectionForProfile(d.member_profile);
     if (!target) {
       await postResult({ error: `no connected machine hosts profile '${d.member_profile}'` });
+      return;
+    }
+    if (ambiguous) {
+      // 🔴 round-48：跨连接同名——不盲选路由（诚实失败，authority 侧
+      // turn.failed 可见；对齐 Hermes name-device 消歧前的保守面）
+      await postResult({
+        error: `profile '${d.member_profile}' is ambiguous across multiple connections`,
+      });
       return;
     }
 

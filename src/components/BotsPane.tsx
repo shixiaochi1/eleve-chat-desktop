@@ -17,13 +17,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Loader, MessageSquarePlus, Pencil, X } from 'lucide-react';
 import {
-  changeBotRoomMembers, createBotRoom, disbandBotRoom, fetchBotRooms,
-  ensureBotChat, renameBotRoom, sendBotRoomMessage,
-  stopBotRoom,
+  createBotRoom, ensureBotChat, fetchBotRooms,
 } from '../utils/api';
 import type { BotRosterEntry, BotRoom } from '../utils/api';
 import { fetchUnionRoster, type UnionRosterRow } from '../services/bot-relay';
 import { requestForBot } from '../services/connections';
+import { getWsClient } from '../services/ws-client';
 import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnread';
 import { BotRosterRow } from './BotsView';
 import { selectRoom } from '../plugins/bots/state';
@@ -84,6 +83,25 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   }, []);
 
   useEffect(() => { loadList(); }, [loadList]);
+
+  // 🔴 2026-09-05 round-48：左栏房间列表 WS 刷新（对齐 Hermes 群聊列表的
+  // 实时性——此前仅挂载/手动刷新/本端创建后拉取，其他端建房间、改名、
+  // 解散、接管后本端列表陈旧）。任何房间级事件到达即重拉（事件频率低，
+  // 无需节流）。
+  useEffect(() => {
+    const ws = getWsClient();
+    const unsubscribe = ws.addEventListener((eventName, data) => {
+      if (eventName !== 'bot.room.event') return;
+      const kind = (data as { event?: { kind?: string } })?.event?.kind || '';
+      if (
+        kind === 'room.created' || kind === 'room.renamed' ||
+        kind === 'room.members_changed' || kind === 'room.disbanded'
+      ) {
+        void loadList();
+      }
+    });
+    return unsubscribe;
+  }, [loadList]);
 
   useEffect(() => {
     if (!rowMenu) return;

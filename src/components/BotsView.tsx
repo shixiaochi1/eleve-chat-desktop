@@ -10,17 +10,16 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { ArrowLeft, Bot, Loader, MessageSquarePlus, Pencil, Send, Settings2, Square, Trash2, UserPlus, UserMinus, X } from 'lucide-react';
+import { ArrowLeft, Bot, Loader, Send, Settings2, Square, Trash2, UserPlus, UserMinus, X } from 'lucide-react';
 import {
-  changeBotRoomMembers, createBotRoom, disbandBotRoom, fetchBotRoomEvents,
-  fetchBotRooms, ensureBotChat, renameBotRoom, sendBotRoomMessage,
+  changeBotRoomMembers, disbandBotRoom, fetchBotRoomEvents,
+  fetchBotRooms, renameBotRoom, sendBotRoomMessage,
   stopBotRoom,
   type BotRosterEntry, type BotRoom, type BotRoomEvent,
 } from '../utils/api';
 import { getWsClient } from '../services/ws-client';
 import { useSelectedRoomId, selectRoom } from '../plugins/bots/state';
 import { fetchUnionRoster, type UnionRosterRow } from '../services/bot-relay';
-import { requestForBot } from '../services/connections';
 import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnread';
 
 interface BotsViewProps {
@@ -32,16 +31,9 @@ interface BotsViewProps {
   onPanelChange?: (panel: string | null) => void;
 }
 
-/** 🔴 2026-09-05 stage-5：本机持有的房间副本元数据（bot.rooms.replicas.list） */
-interface ReplicaMetaRow {
-  room_id: string;
-  room_name: string;
-  authority_gateway_id: string;
-  authority_epoch: number;
-  last_ingested_seq: number;
-  /** replica = 可接管；authoritative = 本机已接管；demoted = 已退位 */
-  state: string;
-}
+/** 🔴 2026-09-05 stage-5：本机持有的房间副本元数据（bot.rooms.replicas.list）。
+ *  🔴 2026-09-05 round-48：主区无 replica UI（接管面在 BotsPane 待接管区块）
+ *  ——接口与 requestForBot 导入随之移除（此前为未使用死代码）。 */
 
 const KIND_USER = 'message.user';
 const KIND_MEMBER = 'message.member';
@@ -283,6 +275,9 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
   };
 
   const disband = async () => {
+    // 🔴 2026-09-05 round-48：解散是永久墓碑（Hermes disband 同义）——
+    // 二次确认防误触（此前单击直调，事件流与成员会话随之不可恢复）
+    if (!window.confirm(`确定解散群聊「${room.name}」？此操作不可恢复。`)) return;
     setBusy(true);
     try { await disbandBotRoom(room.room_id); onBack(); } finally { setBusy(false); }
   };
@@ -347,7 +342,9 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
           <Bot size={12} />
           <span>群聊已创建 · @提及成员、或直接发言（默认全员回应）</span>
         </div>
-        {events.map((ev) => {
+        {/* 🔴 2026-09-05 round-48：渲染窗口上限（对齐 Hermes GROUP_CHAT_HISTORY_LIMIT
+            的窗口化思路；长房间事件流不无限增长 DOM）——完整日志仍在后端 */}
+        {events.slice(-200).map((ev) => {
           if (ev.kind === KIND_USER) {
             return (
               <div key={ev.seq} className="flex justify-end">
@@ -375,10 +372,33 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
           if (ev.kind === 'room.disbanded') {
             return <div key={ev.seq} className="text-center text-[11px] text-destructive py-0.5">— 群聊已解散 —</div>;
           }
+          {/* 🔴 2026-09-05 round-48 member holds（对齐 Hermes #93129）：
+              hold 集变更 + 成员扣留跳过对用户可见 */}
+          if (ev.kind === 'room.holds_changed') {
+            const members = Array.isArray(room.members) ? room.members : [];
+            const nameOf = (id: string) => {
+              const m = members.find(x => x.member_id === id);
+              return m ? `@${m.handle}` : id.slice(0, 8);
+            };
+            const held = Array.isArray(ev.payload.held) ? (ev.payload.held as string[]) : [];
+            const released = Array.isArray(ev.payload.released) ? (ev.payload.released as string[]) : [];
+            const parts: string[] = [];
+            if (ev.payload.release_all === true) parts.push('已恢复全体成员发言');
+            if (held.length) parts.push(`已暂停 ${held.map(nameOf).join('、')} 的发言`);
+            if (released.length) parts.push(`已恢复 ${released.map(nameOf).join('、')} 的发言`);
+            if (!parts.length) return null;
+            return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground py-0.5">— {parts.join('；')} —</div>;
+          }
           // 🔴 2026-09-04 turn 终态四分：缺席/取消/轮转中对用户可见（闭环感知）
           if (ev.kind === 'turn.started') {
             const h = String(ev.actor.handle || ev.actor.id || '');
             return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/60 py-0.5">· @{h} 发言中…</div>;
+          }
+          if (ev.kind === 'turn.held') {
+            const h = String(ev.actor.handle || ev.actor.id || '');
+            const byId = (Array.isArray(room.members) ? room.members : []).find(m => m.member_id === ev.payload.member_id);
+            const label = byId ? `@${byId.handle}` : `@${h}`;
+            return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— {label} 的发言已暂停 —</div>;
           }
           if (ev.kind === 'turn.deferred') {
             const h = String(ev.actor.handle || ev.actor.id || '');
@@ -588,7 +608,9 @@ function RoomEditDialog({
   const [pendingRemove, setPendingRemove] = useState<string[]>([]);
   const [pendingAdd, setPendingAdd] = useState<string[]>([]);
   const nextCount = room.members.length - pendingRemove.length + pendingAdd.length;
-  const canSave = nextCount >= 1 && nextCount <= 6;
+  // 🔴 2026-09-05 round-48：与创建场景统一为 2-6（后端 MIN/MAX_DISCUSSION_MEMBERS
+  // 硬约束——此前编辑允许删到 1 人，存盘后房间无法驱动）
+  const canSave = nextCount >= 2 && nextCount <= 6;
 
   const addable = bots.filter(
     (b) => !room.members.some((m) => m.profile === b.profile) && !pendingAdd.includes(b.profile),
@@ -651,7 +673,7 @@ function RoomEditDialog({
 
         <div className="flex items-center justify-between">
           <span className={cn('text-xs', canSave ? 'text-muted-foreground' : 'text-destructive')}>
-            成员 {nextCount}/1-6
+            成员 {nextCount}/2-6
           </span>
           <button
             className="px-3 py-1.5 rounded-md bg-accent text-accent-foreground text-sm font-medium disabled:opacity-40"
