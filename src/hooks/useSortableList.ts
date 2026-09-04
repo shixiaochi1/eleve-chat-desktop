@@ -6,6 +6,9 @@
  * - 容器 position:relative；每个 item 绝对定位 top:0 left:0（宽度 100%），
  *   槽位 = index * (itemHeight + gap)——命令式 setSlot 写 transform + CSS
  *   transition，零 React 渲染（拖拽期间只更新投影顺序，其余卡平滑滑过）
+ * - 动态高度（不传 itemHeight）：每项挂 ResizeObserver 实测高度；实测变化时
+ *   hook 内部立即重结算全部槽位（带让位动画，被拖项跳过）并回调 onHeightsChange
+ *   ——调用方只需据此刷新容器占位高等派生布局（如展开/收起预览后的对齐）
  * - 被拖项直接写 DOM transform 跟手（scale 1.03 提起 + 阴影），松手弹性归位
  * - 换位只更新投影（projectedOrder）；松手 onReorder 提交 → 调用方持久化
  * - 边缘自动滚动（多行/长列表拖到不可见区域）
@@ -41,6 +44,9 @@ interface SortableListOptions {
   ease?: string
   /** 拖拽状态回调（视觉：被拖项/悬停目标高亮） */
   onDragStateChange?: (state: { activeId: string | null; overId: string | null }) => void
+  /** 项实测高度变化回调（动态高度模式）——槽位重结算由 hook 内部完成，
+   *  此回调供调用方刷新容器占位高等派生布局（contentHeight 读内部缓存，React 不可见） */
+  onHeightsChange?: () => void
 }
 
 interface DragState {
@@ -66,16 +72,20 @@ export function useSortableList({
   liftScale = 1.03,
   ease = DEFAULT_EASE,
   onDragStateChange,
+  onHeightsChange,
 }: SortableListOptions) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const itemRefs = useRef(new Map<string, HTMLElement>())
   const heightsRef = useRef(new Map<string, number>())
+  const roRefs = useRef(new Map<string, ResizeObserver>())
   const dragRef = useRef<DragState | null>(null)
   const projectedRef = useRef<string[]>([])
   const idsRef = useRef(ids)
   idsRef.current = ids
   const itemHeightRef = useRef(itemHeight)
   itemHeightRef.current = itemHeight
+  const onHeightsChangeRef = useRef(onHeightsChange)
+  onHeightsChangeRef.current = onHeightsChange
 
   /** 单项目前高度（固定 itemHeight 或测量缓存） */
   const heightOf = useCallback((id: string): number => {
@@ -99,25 +109,47 @@ export function useSortableList({
     el.style.transform = `translateY(${slotTop(index)}px)`
   }, [slotTop, ease])
 
+  /** 归位所有项（被拖项跳过） */
+  const settleAll = useCallback((skipId?: string, animate = true) => {
+    idsRef.current.forEach((id, idx) => {
+      if (id !== skipId) setSlot(id, idx, animate)
+    })
+  }, [setSlot])
+
   const registerItem = useCallback((id: string, el: HTMLElement | null) => {
     if (el) {
       itemRefs.current.set(id, el)
-      // 动态高度：注册时测量 + ResizeObserver 跟随（预览展开/收起）
-      const measure = () => {
+      // 动态高度：注册时测量 + ResizeObserver 跟随（预览展开/收起）。
+      // 🔴 2026-09-05 展开/收起对齐修复：实测高度变化必须当场重结算槽位——
+      // 槽位 top 是前面各项高度的累积，任一项变高/变矮而后续项 transform 不动，
+      // 展开会压住下方卡片、收起会留空洞。transform 不影响 content-box，
+      // 重结算不会回环触发 RO；被拖项跳过（跟手中不归位）。
+      const measure = (): boolean => {
         const h = el.offsetHeight
-        if (h > 0) heightsRef.current.set(id, h)
+        if (h <= 0) return false
+        const prev = heightsRef.current.get(id)
+        heightsRef.current.set(id, h)
+        return prev !== h
       }
       measure()
       if (!itemHeightRef.current) {
-        const ro = new ResizeObserver(() => measure())
+        roRefs.current.get(id)?.disconnect()
+        const ro = new ResizeObserver(() => {
+          if (!measure()) return
+          settleAll(dragRef.current?.id, true)
+          onHeightsChangeRef.current?.()
+        })
         ro.observe(el)
-        ;(el as HTMLElement & { __sortableRO?: ResizeObserver }).__sortableRO = ro
+        roRefs.current.set(id, ro)
       }
     } else {
       itemRefs.current.delete(id)
       heightsRef.current.delete(id)
+      // RAII：注销即断开观察（ref 回调每次渲染 null→el 重挂，防 RO 堆积）
+      roRefs.current.get(id)?.disconnect()
+      roRefs.current.delete(id)
     }
-  }, [])
+  }, [settleAll])
 
   /** 内容总高（容器 height） */
   const contentHeight = useCallback((): number => {
@@ -126,13 +158,6 @@ export function useSortableList({
     for (let i = 0; i < list.length; i++) total += heightOf(list[i]) + gap
     return total - gap
   }, [padTop, gap, heightOf])
-
-  // 归位所有项（被拖项跳过）
-  const settleAll = useCallback((skipId?: string, animate = true) => {
-    idsRef.current.forEach((id, idx) => {
-      if (id !== skipId) setSlot(id, idx, animate)
-    })
-  }, [setSlot])
 
   const onWindowMove = useCallback((e: PointerEvent) => {
     const d = dragRef.current

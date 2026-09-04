@@ -100,11 +100,17 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
 
   // ── 拖拽排序 handlers（useSortableList 指针拖拽：松手提交手排 order 持久化）──
   // 🔴 2026-08-14 老大：项目顺序完全手动——不传 active_id（激活不再置顶/重排）
+  // 🔴 2026-09-05 展开/收起对齐修复：卡片实测高度缓存是 hook 内部 ref（React
+  //   不可见），预览展开/收起后槽位由 hook 内部重结算，但容器占位高 contentHeight()
+  //   是渲染期读取——heightsVersion 是高度缓存的失效信号（值本身无语义，仅触发
+  //   重渲染让占位高随新高度重算）
+  const [heightsVersion, bumpHeightsVersion] = useState(0);
   const sortable = useSortableList({
     ids: orderedProjects.map((p) => p.id),
     onReorder: (ids) => { setProjectOrder(ids); setProjectOrderIds(ids); },
     gap: 6,
     padTop: 6,
+    onHeightsChange: () => bumpHeightsVersion(v => v + 1),
     onDragStateChange: ({ activeId, overId }) => {
       setDraggingId(activeId);
       setDragOverId(overId);
@@ -119,10 +125,17 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   // 无动画模式：初始定位无闪烁；拖拽让位/归位动画由 hook 内部负责。
   // 🔴 2026-08-20 叠加修复：依赖加 orderedProjects（顺序引用）——拖拽提交
   // 后长度不变但顺序变了，只依赖 length 不会重跑 → 被拖行残留脏 transform。
-  const { settleAll: settleAllProjects } = sortable;
+  const { settleAll: settleAllProjects, contentHeight: projectsContentHeight } = sortable;
   useLayoutEffect(() => {
     settleAllProjects(undefined, false);
   }, [settleAllProjects, orderedProjects]);
+
+  // 🔴 2026-09-05 展开/收起对齐修复：占位高随高度缓存失效信号重算
+  // （projectsContentHeight 引用稳定，heightsVersion 是唯一变化源）
+  const projectsSpacerHeight = useMemo(
+    () => projectsContentHeight() + 14,
+    [projectsContentHeight, heightsVersion],
+  );
 
   const fetchTree = useCallback(async (silent = false) => {
     try {
@@ -644,7 +657,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                 {/* 🔴 2026-08-20 高度方案（用户要求内容驱动）：占位撑高——容器自然
                     高度 = 项目行总高（不固定 height），项目区 flex-1 拿剩余空间；
                     行多时由项目区容器压缩 + 本容器 overflow-y-auto 滚动 */}
-                <div aria-hidden className="w-full" style={{ height: sortable.contentHeight() + 14 }} />
+                <div aria-hidden className="w-full" style={{ height: projectsSpacerHeight }} />
                 {tree.projects.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-3 p-4">
                     <div className="w-10 h-10 rounded-xl bg-muted/40 flex items-center justify-center">
