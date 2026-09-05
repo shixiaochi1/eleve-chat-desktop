@@ -74,6 +74,10 @@ export default function MediaProviderSection() {
   // 🔴 2026-08-25：图床开关（image_gen.image_host.enabled，默认开——链路1
   // 图床→公网 URL→原生 /v2 异步，快；关闭 → 强制链路3 edits）
   const [mxImageHostEnabled, setMxImageHostEnabled] = useState(true);
+  // 🔴 2026-09-05 用户拍板：agent 生图工具的链路与分辨率档位在设置页配置
+  //（与画布节点同道理）——缺省 sync（所有链路默认链路3）/ AUTO
+  const [mxLinkMode, setMxLinkMode] = useState('sync');
+  const [mxTier, setMxTier] = useState('AUTO');
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingSaving, setSettingSaving] = useState(false);
 
@@ -109,11 +113,16 @@ export default function MediaProviderSection() {
       const channel = await getMediaConfigValue('image_gen.mxapi.channel');
       const outpaint = await getMediaConfigValue('image_gen.mxapi.outpaint_model');
       const hostEnabled = await getMediaConfigValue('image_gen.image_host.enabled');
+      const linkMode = await getMediaConfigValue('image_gen.mode');
+      const tier = await getMediaConfigValue('image_gen.tier');
       if (cancelled) return;
       if (typeof model === 'string' && model) setMxModel(model);
       if (typeof channel === 'string' && channel) setMxChannel(channel);
       if (typeof outpaint === 'string' && outpaint) setMxOutpaintModel(outpaint);
       if (typeof hostEnabled === 'boolean') setMxImageHostEnabled(hostEnabled);
+      // 🔴 2026-09-05：链路与档位（缺省 sync / AUTO，与后端 serde default 一致）
+      if (typeof linkMode === 'string' && (linkMode === 'sync' || linkMode === 'async')) setMxLinkMode(linkMode);
+      if (typeof tier === 'string' && ['AUTO', '1K', '2K', '4K'].includes(tier)) setMxTier(tier);
       setSettingsLoaded(true);
     })();
     return () => { cancelled = true; };
@@ -172,6 +181,9 @@ export default function MediaProviderSection() {
       await setMediaConfigValue('image_gen.mxapi.outpaint_model', mxOutpaintModel);
       // 🔴 2026-08-25：图床开关一并保存（image_gen.image_host.enabled）
       await setMediaConfigValue('image_gen.image_host.enabled', mxImageHostEnabled);
+      // 🔴 2026-09-05：链路选择与分辨率档位（agent 生图工具用，与画布节点同道理）
+      await setMediaConfigValue('image_gen.mode', mxLinkMode);
+      await setMediaConfigValue('image_gen.tier', mxTier);
       setSettingsLoaded(true);
     } catch (e: any) {
       setError(e?.message || '保存 ELEVE 媒体生成设置失败');
@@ -478,6 +490,32 @@ export default function MediaProviderSection() {
                   <option value="default2">default2（备用，nano2 / gpt-image-2）</option>
                   <option value="official">official（稳定，nano-pro / nano2 / gpt-image-2）</option>
                   <option value="openai_official_cheap">openai_official_cheap（平价，仅 gpt-image-2）</option>
+                </select>
+              </SettingField>
+              {/* 🔴 2026-09-05 用户拍板：agent 生图工具的链路选择（同步=链路3 填尺寸
+                  比例精确 / 异步=链路1 图床快），缺省同步——与画布节点默认一致 */}
+              <SettingField label="生图链路（image_gen.mode）">
+                <select
+                  className={selectCls}
+                  value={mxLinkMode}
+                  onChange={(e) => setMxLinkMode(e.target.value)}
+                >
+                  <option value="sync">同步（链路3：填尺寸，比例精确，推荐）</option>
+                  <option value="async">异步（链路1：图床 + 原生 /v2，快）</option>
+                </select>
+              </SettingField>
+              {/* 🔴 2026-09-05 分辨率档位：AUTO=原图尺寸（文生图退化 1K）；
+                  1K/2K/4K=面积档（保持长宽比凑够 1024²/2048²/4096² 像素量） */}
+              <SettingField label="分辨率档位（image_gen.tier）">
+                <select
+                  className={selectCls}
+                  value={mxTier}
+                  onChange={(e) => setMxTier(e.target.value)}
+                >
+                  <option value="AUTO">AUTO（原图尺寸，推荐）</option>
+                  <option value="1K">1K（1024² 像素量）</option>
+                  <option value="2K">2K（2048² 像素量）</option>
+                  <option value="4K">4K（4096² 像素量，超上限压到 8.29MP）</option>
                 </select>
               </SettingField>
             </SectionCard>
