@@ -78,6 +78,8 @@ export default function MediaProviderSection() {
   //（与画布节点同道理）——缺省 sync（所有链路默认链路3）/ AUTO
   const [mxLinkMode, setMxLinkMode] = useState('sync');
   const [mxTier, setMxTier] = useState('AUTO');
+  // 🔴 渲染质量（仅 GPT 消费；缺省 medium 防 auto 烧积分，画布节点同款默认）
+  const [mxQuality, setMxQuality] = useState('medium');
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingSaving, setSettingSaving] = useState(false);
 
@@ -115,6 +117,7 @@ export default function MediaProviderSection() {
       const hostEnabled = await getMediaConfigValue('image_gen.image_host.enabled');
       const linkMode = await getMediaConfigValue('image_gen.mode');
       const tier = await getMediaConfigValue('image_gen.tier');
+      const quality = await getMediaConfigValue('image_gen.quality');
       if (cancelled) return;
       if (typeof model === 'string' && model) setMxModel(model);
       if (typeof channel === 'string' && channel) setMxChannel(channel);
@@ -123,6 +126,7 @@ export default function MediaProviderSection() {
       // 🔴 2026-09-05：链路与档位（缺省 sync / AUTO，与后端 serde default 一致）
       if (typeof linkMode === 'string' && (linkMode === 'sync' || linkMode === 'async')) setMxLinkMode(linkMode);
       if (typeof tier === 'string' && ['AUTO', '1K', '2K', '4K'].includes(tier)) setMxTier(tier);
+      if (typeof quality === 'string' && ['low', 'medium', 'high', 'auto'].includes(quality)) setMxQuality(quality);
       setSettingsLoaded(true);
     })();
     return () => { cancelled = true; };
@@ -184,6 +188,7 @@ export default function MediaProviderSection() {
       // 🔴 2026-09-05：链路选择与分辨率档位（agent 生图工具用，与画布节点同道理）
       await setMediaConfigValue('image_gen.mode', mxLinkMode);
       await setMediaConfigValue('image_gen.tier', mxTier);
+      await setMediaConfigValue('image_gen.quality', mxQuality);
       setSettingsLoaded(true);
     } catch (e: any) {
       setError(e?.message || '保存 ELEVE 媒体生成设置失败');
@@ -516,6 +521,20 @@ export default function MediaProviderSection() {
                   <option value="1K">1K（1024² 像素量）</option>
                   <option value="2K">2K（2048² 像素量）</option>
                   <option value="4K">4K（4096² 像素量，超上限压到 8.29MP）</option>
+                </select>
+              </SettingField>
+              {/* 🔴 2026-09-05 渲染质量：缺省 medium 防 auto 烧积分（画布节点同款默认）；
+                  仅 GPT 消费（NANO 官方无 quality 字段）；default 通道 quality 按 low 处理 */}
+              <SettingField label="渲染质量（image_gen.quality）">
+                <select
+                  className={selectCls}
+                  value={mxQuality}
+                  onChange={(e) => setMxQuality(e.target.value)}
+                >
+                  <option value="low">low（草稿，最省积分）</option>
+                  <option value="medium">medium（标准，推荐）</option>
+                  <option value="high">high（最终出图，最贵）</option>
+                  <option value="auto">auto（官方默认，可能烧积分）</option>
                 </select>
               </SettingField>
             </SectionCard>
