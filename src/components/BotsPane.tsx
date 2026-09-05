@@ -13,9 +13,9 @@
  * ELEVE 形态映射：SidePanel 的 activePanel 互斥切换 = SESSIONS | BOTS
  * tab strip 的等价语义（同一左栏区域，单面板在屏）。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
-import { Loader, MessageSquarePlus, Pencil, X } from 'lucide-react';
+import { Loader, MessageSquarePlus, Pencil, UsersRound, X } from 'lucide-react';
 import {
   createBotRoom, ensureBotChat, fetchBotRooms,
 } from '../utils/api';
@@ -25,7 +25,7 @@ import { requestForBot } from '../services/connections';
 import { getWsClient } from '../services/ws-client';
 import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnread';
 import { BotRosterRow } from './BotsView';
-import { selectRoom } from '../plugins/bots/state';
+import { selectRoom, useSelectedRoomId } from '../plugins/bots/state';
 
 interface BotsPaneProps {
   onOpenBotChat: (id: string) => void;
@@ -41,6 +41,58 @@ interface ReplicaMetaRow {
   authority_epoch: number;
   last_ingested_seq: number;
   state: string;
+}
+
+/** 🔴 2026-09-05 round-52：群聊小卡片——与 Agent 卡片（ProfilePanel）/项目卡片
+ *  （ProjectTreeItems）同构：rounded-lg 卡片底 + 主题色 30% 描边 + 选中发光竖条
+ *  /光环投影/扫光（card-selected-sweep）。结构 = 名称行（色块图标 + 房间名 +
+ *  成员数徽标）+ 成员 @handle 副行。 */
+function RoomCard({ room, active, onOpen }: { room: BotRoom; active: boolean; onOpen: () => void }) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
+      className={cn(
+        'group relative w-full text-left px-2.5 py-2 rounded-lg border bg-card shadow-sm transition-all duration-150 cursor-pointer overflow-hidden space-y-1 hover:bg-accent/30',
+        active && 'card-selected-sweep',
+      )}
+      style={{
+        // 描边 = 主题 primary 30% 透明混合（选中/未选中一致；与 Agent/项目卡片同构）
+        borderColor: 'color-mix(in srgb, var(--dt-primary) 30%, transparent)',
+        boxShadow: active
+          ? '0 0 0 1px color-mix(in srgb, var(--dt-primary) 45%, transparent), 0 6px 18px var(--theme-shadow-color-heavy)'
+          : undefined,
+      } as CSSProperties}
+    >
+      {/* 选中发光竖条（主题 primary；与 Agent/项目卡片同款） */}
+      {active && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
+          style={{
+            background: 'var(--dt-primary)',
+            boxShadow: '0 0 8px color-mix(in srgb, var(--dt-primary) 65%, transparent)',
+          }}
+        />
+      )}
+      {/* 名称行 */}
+      <div className="flex items-center gap-1.5">
+        <div className="flex items-center justify-center w-6 h-6 rounded-md shrink-0 overflow-hidden bg-muted/40">
+          <UsersRound size={13} strokeWidth={1.5} className="text-muted-foreground" />
+        </div>
+        <span className="text-xs font-medium text-foreground truncate flex-1">{room.name}</span>
+        <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] bg-muted text-muted-foreground shrink-0" title={`${room.members.length} 个成员`}>
+          {room.members.length} 人
+        </span>
+      </div>
+      {/* 成员副行 */}
+      <div className="text-xs text-muted-foreground truncate pl-[26px]">
+        {room.members.map((m) => `@${m.handle}`).join(' ')}
+      </div>
+    </div>
+  );
 }
 
 export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, onPanelChange }: BotsPaneProps) {
@@ -168,6 +220,9 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
     onOpenBotRoom(room.room_id);
   };
 
+  // 🔴 2026-09-05 round-52：群聊卡片选中态（选中房间 = 主区正在显示的房间）
+  const selectedRoomId = useSelectedRoomId();
+
   return (
     <div className="relative h-full flex flex-col min-h-0">
       {/* Header（对齐 Hermes roster-pane Header：标题 + New） */}
@@ -260,22 +315,18 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
           </section>
         )}
 
-        {/* ── 群聊 section（点行 → 主区房间视图）── */}
+        {/* ── 群聊 section（点卡片 → 主区房间视图）── */}
         {rooms.length > 0 && (
           <section>
             <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">群聊</div>
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               {rooms.map((room) => (
-                <button
+                <RoomCard
                   key={room.room_id}
-                  className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-accent/40 transition-colors"
-                  onClick={() => openRoom(room)}
-                >
-                  <div className="text-sm text-foreground font-medium truncate">{room.name}</div>
-                  <div className="text-xs text-muted-foreground truncate">
-                    {room.members.map((m) => `@${m.handle}`).join(' ')}
-                  </div>
-                </button>
+                  room={room}
+                  active={selectedRoomId === room.room_id}
+                  onOpen={() => openRoom(room)}
+                />
               ))}
             </div>
           </section>
