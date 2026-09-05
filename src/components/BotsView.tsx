@@ -516,21 +516,24 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
         <div ref={bottomRef} />
       </div>
 
-      {/* 输入区（@ 提及对齐 Hermes GroupMentionInput；附件对齐 group-attachments） */}
+      {/* 输入区（@ 提及对齐 Hermes GroupMentionInput；附件对齐 group-attachments）。
+          🔴 2026-09-05 round-59c：外围 1:1 对齐主输入区——删 border-t 分隔线
+          （主区无），p-3 四周呼吸（对齐 InputArea 根 p-3，focus 光环有完整
+          呼吸空间）；composer 本体的 mx/mb 缩进随之移除（容器已供） */}
       <div
-        className="relative flex flex-col border-t border-[var(--ui-stroke-tertiary)] shrink-0"
+        className="relative flex flex-col shrink-0 p-3"
         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
         onDrop={(e) => { e.preventDefault(); e.stopPropagation(); void addFiles(e.dataTransfer?.files); }}
       >
         {error && (
-          <div className="mx-3 mt-2 px-2.5 py-1.5 rounded-md bg-destructive/10 text-destructive text-xs">
+          <div className="mt-2 mb-2 px-2.5 py-1.5 rounded-md bg-destructive/10 text-destructive text-xs">
             {error}
             <button className="ml-2 underline" onClick={() => setError(null)}>关闭</button>
           </div>
         )}
         {/* 🔴 round-50：附件预览条 */}
         {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-2 px-3 pt-2">
+          <div className="flex flex-wrap gap-2 pt-2">
             {attachments.map((a, i) => (
               <div key={`${a.name}-${i}`} className="relative group">
                 {a.thumb ? (
@@ -551,10 +554,10 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             ))}
           </div>
         )}
-        {/* 🔴 2026-09-05 round-59：输入框 UI 1:1 对齐主消息区 InputArea——
-            两行形态（输入在上/控制行在下）+ rounded-2xl border 容器 +
-            composer 高度/内边距/控制尺寸变量全套（此前单行横排形态与主区不同） */}
-        <div className="composer-surface relative mx-3 mb-2.5 rounded-2xl border">
+        {/* 🔴 2026-09-05 round-59/59c：输入框 UI 1:1 对齐主消息区 InputArea——
+            两行形态（输入在上/控制行在下）+ rounded-2xl border 容器 + composer
+            高度/内边距/控制尺寸变量全套；外围 p-3 + 无 border-t = 主区同款 */}
+        <div className="composer-surface relative rounded-2xl border">
           <div className="flex flex-col gap-(--composer-row-gap) px-(--composer-surface-pad-x) py-(--composer-surface-pad-y)">
             <MentionTextarea
               members={room.members}
@@ -718,13 +721,17 @@ function MentionTextarea({
   return (
     <div className="relative min-w-0">
       {open ? (
-        <div className="absolute bottom-full left-0 z-50 mb-1 max-h-48 w-64 overflow-y-auto rounded-md border border-[var(--ui-stroke-tertiary)] bg-popover text-popover-foreground py-1 shadow-lg">
+        /* 🔴 2026-09-05 round-59c：浮层盒子样式 1:1 对齐 SlashCommandPopup
+           （mb-1.5/rounded-lg/p-1/max-h-60 + 项 px-3 py-1.5 text-sm rounded-md
+           + 选中 bg-accent text-accent-foreground）；宽度 w-64/left-0 为 @补全
+           的光标锚定语义（与主区 slash 全宽不同），保留 */
+        <div className="absolute bottom-full left-0 z-50 mb-1.5 max-h-60 w-64 overflow-y-auto rounded-lg border border-[var(--ui-stroke-tertiary)] bg-popover text-popover-foreground p-1 shadow-lg">
           {options.map((option, index) => (
             <button
               key={option.handle}
               className={cn(
-                'flex w-full items-baseline gap-2 px-2 py-1 text-left text-xs',
-                index === active ? 'bg-accent/50 text-foreground' : 'text-muted-foreground',
+                'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm cursor-pointer rounded-md',
+                index === active ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
               )}
               // preventDefault 保持输入框焦点（对齐 Hermes mousedown 语义）
               onMouseDown={(e) => { e.preventDefault(); insert(option.handle); }}
