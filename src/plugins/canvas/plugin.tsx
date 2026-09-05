@@ -13,7 +13,7 @@
  * handler moved here as a declarative contribution; shell frame protocol
  * and backend RPC unchanged.
  */
-import { Shapes } from 'lucide-react';
+import { SquareDashed } from 'lucide-react';
 
 import type { ElevePlugin } from '../../contrib/plugin';
 
@@ -26,9 +26,11 @@ const canvasPlugin: ElevePlugin = {
       id: 'open-canvas',
       title: '\u753b\u5e03',
       data: {
-        icon: Shapes,
+        // 🔴 round-51：图标换 SquareDashed（虚线画板边界——infinite-canvas
+        // 白板语义，替换原 Shapes 几何形状）；order=30 插到群聊(25)与看板(40)间
+        icon: SquareDashed,
         label: '\u753b\u5e03',
-        order: 40,
+        order: 30,
         activate: () => {
           void ctx
             .rpc('canvas_toggle')

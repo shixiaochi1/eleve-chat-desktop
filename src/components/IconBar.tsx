@@ -27,6 +27,9 @@ interface NavItem {
   onClick?: () => void;
   /** 右上角计数角标（>0 才显示；对齐 Hermes 无在飞任务时隐藏） */
   badge?: number;
+  /** 🔴 2026-09-05 round-51：排序键（与插件 iconBar.action 贡献的 data.order
+   *  合一排序——静态项与插件项可交错，群聊/画布得以插到文件浏览器与看板之间） */
+  order?: number;
 }
 
 interface IconBarProps {
@@ -42,20 +45,20 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
   //   计数仅作角标展示，点击行为仍走 kanban 项既有切换逻辑
   const { running, ready, active } = useKanbanActiveCount(Boolean(gatewayOnline));
   const navItems: NavItem[] = [
-    { id: 'agents',   icon: AgentIcon,   label: 'Agent' },
+    { id: 'agents',   icon: AgentIcon,   label: 'Agent', order: 10 },
     // 🔴 2026-08-12 老大指示：取消"项目"按钮（项目功能已合并进 Agent 面板）；
     //   文件浏览器图标换成原项目图标（FolderGit），行为不变（开右侧文件抽屉）
-    { id: 'files',    icon: FolderGit,  label: '文件浏览器', onClick: onToggleFiles },
+    { id: 'files',    icon: FolderGit,  label: '文件浏览器', onClick: onToggleFiles, order: 20 },
     // 🔴 stage-4：bots 主区入口已迁 bots 插件（iconBar.action 贡献——
     // 禁用 Bot Mode 插件 = 无入口，对齐 Hermes "disable here if unwanted"）
-    { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true, badge: active },
-    { id: 'cron',     icon: CronIcon,     label: '定时任务' },
-    { id: 'tools',    icon: ToolIcon,     label: '工具' },
-    { id: 'learning', icon: BookOpen,    label: '学习' },
+    { id: 'kanban',   icon: KanbanIcon,  label: '看板', isWindow: true, badge: active, order: 40 },
+    { id: 'cron',     icon: CronIcon,     label: '定时任务', order: 50 },
+    { id: 'tools',    icon: ToolIcon,     label: '工具', order: 60 },
+    { id: 'learning', icon: BookOpen,    label: '学习', order: 70 },
     // 🔴 2026-08-12 老大指示：频道按钮移到用量分析前面
-    { id: 'channels', icon: ChannelsIcon, label: '频道' },
-    { id: 'usage',    icon: UsageIcon,    label: '用量分析' },
-    { id: 'debug',    icon: DebugIcon,    label: '调试' },
+    { id: 'channels', icon: ChannelsIcon, label: '频道', order: 80 },
+    { id: 'usage',    icon: UsageIcon,    label: '用量分析', order: 90 },
+    { id: 'debug',    icon: DebugIcon,    label: '调试', order: 100 },
   ];
 
   // 插件 iconBar.action 贡献（order 升序）转追加区 NavItem
@@ -147,8 +150,11 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
 
       {/* 导航图标 */}
       <div className="flex flex-col items-center gap-0.5 flex-1 py-2">
-        {navItems.map(renderButton)}
-        {pluginNavItems.map(renderButton)}
+        {/* 🔴 2026-09-05 round-51：静态项与插件贡献按 order 合一排序——
+            群聊(25)/画布(30)得以插到文件浏览器(20)与看板(40)之间 */}
+        {[...navItems, ...pluginNavItems]
+          .sort((a, b) => (a.order ?? 100) - (b.order ?? 100))
+          .map(renderButton)}
       </div>
 
       {/* 底部 */}

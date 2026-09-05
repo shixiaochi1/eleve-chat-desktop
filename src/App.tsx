@@ -314,6 +314,12 @@ export default function App() {
   //   ③ 会话切换/新建/session.info → 不重定向面板（面板不跟随会话）
   //   ④ 切 Agent → 重置（该 Agent 激活项目恢复时重定向）
   const [panelRoot, setPanelRoot] = useState<string | null>(null);
+  // 🔴 2026-09-05 round-51：Bot Mode 的 workspace 归属（对齐 Hermes
+  // setBotsWorkspaceOwner 的 scope 化 owner 语义——面板跟随当前选中实体，
+  // 无归属 = 显式空态）。bot 域状态：打开过的 canonical Bot Chat 记入
+  // botChatSids；群聊主区激活 = group。面板根按域覆盖（见 effectivePanelRoot），
+  // 项目域 panelRoot 与四条定稿语义（:309-315）完全不动。
+  const [botChatSids, setBotChatSids] = useState<Set<string>>(() => new Set());
   // 🔴 2026-08-13 边界修复：无会话手动导航 → 新会话落点暂存（对齐 Hermes $newChatWorkspaceTarget）。
   // 文件面板无会话时导航目录 → 新会话落该目录（此前只做了 remote 记忆，本会话不消费 = 断线）；
   // 任何项目域动作（点项目/会话行/切 Agent）→ 清除（项目意图覆盖手动导航）。
@@ -909,6 +915,14 @@ export default function App() {
   // 的静默丢弃）。
   const handleOpenBotChat = useCallback((id: string) => {
     const profile = profileFromSessionId(id);
+    // 🔴 round-51：记入 bot 域（右抽屉面板跟随该 bot 的 workspace——cwd 经
+    // session.info 推送即为 round-43 烙印的 per-profile workspace_dir）
+    setBotChatSids((cur) => {
+      if (cur.has(id)) return cur;
+      const next = new Set(cur);
+      next.add(id);
+      return next;
+    });
     if (viewMode !== 'single') {
       setViewMode('single');
     }
@@ -1992,7 +2006,17 @@ export default function App() {
                 <RightSidebarTabs activeTab={rightTab} onTabChange={setRightTab} onClose={() => setRightOpen(false)} />
                 {rightTab === 'files' && (
                   <FileBrowserPanel
-                    cwd={panelRoot}
+                    cwd={(() => {
+                      // 🔴 2026-09-05 round-51：Bot Mode workspace 归属（对齐
+                      // Hermes setBotsWorkspaceOwner）——群聊主区激活 → 无归属
+                      // 空态（多成员多工作区，blocked 语义）；canonical Bot
+                      // Chat 激活 → 跟随该 bot 的 workspace（cwd = round-43
+                      // 烙印值，经 session.info 推送）；其余 → 项目域 panelRoot
+                      // （2026-08-13 四条定稿语义不动）。
+                      if (viewMode === 'bots') return '';
+                      if (sess.sessionId && botChatSids.has(sess.sessionId)) return sessionCwd;
+                      return panelRoot;
+                    })()}
                     sessionId={sess.sessionId}
                     onCwdChange={handleFilePanelCwdChange}
                     onFileAttach={(path: string) => requestComposerInsert(`@file:"${path}"`)}

@@ -15,7 +15,7 @@
  * - iconBar.action：左栏入口（activate → setPanel('bots')）
  * - relay 两循环生命周期归插件（禁用插件 = relay 停）
  */
-import { Bot } from 'lucide-react';
+import { UsersRound } from 'lucide-react';
 
 import BotsRoomMainView from '../../components/BotsView';
 import BotsPane from '../../components/BotsPane';
@@ -56,14 +56,16 @@ const botsPlugin: ElevePlugin = {
       data: { viewId: 'bots', label: 'Bots', component: BotsRoomMainView },
     });
 
-    // IconBar 入口：打开左栏 Bots 面板（主区不动——对齐 Hermes tab strip 语义）
+    // IconBar 入口：打开左栏 Bots 面板（主区不动——对齐 Hermes tab strip 语义）。
+    // 🔴 round-51：order=25 插到文件浏览器(20)与看板(40)之间；图标换
+    // UsersRound（多成员围坐——"Bot"单数不达群聊之意，用户指示更换）
     ctx.register('iconBar.action', {
       id: 'open-bots',
       title: '群聊',
       data: {
-        icon: Bot,
+        icon: UsersRound,
         label: '群聊',
-        order: 35,
+        order: 25,
         activate: () => getPluginHost()?.setPanel('bots'),
       },
     });
