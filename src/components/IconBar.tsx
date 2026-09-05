@@ -65,12 +65,14 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
   const pluginActions = useContributions<IconBarActionData>(AREA_ICON_BAR_ACTION);
   const pluginNavItems: NavItem[] = pluginActions
     .map(c => ({ c, data: c.data as IconBarActionData }))
-    .sort((a, b) => (a.data.order ?? 100) - (b.data.order ?? 100))
     .map(({ c, data }) => ({
       id: c.id,
       icon: data.icon,
       label: data.label,
       onClick: data.activate,
+      // 🔴 2026-09-05 round-53 修复：映射必须携带 order——此前丢失导致
+      // 合并排序时插件项 fallback 100 排到末尾，群聊/画布"重排"实际未生效
+      order: data.order,
     }));
 
   const bottomItems: NavItem[] = [
