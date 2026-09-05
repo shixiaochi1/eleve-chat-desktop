@@ -23,6 +23,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { fetchBotsRoster, type BotRosterEntry } from '../utils/api';
+import { fetchUnionRoster } from '../services/bot-relay';
 import { getWsClient } from '../services/ws-client';
 import * as storage from '../utils/storage';
 
@@ -32,12 +33,22 @@ const ROSTER_POLL_MS = 5 * 1000;
 // ── 内部状态 ──
 
 let seeded = false;
-/** 每 profile 水位线（epoch 秒）——只单调推进 */
+/**
+ * 水位线/未读表。🔴 2026-09-05 round-54：键从 profile 改为
+ * **canonical_session_id ?? profile**——union 花名册含远端连接行，两台机器
+ * 的同名 profile（各自的 default）共用 profile 键会互相覆盖水位线；
+ * canonical session id 全局唯一（对齐 Hermes botActivitySession 锚定
+ * canonical_session 的语义），无 canonical 会话的行回退 profile 键
+ * （无会话 = 无活动 = 永不置未读）。
+ */
 const watermarks = new Map<string, number>();
-/** 每 profile 未读标志 */
+/** 未读标志（键同上） */
 const unread = new Map<string, boolean>();
-/** 每 profile canonical session id（on-screen 判定用，随 roster 刷新） */
-const canonicalSids = new Map<string, string>();
+
+/** 未读键：canonical session id 优先（跨连接唯一），回退 profile */
+function unreadKey(bot: BotRosterEntry): string {
+  return bot.canonical_session_id || bot.profile;
+}
 
 let polling = false;
 const listeners = new Set<() => void>();
@@ -64,53 +75,80 @@ function activeSessionId(): string | null {
 export function ingestBotRoster(bots: BotRosterEntry[]): void {
   let changed = false;
   for (const bot of bots) {
-    const profile = bot.profile;
-    const sid = bot.canonical_session_id || null;
+    const key = unreadKey(bot);
     const la = bot.last_active || 0;
-    if (sid) canonicalSids.set(profile, sid);
-    else canonicalSids.delete(profile);
 
-    const wm = watermarks.get(profile) ?? 0;
-    if (!seeded || la > wm) watermarks.set(profile, la);
+    const wm = watermarks.get(key) ?? 0;
+    if (!seeded || la > wm) watermarks.set(key, la);
 
-    if (seeded && la > wm && sid && sid !== activeSessionId()) {
-      if (!unread.get(profile)) {
-        unread.set(profile, true);
+    // 不在屏上 = 该 canonical 会话不是当前活动会话（键即 sid；远端会话
+    // 永不可能是本地活动会话 → 远端活动正确置未读）。后端契约：
+    // last_active 有值必有 canonical_session_id（同源返回），无 sid 的行
+    // la=0 走不到此分支。
+    if (seeded && la > wm && key !== activeSessionId()) {
+      if (!unread.get(key)) {
+        unread.set(key, true);
         changed = true;
       }
-      watermarks.set(profile, la);
+      watermarks.set(key, la);
     }
   }
   seeded = true;
   if (changed) emit();
 }
 
-/** 打开某 bot 的私聊后调用：水位线推进到当前 + 清未读（Hermes ack 同义） */
-export function markBotRead(profile: string): void {
-  const wm = watermarks.get(profile) ?? 0;
-  const la = latestByProfile.get(profile) ?? wm;
-  watermarks.set(profile, Math.max(wm, la));
-  if (unread.get(profile)) {
-    unread.set(profile, false);
+/** 打开某 bot 的私聊后调用：水位线推进到当前 + 清未读（Hermes ack 同义）。
+ *  参数 = 未读键（canonical_session_id ?? profile，与 ingestBotRoster 同一公式）。 */
+export function markBotRead(key: string): void {
+  const wm = watermarks.get(key) ?? 0;
+  const la = latestByKey.get(key) ?? wm;
+  watermarks.set(key, Math.max(wm, la));
+  if (unread.get(key)) {
+    unread.set(key, false);
     emit();
   }
 }
 
 /** 轮询期间的最新 last_active（markBotRead 用，比水位线更新） */
-const latestByProfile = new Map<string, number>();
+const latestByKey = new Map<string, number>();
+
+let tick = 0;
+let unionBusy = false;
+
+/**
+ * 🔴 2026-09-05 round-54：远端 union 帧降频拉取（每第 4 tick ≈ 20s）——
+ * 此前 ingest 只喂本地行（BotsPane 挂载时），远端 bot 被跨网关 DM 后桌面
+ * 无任何未读指示（Hermes trackInboundActivity 消费 union roster 含远端）。
+ * 拉取失败静默（远端行由 fetchUnionRoster 的 last-good ghost 兜底）。
+ */
+async function pollUnionOnce(): Promise<void> {
+  if (unionBusy) return;
+  unionBusy = true;
+  try {
+    ingestBotRoster((await fetchUnionRoster()).map(r => r.entry));
+  } catch {
+    // 本地连接不可用等——下轮重试
+  } finally {
+    unionBusy = false;
+  }
+}
 
 async function pollOnce(): Promise<void> {
   try {
     const bots = await fetchBotsRoster();
     for (const bot of bots) {
       const la = bot.last_active || 0;
-      const prev = latestByProfile.get(bot.profile) ?? 0;
-      if (la > prev) latestByProfile.set(bot.profile, la);
+      const key = unreadKey(bot);
+      const prev = latestByKey.get(key) ?? 0;
+      if (la > prev) latestByKey.set(key, la);
     }
     ingestBotRoster(bots);
   } catch {
     // WS 未连接/暂不可用：下轮重试（session-status.ts 同款容错）
   }
+  // 远端帧：降频（本地 5s 一次，union 每 4 tick 一次）
+  tick += 1;
+  if (tick % 4 === 0) void pollUnionOnce();
 }
 
 function ensurePolling(): void {
@@ -127,11 +165,12 @@ ensurePolling();
 
 // ── 订阅 hook ──
 
-/** 订阅单个 bot 的未读标志（快照值稳定，无变化不重渲染） */
-export function useBotUnread(profile: string): boolean {
+/** 订阅单个 bot 的未读标志（参数 = 未读键，与 ingestBotRoster 同一公式；
+ *  快照值稳定，无变化不重渲染） */
+export function useBotUnread(key: string): boolean {
   return useSyncExternalStore(
     subscribe,
-    () => unread.get(profile) ?? false,
+    () => unread.get(key) ?? false,
     () => false,
   );
 }

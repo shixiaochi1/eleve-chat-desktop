@@ -123,6 +123,14 @@ export function getRemoteSocket(id: string): GatewayWsClient {
  * Route an RPC to the owning connection (aligned with Hermes requestForBot /
  * host.requestProfile): null route = active (main) connection via bridge.
  * timeoutMs 透传给 sendRpc（bot_relay.deliver 等长处理器需要 900s+ 预算）。
+ *
+ * 🔴 2026-09-05 round-54 P0 修复：route 只决定骑哪条 socket，**不再往
+ * params 注入 profile**。此前 `{ ...params, profile: route.profile }` 把
+ * 调用点显式传入的目标 profile 无条件覆盖为 route.profile（routeOf 恒
+ * 'default'）——远端 `bot.chat.ensure` 建的是 default 的 Bot Chat 而非
+ * 点中的 bot；relay drain 的 `bot_relay.deliver` 恒投给远端 default。
+ * Hermes 同语义：requestForBot 仅路由、不改 params，业务参数由调用点自足。
+ * route.profile 保留为未来 per-profile 路由的通道标识，不参与参数合成。
  */
 export async function requestForBot<T = unknown>(
   route: BotRoute | null | undefined,
@@ -133,7 +141,7 @@ export async function requestForBot<T = unknown>(
   if (route && route.connectionId) {
     const sock = getRemoteSocket(route.connectionId);
     await sock.whenConnected();
-    return sock.sendRpc(method, { ...params, profile: route.profile }, timeoutMs) as Promise<T>;
+    return sock.sendRpc(method, { ...params }, timeoutMs) as Promise<T>;
   }
   const { call } = await import('../utils/bridge');
   return call(method, params) as Promise<T>;

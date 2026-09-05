@@ -116,7 +116,10 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
     try {
       const [unionRows, roomList] = await Promise.all([fetchUnionRoster(), fetchBotRooms()]);
       setBots(unionRows);
-      ingestBotRoster(unionRows.filter(r => !r.isRemote).map(r => r.entry));
+      // 🔴 2026-09-05 round-54：远端行一并 ingest（此前 filter !isRemote →
+      // 远端 bot 无未读信号）；键由 canonical_session_id 区分，同名 profile
+      // 不冲突。useBotUnread 轮询已挂远端帧，此处保留全量喂给 UI 即时性。
+      ingestBotRoster(unionRows.map(r => r.entry));
       setRooms(roomList);
       try {
         const res = await requestForBot<{ replicas?: ReplicaMetaRow[] }>(
@@ -186,7 +189,9 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   const openBotChat = async (profile: string) => {
     try {
       const sid = await ensureBotChat(profile);
-      markBotRead(profile);
+      // 🔴 2026-09-05 round-54：ack 锚定 canonical 会话（未读键公式），
+      // profile 仅作无会话回退。
+      markBotRead(sid || profile);
       if (sid) onOpenBotChat(sid);
     } catch (e) {
       setError((e as Error).message);
@@ -199,13 +204,16 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
       return;
     }
     try {
-      await requestForBot(
+      // 🔴 2026-09-05 round-54 P0 修复配套：requestForBot 不再注入
+      // params.profile——此处显式传目标 profile，ensure 的才是点中的 bot
+      // （此前被 route.profile='default' 覆盖，远端建的是 default 的 Bot Chat）。
+      const res = await requestForBot<{ session_id?: string }>(
         { connectionId: row.connectionId, profile: 'default' },
         'bot.chat.ensure',
         { profile: row.entry.profile },
         15_000,
       );
-      markBotRead(row.entry.profile);
+      markBotRead(res?.session_id || row.entry.canonical_session_id || row.entry.profile);
       setNotice(
         `已在远程连接「${row.connectionLabel}」就绪 @${row.entry.handle} 的 Bot Chat。` +
         `Agent 间的跨网关私信已可经 relay 管道投递（message_agent 目标用 @${row.entry.handle}@${row.connectionId}）`,

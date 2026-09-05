@@ -159,7 +159,10 @@ export function BotRosterRow({ row, onOpen, onRowMenu }: {
   onRowMenu: (x: number, y: number) => void;
 }) {
   const bot = row.entry;
-  const unread = useBotUnread(bot.profile);
+  // 🔴 2026-09-05 round-54：未读键 = canonical_session_id ?? profile（与
+  // useBotUnread.ingest 同一公式）——union 远端行的同名 profile 不再与本地
+  // 行共用水位线；preview identity = click identity（锚定的就是行点击打开的会话）。
+  const unread = useBotUnread(bot.canonical_session_id || bot.profile);
   return (
     <button
       className={cn(
