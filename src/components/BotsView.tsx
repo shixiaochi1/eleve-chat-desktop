@@ -299,7 +299,10 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
         reader.readAsDataURL(f);
       });
       if (!data) continue;
-      const kind: RoomAttachmentDraft['kind'] = /^image\//.test(f.type || '')
+      // 🔴 2026-09-05 round-60：kind 判定兜底——Windows 部分拖拽/粘贴场景
+      // file.type 为空，此前图片会误判为 "file"（降级为名字引用，成员看不到图）
+      const looksImage = /^image\//.test(f.type || '') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name || '');
+      const kind: RoomAttachmentDraft['kind'] = looksImage
         ? 'image'
         : (f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '')) ? 'pdf' : 'file';
       let thumb: string | undefined;
@@ -513,6 +516,17 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
           }
           return null; // turn.settled/failed/room.created 不渲染（信息在气泡与状态行里）
         })}
+        {/* 🔴 2026-09-05 round-60：讨论进行中的可见反馈——turn.started 已不
+            渲染（round-53），成员轮 LLM 运行期间事件流完全静默，用户观感
+            "发消息没反应"（发图卡死事故的观感放大器）。对齐 Hermes 群聊
+            running 态：仅在等待时显示一行状态，下一事件到达即自然消失，
+            不产生历史刷屏。 */}
+        {roomBusy && (
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground py-0.5">
+            <Loader size={11} className="animate-spin opacity-60" />
+            <span>成员讨论中…</span>
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
 
