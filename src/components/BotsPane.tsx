@@ -15,7 +15,7 @@
  */
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
-import { Loader, MessageSquarePlus, Pencil, UsersRound, X } from 'lucide-react';
+import { Loader, Plus, Pencil, UsersRound, X } from 'lucide-react';
 import {
   createBotRoom, ensureBotChat, fetchBotRooms,
 } from '../utils/api';
@@ -31,7 +31,6 @@ interface BotsPaneProps {
   onOpenBotChat: (id: string) => void;
   onOpenBotRoom: (roomId: string) => void;
   onEditAgent?: (profile: string) => void;
-  onPanelChange?: (panel: string | null) => void;
 }
 
 interface ReplicaMetaRow {
@@ -95,7 +94,7 @@ function RoomCard({ room, active, onOpen }: { room: BotRoom; active: boolean; on
   );
 }
 
-export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, onPanelChange }: BotsPaneProps) {
+export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: BotsPaneProps) {
   const [bots, setBots] = useState<UnionRosterRow[]>([]);
   const [rooms, setRooms] = useState<BotRoom[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,7 +109,6 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   const remoteCount = useMemo(() => bots.filter(b => b.isRemote).length, [bots]);
   const [replicas, setReplicas] = useState<ReplicaMetaRow[]>([]);
   const takeableReplicas = useMemo(() => replicas.filter(r => r.state === 'replica'), [replicas]);
-  const needsMoreAgents = !loading && localBots.length < 2;
 
   const loadList = useCallback(async () => {
     try {
@@ -248,12 +246,15 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
           >
             <Loader size={14} className={cn(loading && 'animate-spin')} />
           </button>
+          {/* 🔴 2026-09-05 round-59：新建群聊按钮 1:1 对齐 Agent 侧栏新建按钮
+              （ProfilePanel 胶囊形 primary 渐变 + 发光阴影 + hover 上浮） */}
           <button
-            className="p-1.5 rounded-md hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+            className="inline-flex items-center gap-1.5 pl-1 pr-2.5 h-[22px] rounded-full text-[11px] leading-normal font-semibold transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_1px_3px_rgba(0,0,0,0.12),0_3px_8px_var(--theme-shadow-color)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(0,0,0,0.16),0_6px_16px_var(--theme-shadow-color-heavy)] hover:brightness-[1.06] hover:-translate-y-[1.5px] shrink-0"
             title="新建群聊"
             onClick={() => setShowCreate(true)}
           >
-            <MessageSquarePlus size={15} />
+            <Plus size={12} strokeWidth={2.5} className="shrink-0" />
+            新建群聊
           </button>
         </div>
       </div>
@@ -271,21 +272,6 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
       )}
 
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-4">
-        {needsMoreAgents && (
-          <div className="rounded-lg border border-[var(--ui-stroke-tertiary)] bg-accent/20 px-3 py-2.5 text-xs text-muted-foreground space-y-2">
-            <div>
-              Bot Mode 需要至少 <span className="text-foreground font-medium">2 个 Agent</span> 才能组群聊或互发私信。
-              当前只有 {localBots.length} 个本地 Agent——请先到「Agent」页面新建更多 Agent（各自配好模型），再回来创建群聊。
-            </div>
-            <button
-              className="px-2.5 py-1 rounded-md bg-accent text-accent-foreground text-xs font-medium"
-              onClick={() => onPanelChange?.('agents')}
-            >
-              去 Agent 页面新建 →
-            </button>
-          </div>
-        )}
-
         {takeableReplicas.length > 0 && (
           <section>
             <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">待接管房间</div>

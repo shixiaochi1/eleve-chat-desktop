@@ -551,52 +551,57 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             ))}
           </div>
         )}
-        {/* 🔴 2026-09-05 round-53：输入框视觉与主聊天区统一——复用共享
-            composer-surface 表面（主输入区/宫格卡片同款，chrome 质感由
-            容器承载、textarea 透明）+ 同款高对比圆形发送键 */}
-        <div className="composer-surface mx-3 mb-2.5 flex items-end gap-1 px-1.5 py-1">
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(e) => { void addFiles(e.target.files); e.target.value = ''; }}
-          />
-          <button
-            className="p-2 rounded-full hover:bg-accent/50 text-muted-foreground hover:text-foreground shrink-0 transition-colors"
-            onClick={() => fileInputRef.current?.click()}
-            title="添加附件（≤15MB，最多 4 个）"
-            disabled={sending || roomBusy}
-          >
-            <Paperclip size={16} />
-          </button>
-          <MentionTextarea
-            members={room.members}
-            value={draft}
-            onChange={setDraft}
-            onSubmit={send}
-            onPaste={(e) => { const fs = e.clipboardData?.files; if (fs?.length) { e.preventDefault(); void addFiles(fs); } }}
-            placeholder={`发消息到「${room.name}」… 输入 @ 唤起成员，可粘贴/拖入附件`}
-          />
-          {/* 发送/停止双态键（对齐主输入区形态：黑底白箭头/白底黑箭头，
-              停止态小方块接房间级 stopBotRoom） */}
-          <button
-            className={cn(
-              'inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full p-0 outline-none transition-all duration-150',
-              'bg-foreground text-background hover:bg-foreground/90 active:scale-90',
-              'disabled:cursor-not-allowed disabled:bg-foreground/30 disabled:opacity-100 disabled:active:scale-100',
-            )}
-            disabled={roomBusy ? busy : (!draft.trim() && !attachments.length) || sending}
-            onClick={roomBusy ? stopRoom : send}
-            title={roomBusy ? '停止当前讨论' : '发送'}
-            aria-label={roomBusy ? 'Stop discussion' : 'Send message'}
-          >
-            {roomBusy ? (
-              <span className="block size-2.5 rounded-[0.1875rem] bg-current" />
-            ) : (
-              <Send size={16} />
-            )}
-          </button>
+        {/* 🔴 2026-09-05 round-59：输入框 UI 1:1 对齐主消息区 InputArea——
+            两行形态（输入在上/控制行在下）+ rounded-2xl border 容器 +
+            composer 高度/内边距/控制尺寸变量全套（此前单行横排形态与主区不同） */}
+        <div className="composer-surface relative mx-3 mb-2.5 rounded-2xl border">
+          <div className="flex flex-col gap-(--composer-row-gap) px-(--composer-surface-pad-x) py-(--composer-surface-pad-y)">
+            <MentionTextarea
+              members={room.members}
+              value={draft}
+              onChange={setDraft}
+              onSubmit={send}
+              onPaste={(e) => { const fs = e.clipboardData?.files; if (fs?.length) { e.preventDefault(); void addFiles(fs); } }}
+              placeholder={`发消息到「${room.name}」… 输入 @ 唤起成员，可粘贴/拖入附件`}
+            />
+            {/* 控制行 — 对齐主输入区：附件在左，发送/停止双态键 ml-auto 在右 */}
+            <div className="flex items-center gap-1">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => { void addFiles(e.target.files); e.target.value = ''; }}
+              />
+              <button
+                className="inline-flex size-(--composer-control-size) shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
+                onClick={() => fileInputRef.current?.click()}
+                title="添加附件（≤15MB，最多 4 个）"
+                disabled={sending || roomBusy}
+              >
+                <Paperclip size={16} />
+              </button>
+              {/* 发送/停止双态键（对齐主输入区形态：黑底白箭头/白底黑箭头，
+                  停止态小方块接房间级 stopBotRoom） */}
+              <button
+                className={cn(
+                  'ml-auto inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full p-0 outline-none transition-all duration-150',
+                  'bg-foreground text-background hover:bg-foreground/90 active:scale-90',
+                  'disabled:cursor-not-allowed disabled:bg-foreground/30 disabled:opacity-100 disabled:active:scale-100',
+                )}
+                disabled={roomBusy ? busy : (!draft.trim() && !attachments.length) || sending}
+                onClick={roomBusy ? stopRoom : send}
+                title={roomBusy ? '停止当前讨论' : '发送'}
+                aria-label={roomBusy ? 'Stop discussion' : 'Send message'}
+              >
+                {roomBusy ? (
+                  <span className="block size-2.5 rounded-[0.1875rem] bg-current" />
+                ) : (
+                  <Send size={16} />
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -648,12 +653,14 @@ function MentionTextarea({
   const [selected, setSelected] = useState(0);
 
   // 🔴 2026-09-05 round-49：自动调高（对齐主输入区 InputArea syncHeight：
-  // 随内容增长到上限 160px，长文本不再固定单行滚动）
+  // 随内容增长到上限，长文本不再固定单行滚动）。round-59：上限 150px 与
+  // --composer-input-max-height（9.375rem）同值，textarea class 已用该变量
+  // 硬限高，JS 上限与其保持一致。
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, 150)}px`;
   }, [value]);
 
   const options: MentionOption[] = [];
@@ -730,7 +737,7 @@ function MentionTextarea({
         rows={1}
         value={value}
         placeholder={placeholder}
-        className="max-h-40 min-h-[36px] w-full resize-none border-0 bg-transparent px-1 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/60 focus:ring-0"
+        className="max-h-(--composer-input-max-height) min-h-(--composer-input-min-height) w-full resize-none border-0 bg-transparent px-1 pb-0.5 pt-1 text-sm leading-normal text-foreground outline-none placeholder:text-muted-foreground/60 focus:ring-0"
         onBlur={() => setToken(null)}
         onPaste={onPaste}
         onChange={(e) => { onChange(e.target.value); refreshToken(e.target); }}
