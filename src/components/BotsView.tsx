@@ -421,7 +421,7 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             const atts = Array.isArray(ev.payload.attachments) ? (ev.payload.attachments as Array<{ name?: string; kind?: string; thumb?: string }>) : [];
             return (
               <div key={ev.seq} className="flex justify-end">
-                <div className="max-w-[85%] bg-user-bubble text-foreground border border-user-bubble-border rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm">
+                <div className="max-w-[85%] bg-user-bubble text-foreground border border-user-bubble-border rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm select-text">
                   {atts.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-1.5">
                       {atts.map((a, i) =>
@@ -445,8 +445,8 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             const display = memberByHandle[handle] || handle;
             return (
               <div key={ev.seq} className="flex flex-col items-start">
-                <span className="text-[11px] text-muted-foreground mb-0.5 px-1">@{handle} · {display}</span>
-                <div className="max-w-[85%] bg-card text-card-foreground border border-[var(--ui-stroke-tertiary)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm">
+                <span className="text-[11px] text-muted-foreground mb-0.5 px-1 select-text">@{handle} · {display}</span>
+                <div className="max-w-[85%] bg-card text-card-foreground border border-[var(--ui-stroke-tertiary)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm select-text">
                   {String(ev.payload.text ?? '')}
                 </div>
               </div>
@@ -475,10 +475,12 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             if (!parts.length) return null;
             return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground py-0.5">— {parts.join('；')} —</div>;
           }
-          // 🔴 2026-09-04 turn 终态四分：缺席/取消/轮转中对用户可见（闭环感知）
+          // 🔴 2026-09-05 round-53：turn.started 不再渲染（用户实测刷屏——
+          // 每个成员发言前都有一条"· @ 发言中"，且 gateway actor 无 handle
+          // 显示为空 @；成员发言气泡本身就是"已回应"指示，轮转状态由
+          // roomBusy 双态键表达）。事件保留在日志供审计。
           if (ev.kind === 'turn.started') {
-            const h = String(ev.actor.handle || ev.actor.id || '');
-            return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/60 py-0.5">· @{h} 发言中…</div>;
+            return null;
           }
           if (ev.kind === 'turn.held') {
             const h = String(ev.actor.handle || ev.actor.id || '');
@@ -546,7 +548,10 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             ))}
           </div>
         )}
-        <div className="flex items-center gap-2 px-3 py-2.5">
+        {/* 🔴 2026-09-05 round-53：输入框视觉与主聊天区统一——复用共享
+            composer-surface 表面（主输入区/宫格卡片同款，chrome 质感由
+            容器承载、textarea 透明）+ 同款高对比圆形发送键 */}
+        <div className="composer-surface mx-3 mb-2.5 flex items-end gap-1 px-1.5 py-1">
           <input
             ref={fileInputRef}
             type="file"
@@ -555,12 +560,12 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             onChange={(e) => { void addFiles(e.target.files); e.target.value = ''; }}
           />
           <button
-            className="p-2 rounded-full hover:bg-accent/50 text-muted-foreground shrink-0"
+            className="p-2 rounded-full hover:bg-accent/50 text-muted-foreground hover:text-foreground shrink-0 transition-colors"
             onClick={() => fileInputRef.current?.click()}
             title="添加附件（≤15MB，最多 4 个）"
             disabled={sending || roomBusy}
           >
-            <Paperclip size={15} />
+            <Paperclip size={16} />
           </button>
           <MentionTextarea
             members={room.members}
@@ -570,15 +575,24 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             onPaste={(e) => { const fs = e.clipboardData?.files; if (fs?.length) { e.preventDefault(); void addFiles(fs); } }}
             placeholder={`发消息到「${room.name}」… 输入 @ 唤起成员，可粘贴/拖入附件`}
           />
-          {/* 🔴 2026-09-05 round-49：发送/停止双态键（对齐主输入区 InputArea
-              isStreaming 双态——讨论进行中切停止，接房间级 stopBotRoom） */}
+          {/* 发送/停止双态键（对齐主输入区形态：黑底白箭头/白底黑箭头，
+              停止态小方块接房间级 stopBotRoom） */}
           <button
-            className="p-2 rounded-full bg-accent text-accent-foreground disabled:opacity-40 shrink-0"
+            className={cn(
+              'inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full p-0 outline-none transition-all duration-150',
+              'bg-foreground text-background hover:bg-foreground/90 active:scale-90',
+              'disabled:cursor-not-allowed disabled:bg-foreground/30 disabled:opacity-100 disabled:active:scale-100',
+            )}
             disabled={roomBusy ? busy : (!draft.trim() && !attachments.length) || sending}
             onClick={roomBusy ? stopRoom : send}
             title={roomBusy ? '停止当前讨论' : '发送'}
+            aria-label={roomBusy ? 'Stop discussion' : 'Send message'}
           >
-            {roomBusy ? <Square size={14} /> : <Send size={14} />}
+            {roomBusy ? (
+              <span className="block size-2.5 rounded-[0.1875rem] bg-current" />
+            ) : (
+              <Send size={16} />
+            )}
           </button>
         </div>
       </div>
@@ -713,7 +727,7 @@ function MentionTextarea({
         rows={1}
         value={value}
         placeholder={placeholder}
-        className="max-h-40 min-h-[36px] w-full resize-none px-3 py-2 rounded-xl bg-accent/30 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+        className="max-h-40 min-h-[36px] w-full resize-none border-0 bg-transparent px-1 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/60 focus:ring-0"
         onBlur={() => setToken(null)}
         onPaste={onPaste}
         onChange={(e) => { onChange(e.target.value); refreshToken(e.target); }}

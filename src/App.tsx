@@ -731,6 +731,12 @@ export default function App() {
     // 流式中/审批中点当前 Agent 卡片会把审批卡清掉、流式 UI 重置）；
     // 宫格下同焦点卡片点选同样无需清 scope/pinned。
     if (name === currentProfile) return;
+    // 🔴 2026-09-05 round-53 联动回归修复：群聊主区下点 Agent 卡片 → 先退回
+    // 单视图再走完整四步恢复（否则主区卡在群聊房间、右抽屉被 group 域清空
+    // ——用户实测"切换不联动"；对齐 grid 分支的视图切换语义）
+    if (viewMode === 'bots') {
+      setViewMode('single');
+    }
     // 🔴 宫格模式：只切 UI 焦点 + WS 盖章，不做会话保存/恢复（useGridChat 自管 per-agent session）。
     // 侧栏点选 / 宫格点选 都走此路径，currentProfile 是焦点唯一权威源。
     if (viewMode === 'grid') {
@@ -1055,6 +1061,14 @@ export default function App() {
   //      ；当前会话已属于该域且非 busy → 保持不打断
   const handleProjectEntered = useCallback((path: string, recommendedSessionId?: string | null) => {
     console.log(`[app] handleProjectEntered path=${path} rec=${recommendedSessionId}`);
+    // 🔴 2026-09-05 round-53 联动回归修复（用户实测：群聊视图下点项目卡片，
+    // 消息区与右抽屉文件都不联动）——handleProjectEntered/handleProfileChange
+    // 原本只有 grid 分支（round-43 迁 bots 布局时遗漏），viewMode 卡在 'bots'：
+    // 主区不换、右抽屉被 group 域清空。点项目/Agent 卡片 = 离开群聊上下文，
+    // 统一先退回单视图再走既定联动链路。
+    if (viewMode === 'bots') {
+      setViewMode('single');
+    }
     if (path) {
       setPanelRoot(path);        // ① 文件面板映射 → 项目绑定地址（视图，非项目地址本身）
       setSessionCwd(path);       // 终端/新会话落点 → 项目根（Hermes syncProjectCwd 语义）
