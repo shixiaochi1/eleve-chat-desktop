@@ -8,7 +8,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader, Plus, X } from 'lucide-react';
-import { createProfile } from '../utils/api';
+import { createProfile, ensureBotChat } from '../utils/api';
+import { requestForBot } from '../services/connections';
 import { notifySuccess, notifyError } from '../utils/notifications';
 import { generateProfileId, ensureUniqueId } from '../lib/profile-id';
 
@@ -84,6 +85,27 @@ export default function CreateAgentPopover({ onClose, onCreated, onProfileChange
         { noSkills: blank },
       );
       notifySuccess(`Agent「${nick}」已创建并切换`);
+      // 🔴 2026-09-05 round-57：intro kick（1:1 对齐 Hermes canonical-chat.ts
+      // kickoffText #91827——New Agent 创建**唯一**触发：brand-new bot 主动向
+      // owner 打一次招呼，forever-chat 的第一行。花名册点击/DM 投递路径绝不
+      // 重发——ensure 只是解析，重发烧一轮模型且把 user 归属的 intro 盖进
+      // 聊天（Hermes ScottFive 教训）。文本跟随产品语言（ELEVE 前端 UI 中文；
+      // Hermes #91827：intro 语言 = 用户语言，bot 回复跟 prompt 语言走）。
+      // 后台发射不阻断创建流：失败则下次点击打开空 Bot Chat，无损。
+      void (async () => {
+        try {
+          const sid = await ensureBotChat(id);
+          if (sid) {
+            await requestForBot(null, 'prompt.submit', {
+              session_id: sid,
+              text: '你好！请介绍一下你自己。',
+              profile: id,
+            });
+          }
+        } catch {
+          /* intro 失败不阻断创建流 */
+        }
+      })();
       onProfileChange?.(id);
       onCreated?.(id);
       onClose();
