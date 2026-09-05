@@ -564,8 +564,10 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
               onPaste={(e) => { const fs = e.clipboardData?.files; if (fs?.length) { e.preventDefault(); void addFiles(fs); } }}
               placeholder={`发消息到「${room.name}」… 输入 @ 唤起成员，可粘贴/拖入附件`}
             />
-            {/* 控制行 — 对齐主输入区：附件在左，发送/停止双态键 ml-auto 在右 */}
-            <div className="flex items-center gap-1">
+            {/* 控制行 — 1:1 对齐主输入区（gap = --composer-control-gap；附件按钮 =
+                AttachMenu 同款 class；发送键 size = --composer-control-primary-size，
+                外层 ml-auto + control-gap 包裹同款） */}
+            <div className="flex items-center gap-(--composer-control-gap)">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -574,32 +576,34 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
                 onChange={(e) => { void addFiles(e.target.files); e.target.value = ''; }}
               />
               <button
-                className="inline-flex size-(--composer-control-size) shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
+                className="inline-flex size-(--composer-control-size) shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground"
                 onClick={() => fileInputRef.current?.click()}
                 title="添加附件（≤15MB，最多 4 个）"
                 disabled={sending || roomBusy}
               >
                 <Paperclip size={16} />
               </button>
-              {/* 发送/停止双态键（对齐主输入区形态：黑底白箭头/白底黑箭头，
+              {/* 发送/停止双态键（1:1 对齐主输入区：黑底白箭头/白底黑箭头，
                   停止态小方块接房间级 stopBotRoom） */}
-              <button
-                className={cn(
-                  'ml-auto inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full p-0 outline-none transition-all duration-150',
-                  'bg-foreground text-background hover:bg-foreground/90 active:scale-90',
-                  'disabled:cursor-not-allowed disabled:bg-foreground/30 disabled:opacity-100 disabled:active:scale-100',
-                )}
-                disabled={roomBusy ? busy : (!draft.trim() && !attachments.length) || sending}
-                onClick={roomBusy ? stopRoom : send}
-                title={roomBusy ? '停止当前讨论' : '发送'}
-                aria-label={roomBusy ? 'Stop discussion' : 'Send message'}
-              >
-                {roomBusy ? (
-                  <span className="block size-2.5 rounded-[0.1875rem] bg-current" />
-                ) : (
-                  <Send size={16} />
-                )}
-              </button>
+              <div className="ml-auto flex items-center gap-(--composer-control-gap)">
+                <button
+                  className={cn(
+                    'inline-flex size-(--composer-control-primary-size) shrink-0 cursor-pointer items-center justify-center rounded-full p-0 outline-none transition-all duration-150',
+                    'bg-foreground text-background hover:bg-foreground/90 active:scale-90',
+                    'disabled:cursor-not-allowed disabled:bg-foreground/30 disabled:opacity-100 disabled:active:scale-100',
+                  )}
+                  disabled={roomBusy ? busy : (!draft.trim() && !attachments.length) || sending}
+                  onClick={roomBusy ? stopRoom : send}
+                  title={roomBusy ? '停止当前讨论' : '发送'}
+                  aria-label={roomBusy ? 'Stop discussion' : 'Send message'}
+                >
+                  {roomBusy ? (
+                    <span className="block size-2.5 rounded-[0.1875rem] bg-current" />
+                  ) : (
+                    <Send size={16} />
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -712,7 +716,7 @@ function MentionTextarea({
   };
 
   return (
-    <div className="relative min-w-0 flex-1">
+    <div className="relative min-w-0">
       {open ? (
         <div className="absolute bottom-full left-0 z-50 mb-1 max-h-48 w-64 overflow-y-auto rounded-md border border-[var(--ui-stroke-tertiary)] bg-popover text-popover-foreground py-1 shadow-lg">
           {options.map((option, index) => (
@@ -737,7 +741,7 @@ function MentionTextarea({
         rows={1}
         value={value}
         placeholder={placeholder}
-        className="max-h-(--composer-input-max-height) min-h-(--composer-input-min-height) w-full resize-none border-0 bg-transparent px-1 pb-0.5 pt-1 text-sm leading-normal text-foreground outline-none placeholder:text-muted-foreground/60 focus:ring-0"
+        className="max-h-(--composer-input-max-height) min-h-(--composer-input-min-height) w-full resize-none border-0 bg-transparent px-1 pb-0.5 pt-1 text-sm leading-normal outline-none placeholder:text-muted-foreground/60"
         onBlur={() => setToken(null)}
         onPaste={onPaste}
         onChange={(e) => { onChange(e.target.value); refreshToken(e.target); }}
