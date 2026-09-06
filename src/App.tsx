@@ -860,6 +860,9 @@ export default function App() {
     restoreProfileSession(currentProfile);
   }, [restoreProfileSession, currentProfile]);
   exitGridRef.current = handleExitGrid; // 🔴 P1-3: 绑定到 toggleViewMode 的 ref
+  // 🔴 2026-09-07 round-69：宫格离开的指针写回兜底已收敛至 GridModeView
+  // 卸载 cleanup（round-68b 在此放的 viewMode 变化 effect 实际 no-op——
+  // effect 执行时宫格已卸载、gridRef.current 已被 React 置 null；已删）。
 
   // 展开某个 Agent 为单视图
   const handleExpandAgent = useCallback((profile: string) => {
@@ -867,6 +870,20 @@ export default function App() {
     setViewMode('single');
     restoreProfileSession(profile);
   }, [restoreProfileSession]);
+
+  // 🔴 2026-09-06 round-68（用户反馈联动断节）：IconBar AGENT 按钮 = 完整
+  // 进入 Agent 会话界面——**打开臂主区联动**：宫格先写回各卡指针、群聊
+  // 视图直接退回，统一 restoreProfileSession 恢复该 Agent 最近会话（语义
+  // 对齐 handleExitGrid）。此前 activate 只开左栏，主区停在群聊/宫格/旧态，
+  // 须再点 Agent 卡片才切会话。关闭臂（null）与其余面板不联动。
+  const handleLeftPanelChange = useCallback((panel: string | null) => {
+    if (panel === 'agents' && viewMode !== 'single') {
+      if (viewMode === 'grid') gridRef.current?.persistPointers();
+      setViewMode('single');
+      restoreProfileSession(currentProfile);
+    }
+    setActivePanel(panel);
+  }, [viewMode, currentProfile, restoreProfileSession]);
 
   // ── useSessionActions: session switch/delete/new ──
   // 先于 usePromptActions 调用，因为 handleNewSession 需要传给 usePromptActions
@@ -1451,8 +1468,9 @@ export default function App() {
   // ── command center navigation ──
   const handleNavigate = useCallback((panel: string) => {
     // 🔴 2026-08-10 日志已搬入 LOGO 面板（GatewayPanel 内嵌 LogsPanel），移除 overlay 入口
-    setActivePanel(panel);
-  }, []);
+    // 🔴 round-68：统一走左栏打开回调（agents 打开臂联动主区回最近会话）
+    handleLeftPanelChange(panel);
+  }, [handleLeftPanelChange]);
 
   // ── restart backend ──
   const handleRestartService = useCallback(async () => {
@@ -1565,7 +1583,7 @@ export default function App() {
           leftOpen={true}
           leftWidth={activePanel ? `${52 + panelWidth}px` : '52px'}
           onLeftResize={(w: number) => setPanelWidth(Math.max(268, Math.min(500, w - 52)))}
-          onLeftToggle={() => setActivePanel(activePanel ? null : 'agents')}
+          onLeftToggle={() => handleLeftPanelChange(activePanel ? null : 'agents')}
           // 🔴 2026-08-12 老大：Agent 面板最小宽度 320（总宽，含 52px 图标栏）——
           //   拖拽不得让卡片/文字变形（面板最小 268px；初始 260px 不受影响）
           minLeftWidth={320}
@@ -1585,7 +1603,7 @@ export default function App() {
         >
           {/* 左侧面板：图标栏 + 侧边面板卡片 */}
           <Pane side="left" className="pane-left-column">
-            <IconBar activePanel={activePanel} onPanelChange={setActivePanel} onOpenOverlay={handleOpenOverlay} gatewayOnline={gatewayHealth.online} onToggleFiles={handleToggleFiles} />
+            <IconBar activePanel={activePanel} onPanelChange={handleLeftPanelChange} onOpenOverlay={handleOpenOverlay} gatewayOnline={gatewayHealth.online} onToggleFiles={handleToggleFiles} />
             {activePanel && (
               <div className="side-panel-card">
                 <SidePanel
@@ -1667,7 +1685,7 @@ export default function App() {
                 className="absolute top-2 left-2 z-20 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground transition-colors"
                 aria-label="Expand sidebar"
                 title="展开侧边面板"
-                onClick={() => setActivePanel('agents')}
+                onClick={() => handleLeftPanelChange('agents')}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />

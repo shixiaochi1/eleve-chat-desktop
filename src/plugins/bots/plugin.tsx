@@ -55,7 +55,12 @@ const botsPlugin: ElevePlugin = {
       data: { viewId: 'bots', label: 'Bots', component: BotsRoomMainView },
     });
 
-    // IconBar 入口：打开左栏 Bots 面板（主区不动——对齐 Hermes tab strip 语义）。
+    // IconBar 入口：打开左栏 Bots 面板。
+    // 🔴 2026-09-06 round-68（用户反馈联动断节）：此前 activate 只开左栏
+    // （Hermes tab strip 语义"主区不动"）——用户实测点群聊按钮主区仍停留
+    // 原内容，须再点 RoomCard 才切群聊视图。图标按钮 = **完整进入群聊
+    // 界面**：左栏 + 主区（bots 视图，未选中房间时主区自动选最近活跃
+    // 房间）一体联动。
     // 🔴 round-53：图标定稿 MessagesSquare（多路消息气泡——群聊=多成员多路
     // 对话；UsersRound 与 AgentIcon(Users) 撞型，用户指示更换）
     ctx.register('iconBar.action', {
@@ -65,7 +70,14 @@ const botsPlugin: ElevePlugin = {
         icon: MessagesSquare,
         label: '群聊',
         order: 25,
-        activate: () => getPluginHost()?.setPanel('bots'),
+        // 🔴 2026-09-06 round-68b：激活面板键（高亮判定）——贡献 id
+        // 'open-bots' ≠ setPanel('bots') 设的键，缺此字段按钮永不高亮
+        activePanelId: 'bots',
+        activate: () => {
+          const host = getPluginHost();
+          host?.setPanel('bots');
+          host?.openView('bots');
+        },
       },
     });
 

@@ -15,6 +15,10 @@ export interface IconBarActionData {
   label: string;
   /** 排序权重（升序，内置项之后的追加区；缺省 100） */
   order?: number;
+  /** 🔴 2026-09-06 round-68b：激活时设置的左栏面板键（高亮判定用）——
+   *  贡献 id ≠ panel 键时必填（如 bots 贡献 id='open-bots' 但 activate
+   *  设 activePanel='bots'；缺省按贡献 id 判定，静态项语义不变） */
+  activePanelId?: string;
   /** 点击行为（外挂应用 = 意图 RPC；进程内插件 = 任意动作） */
   activate: () => void;
 }

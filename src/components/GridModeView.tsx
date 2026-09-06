@@ -408,6 +408,18 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
     onExitGrid();
   }, [onExitGrid]);
 
+  // 🔴 2026-09-07 round-69（闭环复审）：宫格卸载兜底持久化——指针写回的路径
+  // 完备性保证。App 侧**同步**调用（handleExitGrid/handleLeftPanelChange/
+  // handleExpandAgent）服务"setViewMode → 立即 restoreProfileSession 同步读
+  // map"的时序（React 批处理下卸载 cleanup 晚于该同步读，不可替代）；本
+  // cleanup 覆盖**不经 restore 的离开路径**（群聊按钮 openView('bots') /
+  // BotsPane 点 bot 行 / 会话列表直切——GridModeView 直接卸载，App 无同步
+  // 写回点）。双写同值幂等（batchSaveProfilePointers 覆盖语义）。
+  // 🔴 修正记录：round-68b 曾在 App 侧用 viewMode 变化 effect 兜底——实际
+  // no-op（effect 执行时 GridModeView 已卸载、gridRef.current 已被 React 置
+  // null），假闭合。卸载时序下只有本组件自己的 cleanup 可靠。
+  useEffect(() => persistPointers, [persistPointers]);
+
   const handleExpand = useCallback((profile: string) => {
     onExpandAgent(profile);
   }, [onExpandAgent]);

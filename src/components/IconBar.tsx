@@ -30,6 +30,9 @@ interface NavItem {
   /** 🔴 2026-09-05 round-51：排序键（与插件 iconBar.action 贡献的 data.order
    *  合一排序——静态项与插件项可交错，群聊/画布得以插到文件浏览器与看板之间） */
   order?: number;
+  /** 🔴 2026-09-06 round-68b：激活面板键（高亮判定 activePanel === 此值；
+   *  缺省 = item.id——插件贡献 id ≠ panel 键时由贡献 data.activePanelId 透传） */
+  activePanelId?: string;
 }
 
 interface IconBarProps {
@@ -73,6 +76,9 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
       // 🔴 2026-09-05 round-53 修复：映射必须携带 order——此前丢失导致
       // 合并排序时插件项 fallback 100 排到末尾，群聊/画布"重排"实际未生效
       order: data.order,
+      // 🔴 2026-09-06 round-68b：高亮键透传（bots 贡献 id='open-bots' ≠
+      // activePanel='bots'——缺此字段群聊按钮在群聊界面下永不高亮）
+      activePanelId: data.activePanelId,
     }));
 
   const bottomItems: NavItem[] = [
@@ -90,7 +96,9 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
     'absolute -right-0.5 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-accent-foreground/90 shadow-[0_0_5px_var(--theme-shadow-color)]';
 
   const renderButton = (item: NavItem) => {
-    const isActive = activePanel === item.id;
+    // 🔴 2026-09-06 round-68b：高亮判定用 activePanelId（缺省 id——静态项
+    // 语义不变；插件贡献 id ≠ panel 键时显式声明激活键）
+    const isActive = activePanel === (item.activePanelId ?? item.id);
     const Icon = item.icon;
     // 🔴 2026-08-16（d1 P0-5 闭合）：有在飞任务时 tooltip 细分 running/ready
     //   （对齐 Hermes countTip(running, ready)）

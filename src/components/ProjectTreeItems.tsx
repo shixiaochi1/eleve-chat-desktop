@@ -76,6 +76,12 @@ export interface ProjectTreePanelProps {
    *   静默重拉 projects.tree（预览会话/计数/时间即时回显，老大需求：缺自动刷新机制） */
   sessionListVersion?: number;
   onSwitchSession?: (id: string) => void;
+  /** 🔴 2026-09-06 round-68c：删除会话统一走 App 权威链（handleDeleteSession：
+   *  removeProfilePointer 清僵尸指针 + detachSession 订阅注册表 + 删当前会话
+   *  清全局状态）——此前本面板删除只刷新树，profile_session_map 残留僵尸指针
+   *  → AGENT 按钮 restore 恢复到已删会话（loadHistory 404 → 空白消息区）。
+   *  SidePanel→AgentsPanel 的 props 链已铺通，此前缺声明被静默丢弃。 */
+  onDeleteSession?: (id: string) => void;
   /** 当前活动 Agent（SidePanel 透传）——🔴 所有 projects.* RPC 显式携带，
    *  不依赖 sendRpc 全局盖章（宫格焦点冒泡时序坑，对齐 ClarifyCard 显式归属模式） */
   currentProfile?: string;

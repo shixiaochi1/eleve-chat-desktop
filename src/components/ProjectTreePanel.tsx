@@ -22,7 +22,7 @@ import { mergeWorktreeLanes } from '../lib/worktree-lanes';
 import { getDismissedWorktrees, dismissWorktree } from '../lib/dismissed-worktrees';
 import { getProjectOrderIds, setProjectOrderIds, orderProjectsByIds } from '../lib/project-order';
 import { useSortableList } from '../hooks/useSortableList';
-import { deleteSessionAction, toggleArchiveSession } from '../lib/session-actions';
+import { toggleArchiveSession } from '../lib/session-actions';
 import { undoSessionTurn, compressSession, branchSession, getSessionUsage, deleteProject } from '../utils/api';
 import { gitWorktreeList, gitWorktreeRemove, type HermesGitWorktree } from '../lib/git';
 import { WorktreeDialog } from './worktree/WorktreeDialog';
@@ -38,7 +38,7 @@ import {
 } from './ProjectTreeItems';
 import { ProjectDialog, SessionRenameDialog } from './ProjectDialogs';
 
-export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwitchSession, currentProfile, onNewSessionInProject, onEnterProject, onProjectScopeChange, onProjectScopeRestored }: ProjectTreePanelProps) {
+export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwitchSession, currentProfile, onNewSessionInProject, onEnterProject, onProjectScopeChange, onProjectScopeRestored, onDeleteSession }: ProjectTreePanelProps) {
   const [tree, setTree] = useState<TreeResult | null>(null);
   // 🔴 2026-08-12 点选状态修复 v2（老大指正：点击后全部未激活）：
   //   本地 selectedId = 用户显式点选（纯前端权威），null = 未点选 → 渲染跟随后端 active_id。
@@ -231,8 +231,12 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   }, [archivedIds, fetchTree]);
 
   const handleDeleteSession = useCallback((s: SessionPreview) => {
-    void deleteSessionAction(s.id, () => { void fetchTree(true); });
-  }, [fetchTree]);
+    // 🔴 2026-09-06 round-68c：统一走 App 权威删除链（清 profile_session_map
+    // 僵尸指针 + WS 订阅注册表 + 删当前会话的全局状态收口）——此前只删后端+
+    // 刷树，指针残留使 AGENT 按钮"恢复最近会话"落到已删会话（空白消息区）。
+    // App.handleDeleteSession 内部 bump sessionListVersion → 树经既有信号自动刷新。
+    onDeleteSession?.(s.id);
+  }, [onDeleteSession]);
 
   // 重命名成功：总览刷新 + 钻取数据同步（title 即时生效）
   const handleRenamed = useCallback((id: string, title: string) => {

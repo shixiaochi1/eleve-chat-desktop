@@ -73,19 +73,54 @@ export default function BotsRoomMainView() {
   const [localBots, setLocalBots] = useState<BotRosterEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // 🔴 2026-09-06 round-68：用户显式关闭（onBack/解散回列表）→ 空态不被
+  // 自动选房劫持；组件重挂（切走再切回群聊视图/重开应用）ref 重置 →
+  // 自动选恢复（"进入群聊界面即见最近群聊"语义只对"进入"生效）。
+  const userClosedRef = useRef(false);
+
   // 房间元信息 + 名册（自持加载——主区不依赖侧栏挂载）
   useEffect(() => {
     if (!selectedRoomId) {
-      setRoom(null);
-      setLoading(false);
-      return;
+      if (userClosedRef.current) {
+        setRoom(null);
+        setLoading(false);
+        return;
+      }
+      // 🔴 2026-09-06 round-68（用户反馈联动断节）：未选中房间时不再停在
+      // 引导空态——自动选中"上次看的房间"（state 持久化），已解散则回退
+      // 最新创建的房间（后端 list_rooms created_at 升序 → 取末位），无任何
+      // 房间才空态。点群聊按钮进来即见最近群聊消息。
+      let cancelled = false;
+      setLoading(true);
+      fetchBotRooms()
+        .then((list) => {
+          if (cancelled) return;
+          const live = list.filter((r) => !r.disbanded_at);
+          const target = live.length ? live[live.length - 1] : null;
+          if (target) selectRoom(target.room_id);
+          else setLoading(false);
+        })
+        .catch(() => { if (!cancelled) setLoading(false); });
+      return () => { cancelled = true; };
     }
     let cancelled = false;
     setLoading(true);
     Promise.all([fetchBotRooms(), fetchUnionRoster()])
       .then(([roomList, unionRows]) => {
         if (cancelled) return;
-        setRoom(roomList.find((r) => r.room_id === selectedRoomId) ?? null);
+        const found = roomList.find((r) => r.room_id === selectedRoomId) ?? null;
+        if (!found) {
+          // 🔴 2026-09-07 round-69（闭环复审）：持久化的选中 id 指向已解散/
+          // 失效房间 → 不停在"房间已解散"空态，自动回退最新创建房间（与
+          // 空分支的选房语义一致）；回退后 selectRoom 触发本 effect 重跑，
+          // 新 id 必在列表 → 收敛无循环。列表空才真正空态。
+          const live = roomList.filter((r) => !r.disbanded_at);
+          if (live.length) {
+            selectRoom(live[live.length - 1].room_id);
+            return;
+          }
+        }
+        setRoom(found);
         setLocalBots(unionRows.filter((r) => !r.isRemote).map((r) => r.entry));
       })
       .catch(() => {})
@@ -115,7 +150,11 @@ export default function BotsRoomMainView() {
 
   // 🔴 事件流刷新：房间事件由 WS 推送增量（BotsRoomView 内部订阅），但
   // 选中切换时需要重置内部状态——BotsRoomView 以 room 对象为 key 重挂。
-  const handleClose = useCallback(() => selectRoom(null), []);
+  // 🔴 round-68：显式关闭打标（自动选房不劫持用户返回空态的意图）。
+  const handleClose = useCallback(() => {
+    userClosedRef.current = true;
+    selectRoom(null);
+  }, []);
 
   if (loading) {
     return (
