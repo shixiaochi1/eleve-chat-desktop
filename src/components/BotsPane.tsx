@@ -17,15 +17,17 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import { cn } from '@/lib/utils';
 import { Loader, Plus, Pencil, UsersRound, X } from 'lucide-react';
 import {
-  createBotRoom, ensureBotChat, fetchBotRooms,
+  createBotRoom, ensureBotChat,
 } from '../utils/api';
 import type { BotRosterEntry, BotRoom } from '../utils/api';
 import { fetchUnionRoster, type UnionRosterRow } from '../services/bot-relay';
 import { requestForBot } from '../services/connections';
-import { getWsClient } from '../services/ws-client';
 import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnread';
 import { BotRosterRow } from './BotsView';
-import { selectRoom, useSelectedRoomId } from '../plugins/bots/state';
+import {
+  isRoomsLoaded, refreshRooms, selectRoom, useRooms, useRoomsLoaded,
+  useSelectedRoomId,
+} from '../plugins/bots/state';
 
 interface BotsPaneProps {
   onOpenBotChat: (id: string) => void;
@@ -96,7 +98,9 @@ function RoomCard({ room, active, onOpen }: { room: BotRoom; active: boolean; on
 
 export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: BotsPaneProps) {
   const [bots, setBots] = useState<UnionRosterRow[]>([]);
-  const [rooms, setRooms] = useState<BotRoom[]>([]);
+  // 🔴 2026-09-07 round-75：rooms 改由 plugin store 单一权威提供（useRooms）
+  // ——本地副本与 WS 订阅删除（三处 fetch 合并，见 plugins/bots/state.ts）。
+  const rooms = useRooms();
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -112,13 +116,14 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: 
 
   const loadList = useCallback(async () => {
     try {
-      const [unionRows, roomList] = await Promise.all([fetchUnionRoster(), fetchBotRooms()]);
+      const unionRows = await fetchUnionRoster();
       setBots(unionRows);
       // 🔴 2026-09-05 round-54：远端行一并 ingest（此前 filter !isRemote →
       // 远端 bot 无未读信号）；键由 canonical_session_id 区分，同名 profile
       // 不冲突。useBotUnread 轮询已挂远端帧，此处保留全量喂给 UI 即时性。
       ingestBotRoster(unionRows.map(r => r.entry));
-      setRooms(roomList);
+      // 🔴 round-75：rooms 刷新归 store 的 refreshRooms（与主区/自动选房同源）
+      void refreshRooms();
       try {
         const res = await requestForBot<{ replicas?: ReplicaMetaRow[] }>(
           null, 'bot.rooms.replicas.list', {}, 15_000,
@@ -136,25 +141,15 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: 
   }, []);
 
   useEffect(() => { loadList(); }, [loadList]);
-
-  // 🔴 2026-09-05 round-48：左栏房间列表 WS 刷新（对齐 Hermes 群聊列表的
-  // 实时性——此前仅挂载/手动刷新/本端创建后拉取，其他端建房间、改名、
-  // 解散、接管后本端列表陈旧）。任何房间级事件到达即重拉（事件频率低，
-  // 无需节流）。
+  // 🔴 round-75：首挂补拉房间列表（store 的 roomsLoaded 门控——loadList 只管
+  // roster/replicas；若 store 已拉过则跳过，不重复打 RPC）。
   useEffect(() => {
-    const ws = getWsClient();
-    const unsubscribe = ws.addEventListener((eventName, data) => {
-      if (eventName !== 'bot.room.event') return;
-      const kind = (data as { event?: { kind?: string } })?.event?.kind || '';
-      if (
-        kind === 'room.created' || kind === 'room.renamed' ||
-        kind === 'room.members_changed' || kind === 'room.disbanded'
-      ) {
-        void loadList();
-      }
-    });
-    return unsubscribe;
-  }, [loadList]);
+    if (!isRoomsLoaded()) void refreshRooms();
+  }, []);
+
+  // 🔴 round-75：房间元信息的 WS 刷新已收编进 plugin store 的模块级订阅
+  // （created/renamed/members_changed/disbanded → 150ms 防抖 refreshRooms），
+  // 组件级订阅删除——刷新责任单一化（store 唯一写入口）。
 
   useEffect(() => {
     if (!rowMenu) return;
@@ -264,7 +259,9 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: 
       {/* Header（对齐 Hermes roster-pane Header：标题 + New） */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--ui-stroke-tertiary)] shrink-0">
         <span className="text-xs text-muted-foreground">
-          {loading
+          {/* 🔴 round-75：rooms 与 roster 双源加载态——roster 好了但房间列表
+              还在首拉时不显示误导性的"0 个群聊" */}
+          {loading || !isRoomsLoaded()
             ? '加载中…'
             : `${localBots.length} 本地${remoteCount > 0 ? ` · ${remoteCount} 远程` : ''} · ${rooms.length} 个群聊`}
         </span>

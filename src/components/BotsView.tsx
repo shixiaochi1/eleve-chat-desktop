@@ -13,12 +13,14 @@ import { cn } from '@/lib/utils';
 import { ArrowLeft, Bot, Loader, Paperclip, Send, Settings2, Square, Trash2, UserPlus, UserMinus, X } from 'lucide-react';
 import {
   changeBotRoomMembers, disbandBotRoom, fetchBotRoomEvents,
-  fetchBotRooms, renameBotRoom, sendBotRoomMessage,
+  renameBotRoom, sendBotRoomMessage,
   stopBotRoom,
   type BotRosterEntry, type BotRoom, type BotRoomEvent, type RoomAttachmentDraft,
 } from '../utils/api';
 import { getWsClient } from '../services/ws-client';
-import { useSelectedRoomId, selectRoom } from '../plugins/bots/state';
+import {
+  refreshRooms, selectRoom, useRooms, useRoomsLoaded, useSelectedRoomId,
+} from '../plugins/bots/state';
 import { fetchUnionRoster, type UnionRosterRow } from '../services/bot-relay';
 import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnread';
 
@@ -69,84 +71,57 @@ async function makeImageThumb(dataUrl: string): Promise<string | undefined> {
  */
 export default function BotsRoomMainView() {
   const selectedRoomId = useSelectedRoomId();
-  const [room, setRoom] = useState<BotRoom | null>(null);
+  // 🔴 2026-09-07 round-75：房间数据改由 plugin store 单一权威派生——
+  // 自持 fetch/本地副本/WS 订阅全部删除（三处 fetch 合并，详见 state.ts）。
+  const rooms = useRooms();
+  const roomsLoaded = useRoomsLoaded();
   const [localBots, setLocalBots] = useState<BotRosterEntry[]>([]);
-  const [loading, setLoading] = useState(true);
 
   // 🔴 2026-09-06 round-68：用户显式关闭（onBack/解散回列表）→ 空态不被
   // 自动选房劫持；组件重挂（切走再切回群聊视图/重开应用）ref 重置 →
   // 自动选恢复（"进入群聊界面即见最近群聊"语义只对"进入"生效）。
   const userClosedRef = useRef(false);
 
-  // 房间元信息 + 名册（自持加载——主区不依赖侧栏挂载）
-  useEffect(() => {
-    if (!selectedRoomId) {
-      if (userClosedRef.current) {
-        setRoom(null);
-        setLoading(false);
-        return;
-      }
-      // 🔴 2026-09-06 round-68（用户反馈联动断节）：未选中房间时不再停在
-      // 引导空态——自动选中"上次看的房间"（state 持久化），已解散则回退
-      // 最新创建的房间（后端 list_rooms created_at 升序 → 取末位），无任何
-      // 房间才空态。点群聊按钮进来即见最近群聊消息。
-      let cancelled = false;
-      setLoading(true);
-      fetchBotRooms()
-        .then((list) => {
-          if (cancelled) return;
-          const live = list.filter((r) => !r.disbanded_at);
-          const target = live.length ? live[live.length - 1] : null;
-          if (target) selectRoom(target.room_id);
-          else setLoading(false);
-        })
-        .catch(() => { if (!cancelled) setLoading(false); });
-      return () => { cancelled = true; };
-    }
-    let cancelled = false;
-    setLoading(true);
-    Promise.all([fetchBotRooms(), fetchUnionRoster()])
-      .then(([roomList, unionRows]) => {
-        if (cancelled) return;
-        const found = roomList.find((r) => r.room_id === selectedRoomId) ?? null;
-        if (!found) {
-          // 🔴 2026-09-07 round-69（闭环复审）：持久化的选中 id 指向已解散/
-          // 失效房间 → 不停在"房间已解散"空态，自动回退最新创建房间（与
-          // 空分支的选房语义一致）；回退后 selectRoom 触发本 effect 重跑，
-          // 新 id 必在列表 → 收敛无循环。列表空才真正空态。
-          const live = roomList.filter((r) => !r.disbanded_at);
-          if (live.length) {
-            selectRoom(live[live.length - 1].room_id);
-            return;
-          }
-        }
-        setRoom(found);
-        setLocalBots(unionRows.filter((r) => !r.isRemote).map((r) => r.entry));
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [selectedRoomId]);
+  // 🔴 round-75：房间对象 = store 派生（单一权威）。改名/改成员/解散由
+  // store 的模块级 WS 订阅驱动刷新（组件级订阅删除）。
+  const room = useMemo(
+    () => rooms.find((r) => r.room_id === selectedRoomId) ?? null,
+    [rooms, selectedRoomId],
+  );
 
-  // 🔴 2026-09-05 P3-4：房间元信息事件刷新——此前 room 对象仅在切换房间时
-  // 拉取一次，其他端改名/改成员/解散后本端视图陈旧（发消息才报错可见）。
-  // 元信息类事件（members_changed/renamed/disbanded——P2-1 修复后解散事件
-  // 必达）触发重新拉取房间列表；解散 → room=null 回空态。
+  // 花名册（unionRoster——方案裁定不并入 rooms store：ingest 未读副作用
+  // 归 useBotUnread 域，保持独立一次拉取）。
   useEffect(() => {
-    if (!selectedRoomId) return;
-    const ws = getWsClient();
-    const unsubscribe = ws.addEventListener((eventName, data) => {
-      if (eventName !== 'bot.room.event') return;
-      const payload = data as { room_id?: string; event?: { kind?: string } };
-      if (payload?.room_id !== selectedRoomId) return;
-      const kind = payload.event?.kind || '';
-      if (kind !== 'room.members_changed' && kind !== 'room.renamed' && kind !== 'room.disbanded') return;
-      void fetchBotRooms()
-        .then(list => setRoom(list.find(r => r.room_id === selectedRoomId) ?? null))
-        .catch(() => { /* 下次切换/事件兜底 */ });
-    });
-    return unsubscribe;
-  }, [selectedRoomId]);
+    let cancelled = false;
+    fetchUnionRoster()
+      .then((rows) => {
+        if (cancelled) return;
+        setLocalBots(rows.filter((r) => !r.isRemote).map((r) => r.entry));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // 🔴 round-75：首拉 + 自动选房 + 解散回退——全部数据驱动（store 变化
+  // 触发本 effect 重评估），组件不再自己打 RPC。
+  useEffect(() => {
+    if (!roomsLoaded) {
+      void refreshRooms(); // 首拉：store 更新 → 重渲染回到本 effect
+      return;
+    }
+    if (userClosedRef.current) return; // 显式关闭 → 尊重空态
+    const live = rooms.filter((r) => !r.disbanded_at);
+    if (selectedRoomId) {
+      // round-69：持久化选中 id 已失效（解散）→ 回退最新创建房间；
+      // 回退后 selectRoom 触发重评估，新 id 必在列表 → 收敛无循环。
+      if (!live.some((r) => r.room_id === selectedRoomId) && live.length) {
+        selectRoom(live[live.length - 1].room_id);
+      }
+      return;
+    }
+    // round-68：未选中 → 自动选最近创建房间（无房间才空态）。
+    if (live.length) selectRoom(live[live.length - 1].room_id);
+  }, [roomsLoaded, rooms, selectedRoomId]);
 
   // 🔴 事件流刷新：房间事件由 WS 推送增量（BotsRoomView 内部订阅），但
   // 选中切换时需要重置内部状态——BotsRoomView 以 room 对象为 key 重挂。
@@ -156,7 +131,8 @@ export default function BotsRoomMainView() {
     selectRoom(null);
   }, []);
 
-  if (loading) {
+  // 🔴 round-75：加载态 = store 首拉未完成（roomsLoaded 响应式）。
+  if (!roomsLoaded) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2">
         <Loader size={22} className="animate-spin opacity-60" />
