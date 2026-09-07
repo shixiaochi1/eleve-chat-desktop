@@ -167,16 +167,46 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: 
     };
   }, [rowMenu]);
 
+  // 🔴 2026-09-07 round-70（对齐 Hermes create-dialog.tsx create() 语义）：
+  // ①名字可空——空名兜底选中成员显示名拼接（Hermes placeholder 语义）；
+  // ②超长截断 60（= 后端上限；Hermes 同为截断非拒绝）；
+  // ③同名 uniquify " 2"/" 3" 后缀——"Creating a group is always a FRESH
+  //   room"（Hermes：同名重建静默重开旧房读作"不是新群"）+ 同名卡片在
+  //   列表难分辨；taken=活房名（解散房名可复用）；base 先截断再加后缀
+  //   （防上限碰撞，对齐 uniqueGroupChatName）；
+  // ④创建成功自动进入新房间（对齐 roster-pane onCreated → openGroupChat）；
+  // ⑤成功 notice 反馈（对齐 host.notify "created with N bots"）。
   const submitCreate = async () => {
-    const name = newName.trim();
-    if (!name || newMembers.length < 2 || newMembers.length > 6) return;
+    if (newMembers.length < 2 || newMembers.length > 6) return;
+    const fallback = newMembers
+      .map((p) => localBots.find((b) => b.profile === p))
+      .map((b) => b?.display_name || b?.handle || b?.profile || '')
+      .filter(Boolean)
+      .join('、');
+    const base = (newName.trim() || fallback).trim().slice(0, 60);
+    if (!base) return;
+    const taken = new Set(rooms.filter((r) => !r.disbanded_at).map((r) => r.name));
+    let name = base;
+    if (taken.has(name)) {
+      for (let n = 2; n < 100; n++) {
+        const suffix = ` ${n}`;
+        const candidate = base.slice(0, 60 - suffix.length) + suffix;
+        if (!taken.has(candidate)) { name = candidate; break; }
+      }
+    }
     setCreating(true);
     try {
-      await createBotRoom(name, newMembers);
+      const room = await createBotRoom(name, newMembers);
       setNewName('');
       setNewMembers([]);
       setShowCreate(false);
       await loadList();
+      // 🔴 round-70：自动进入新房间（对齐 Hermes onCreated → openGroupChat）
+      if (room?.room_id) {
+        selectRoom(room.room_id);
+        onOpenBotRoom(room.room_id);
+      }
+      setNotice(`已创建「${name}」（${newMembers.length} 个 Agent）`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -362,7 +392,18 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: 
               autoFocus
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              placeholder="群聊名称"
+              placeholder={
+                // 🔴 round-70：名字可空——placeholder 预览默认名（选中成员拼接，
+                // 对齐 Hermes placeholder 语义）
+                newMembers.length
+                  ? newMembers
+                      .map((p) => localBots.find((b) => b.profile === p))
+                      .map((b) => b?.display_name || b?.handle || '')
+                      .filter(Boolean)
+                      .join('、')
+                      .slice(0, 40) || '群聊名称（可空）'
+                  : '群聊名称（可空）'
+              }
               className="w-full px-2.5 py-1.5 rounded-md bg-accent/30 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
             />
             <div className="max-h-44 overflow-y-auto space-y-1">
@@ -394,7 +435,7 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: 
               </span>
               <button
                 className="px-3 py-1.5 rounded-md bg-accent text-accent-foreground text-sm font-medium disabled:opacity-40"
-                disabled={!newName.trim() || newMembers.length < 2 || newMembers.length > 6 || creating}
+                disabled={newMembers.length < 2 || newMembers.length > 6 || creating}
                 onClick={submitCreate}
               >
                 {creating ? <Loader size={14} className="animate-spin" /> : '创建'}

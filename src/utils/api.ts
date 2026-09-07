@@ -823,7 +823,8 @@ export async function ensureBotChat(profile: string): Promise<string> {
   return data?.session_id || '';
 }
 
-/** 创建群聊房间（2-6 名 bot；同 identity 幂等） */
+/** 创建群聊房间（2-6 名 bot；🔴 round-70 注释修正：每次 FRESH room——服务端
+ *  mint 新 room_id，无 (name,members) 幂等；重试防重由 UI single-flight 覆盖） */
 export async function createBotRoom(name: string, members: string[]): Promise<BotRoom> {
   const data = await call('bot_rooms_create', { name, members });
   return data?.room;

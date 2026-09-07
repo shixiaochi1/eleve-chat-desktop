@@ -450,9 +450,26 @@ fn spawn_eleved_monitor(
             }
             return;
         }
-        // 3. 意外退出
-        eprintln!("[TAURI] eleved 意外退出！前端将无法连接。");
-        // TODO: 可通过 Tauri event 通知前端显示错误
+        // 3. 意外退出（崩溃/被杀）→ 🔴 2026-09-07 round-71：自动拉起新 eleved
+        //    （对齐 Hermes gateway supervisor 语义——gateway 死了壳自动接管拉起，
+        //    用户继续用，前端经端口重发现自动重连）。此前只打日志不重启 → 崩溃后
+        //    用户被锁死在"连接拒绝"循环（0xc0000005 崩溃事故实测：两次崩溃两次
+        //    死锁，只能整应用重启）。防自杀式循环：拉起失败时 5s 退避重试一次。
+        eprintln!("[TAURI] eleved 意外退出！5s 后自动拉起新进程...");
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        match start_eleved_process(&eleve_home) {
+            Ok(new_child) => {
+                let new_pid = new_child.id();
+                *state.eleved_pid.lock().unwrap() = Some(new_pid);
+                // 端口缓存置 0：get_gateway_port 将重新读 gateway_state.json 发现新端口
+                state.gateway_port.store(0, Ordering::SeqCst);
+                eprintln!("[TAURI] 新 eleved 已拉起 (PID={})，继续监控", new_pid);
+                spawn_eleved_monitor(new_child, app_handle, eleve_home);
+            }
+            Err(e) => {
+                eprintln!("[TAURI] 自动拉起失败: {}——前端将无法连接，请重启应用", e);
+            }
+        }
     });
 }
 
