@@ -6,6 +6,7 @@ import { useSessionStatus } from '../store/session-status';
 import { setMonitor } from '../store/debug';
 import { textPart } from '@/lib/chat-messages'
 import { getWsClient } from '../services/ws-client';
+import { annotateBotMentions } from '@/lib/bot-mentions';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
 
 import type { ChatMessage } from '@/types'
@@ -176,6 +177,15 @@ export function usePromptActions({
       }
       handleCommand(cmdPart, args);
       return;
+    }
+
+    // 🔴 2026-09-08 round-76 对齐 Hermes DF3 mention middleware（**identification-only**）：
+    // draft 中 @handle 命中队友名册（本地 + 全部远端连接 union，5s stale 缓存）→
+    // 附加"用户指的是谁"提示行；**从不代发**——投递与否/投递内容由 agent 自己
+    // 决定（message_agent 工具）。@file:/@folder:/@url: 等既有 directive 不会命中
+    // 名册（前缀排除），slash 命令已在上方拦截。
+    if (text.includes('@')) {
+      text = await annotateBotMentions(text);
     }
 
     // 🔴 Phase 2: busy 分支不再是前端截流 —— 附件/纯文本统一直发后端 prompt.submit，

@@ -26,6 +26,7 @@ import { applyQueueEditToBubbles, applyQueueRemoveToBubbles } from '../lib/queue
 import { onComposerInsertRequest, LINE_REF_MIME, fileLineRef } from '@/lib/composer-events';
 import { dragHasPaths, collectDroppedPaths } from '@/lib/paths-dnd';
 import { linkifyUrls, rewriteTypedUrl, formatRefValue } from '@/lib/url-refs';
+import { loadMentionRoster, type MentionRow } from '@/lib/bot-mentions';
 
 interface InputAreaProps {
   onSend?: (text: string) => void;
@@ -210,6 +211,28 @@ function InputArea({
   const [showPathPopup, setShowPathPopup] = useState(false);
   const [pathSelectedIndex, setPathSelectedIndex] = useState(0);
   const pathDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 🔴 2026-09-08 round-76：@bot mention 补全（对齐 Hermes 任意 composer @ 弹
+  // roster 句柄；5s stale 缓存同步应答）——与 @ 路径补全双源共存，命中队友前缀时优先
+  const [botItems, setBotItems] = useState<MentionRow[]>([]);
+  const [showBotPopup, setShowBotPopup] = useState(false);
+  const [botSelectedIndex, setBotSelectedIndex] = useState(0);
+
+  /** 选中 bot 句柄：替换光标前 @token（与路径补全同锚定形态） */
+  const pickBot = useCallback((row: MentionRow | undefined) => {
+    const el = inputRef.current;
+    if (!row || !el) return;
+    const cursorPos = el.selectionStart ?? el.value.length;
+    const before = el.value.slice(0, cursorPos);
+    const after = el.value.slice(cursorPos);
+    const atPos = before.lastIndexOf('@');
+    const prefix = atPos >= 0 ? before.slice(0, atPos) : '';
+    const token = `@${row.handle} `;
+    el.value = prefix + token + after;
+    el.selectionStart = el.selectionEnd = prefix.length + token.length;
+    setShowBotPopup(false);
+    setBotItems([]);
+    el.focus();
+  }, []);
 
   const handleSend = useCallback(() => {
     const text = inputRef.current?.value || '';
@@ -221,6 +244,8 @@ function InputArea({
       inputRef.current.style.height = 'auto';
     }
     setHasText(false);
+    setShowBotPopup(false);
+    setBotItems([]);
     slash.close();
   }, [onSend, slash, hasAttachments]);
 
@@ -241,6 +266,30 @@ function InputArea({
       if (e.key === 'ArrowDown') { e.preventDefault(); stepQueueEdit(1); return; }
       if (e.key === 'Escape') { e.preventDefault(); exitQueueEdit('cancel'); return; }
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); exitQueueEdit('save'); return; }
+    }
+
+    // 🔴 round-76：@bot mention 弹层键盘导航（优先于路径补全弹层）
+    if (showBotPopup && botItems.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setBotSelectedIndex(i => (i + 1) % botItems.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setBotSelectedIndex(i => (i - 1 + botItems.length) % botItems.length);
+        return;
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        pickBot(botItems[botSelectedIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowBotPopup(false);
+        return;
+      }
     }
 
     // F3 T3.1: @ 路径补全弹窗键盘导航
@@ -341,7 +390,7 @@ function InputArea({
         }
       }
     }
-  }, [showPathPopup, pathItems, pathSelectedIndex, slash, handleSend, handleCommandExec, queueEdit, stepQueueEdit, exitQueueEdit]);
+  }, [showPathPopup, pathItems, pathSelectedIndex, showBotPopup, botItems, botSelectedIndex, pickBot, slash, handleSend, handleCommandExec, queueEdit, stepQueueEdit, exitQueueEdit]);
 
   const handleInput = useCallback(() => {
     const el = inputRef.current;
@@ -363,20 +412,37 @@ function InputArea({
       // slash 模式 — 关闭 @ 路径弹窗
       setShowPathPopup(false);
     } else if (currentWord.startsWith('@') && currentWord.length >= 2) {
-      // F3 T3.1: @ 路径补全 — debounce 200ms 调后端
+      // 🔴 round-76：@ 补全双源——@token 前缀命中队友名册（5s stale 缓存）→
+      // bot 弹层优先；否则回落既有 @ 路径补全（F3 T3.1）
       if (pathDebounceRef.current) clearTimeout(pathDebounceRef.current);
       pathDebounceRef.current = setTimeout(async () => {
+        const q = currentWord.slice(1).toLowerCase();
+        try {
+          const rows = await loadMentionRoster();
+          const bots = rows
+            .filter((r) => !q || r.handle.toLowerCase().startsWith(q) || r.profile.toLowerCase().startsWith(q))
+            .slice(0, 8);
+          if (bots.length > 0) {
+            setBotItems(bots);
+            setBotSelectedIndex(0);
+            setShowBotPopup(true);
+            setShowPathPopup(false);
+            return;
+          }
+        } catch { /* 名册不可用 → 路径补全兜底 */ }
         try {
           const res = await completePath(currentWord, sessionCwd);
           setPathItems(res.items || []);
           setPathSelectedIndex(0);
           setShowPathPopup((res.items || []).length > 0);
+          setShowBotPopup(false);
         } catch {
           setShowPathPopup(false);
         }
       }, 200);
     } else {
       setShowPathPopup(false);
+      setShowBotPopup(false);
     }
     // 🔴 W-6：sessionCwd 必须在依赖里——补全闭包捕获会话 cwd，
     // 会话切换/session.info 到达后要用新值（漏了 = 捕获过期 cwd）
@@ -684,6 +750,35 @@ function InputArea({
             />
           )}
         </div>
+
+        {/* 🔴 round-76：@bot mention 补全弹层（对齐 Hermes 任意 composer @ 弹
+            roster 句柄——本机/远端队友，5s stale 缓存应答） */}
+        {showBotPopup && botItems.length > 0 && (
+          <div className="absolute inset-x-0 bottom-full z-50 mb-1.5 max-h-60 overflow-y-auto rounded-lg border border-[var(--ui-stroke-tertiary)] bg-popover p-1 shadow-lg">
+            {botItems.map((row, i) => (
+              <div
+                key={`${row.profile}@${row.connectionId ?? ''}`}
+                className={cn(
+                  'px-3 py-1.5 text-sm cursor-pointer rounded-md flex items-center gap-2',
+                  i === botSelectedIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
+                )}
+                onMouseEnter={() => setBotSelectedIndex(i)}
+                onMouseDown={(e: React.MouseEvent) => {
+                  e.preventDefault();
+                  pickBot(row);
+                }}
+              >
+                <span className="font-medium text-foreground shrink-0">@{row.handle}</span>
+                {row.displayName && row.displayName !== row.handle && (
+                  <span className="text-[10px] text-muted-foreground/70 truncate">{row.displayName}</span>
+                )}
+                <span className="text-[10px] text-muted-foreground/60 ml-auto shrink-0">
+                  {row.isRemote ? `远程连接 ${row.connectionId?.slice(0, 8)}` : '本机'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* F3 T3.1: @ 路径补全弹窗 */}
         {showPathPopup && pathItems.length > 0 && (

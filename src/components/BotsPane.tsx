@@ -25,8 +25,8 @@ import { requestForBot } from '../services/connections';
 import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnread';
 import { BotRosterRow } from './BotsView';
 import {
-  isRoomsLoaded, refreshRooms, selectRoom, useRooms, useRoomsLoaded,
-  useSelectedRoomId,
+  isRoomsLoaded, openRemoteChat, refreshRooms, selectRoom, useRooms,
+  useRoomsLoaded, useSelectedRoomId,
 } from '../plugins/bots/state';
 import { onProfilesChanged } from '../lib/global-events';
 
@@ -244,10 +244,22 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: 
         15_000,
       );
       markBotRead(row.entry.profile, res?.session_id || row.entry.canonical_session_id || undefined);
-      setNotice(
-        `已在远程连接「${row.connectionLabel}」就绪 @${row.entry.handle} 的 Bot Chat。` +
-        `Agent 间的跨网关私信已可经 relay 管道投递（message_agent 目标用 @${row.entry.handle}@${row.connectionId}）`,
-      );
+      if (res?.session_id) {
+        // 🔴 2026-09-08 round-76：点远端行 = **打开远端会话**（对齐 Hermes
+        // "requestForBot 骑 owner route → session 开在远端网关、行点击即达"）。
+        // 此前只 ensure + 弹 notice，用户看不见任何会话。
+        openRemoteChat({
+          connId: row.connectionId,
+          profile: row.entry.profile,
+          sessionId: res.session_id,
+          label: row.connectionLabel || row.entry.handle,
+        });
+      } else {
+        setNotice(
+          `已在远程连接「${row.connectionLabel}」就绪 @${row.entry.handle} 的 Bot Chat，` +
+          `但未返回会话 id（跨网关私信仍可经 relay 管道投递：message_agent 目标用 @${row.entry.handle}@${row.connectionId}）`,
+        );
+      }
     } catch (e) {
       setError(`远程 Bot Chat 就绪失败：${(e as Error).message}`);
     }

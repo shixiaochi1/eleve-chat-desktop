@@ -19,8 +19,10 @@ import {
 } from '../utils/api';
 import { getWsClient } from '../services/ws-client';
 import {
-  refreshRooms, selectRoom, useRooms, useRoomsLoaded, useSelectedRoomId,
+  closeRemoteChat, refreshRooms, selectRoom, useRemoteChat, useRooms,
+  useRoomsLoaded, useSelectedRoomId,
 } from '../plugins/bots/state';
+import RemoteBotChatView from './RemoteBotChatView';
 import { fetchUnionRoster, type UnionRosterRow } from '../services/bot-relay';
 import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnread';
 
@@ -130,6 +132,14 @@ export default function BotsRoomMainView() {
     userClosedRef.current = true;
     selectRoom(null);
   }, []);
+
+  // 🔴 2026-09-08 round-76：远端 bot 的 canonical 会话视图（对齐 Hermes
+  // "点远端 bot 行 = 打开远端 chat"）——BotsPane.openRemoteBotChat 置位。
+  // 此分支在全部 hooks 之后、任何条件 return 之前（hooks 顺序恒定）。
+  const remoteChat = useRemoteChat();
+  if (remoteChat) {
+    return <RemoteBotChatView chat={remoteChat} onBack={closeRemoteChat} />;
+  }
 
   // 🔴 round-75：加载态 = store 首拉未完成（roomsLoaded 响应式）。
   if (!roomsLoaded) {

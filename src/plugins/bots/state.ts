@@ -155,6 +155,51 @@ export function useRoomsLoaded(): boolean {
   );
 }
 
+// ═════════════════════════════════════════════════════════════════════
+// 🔴 2026-09-08 round-76：远端 bot 的 canonical 会话视图状态（对齐 Hermes
+// "点远端 bot 行 = 打开远端 chat"——requestForBot 骑 owner 连接，本机
+// active connection 纹丝不动）。BotsPane.openRemoteBotChat 置位 →
+// BotsRoomMainView 顶部拦截渲染 RemoteBotChatView。
+// 会话级临时态（不持久化——远端连接断开即失效，重开由用户再点）。
+// ═════════════════════════════════════════════════════════════════════
+
+export interface RemoteBotChat {
+  /** 远端连接 id（connections.ts RemoteSocket 注册表键） */
+  connId: string;
+  profile: string;
+  sessionId: string;
+  /** 展示名（连接标签 / bot handle） */
+  label: string;
+}
+
+let remoteChat: RemoteBotChat | null = null;
+const remoteChatListeners = new Set<() => void>();
+
+function emitRemoteChat() {
+  for (const fn of remoteChatListeners) fn();
+}
+
+export function openRemoteChat(chat: RemoteBotChat): void {
+  remoteChat = chat;
+  emitRemoteChat();
+}
+
+export function closeRemoteChat(): void {
+  remoteChat = null;
+  emitRemoteChat();
+}
+
+export function useRemoteChat(): RemoteBotChat | null {
+  return useSyncExternalStore(
+    (fn) => {
+      remoteChatListeners.add(fn);
+      return () => remoteChatListeners.delete(fn);
+    },
+    () => remoteChat,
+    () => null,
+  );
+}
+
 // 模块加载时注册一次 WS 元信息事件订阅（生命周期 = 应用，与组件挂载解耦——
 // 主区在左栏未开时同样收到刷新；对齐 session-status.ts 的模块级接线惯例）。
 getWsClient().addEventListener((eventName, data) => {
