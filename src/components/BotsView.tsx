@@ -260,9 +260,25 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
 
   const refresh = useCallback(async () => {
     try {
-      const { events: fresh, latest_seq } = await fetchBotRoomEvents(roomRef.current.room_id, latestSeq.current);
-      latestSeq.current = Math.max(latestSeq.current, latest_seq);
-      mergeEvents(fresh);
+      // 🔴 2026-09-08 round-76：分页补齐，禁止把游标直接推到全局 MAX。
+      // 后端 read_events = `seq > since ORDER BY seq ASC LIMIT n`（返回**最旧**
+      // 的一批）而 latest_seq 是全房间 MAX —— 此前一次拉取就把游标推到 MAX，
+      // 事件数 > 200 的房间中间段永久不可达且无上翻入口。
+      // 逐页推进：游标只前进到"本页实际收到的最大 seq"，直到追平。
+      const PAGE = 200;
+      for (let page = 0; page < 50; page++) {
+        const before = latestSeq.current;
+        const { events: fresh } = await fetchBotRoomEvents(
+          roomRef.current.room_id,
+          before,
+          PAGE,
+        );
+        const maxSeq = fresh.reduce((m, e) => Math.max(m, e.seq), before);
+        latestSeq.current = maxSeq;
+        if (fresh.length) mergeEvents(fresh);
+        // 本页未满 = 已到末尾；无新 seq = 已追平（防死循环）
+        if (fresh.length < PAGE || maxSeq <= before) break;
+      }
     } catch { /* 静默（下一次推送/轮询兜底） */ }
   }, [mergeEvents]);
 
@@ -329,14 +345,20 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
 
   const send = async () => {
     const text = draft.trim();
-    if ((!text && !attachments.length) || sending) return;
+    // 🔴 2026-09-08 round-76：讨论进行中不得插入新发言（此前 Enter 直调 send，
+    // 可以绕过发送键已切成停止态的 UI 语义，消息被塞进在飞的讨论）。
+    if ((!text && !attachments.length) || sending || roomBusy) return;
     setSending(true);
     const snapshot = draft;
     const snapshotAtts = attachments;
+    // 🔴 round-76：幂等键（后端 event_id = "user:sha256(room:client_event_id)"）。
+    // 此前恒传 undefined → 后端用随机 UUID 兜底，重发/重试必然产生重复用户消息
+    // （= 重复开一轮讨论）。同一次发送固定一个 id。
+    const clientEventId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     setDraft('');
     setAttachments([]);
     try {
-      await sendBotRoomMessage(room.room_id, text || '（附件）', undefined, snapshotAtts);
+      await sendBotRoomMessage(room.room_id, text || '（附件）', clientEventId, snapshotAtts);
       await refresh();
     } catch (e) {
       // 🔴 2026-09-04 发送失败必须可见（此前静默吞错——用户"发消息没反应"）
@@ -384,7 +406,10 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
         await changeBotRoomMembers(room.room_id, addProfiles, removeMemberIds);
       }
       setShowEdit(false);
-      onBack(); // 回列表刷新（房间身份已变，重新拉取）
+      // 🔴 2026-09-08 round-76：不再 onBack —— 改名/改成员后直接退空态，用户
+      // 观感是"房间消失了"。留在房间内刷新事件流（room.renamed / members_changed
+      // 事件本身可见），房间列表由 rooms store 自行刷新。
+      await refresh();
     } catch (e) {
       setEditError((e as Error).message);
     }
@@ -403,7 +428,9 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             {room.members.map((m) => `@${m.handle}`).join(' ')}
           </div>
         </div>
-        <button className="p-1.5 rounded hover:bg-accent/50" title="停止当前讨论" disabled={busy} onClick={stopRoom}>
+        {/* 🔴 round-76：停止是"运行态"的对应动作，无讨论在飞时不可点（此前空跑
+            也能点，点了只落一条无意义的围栏事件） */}
+        <button className="p-1.5 rounded hover:bg-accent/50" title="停止当前讨论" disabled={busy || !roomBusy} onClick={stopRoom}>
           <Square size={13} className="text-muted-foreground" />
         </button>
         <button className="p-1.5 rounded hover:bg-accent/50" title="群聊设置（重命名/成员）" onClick={() => setShowEdit(true)}>

@@ -214,7 +214,8 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: 
       const sid = await ensureBotChat(profile);
       // 🔴 2026-09-05 round-54：ack 锚定 canonical 会话（未读键公式），
       // profile 仅作无会话回退。
-      markBotRead(sid || profile);
+      // 🔴 round-76：profile 与 sid 两个键都清（键会随 canonical 出现而漂移）
+      markBotRead(profile, sid);
       if (sid) onOpenBotChat(sid);
     } catch (e) {
       setError((e as Error).message);
@@ -236,7 +237,7 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: 
         { profile: row.entry.profile },
         15_000,
       );
-      markBotRead(res?.session_id || row.entry.canonical_session_id || row.entry.profile);
+      markBotRead(row.entry.profile, res?.session_id || row.entry.canonical_session_id || undefined);
       setNotice(
         `已在远程连接「${row.connectionLabel}」就绪 @${row.entry.handle} 的 Bot Chat。` +
         `Agent 间的跨网关私信已可经 relay 管道投递（message_agent 目标用 @${row.entry.handle}@${row.connectionId}）`,

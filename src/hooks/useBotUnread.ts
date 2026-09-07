@@ -98,15 +98,26 @@ export function ingestBotRoster(bots: BotRosterEntry[]): void {
 }
 
 /** 打开某 bot 的私聊后调用：水位线推进到当前 + 清未读（Hermes ack 同义）。
- *  参数 = 未读键（canonical_session_id ?? profile，与 ingestBotRoster 同一公式）。 */
-export function markBotRead(key: string): void {
-  const wm = watermarks.get(key) ?? 0;
-  const la = latestByKey.get(key) ?? wm;
-  watermarks.set(key, Math.max(wm, la));
-  if (unread.get(key)) {
-    unread.set(key, false);
-    emit();
+ *
+ * 🔴 2026-09-08 round-76：参数由"单个未读键"改为 (profile, sessionId)。
+ * 未读键公式是 `canonical_session_id ?? profile`，而**首开私聊那一刻** roster
+ * 帧里 canonical 还是 null（键 = profile），ensure 返回 sid 后键变成 sid ——
+ * 此前只清其中一个：键切换那一帧新键水位线为 0，立刻被判"有新活动"→ 幽灵未读；
+ * 远端行（清的是远端 ensure 返回的 sid，而 roster 帧的键是 union 的
+ * canonical_session_id）则根本清不掉。两个键都清，杜绝键漂移误报。
+ */
+export function markBotRead(profile: string, sessionId?: string): void {
+  let cleared = false;
+  for (const key of new Set([profile, sessionId].filter((k): k is string => !!k))) {
+    const wm = watermarks.get(key) ?? 0;
+    const la = latestByKey.get(key) ?? wm;
+    watermarks.set(key, Math.max(wm, la));
+    if (unread.get(key)) {
+      unread.set(key, false);
+      cleared = true;
+    }
   }
+  if (cleared) emit();
 }
 
 /** 轮询期间的最新 last_active（markBotRead 用，比水位线更新） */
@@ -133,7 +144,14 @@ async function pollUnionOnce(): Promise<void> {
   }
 }
 
+let localBusy = false;
+
 async function pollOnce(): Promise<void> {
+  // 🔴 2026-09-08 round-76：在飞保护（与 pollUnionOnce 的 unionBusy 同款）。
+  // WS 断连期间每个 tick 都会往 pendingQueue 追加一条超时 60s 的 roster 请求，
+  // 无守卫时 5s 一发持续堆积，重连瞬间 flush 风暴。
+  if (localBusy) return;
+  localBusy = true;
   try {
     const bots = await fetchBotsRoster();
     for (const bot of bots) {
@@ -145,6 +163,8 @@ async function pollOnce(): Promise<void> {
     ingestBotRoster(bots);
   } catch {
     // WS 未连接/暂不可用：下轮重试（session-status.ts 同款容错）
+  } finally {
+    localBusy = false;
   }
   // 远端帧：降频（本地 5s 一次，union 每 4 tick 一次）
   tick += 1;
