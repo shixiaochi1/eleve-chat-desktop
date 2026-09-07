@@ -29,6 +29,12 @@ interface ContextBarProps {
   onToggleViewMode?: () => void;
   /** Agent 数量（< 2 时宫格按钮禁用） */
   agentCount?: number;
+  /** 🔴 2026-09-08 round-76：当前会话是否为 Bot Mode canonical 私聊（forever-chat，
+   *  无 /new——新建按钮禁用，对齐 Hermes "canonical chat 无 /new"） */
+  isBotChat?: boolean;
+  /** 🔴 round-76（对齐 Hermes e2e 规格 bot-mode-tab-shows-bot-name）：私聊对象
+   *  的显示名——所有 bot 的会话标题都叫 "Bot Chat"，必须标注"正在和谁聊" */
+  botLabel?: string | null;
 }
 
 /**
@@ -44,7 +50,7 @@ interface ContextBarProps {
  * to avoid triggering React re-renders every second. This prevents layout
  * thrashing that destabilizes the virtualizer's scroll position.
  */
-const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNewSession, viewMode = 'single', onToggleViewMode, agentCount = 1 }: ContextBarProps) {
+const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNewSession, viewMode = 'single', onToggleViewMode, agentCount = 1, isBotChat = false, botLabel = null }: ContextBarProps) {
   const elapsedRef = useRef<HTMLSpanElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -107,9 +113,21 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
         }}
       >
         <div className="flex items-center gap-1">
+          {/* 🔴 round-76（对齐 Hermes bot-mode-tab-shows-bot-name）：所有 bot 的
+              私聊标题都是 "Bot Chat"，主区必须标注正在对话的对象 */}
+          {isBotChat && botLabel && (
+            <span
+              className="inline-flex items-center gap-1 h-7 px-2.5 text-xs rounded-md border border-[var(--ui-stroke-quaternary)] bg-card text-foreground"
+              title={`正在与 ${botLabel} 的常驻私聊（Bot Chat）对话`}
+            >
+              <span aria-hidden>🤖</span>
+              <span className="max-w-40 truncate font-medium">{botLabel}</span>
+            </span>
+          )}
           <button
-            className="flex items-center gap-1 h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground border border-[var(--ui-stroke-quaternary)] bg-card hover:bg-accent/50 rounded-md shadow-sm transition-colors"
-            title="新建会话 (Ctrl+N)"
+            className="flex items-center gap-1 h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground border border-[var(--ui-stroke-quaternary)] bg-card hover:bg-accent/50 rounded-md shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-card disabled:hover:text-muted-foreground"
+            title={isBotChat ? 'Bot Chat 是常驻会话，不支持新建会话' : '新建会话 (Ctrl+N)'}
+            disabled={isBotChat}
             // 🔴 2026-08-05 修复：必须包箭头函数——onClick 直绑会把 MouseEvent 当参数传入
             // handleNewSession(title)，title?.trim 抛错但 sessionId 已被清空 → 下次发送传 null
             // → 后端自动新建会话（"执行工具后自动新建"根因）

@@ -978,8 +978,19 @@ export default function App() {
   //   scope（选中项目/workspace）注入新建会话链的单一入口——单视图新建按钮、
   //   /new 命令、宫格新建都走它；懒创建路径（无会话发消息）已由 getNewSessionCwd 消费
   const handleNewSessionWithScope = useCallback(async (title?: string) => {
+    // 🔴 2026-09-08 round-76 端到端审查：canonical Bot Chat 是 **forever-chat**
+    // （Hermes 契约：canonical chat 无 /new——reset 会换 id 且 platform 变 ws，
+    // title 仍挂旧 sid → DM 落进僵尸会话 = 消息黑洞）。后端 reset_session 已
+    // fail-closed 拒绝；此处前端拦截给可见提示（按钮 / Ctrl+N / 懒创建统一入口）。
+    if (sess.sessionId && botChatSids.has(sess.sessionId)) {
+      import('./utils/notifications').then(({ notify }) => notify({
+        kind: 'warning',
+        message: 'Bot Chat 是与该 Agent 的常驻会话，不支持新建会话。',
+      })).catch(() => {});
+      return;
+    }
     await handleNewSession(title, resolveNewSessionCwd() ?? undefined);
-  }, [handleNewSession, resolveNewSessionCwd]);
+  }, [sess.sessionId, botChatSids, handleNewSession, resolveNewSessionCwd]);
 
   // （useSessions.create 激活——原无 UI 调用方的死链；卡片立即有真实会话而非懒创建）
   const gridAwareNewSession = useCallback(async () => {
@@ -2004,7 +2015,16 @@ export default function App() {
                   <div className="px-3 pt-2">
                     <TodoPanel sessionId={sess.sessionId} />
                   </div>
-                  <ContextBar sessionId={sess.sessionId} sessionStartedAt={sessionStartedAt} onNewSession={handleNewSessionWithScope} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount} />
+                  <ContextBar sessionId={sess.sessionId} sessionStartedAt={sessionStartedAt} onNewSession={handleNewSessionWithScope} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount}
+                    isBotChat={!!sess.sessionId && botChatSids.has(sess.sessionId)}
+                    botLabel={(() => {
+                      // 🔴 round-76（对齐 Hermes e2e 规格 bot-mode-tab-shows-bot-name）：
+                      // 所有 bot 的私聊标题都是 "Bot Chat"，主区必须标注"正在和谁聊"
+                      if (!sess.sessionId || !botChatSids.has(sess.sessionId)) return null;
+                      const p = profileFromSessionId(sess.sessionId);
+                      return p ? (displayNames[p] || p) : null;
+                    })()}
+                  />
                 </>
               )}
               {/* 🔴 2026-08-28 对齐 Hermes composer status-stack：工具产出的

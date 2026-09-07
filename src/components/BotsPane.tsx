@@ -28,6 +28,7 @@ import {
   isRoomsLoaded, refreshRooms, selectRoom, useRooms, useRoomsLoaded,
   useSelectedRoomId,
 } from '../plugins/bots/state';
+import { onProfilesChanged } from '../lib/global-events';
 
 interface BotsPaneProps {
   onOpenBotChat: (id: string) => void;
@@ -141,6 +142,11 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: 
   }, []);
 
   useEffect(() => { loadList(); }, [loadList]);
+  // 🔴 2026-09-08 round-76 端到端审查：Agent 新建/删除/改名 → 花名册自动重拉
+  // （后端 profiles.create/delete/rename 成功后广播 profiles.changed；对齐
+  // Hermes roster 随 profiles.* 即时更新——此前 loadList 仅挂载一次，新建
+  // Agent 后必须手点刷新才出现在花名册）。
+  useEffect(() => onProfilesChanged(() => { void loadList(); }), [loadList]);
   // 🔴 round-75：首挂补拉房间列表（store 的 roomsLoaded 门控——loadList 只管
   // roster/replicas；若 store 已拉过则跳过，不重复打 RPC）。
   useEffect(() => {

@@ -39,6 +39,19 @@ export function onProjectsChanged(fn: ProjectsChangedListener): () => void {
   return () => { projectsChangedListeners.delete(fn) }
 }
 
+// ── profiles.changed 订阅（模块级广播，跨组件共享）──
+// 🔴 2026-09-08 round-76 端到端审查：Agent 生命周期（新建/删除/改名）→
+// 花名册联动（对齐 Hermes roster 随 profiles.* 即时更新）。后端生产点 =
+// ws/mod.rs broadcast_profiles_changed（profiles.create/delete/rename 成功后）。
+// 消费点：BotsPane（花名册重拉 loadList）。
+export type ProfilesChangedListener = () => void
+const profilesChangedListeners = new Set<ProfilesChangedListener>()
+
+export function onProfilesChanged(fn: ProfilesChangedListener): () => void {
+  profilesChangedListeners.add(fn)
+  return () => { profilesChangedListeners.delete(fn) }
+}
+
 /**
  * 处理全局 WS 事件（无 session_id）。
  * 动态 import 保持零静态耦合（通知/终端 store 按需加载）。
@@ -132,6 +145,19 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
     // 主题由前端 ThemeProvider 本地管理（localStorage + bridge），此处仅
     // debug 日志。宫格模式 useSSE 暂停时由此处兜底，消灭静默丢弃。
     // 🔴 2026-08-16 流程审查（B1/D1）：原 theme.changed 事件名后端无生产端。
+    // profiles.changed — Agent 生命周期变化（新建/删除/改名成功后广播）。
+    // 消费方（BotsPane 花名册等）各自重拉；payload 带 action/name。
+    case 'profiles.changed': {
+      for (const fn of profilesChangedListeners) {
+        try {
+          fn()
+        } catch (err) {
+          console.error('[global-events] profiles.changed listener failed', err)
+        }
+      }
+      return true
+    }
+
     case 'skin.changed':
       console.debug('[global-events] skin.changed', payload);
       return true;
