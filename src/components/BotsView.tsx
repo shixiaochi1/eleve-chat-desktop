@@ -294,8 +294,11 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
       const payload = data as { room_id?: string; event?: BotRoomEvent };
       if (payload?.room_id !== roomRef.current.room_id || !payload.event) return;
       const ev = payload.event;
+      // 🔴 2026-09-08 round-76：WS 推送**不推进游标**。推送到的永远是最新事件，
+      // 若在分页补齐途中把游标顶到该 seq，中间段就被永久跳过——与"首屏把游标
+      // 推到全局 MAX"是同一个病根。游标只由 refresh 的分页补齐单调推进，
+      // 重复拉取由 mergeEvents 按 seq 去重（幂等）。
       mergeEvents([ev]);
-      if (ev.seq > latestSeq.current) latestSeq.current = ev.seq;
     });
     const timer = setInterval(refresh, 15000); // 二道保险（事件丢失兜底）
     return () => { unsubscribe(); clearInterval(timer); };
@@ -345,9 +348,14 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
 
   const send = async () => {
     const text = draft.trim();
+    if ((!text && !attachments.length) || sending) return;
     // 🔴 2026-09-08 round-76：讨论进行中不得插入新发言（此前 Enter 直调 send，
-    // 可以绕过发送键已切成停止态的 UI 语义，消息被塞进在飞的讨论）。
-    if ((!text && !attachments.length) || sending || roomBusy) return;
+    // 可以绕过已切成停止态的发送键，消息被塞进在飞讨论）。必须给出可见反馈——
+    // 静默 return 就是用户报的"按回车没反应"。
+    if (roomBusy) {
+      setError('成员正在讨论中——请等本轮结束，或点停止后再发言。');
+      return;
+    }
     setSending(true);
     const snapshot = draft;
     const snapshotAtts = attachments;
@@ -359,6 +367,7 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     setAttachments([]);
     try {
       await sendBotRoomMessage(room.room_id, text || '（附件）', clientEventId, snapshotAtts);
+      setError(null); // 清掉"讨论进行中"等一次性提示
       await refresh();
     } catch (e) {
       // 🔴 2026-09-04 发送失败必须可见（此前静默吞错——用户"发消息没反应"）
