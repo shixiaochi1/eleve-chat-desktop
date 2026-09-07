@@ -240,6 +240,11 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
   const bottomRef = useRef<HTMLDivElement>(null);
   const roomRef = useRef(room);
   roomRef.current = room;
+  // 🔴 2026-09-08 round-76：向上分页状态（tail 首屏之后是否还有更早历史）
+  const [hasOlder, setHasOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadingOlderRef = useRef(false);
+  const oldestSeq = useRef<number | null>(null);
 
   const memberByHandle = useMemo(() => {
     const map: Record<string, string> = {};
@@ -259,32 +264,69 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
   }, []);
 
   const refresh = useCallback(async () => {
+    const PAGE = 200;
     try {
-      // 🔴 2026-09-08 round-76：分页补齐，禁止把游标直接推到全局 MAX。
-      // 后端 read_events = `seq > since ORDER BY seq ASC LIMIT n`（返回**最旧**
-      // 的一批）而 latest_seq 是全房间 MAX —— 此前一次拉取就把游标推到 MAX，
-      // 事件数 > 200 的房间中间段永久不可达且无上翻入口。
-      // 逐页推进：游标只前进到"本页实际收到的最大 seq"，直到追平。
-      const PAGE = 200;
-      for (let page = 0; page < 50; page++) {
-        const before = latestSeq.current;
-        const { events: fresh } = await fetchBotRoomEvents(
+      if (latestSeq.current === 0) {
+        // 🔴 2026-09-08 round-76：首屏走 **tail**（后端倒序窗口）——一次 RPC
+        // 拿到**最新**一页。聊天视图的语义是"看最新"，而 forward 接口只能从
+        // 最旧往前搬：长房间要么逐页补齐（几十次串行请求），要么把游标推到
+        // 全局 MAX 造成中间段永久不可达。
+        const { events: page, latest_seq, has_more } = await fetchBotRoomEvents(
           roomRef.current.room_id,
-          before,
-          PAGE,
+          { beforeSeq: 0, limit: PAGE },
         );
+        if (page.length) {
+          mergeEvents(page);
+          oldestSeq.current = page[0].seq;
+        }
+        // tail 页本身即最新一页 → 游标直接对齐全局 latest，**无缺口**
+        latestSeq.current = Math.max(latestSeq.current, latest_seq);
+        setHasOlder(has_more);
+        return;
+      }
+      // 增量：只拉游标之后的新事件，逐页追平（正常情况下 0~几条，一次即止）
+      for (let page = 0; page < 20; page++) {
+        const before = latestSeq.current;
+        const { events: fresh } = await fetchBotRoomEvents(roomRef.current.room_id, {
+          sinceSeq: before,
+          limit: PAGE,
+        });
         const maxSeq = fresh.reduce((m, e) => Math.max(m, e.seq), before);
         latestSeq.current = maxSeq;
         if (fresh.length) mergeEvents(fresh);
-        // 本页未满 = 已到末尾；无新 seq = 已追平（防死循环）
+        // 本页未满 = 已追平；游标未前进 = 防死循环
         if (fresh.length < PAGE || maxSeq <= before) break;
       }
     } catch { /* 静默（下一次推送/轮询兜底） */ }
   }, [mergeEvents]);
 
+  /** 向上翻历史：以"当前最早 seq"为 before_seq 再取一页更早的 */
+  const loadOlder = useCallback(async () => {
+    if (loadingOlderRef.current || !oldestSeq.current) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const { events: page, has_more } = await fetchBotRoomEvents(roomRef.current.room_id, {
+        beforeSeq: oldestSeq.current,
+        limit: 200,
+      });
+      if (page.length) {
+        mergeEvents(page); // mergeEvents 按 seq 去重 + 排序，prepend 结果一致
+        oldestSeq.current = page[0].seq;
+      }
+      setHasOlder(has_more && page.length > 0);
+    } catch { /* 静默（下次点击重试） */ } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [mergeEvents]);
+
   // 初次全量 + 实时推送订阅 + 慢轮询兜底
   useEffect(() => {
     latestSeq.current = 0;
+    // 换房间 = 分页状态整体复位（否则上一房间的最早游标/还有更早标志会串味）
+    oldestSeq.current = null;
+    setHasOlder(false);
     setEvents([]);
     refresh();
 
@@ -379,16 +421,25 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     }
   };
 
-  // 🔴 2026-09-05 round-49：讨论进行中推导（对齐主输入区 isStreaming 语义）
-  // ——事件流里最后一个 turn.* 若是 turn.started（未配对终态）= 成员轮在跑，
-  // 发送键切停止态（对齐 Hermes 群聊视图的运行态指示）
+  // 🔴 2026-09-08 round-76：**在飞轮集合**判定（此前只看事件流末条 turn.*，
+  // 一旦末尾是某个成员的 settled 而另一个成员的轮仍在跑，忙态就被误判为
+  // false → 发送键错切成发送态，消息被塞进在飞讨论）。
+  // 配对规则严格对齐后端 policy 的终态语义（service.rs 终态四分 + held）：
+  //   turn.started 开轮；settled / failed / cancelled / deferred / held 收口；
+  //   msg 是**中间产物**（发言先落库、收口随后到），不参与配对。
+  // 事件日志是唯一事实源——不引入任何前端本地计时器。
   const roomBusy = useMemo(() => {
-    for (let i = events.length - 1; i >= 0; i--) {
-      const k = events[i].kind;
-      if (k === 'turn.started') return true;
-      if (k.startsWith('turn.')) return false;
+    const inflight = new Set<string>();
+    for (const e of events) {
+      const m = /^turn:(.+):(started|settled|failed|cancelled|deferred|held)$/.exec(
+        String(e.event_id ?? ''),
+      );
+      if (!m) continue;
+      const [, turnId, kind] = m;
+      if (kind === 'started') inflight.add(turnId);
+      else inflight.delete(turnId);
     }
-    return false;
+    return inflight.size > 0;
   }, [events]);
 
   const stopRoom = async () => {
@@ -465,6 +516,18 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
 
       {/* 事件流 */}
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-2">
+        {/* 🔴 round-76：向上分页入口（tail 首屏只取最新一页，更早历史按需拉取） */}
+        {hasOlder && (
+          <div className="flex justify-center">
+            <button
+              className="px-2.5 py-1 rounded-full text-[11px] border border-[var(--ui-stroke-tertiary)] text-muted-foreground hover:bg-accent/50 disabled:opacity-50"
+              disabled={loadingOlder}
+              onClick={() => void loadOlder()}
+            >
+              {loadingOlder ? '加载中…' : '加载更早消息'}
+            </button>
+          </div>
+        )}
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-1">
           <Bot size={12} />
           <span>群聊已创建 · @提及成员、或直接发言（默认全员回应）</span>

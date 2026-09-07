@@ -860,10 +860,28 @@ export async function sendBotRoomMessage(
   });
 }
 
-/** 增量拉取房间事件 */
-export async function fetchBotRoomEvents(roomId: string, sinceSeq = 0, limit = 200): Promise<{ events: BotRoomEvent[]; latest_seq: number }> {
-  const data = await call('bot_rooms_events', { room_id: roomId, since_seq: sinceSeq, limit });
-  return { events: Array.isArray(data?.events) ? data.events : [], latest_seq: data?.latest_seq ?? 0 };
+/**
+ * 拉取房间事件。两种模式（🔴 2026-09-08 round-76 新增 tail）：
+ * - 增量（默认）：`sinceSeq` 之后的最旧一页 —— 实时补齐新事件。
+ * - tail：`beforeSeq` 之前的**最新**一页（传 0 = 全房间最新一页）——首屏
+ *   "直接看最新"与向上翻历史。返回 `has_more` 表示之前还有更早事件。
+ */
+export async function fetchBotRoomEvents(
+  roomId: string,
+  opts: { sinceSeq?: number; beforeSeq?: number; limit?: number } = {},
+): Promise<{ events: BotRoomEvent[]; latest_seq: number; has_more: boolean }> {
+  const { sinceSeq = 0, beforeSeq, limit = 200 } = opts;
+  const data = await call('bot_rooms_events', {
+    room_id: roomId,
+    since_seq: sinceSeq,
+    limit,
+    ...(typeof beforeSeq === 'number' ? { before_seq: beforeSeq } : {}),
+  });
+  return {
+    events: Array.isArray(data?.events) ? data.events : [],
+    latest_seq: data?.latest_seq ?? 0,
+    has_more: !!data?.has_more,
+  };
 }
 
 /** 停止房间在飞讨论（围栏事件） */
