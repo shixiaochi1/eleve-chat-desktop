@@ -25,8 +25,8 @@ import { requestForBot } from '../services/connections';
 import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnread';
 import { BotRosterRow } from './BotsView';
 import {
-  isRoomsLoaded, openRemoteChat, refreshRooms, selectRoom, useRooms,
-  useRoomsLoaded, useSelectedRoomId,
+  closeRemoteChat, isRoomsLoaded, openRemoteChat, refreshRooms, selectRoom,
+  useRooms, useRoomsLoaded, useSelectedRoomId,
 } from '../plugins/bots/state';
 import { onProfilesChanged } from '../lib/global-events';
 
@@ -266,6 +266,9 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: 
   };
 
   const openRoom = (room: BotRoom) => {
+    // 🔴 2026-09-08 round-76：房间选择与远端会话视图互斥——否则 remoteChat
+    // 激活时点群聊行，主区仍被远端视图遮蔽（"点了没反应"）
+    closeRemoteChat();
     selectRoom(room.room_id);
     onOpenBotRoom(room.room_id);
   };
