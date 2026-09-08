@@ -10,6 +10,7 @@ import {
 import { textPart } from '@/lib/chat-messages';
 import { requestComposerInsert } from '@/lib/composer-events';
 import { setCurrentSessionCwd } from '@/lib/session-cwd';
+import { isBorrowedBotChat, shouldRestoreAgentView } from '@/lib/workspace-domain';
 import { clearPreviewArtifacts } from '@/store/preview-status';
 import PreviewStatusStrip from './components/preview/PreviewStatusStrip';
 import { useSessions } from './hooks/useSessions';
@@ -853,12 +854,22 @@ export default function App() {
   // 🔴 宫格命令式句柄：App 经此调度宫格（switchToSession 留宫格切会话 / persistPointers 退出前写回指针）
   const gridRef = useRef<GridModeViewHandle>(null);
 
+  // 🔴 2026-09-08 round-79 架构审查（阶段 1：域转换守卫单点化）：
+  // "回到 Agent 单视图"三连（宫格先写回指针 → setViewMode('single') →
+  // restoreProfileSession 恢复 map 权威指针）此前在 handleExitGrid /
+  // handleExpandAgent / handleLeftPanelChange 手写 3 份——round-79 的门条件
+  // 漏判正是这种同构散落的必然产物（同一不变量 N 处维护必漂移）。
+  // 收敛为唯一实现，对齐 Hermes openSession/useRouteResume 单门纪律。
+  const enterAgentView = useCallback((profile: string) => {
+    if (viewMode === 'grid') gridRef.current?.persistPointers(); // 退出宫格前写回各卡指针
+    setViewMode('single');
+    restoreProfileSession(profile);
+  }, [viewMode, restoreProfileSession]);
+
   // 退出宫格（回到当前 profile 单视图）
   const handleExitGrid = useCallback(() => {
-    gridRef.current?.persistPointers(); // 🔴 退出持久化权威收敛：Ctrl+G / 按钮退出都先写回各 Agent 指针
-    setViewMode('single');
-    restoreProfileSession(currentProfile);
-  }, [restoreProfileSession, currentProfile]);
+    enterAgentView(currentProfile);
+  }, [enterAgentView, currentProfile]);
   exitGridRef.current = handleExitGrid; // 🔴 P1-3: 绑定到 toggleViewMode 的 ref
   // 🔴 2026-09-07 round-69：宫格离开的指针写回兜底已收敛至 GridModeView
   // 卸载 cleanup（round-68b 在此放的 viewMode 变化 effect 实际 no-op——
@@ -866,10 +877,8 @@ export default function App() {
 
   // 展开某个 Agent 为单视图
   const handleExpandAgent = useCallback((profile: string) => {
-    gridRef.current?.persistPointers(); // 🔴 同上：展开前写回指针
-    setViewMode('single');
-    restoreProfileSession(profile);
-  }, [restoreProfileSession]);
+    enterAgentView(profile);
+  }, [enterAgentView]);
 
   // 🔴 2026-09-06 round-68（用户反馈联动断节）：IconBar AGENT 按钮 = 完整
   // 进入 Agent 会话界面——**打开臂主区联动**：宫格先写回各卡指针、群聊
@@ -878,22 +887,20 @@ export default function App() {
   // 须再点 Agent 卡片才切会话。关闭臂（null）与其余面板不联动。
   const handleLeftPanelChange = useCallback((panel: string | null) => {
     // 🔴 2026-09-08 round-79（用户实测：群聊/Bot Chat 聊天后点 AGENT 按钮，
-    // 主会话消息区与右抽屉残留 bot 域内容）：恢复臂判定补 bot 域借道态。
-    // handleOpenBotChat 会把 viewMode 拉回 'single' + 主视图会话切到 bot 域
-    // （Bot Chat 借道主视图渲染，round-51 设计）——原门 `viewMode !== 'single'`
-    // 在此恒 false，恢复臂死路：AGENT 按钮 = "完整进入 Agent 会话界面"
-    // （round-68 语义），主视图当前会话仍在 botChatSids（bot 域）时同样必须
-    // restoreProfileSession 恢复 map[currentProfile] 权威指针——消息区回
-    // agent 最近会话；右抽屉 files cwd 按 viewMode/botChatSids 域取值
-    // （:2068-2070），会话域纠正后自动回项目域 panelRoot，无需另改。
-    // 同 profile 恢复不清 scope/panelRoot（保留项目上下文，宫格退出同语义）。
-    if (panel === 'agents' && (viewMode !== 'single' || (sess.sessionId !== null && botChatSids.has(sess.sessionId)))) {
-      if (viewMode === 'grid') gridRef.current?.persistPointers();
-      setViewMode('single');
-      restoreProfileSession(currentProfile);
+    // 主会话消息区与右抽屉残留 bot 域内容）：恢复臂门收敛到
+    // shouldRestoreAgentView 单源（lib/workspace-domain.ts）——round-79 的
+    // 门条件漏判（原 `viewMode !== 'single'` 在 Bot Chat 借道态恒 false，
+    // restoreProfileSession 死路）是该不变量散落维护的必然产物。
+    // AGENT 按钮 = "完整进入 Agent 会话界面"（round-68 语义）：主视图当前
+    // 会话仍在 botChatSids（bot 域借道，round-51 设计）时同样恢复
+    // map[currentProfile] 权威指针；右抽屉 files cwd 按域取值（:2079 附近）
+    // 随会话域纠正自动回项目域。同 profile 恢复不清 scope/panelRoot
+    // （保留项目上下文，宫格退出同语义）。
+    if (panel === 'agents' && shouldRestoreAgentView(viewMode, botChatSids, sess.sessionId)) {
+      enterAgentView(currentProfile);
     }
     setActivePanel(panel);
-  }, [viewMode, currentProfile, restoreProfileSession, sess.sessionId, botChatSids]);
+  }, [viewMode, currentProfile, enterAgentView, sess.sessionId, botChatSids]);
 
   // ── useSessionActions: session switch/delete/new ──
   // 先于 usePromptActions 调用，因为 handleNewSession 需要传给 usePromptActions
@@ -992,7 +999,7 @@ export default function App() {
     // （Hermes 契约：canonical chat 无 /new——reset 会换 id 且 platform 变 ws，
     // title 仍挂旧 sid → DM 落进僵尸会话 = 消息黑洞）。后端 reset_session 已
     // fail-closed 拒绝；此处前端拦截给可见提示（按钮 / Ctrl+N / 懒创建统一入口）。
-    if (sess.sessionId && botChatSids.has(sess.sessionId)) {
+    if (isBorrowedBotChat(botChatSids, sess.sessionId)) {
       import('./utils/notifications').then(({ notify }) => notify({
         kind: 'warning',
         message: 'Bot Chat 是与该 Agent 的常驻会话，不支持新建会话。',
@@ -1449,6 +1456,12 @@ export default function App() {
     const output = result?.output || '';
     const newSid = result?.session_id;
     if (newSid && newSid !== sess.sessionId) {
+      // 🔴 2026-09-08 round-79 架构审查（阶段 1 域缺口补齐）：借道态下命令
+      // 换会话会把主指针切走而右抽屉/ContextBar 仍按旧域渲染——先回单视图
+      // 保证结果会话以正确域呈现（grid 主区下交互卡不可达，仅 bots 需退臂）
+      if (viewMode === 'bots') {
+        setViewMode('single');
+      }
       if (sess.sessionId) {
         storeSetMessages((prev) => {
           sess.saveCache((cache) => ({ ...cache, [sess.sessionId!]: prev }));
@@ -1464,7 +1477,7 @@ export default function App() {
     } else {
       storeSetMessages((prev) => [...prev, { id: genId(), role: 'system', parts: [textPart(output)] } as ChatMessage]);
     }
-  }, [sess, genId, setSessionListVersion]);
+  }, [sess, genId, setSessionListVersion, viewMode]);
 
   // ── sudo done（2026-08-17 阶段4：按会话参数化——request_id 从交互项取）──
   const handleSudoDone = useCallback(async (sessionId: string, password: string) => {
@@ -1536,6 +1549,14 @@ export default function App() {
   //   targetProfile re-home + newSessionInProfile）；否则当前 profile 开新会话。
   useEffect(() => {
     return onWakeDetected((detail) => {
+      // 🔴 2026-09-08 round-79 架构审查（阶段 1 域缺口补齐）：bots 主区下唤醒
+      // 开新会话会改主指针而主区停在群聊视图（round-79 同型隐患）——先回
+      // 单视图再走既定链路（与 handleProfileChange 的 bots 退臂同语义）。
+      // grid 分支不受影响（viewMode 互斥）；宫格指针写回由 GridModeView
+      // 卸载 cleanup 兜底。
+      if (viewMode === 'bots') {
+        setViewMode('single');
+      }
       const targetProfile = detail.profile?.trim();
       if (targetProfile && targetProfile !== currentProfile) {
         // 对齐 Hermes：唤醒词归属 profile 先 re-home（切盖章）再开新会话；
@@ -2026,11 +2047,11 @@ export default function App() {
                     <TodoPanel sessionId={sess.sessionId} />
                   </div>
                   <ContextBar sessionId={sess.sessionId} sessionStartedAt={sessionStartedAt} onNewSession={handleNewSessionWithScope} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount}
-                    isBotChat={!!sess.sessionId && botChatSids.has(sess.sessionId)}
+                    isBotChat={isBorrowedBotChat(botChatSids, sess.sessionId)}
                     botLabel={(() => {
                       // 🔴 round-76（对齐 Hermes e2e 规格 bot-mode-tab-shows-bot-name）：
                       // 所有 bot 的私聊标题都是 "Bot Chat"，主区必须标注"正在和谁聊"
-                      if (!sess.sessionId || !botChatSids.has(sess.sessionId)) return null;
+                      if (!isBorrowedBotChat(botChatSids, sess.sessionId)) return null;
                       const p = profileFromSessionId(sess.sessionId);
                       return p ? (displayNames[p] || p) : null;
                     })()}
@@ -2076,7 +2097,7 @@ export default function App() {
                       // 烙印值，经 session.info 推送）；其余 → 项目域 panelRoot
                       // （2026-08-13 四条定稿语义不动）。
                       if (viewMode === 'bots') return '';
-                      if (sess.sessionId && botChatSids.has(sess.sessionId)) return sessionCwd;
+                      if (isBorrowedBotChat(botChatSids, sess.sessionId)) return sessionCwd;
                       return panelRoot;
                     })()}
                     sessionId={sess.sessionId}
@@ -2085,7 +2106,7 @@ export default function App() {
                   />
                 )}
                 {rightTab === 'artifacts' && (
-                  <ArtifactPanel sessionId={sess.sessionId} profile={currentProfile} onSwitchSession={handleSwitchSession} />
+                  <ArtifactPanel sessionId={sess.sessionId} profile={currentProfile} onSwitchSession={gridAwareSwitchSession} />
                 )}
                 {rightTab === 'review' && <ReviewPane />}
               </>
