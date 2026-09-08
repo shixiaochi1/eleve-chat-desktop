@@ -970,8 +970,11 @@ fn discover_gateway_port(eleve_home: &PathBuf) -> Result<u16, String> {
     }
 
     let total_secs = fast_attempts as u64 * 200 / 1000 + slow_attempts as u64 * 500 / 1000;
+    // 🔴 2026-09-08：eleved 主日志按 UTC 日志轮转（eleved.log.<date>，tracing-appender
+    // DAILY），裸 eleved.log 现为 boot 诊断通道（eleved-boot.log）——提示文案同步，
+    // 避免用户按提示排查时读到 boot 碎片而非主日志。
     Err(format!(
-        "端口发现超时 ({}s) — 请检查 eleved 是否正常启动，日志: {}/logs/eleved.log 或 {}/runtime/eleved-stdout.log",
+        "端口发现超时 ({}s) — 请检查 eleved 是否正常启动，日志: {}/logs/eleved.log.<日期>（最新轮转） 或 {}/runtime/eleved-stdout.log",
         total_secs,
         eleve_home.display(),
         eleve_home.display()

@@ -11,6 +11,7 @@ import { textPart } from '@/lib/chat-messages';
 import { requestComposerInsert } from '@/lib/composer-events';
 import { setCurrentSessionCwd } from '@/lib/session-cwd';
 import { isBorrowedBotChat, shouldRestoreAgentView } from '@/lib/workspace-domain';
+import { registerBotChatSession, setWorkspaceOwner, useWorkspaceOwner } from './store/workspace';
 import { clearPreviewArtifacts } from '@/store/preview-status';
 import PreviewStatusStrip from './components/preview/PreviewStatusStrip';
 import { useSessions } from './hooks/useSessions';
@@ -317,10 +318,14 @@ export default function App() {
   const [panelRoot, setPanelRoot] = useState<string | null>(null);
   // 🔴 2026-09-05 round-51：Bot Mode 的 workspace 归属（对齐 Hermes
   // setBotsWorkspaceOwner 的 scope 化 owner 语义——面板跟随当前选中实体，
-  // 无归属 = 显式空态）。bot 域状态：打开过的 canonical Bot Chat 记入
-  // botChatSids；群聊主区激活 = group。面板根按域覆盖（见 effectivePanelRoot），
-  // 项目域 panelRoot 与四条定稿语义（:309-315）完全不动。
-  const [botChatSids, setBotChatSids] = useState<Set<string>>(() => new Set());
+  // 无归属 = 显式空态）。bot 域状态已一等化到 store/workspace.ts（round-79b
+  // 阶段 ②）：Bot Chat 会话元数据（isBotChatSession）+ 域焦点实体
+  // （workspaceOwner 单写点）——App 不再持散落 Set；群聊主区激活 = group。
+  // 面板根按域覆盖（见右抽屉 files cwd 决策），项目域 panelRoot 与四条
+  // 定稿语义（:309-315）完全不动。
+  // 🔴 订阅域 store：registerBotChatSession/setWorkspaceOwner 的 emit 经此
+  // 触发联动区（ContextBar/右抽屉/恢复臂谓词）重渲染。
+  useWorkspaceOwner();
   // 🔴 2026-08-13 边界修复：无会话手动导航 → 新会话落点暂存（对齐 Hermes $newChatWorkspaceTarget）。
   // 文件面板无会话时导航目录 → 新会话落该目录（此前只做了 remote 记忆，本会话不消费 = 断线）；
   // 任何项目域动作（点项目/会话行/切 Agent）→ 清除（项目意图覆盖手动导航）。
@@ -632,6 +637,10 @@ export default function App() {
   //  不比异步 sess.sessionId（setState 异步 → .then() 时闭包值陈旧 → 误丢有效历史 → 首次切换丢消息）。
   //  调用前提：调用方必须先 resetStream(targetId) 同步锁定权威 ref。
   const loadSessionIntoView = useCallback((targetId: string) => {
+    // 🔴 round-79b 阶段 ②（"离开 bot 域 = owner 复位"不变量）：agent 会话
+    // 装载的单一权威入口处复位域焦点（幂等；唯一不复位的是 handleOpenBotChat
+    // 路径——它不经此函数，先置 bot-chat owner 再走 handleSwitchSession）
+    setWorkspaceOwner({ kind: 'none', key: null });
     // 🔴 P1-3: 切换会话时清空交互卡片（防 A 的审批卡留在 B 视图）。
     // 2026-08-17 阶段4：多槽交互**按会话归属**——切会话只改变渲染目标，
     // 不清 interactions（后台会话的审批仍在后端等待，清了 = 工具超时；
@@ -661,6 +670,8 @@ export default function App() {
 
   // 无历史会话 → 空白草稿（单一权威入口；profile = 要清指针的目标 profile）
   const clearSessionView = useCallback((profile: string) => {
+    // 🔴 round-79b 阶段 ②：空草稿 = agent 域 → 域焦点复位（幂等）
+    setWorkspaceOwner({ kind: 'none', key: null });
     // 🔴 P1-3: 同 loadSessionIntoView（2026-08-17 阶段4：多槽按会话归属不清；
     // 空草稿本身无交互，后台会话交互保留可见）
     setActiveSlashConfirm(null);
@@ -813,6 +824,9 @@ export default function App() {
   // profile_session_map，故此处只从 map 读取 + 后端重加载。与 handleProfileChange 的区别：
   // 不回写“切走”会话（避免用陈旧的全局 sess.sessionId 覆盖宫格刚写回的权威指针）。
   const restoreProfileSession = useCallback((profile: string) => {
+    // 🔴 round-79b 阶段 ②：agent 域恢复 = 域焦点复位（幂等；handleOpenBotChat
+    // 的 bot-chat 置位不经此函数，不受影响）
+    setWorkspaceOwner({ kind: 'none', key: null });
     const map = loadProfilePointers();
     const rawTarget = map[profile] || null;
     const targetId = rawTarget && sessionIdMatchesProfile(rawTarget, profile) ? rawTarget : null;
@@ -896,11 +910,11 @@ export default function App() {
     // map[currentProfile] 权威指针；右抽屉 files cwd 按域取值（:2079 附近）
     // 随会话域纠正自动回项目域。同 profile 恢复不清 scope/panelRoot
     // （保留项目上下文，宫格退出同语义）。
-    if (panel === 'agents' && shouldRestoreAgentView(viewMode, botChatSids, sess.sessionId)) {
+    if (panel === 'agents' && shouldRestoreAgentView(viewMode, sess.sessionId)) {
       enterAgentView(currentProfile);
     }
     setActivePanel(panel);
-  }, [viewMode, currentProfile, enterAgentView, sess.sessionId, botChatSids]);
+  }, [viewMode, currentProfile, enterAgentView, sess.sessionId]);
 
   // ── useSessionActions: session switch/delete/new ──
   // 先于 usePromptActions 调用，因为 handleNewSession 需要传给 usePromptActions
@@ -957,12 +971,10 @@ export default function App() {
     const profile = profileFromSessionId(id);
     // 🔴 round-51：记入 bot 域（右抽屉面板跟随该 bot 的 workspace——cwd 经
     // session.info 推送即为 round-43 烙印的 per-profile workspace_dir）
-    setBotChatSids((cur) => {
-      if (cur.has(id)) return cur;
-      const next = new Set(cur);
-      next.add(id);
-      return next;
-    });
+    // 🔴 round-79b 阶段 ②：botChatSids useState 退役——会话元数据登记 +
+    // 域焦点置位都收敛到 store/workspace.ts 单写点（唯一注册点保持此处）
+    registerBotChatSession(id);
+    setWorkspaceOwner({ kind: 'bot-chat', key: id });
     if (viewMode !== 'single') {
       setViewMode('single');
     }
@@ -999,7 +1011,7 @@ export default function App() {
     // （Hermes 契约：canonical chat 无 /new——reset 会换 id 且 platform 变 ws，
     // title 仍挂旧 sid → DM 落进僵尸会话 = 消息黑洞）。后端 reset_session 已
     // fail-closed 拒绝；此处前端拦截给可见提示（按钮 / Ctrl+N / 懒创建统一入口）。
-    if (isBorrowedBotChat(botChatSids, sess.sessionId)) {
+    if (isBorrowedBotChat(sess.sessionId)) {
       import('./utils/notifications').then(({ notify }) => notify({
         kind: 'warning',
         message: 'Bot Chat 是与该 Agent 的常驻会话，不支持新建会话。',
@@ -1007,7 +1019,7 @@ export default function App() {
       return;
     }
     await handleNewSession(title, resolveNewSessionCwd() ?? undefined);
-  }, [sess.sessionId, botChatSids, handleNewSession, resolveNewSessionCwd]);
+  }, [sess.sessionId, handleNewSession, resolveNewSessionCwd]);
 
   // （useSessions.create 激活——原无 UI 调用方的死链；卡片立即有真实会话而非懒创建）
   const gridAwareNewSession = useCallback(async () => {
@@ -2047,11 +2059,11 @@ export default function App() {
                     <TodoPanel sessionId={sess.sessionId} />
                   </div>
                   <ContextBar sessionId={sess.sessionId} sessionStartedAt={sessionStartedAt} onNewSession={handleNewSessionWithScope} viewMode={viewMode} onToggleViewMode={toggleViewMode} agentCount={agentCount}
-                    isBotChat={isBorrowedBotChat(botChatSids, sess.sessionId)}
+                    isBotChat={isBorrowedBotChat(sess.sessionId)}
                     botLabel={(() => {
                       // 🔴 round-76（对齐 Hermes e2e 规格 bot-mode-tab-shows-bot-name）：
                       // 所有 bot 的私聊标题都是 "Bot Chat"，主区必须标注"正在和谁聊"
-                      if (!isBorrowedBotChat(botChatSids, sess.sessionId)) return null;
+                      if (!isBorrowedBotChat(sess.sessionId)) return null;
                       const p = profileFromSessionId(sess.sessionId);
                       return p ? (displayNames[p] || p) : null;
                     })()}
@@ -2097,7 +2109,7 @@ export default function App() {
                       // 烙印值，经 session.info 推送）；其余 → 项目域 panelRoot
                       // （2026-08-13 四条定稿语义不动）。
                       if (viewMode === 'bots') return '';
-                      if (isBorrowedBotChat(botChatSids, sess.sessionId)) return sessionCwd;
+                      if (isBorrowedBotChat(sess.sessionId)) return sessionCwd;
                       return panelRoot;
                     })()}
                     sessionId={sess.sessionId}
