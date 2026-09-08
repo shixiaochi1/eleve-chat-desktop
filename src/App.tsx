@@ -646,12 +646,14 @@ export default function App() {
     // 不清 interactions（后台会话的审批仍在后端等待，清了 = 工具超时；
     // 空快照由 session.info pending_prompts 权威清理）。只清 slashConfirm。
     setActiveSlashConfirm(null);
-    sess.setSessionId(targetId);
+    // 🔴 round-79b 阶段 ③（切换链收敛）：指针 state + profile_session_map 持久 +
+    // WS 订阅三件套改调 sess.switchTo 单源——persistSessionPointer 写点从 7 处
+    // 收敛到 useSessions 四个权威点（switchTo/create/reset/remove），
+    // "禁止裸调 storage.save('session_id')"的约束从此由类型路径保证
+    sess.switchTo(targetId);
     // 🔴 2026-08-22：切换/恢复会话 → 后端确认前不可发送（门禁）
     sess.setSessionReady(false);
-    persistSessionPointer(targetId);
     sess.setFreshDraftReady(false);
-    getWsClient().switchSession(targetId);
     // 缓存秒显（纯 UX 防白屏，始终被后端覆盖）
     const cached = sess.msgCache[targetId];
     storeSetMessages(cached?.length ? (cached as ChatMessage[]) : []);
@@ -737,6 +739,69 @@ export default function App() {
   // clearImages/clearFilesAttachment 导致 TDZ——附件 hook 在下方定义）
   const clearImagesRef = useRef<() => void>(() => {});
   const clearFilesAttachmentRef = useRef<() => void>(() => {});
+  // 🔴 2026-09-08 round-79b 阶段 ③（切换域唯一实现）：handleProfileChange
+  // 四步流程与 restoreProfileSession 约 80% 同构（map 读+归属校验→
+  // resetStream→盖章→清 scope/target→refresh→清附件→load/clear）——差异仅
+  // 两点：writeBack（是否回写源指针）与 focusChanged（是否跨 profile）。
+  // 合一后"切 profile = 权威恢复 map 指针"这一不变量单点维护，行为逐项
+  // 等价（handleProfileChange 经幂等门后 focusChanged 恒 true）。
+  const switchToProfile = useCallback((name: string, opts: { writeBack: boolean; focusChanged: boolean }) => {
+    const { writeBack, focusChanged } = opts;
+    // 🔴 2026-08-13 边界修复：切 Agent 清附件（图片/文件条）——App 层附件是单视图
+    // composer 级状态，跨 Agent 残留 = A 的附件串到 B 的会话（宫格→单视图同清：
+    // 宫格期间 App 层附件条不可见，进宫格前残留退出后不应串到单视图会话）。
+    clearImagesRef.current();
+    clearFilesAttachmentRef.current();
+    // 🔴 2026-08-29 对齐 Hermes gateway-switch：跨 profile 清 artifact 注册表
+    //（注册表是内存态，跨 profile 残留 = 旧 Agent 的产物混入新 Agent 视图；
+    // 同 profile 退出宫格不清——所有卡片仍活跃，registry 按 sessionId 隔离）。
+    if (focusChanged) clearArtifactRegistry();
+
+    // ── Step 1: 记住指针（每个 Agent 上次用哪个 session；restore 不回写——
+    // 宫格 persistPointers 刚写回权威指针，避免陈旧全局 sid 覆盖） ──
+    const map = loadProfilePointers();
+    // 🔴 串台防御：只写入归属正确的 session 指针，防止污染扩散
+    if (writeBack && sess.sessionId && sessionIdMatchesProfile(sess.sessionId, currentProfile)) {
+      map[currentProfile] = sess.sessionId; // 同步本地副本（Step 1b 读目标 key 不受影响，但保持语义一致）
+      saveProfilePointer(currentProfile, sess.sessionId);
+    }
+
+    // ── Step 1b: 🔴 串台根因修复 — 先算目标 session（map 指针可能被历史污染，校验归属后才恢复） ──
+    const rawTargetId = map[name] || null;
+    const targetId = rawTargetId && sessionIdMatchesProfile(rawTargetId, name) ? rawTargetId : null;
+
+    // ── Step 2: 重置流式状态 + 同步锁定过滤 ref 到目标 session（消灭 effect 异步串台窗口） +
+    // 🔴 P0 修复：重置发送锁 + 清排队（否则源 Agent 的 message.complete 被过滤丢弃 →
+    // onDone 永不触发 → 锁泄漏 → 目标 Agent 发送瘫痪） ──
+    resetStream(targetId);
+    resetSendingLockRef.current?.();
+
+    // ── Step 3: 切换盖章（同步，保证后续 sendRpc 盖章正确） ──
+    setWsActiveProfile(name);
+    setCurrentProfile(name);
+    // 🔴 跨 profile 才清 scope/target（对齐 Hermes 切 profile 后 scope stale；
+    // 同 profile 退出宫格保留项目上下文——2026-08-14 面板抖动根治：不立即
+    // setPanelRoot(null)，保持旧面板直到新 Agent 激活项目恢复一次切换）
+    if (focusChanged) {
+      setProjectScopeCwd(null);
+      newChatWorkspaceTargetRef.current = null;
+    }
+
+    // ── Step 3b: 🔴 S2 修复 — 刷新会话列表（后端按 profile 过滤，S1 保证 sendRpc 盖章新 profile） ──
+    sess.refresh();
+
+    // ── Step 4: 恢复目标会话（后端是权威源，始终 loadHistory）/ 空白草稿 ──
+    if (targetId) {
+      loadSessionIntoView(targetId);
+      // 🔴 P0-1.2: pending 交互恢复依赖后端推送的 session.info 事件（WS 流建立时自动推送）
+      // 实时审批/澄清/sudo/secret 由 useSSE/useMessageStream 事件处理器消费
+    } else {
+      // 无历史会话 → 空白草稿。
+      // 🔴 串台/丢失修复：清的是目标 profile（name）的指针，不是源（currentProfile 是闭包旧值=切走的 Agent）。
+      clearSessionView(name);
+    }
+  }, [sess, currentProfile, resetStream, loadSessionIntoView, clearSessionView]);
+
   const handleProfileChange = useCallback((name: string) => {
     // 🔴 2026-08-13 边界修复：同 Agent 重复点选短路——否则单视图重跑四步
     // （resetStream 重置流式状态 + loadSessionIntoView 清 pending 卡：
@@ -762,62 +827,8 @@ export default function App() {
       newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：切 Agent 清手动导航落点
       return;
     }
-
-    // 🔴 2026-08-13 边界修复：切 Agent 清附件（图片/文件条）——App 层附件是单视图
-    // composer 级状态，跨 Agent 残留 = A 的附件串到 B 的会话（发送时按当前会话上传/注入）。
-    // 切会话（同 Agent）保留（附件跟随用户输入意图，对齐 Hermes composer 语义）。
-    clearImagesRef.current();
-    clearFilesAttachmentRef.current();
-
-    // 🔴 2026-08-29 对齐 Hermes gateway-switch（store/gateway-switch.ts:222）：
-    // 切 profile 清空 artifact 注册表——注册表是内存态，跨 profile 残留 = 旧 Agent
-    // 的产物混入新 Agent 视图；卡片重渲染会自动重注册，清空安全。连带关闭全部
-    // artifact 预览 tab（closeArtifactPreviewTabs，tab 不能比内容源活得久）。
-    // 宫格焦点分支不清（所有 Agent 卡片仍活跃，registry 按 sessionId 隔离）。
-    clearArtifactRegistry();
-
-    // ── Step 1: 记住指针（每个 Agent 上次用哪个 session） ──
-    const map = loadProfilePointers();
-    // 🔴 串台防御：只写入归属正确的 session 指针，防止污染扩散
-    if (sess.sessionId && sessionIdMatchesProfile(sess.sessionId, currentProfile)) {
-      map[currentProfile] = sess.sessionId; // 同步本地副本（Step 1b 读目标 key 不受影响，但保持语义一致）
-      saveProfilePointer(currentProfile, sess.sessionId);
-    }
-
-    // ── Step 1b: 🔴 串台根因修复 — 先算目标 session（map 指针可能被历史污染，校验归属后才恢复） ──
-    const rawTargetId = map[name] || null;
-    const targetId = rawTargetId && sessionIdMatchesProfile(rawTargetId, name) ? rawTargetId : null;
-
-    // ── Step 2: 重置流式状态 + 同步锁定过滤 ref 到目标 session（消灭 effect 异步串台窗口） ──
-    resetStream(targetId);
-    // 🔴 P0 修复：重置发送锁 + 清排队（否则源 Agent 的 message.complete 被过滤丢弃 → onDone 永不触发 → 锁泄漏 → 目标 Agent 发送瘫痪）
-    resetSendingLockRef.current?.();
-
-    // ── Step 3: 切换盖章（同步，保证后续 sendRpc 盖章正确） ──
-    setWsActiveProfile(name);
-    setCurrentProfile(name);
-    // 🔴 2026-08-12 断线修复：切 Agent 旧项目 scope 失效（对齐 Hermes 切 profile 后 scope stale，
-    //   否则新 Agent 说话时 getNewSessionCwd 返回旧 Agent 的项目根 → 新会话落错项目）
-    setProjectScopeCwd(null);
-    // 🔴 2026-08-14 右侧面板抖动根治：切 Agent 不再立即 setPanelRoot(null)——
-    // 保持旧面板直到新 Agent 激活项目恢复（fetchTree 后一次切换），避免
-    // "未打开项目"占位 ↔ 文件树 两次切换的抖动（与左侧项目树 silent 同语义）
-    newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：切 Agent 清手动导航落点
-
-    // ── Step 3b: 🔴 S2 修复 — 刷新会话列表（后端按 profile 过滤，S1 保证 sendRpc 盖章新 profile） ──
-    sess.refresh();
-
-    // ── Step 4: 恢复目标会话（后端是权威源，始终 loadHistory） ──
-    if (targetId) {
-      loadSessionIntoView(targetId);
-      // 🔴 P0-1.2: pending 交互恢复依赖后端推送的 session.info 事件（WS 流建立时自动推送）
-      // 实时审批/澄清/sudo/secret 由 useSSE/useMessageStream 事件处理器消费
-    } else {
-      // 无历史会话 → 空白草稿。
-      // 🔴 串台/丢失修复：清的是目标 profile（name）的指针，不是源（currentProfile 是闭包旧值=切走的 Agent）。
-      clearSessionView(name);
-    }
-  }, [sess, currentProfile, resetStream, viewMode, loadSessionIntoView, clearSessionView]);
+    switchToProfile(name, { writeBack: true, focusChanged: true });
+  }, [sess, currentProfile, viewMode, switchToProfile]);
 
   // 🔴 宫格→单视图：恢复目标 profile 的会话。
   // 宫格退出/展开前已由 GridModeView.persistPointers 把各 Agent 最新 session 指针写回
@@ -827,43 +838,11 @@ export default function App() {
     // 🔴 round-79b 阶段 ②：agent 域恢复 = 域焦点复位（幂等；handleOpenBotChat
     // 的 bot-chat 置位不经此函数，不受影响）
     setWorkspaceOwner({ kind: 'none', key: null });
-    const map = loadProfilePointers();
-    const rawTarget = map[profile] || null;
-    const targetId = rawTarget && sessionIdMatchesProfile(rawTarget, profile) ? rawTarget : null;
-    // 🔴 串台根因修复：同步锁定过滤 ref 到目标 session（宫格→单视图同样消灭异步窗口）
-    resetStream(targetId);
-    // 🔴 P0 修复：宫格→单视图同样重置发送锁（宫格期间单视图锁可能被孤立流式事件锁死）
-    resetSendingLockRef.current?.();
-    setWsActiveProfile(profile);
-    setCurrentProfile(profile);
-    // 🔴 2026-08-13 边界修复：仅焦点变化时清 scope/pinned/target——
-    // 宫格退出（restoreProfileSession(currentProfile)，焦点未变）保留宫格期间选的项目
-    // （用户退出宫格应回到同一项目上下文）；展开其它卡片（焦点变）才清（旧焦点残留不带走）。
-    if (profile !== currentProfile) {
-      // 🔴 2026-08-12 断线修复：宫格→单视图同样清旧项目 scope（防新会话落错项目）
-      setProjectScopeCwd(null);
-      // 🔴 2026-08-29 对齐 Hermes gateway-switch：跨 profile 清 artifact 注册表
-      //（同 handleProfileChange；同 profile 退出宫格不清）
-      clearArtifactRegistry();
-      // 🔴 2026-08-16 一致性修复（审计 P2）：不再立即 setPanelRoot(null)——
-      // 与 handleProfileChange 的"抖动根治"同款：保持旧面板直到新 Agent
-      // 激活项目恢复（fetchTree 后 handleProjectScopeRestored 一次切换），
-      // 避免"旧面板→未打开项目→新项目"两次切换闪烁。
-      newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：宫格→单视图同样清手动导航落点
-    }
-    // 🔴 S2: 宫格→单视图同样刷新会话列表（与 handleProfileChange 一致）
-    sess.refresh();
-    // 🔴 2026-08-13 宫格→单视图同样清附件（宫格期间 App 层附件条不可见，
-    // 进宫格前残留的附件退出后不应串到单视图会话）
-    clearImagesRef.current();
-    clearFilesAttachmentRef.current();
-    if (targetId) {
-      loadSessionIntoView(targetId);
-      // 🔴 P0-1.2: 同上，pending 交互恢复依赖后端推送 session.info 事件
-    } else {
-      clearSessionView(profile); // 🔴 P1-6: 收敛到权威入口，同步清 map
-    }
-  }, [sess, resetStream, loadSessionIntoView, clearSessionView]);
+    // 🔴 round-79b 阶段 ③：四步核心收敛 switchToProfile 唯一实现——
+    // writeBack=false（宫格 persistPointers 刚写回权威指针，不回写）
+    // focusChanged 由调用现场决定（同 profile 退出宫格保留项目上下文）
+    switchToProfile(profile, { writeBack: false, focusChanged: profile !== currentProfile });
+  }, [currentProfile, switchToProfile]);
 
   // 🔴 宫格命令式句柄：App 经此调度宫格（switchToSession 留宫格切会话 / persistPointers 退出前写回指针）
   const gridRef = useRef<GridModeViewHandle>(null);
