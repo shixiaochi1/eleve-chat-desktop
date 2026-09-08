@@ -977,6 +977,30 @@ export async function disbandBotRoom(roomId: string): Promise<any> {
   return call('bot_rooms_disband', { room_id: roomId });
 }
 
+/** 🔴 round-79f 跨进程 driver：显式重试 indeterminate 任务（对齐 Hermes
+ * groups.retry——"operator accepts at-least-once risk"，人工豁免恢复层
+ * 60s 冷却窗；queued/running 不适用、deferred 靠 plan 自然回归） */
+export async function retryBotRoomTask(roomId: string, taskId: string): Promise<any> {
+  return call('bot_rooms_retry', { room_id: roomId, task_id: taskId });
+}
+
+/** 🔴 round-79f：房间未决任务（driver_tasks 簿记首次出网关）——indeterminate
+ * 可观察（跨进程接管场景），无未决任务返回空数组 */
+export async function fetchBotRoomPendingTask(roomId: string): Promise<PendingRoomTask[]> {
+  const res = await call('bot_rooms_tasks', { room_id: roomId });
+  return (res?.tasks ?? []) as PendingRoomTask[];
+}
+
+export interface PendingRoomTask {
+  task_id: string;
+  turn_id: string;
+  thread_id: string;
+  status: string;
+  member_id: string | null;
+  round_index: number | null;
+  indeterminate_at: number | null;
+}
+
 // ====== API Base URL ======
 
 /**

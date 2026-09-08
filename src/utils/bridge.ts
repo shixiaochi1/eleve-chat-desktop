@@ -173,6 +173,9 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   bot_rooms_rename:       'bot.rooms.rename',
   bot_rooms_stop:         'bot.rooms.stop',
   bot_rooms_disband:      'bot.rooms.disband',
+  // 🔴 round-79f 跨进程 driver：indeterminate 显式重试 + 未决任务可见性
+  bot_rooms_retry:        'bot.rooms.retry',
+  bot_rooms_tasks:        'bot.rooms.tasks',
   // 🔴 2026-09-08 round-78：replicas 维护面（后端 rpc_bots.rs 已注册；缺映射
   // → requestForBot(null) 落 bridge 抛 "No WS/HTTP mapping" → BotsPane 待
   // 接管区块死路：replicas 恒 []、promote 永不可达）

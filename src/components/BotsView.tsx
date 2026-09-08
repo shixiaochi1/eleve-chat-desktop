@@ -13,9 +13,9 @@ import { cn } from '@/lib/utils';
 import { ArrowLeft, Bot, Loader, Paperclip, Send, Settings2, Square, Trash2, UserPlus, UserMinus, X } from 'lucide-react';
 import {
   changeBotRoomMembers, disbandBotRoom, fetchBotRoomEvents,
-  renameBotRoom, respondBotRoomInteraction, sendBotRoomMessage,
-  stopBotRoom,
-  type BotRosterEntry, type BotRoom, type BotRoomEvent, type RoomAttachmentDraft,
+  fetchBotRoomPendingTask, renameBotRoom, respondBotRoomInteraction, retryBotRoomTask,
+  sendBotRoomMessage, stopBotRoom,
+  type BotRosterEntry, type BotRoom, type BotRoomEvent, type PendingRoomTask, type RoomAttachmentDraft,
 } from '../utils/api';
 import { getWsClient } from '../services/ws-client';
 import { formatMessageTime } from '../utils/time';
@@ -529,6 +529,36 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     return inflight.size > 0;
   }, [events]);
 
+  // 🔴 round-79f 跨进程 driver：未决任务簿记可见性（driver_tasks 首次出网关）。
+  // roomBusy 期间每 10s 轻量查询一次——indeterminate（崩溃恢复/接管中）在
+  // 单进程下转瞬即逝，跨进程接管后停留可观察，提供显式重试（人工豁免
+  // 恢复层 60s 冷却窗，对齐 Hermes groups.retry 的 at-least-once 确认语义）。
+  const [pendingTask, setPendingTask] = useState<PendingRoomTask | null>(null);
+  useEffect(() => {
+    if (!roomBusy) { setPendingTask(null); return; }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const tasks = await fetchBotRoomPendingTask(room.room_id);
+        if (!cancelled) setPendingTask(tasks[0] ?? null);
+      } catch { /* 网关离线：下轮重试 */ }
+    };
+    void poll();
+    const timer = setInterval(poll, 10_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [roomBusy, room.room_id]);
+
+  const handleRetryTask = async () => {
+    if (!pendingTask) return;
+    if (!window.confirm('重试将重新向该成员投递本轮任务（结果可能重复一次，at-least-once）。确认重试？')) return;
+    try {
+      await retryBotRoomTask(room.room_id, pendingTask.task_id);
+      setPendingTask(null);
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    }
+  };
+
   const stopRoom = async () => {
     setBusy(true);
     try { await stopBotRoom(room.room_id); await refresh(); } finally { setBusy(false); }
@@ -856,7 +886,21 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
         {roomBusy && (
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground py-0.5">
             <Loader size={11} className="animate-spin opacity-60" />
-            <span>成员讨论中…</span>
+            {pendingTask?.status === 'indeterminate' ? (
+              <>
+                {/* 🔴 round-79f 跨进程 driver：接管/恢复中 indeterminate 可观察 +
+                    显式重试（人工豁免 60s 冷却窗） */}
+                <span>轮结果确认中（跨进程接管）…</span>
+                <button
+                  className="underline hover:text-foreground"
+                  onClick={() => void handleRetryTask()}
+                >
+                  手动重试
+                </button>
+              </>
+            ) : (
+              <span>成员讨论中…</span>
+            )}
           </div>
         )}
         <div ref={bottomRef} />
