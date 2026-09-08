@@ -9,7 +9,7 @@ import {
 } from './store/debug';
 import { textPart } from '@/lib/chat-messages';
 import { requestComposerInsert } from '@/lib/composer-events';
-import { setCurrentSessionCwd } from '@/lib/session-cwd';
+import { setCurrentSessionCwd, getCurrentSessionCwd, useSessionCwd } from '@/lib/session-cwd';
 import { isBorrowedBotChat, shouldRestoreAgentView } from '@/lib/workspace-domain';
 import { registerBotChatSession, setWorkspaceOwner, useWorkspaceOwner } from './store/workspace';
 import { clearPreviewArtifacts } from '@/store/preview-status';
@@ -307,7 +307,12 @@ export default function App() {
 
   // 🔴 W-7: 会话 cwd（session.info 推送）— 传预览中心供重启预览使用
   // 会话切换时清空，等新会话的 session.info 重新推送
-  const [sessionCwd, setSessionCwd] = useState('');
+  // 🔴 2026-09-08 round-79b 阶段 ④（cwd 单例唯一持有）：sessionCwd useState
+  // 退役——此前 state 为权威 + effect 同步到 lib/session-cwd 单例（双轨：
+  // 写点 6 处经 state、深层组件经单例，两源一致性靠 effect 时序维持）。
+  // 收敛后 lib/session-cwd 单例即唯一事实源（对齐 Hermes $currentCwd atom），
+  // App 订阅 hook 供渲染，写入点全部直写单例（深层组件同步可见，时序更准）。
+  const sessionCwd = useSessionCwd() ?? '';
   // 🔴 2026-08-13 老大语义定稿：三个独立功能 + 单向联动。
   // panelRoot = 右侧文件面板的重定向根（真实文件树的显示位置）：
   //   ① 点选项目卡片（含 HOME）→ 单向重定向到该项目绑定的物理地址（项目虚拟、
@@ -333,7 +338,7 @@ export default function App() {
   useEffect(() => {
     // 🔴 2026-08-13 老大语义重构：会话切换只影响 sessionCwd（终端/新会话落点），
     // 不碰 panelRoot（文件面板是项目映射视图，不跟随会话）。
-    setSessionCwd('');
+    setCurrentSessionCwd('');
   }, [sess.sessionId]);
 
   // 🔴 2026-08-09 启动 seed（对齐 Hermes ensureDefaultWorkspaceCwd + $currentCwd
@@ -355,7 +360,7 @@ export default function App() {
         const r = getRememberedWorkspaceCwd({ baseUrl: conn.baseUrl, profile: currentProfile });
         if (r) {
           seededCwdRef.current = r;
-          setSessionCwd(r);
+          setCurrentSessionCwd(r);
           setPanelRoot(r); // 🔴 2026-08-13 老大语义重构：初始面板映射 = seed 目录
         }
         return true; // remote：记忆有无都算完成
@@ -406,17 +411,12 @@ export default function App() {
   // ⚠️ 闭包陷阱：空依赖 useEffect 捕获首次渲染值 → 用 ref 持有最新会话 id
   const focusedSessionIdRef = useRef(sess.sessionId);
   focusedSessionIdRef.current = sess.sessionId;
-  // 🔴 2026-08-28 对齐 Hermes $currentCwd：会话 cwd 写入全局单例（lib/session-cwd.ts），
-  //   供深层组件同步读取——markdown #preview 链接相对路径归一化（StreamBlocks/
-  //   ToolEntry/AgentCardComposer/PreviewCenter）与 preview-events 共用同一真相源
-  //   （原 sessionCwdRef 闭包双轨已删）
-  useEffect(() => {
-    setCurrentSessionCwd(sessionCwd || null);
-  }, [sessionCwd]);
+  // 🔴 round-79b 阶段 ④：原"state → 单例"同步 effect 已退役——sessionCwd
+  // 直接订阅 lib/session-cwd 单例（写入点全部直写单例，单源无时序依赖）。
 
   // 🔴 2026-08-09 对齐 Hermes use-cwd-actions：文件面板切换目录 → 后端烙印持久化。
   //   有会话：session.cwd.set（后端烙印 + emit session.info → useMessageStream
-  //   setSessionCwd 闭环，Hermes session.cwd.set 同款）；busy 时后端拒绝（catch 忽略，
+  //   setCurrentSessionCwd 闭环，Hermes session.cwd.set 同款）；busy 时后端拒绝（catch 忽略，
   //   Hermes 同：session busy 4009）。无会话（新聊天未创建）：暂存为新会话目标
   //   （Hermes $newChatWorkspaceTarget 语义）——remote 模式由上方 effect 自动
   //   rememberWorkspaceCwd，后续 session.create 消费（App L859）
@@ -440,7 +440,7 @@ export default function App() {
     // 轮末补偿机制随之退役）。
     setPanelRoot(path);
     if (!sess.sessionId) {
-      setSessionCwd(path);
+      setCurrentSessionCwd(path);
       // 🔴 2026-08-13 边界修复：无会话导航 → 新会话落点暂存（resolveNewSessionCwd 消费）
       newChatWorkspaceTargetRef.current = path;
     }
@@ -570,18 +570,20 @@ export default function App() {
   // 🔴 2026-08-13 二轮：空 cwd + scope 存在 → 项目根兜底（会话无绑定时不显示
   // "未打开项目"——切 Agent 恢复 active 项目 / 点项目后会话无绑定的场景）。
   const handleSessionInfoCwd = useCallback((cwd: React.SetStateAction<string>) => {
-    if (typeof cwd !== 'string') {
-      setSessionCwd(cwd);
+    // 🔴 round-79b 阶段 ④：cwd 事实源 = lib/session-cwd 单例——防御性函数式
+    // 分支以 getCurrentSessionCwd 为 prev 执行（useMessageStream 生产路径只传 string）
+    if (typeof cwd === 'function') {
+      setCurrentSessionCwd(cwd(getCurrentSessionCwd() ?? ''));
       return;
     }
     // 🔴 2026-08-13 老大语义重构：session.info 只更新 sessionCwd（终端/新会话落点），
     // 不碰 panelRoot（文件面板是项目映射视图，会话 cwd 不驱动它）。
     // 会话无绑定（bound_cwd 空）+ 有项目域 scope → 显示 scope 项目根（非空态）
     if (!cwd && projectScopeCwdRef.current) {
-      setSessionCwd(projectScopeCwdRef.current);
+      setCurrentSessionCwd(projectScopeCwdRef.current);
       return;
     }
-    setSessionCwd(cwd);
+    setCurrentSessionCwd(cwd);
   }, []);
 
   // ── useMessageStream: SSE callbacks + throttle + useSSE ──
@@ -1107,7 +1109,7 @@ export default function App() {
     }
     if (path) {
       setPanelRoot(path);        // ① 文件面板映射 → 项目绑定地址（视图，非项目地址本身）
-      setSessionCwd(path);       // 终端/新会话落点 → 项目根（Hermes syncProjectCwd 语义）
+      setCurrentSessionCwd(path);       // 终端/新会话落点 → 项目根（Hermes syncProjectCwd 语义）
       setProjectScopeCwd(path);  // ② 新会话落点 = 项目根 / workspace
       newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：点项目 = 项目意图覆盖手动导航
     } else {
