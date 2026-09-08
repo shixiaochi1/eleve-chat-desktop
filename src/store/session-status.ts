@@ -128,7 +128,9 @@ export function setActiveSessionOverride(id: string | null): void {
   activeSessionOverride = id;
 }
 
-function activeSessionId(): string | null {
+/** 当前活动会话（🔴 round-78 导出：useBotUnread 的"不在屏上"判定与其同源，
+ * 此前两处各写一份同构逻辑——注释宣称同构但 bot 侧缺宫格焦点 override） */
+export function activeSessionId(): string | null {
   return activeSessionOverride ?? (storage.load('session_id', null) as string | null) ?? null;
 }
 

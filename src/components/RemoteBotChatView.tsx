@@ -19,17 +19,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Bot, Send } from 'lucide-react';
-import { getRemoteSocket, requestForBot } from '../services/connections';
+import { getRemoteSocket } from '../services/connections';
+import { fetchRemoteSessionHistory, submitRemotePrompt, type RemoteChatMessage } from '../utils/api';
 import type { RemoteBotChat } from '../plugins/bots/state';
 import { cn } from '@/lib/utils';
 
-interface ChatMessageLite {
-  id?: string;
-  role: string;
-  parts?: Array<{ type?: string; text?: string }>;
-}
-
-function partsText(m: ChatMessageLite): string {
+function partsText(m: RemoteChatMessage): string {
   return (m.parts || [])
     .map((p) => (typeof p?.text === 'string' ? p.text : ''))
     .join('');
@@ -44,7 +39,7 @@ export default function RemoteBotChatView({
 }) {
   const chatRef = useRef(chat);
   chatRef.current = chat;
-  const [messages, setMessages] = useState<ChatMessageLite[]>([]);
+  const [messages, setMessages] = useState<RemoteChatMessage[]>([]);
   /** 流式中的 assistant 文本（message.delta 累积；message.complete 清空并 load） */
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,20 +53,18 @@ export default function RemoteBotChatView({
   const load = useCallback(async () => {
     const c = chatRef.current;
     try {
-      const res = await requestForBot<{ messages?: ChatMessageLite[] }>(
-        { connectionId: c.connId, profile: 'default' },
-        'get_session_messages',
-        { session_id: c.sessionId, limit: 50 },
-        15_000,
-      );
-      const server = Array.isArray(res?.messages) ? res.messages : [];
+      // 🔴 round-78 P0：方法名必须是网关 WS 注册名 `session.history`——
+      // requestForBot 有 route 时字面发送，bridge 的 get_session_messages
+      // 映射仅 null-route 生效；此前直发 'get_session_messages' → 远端
+      // method-not-found → 历史恒空 + "远程连接不可达"
+      const server = await fetchRemoteSessionHistory(c.connId, c.sessionId, 50);
       // pending 合并：服务器出现该用户文本 → 乐观条目退役
       const serverUserTexts = new Set(
         server.filter((m) => m.role === 'user').map(partsText),
       );
       pendingRef.current = pendingRef.current.filter((t) => !serverUserTexts.has(t));
       const optimistic = pendingRef.current.map(
-        (t) => ({ id: `pending-${t}`, role: 'user', parts: [{ type: 'text', text: t }] }) as ChatMessageLite,
+        (t) => ({ id: `pending-${t}`, role: 'user', parts: [{ type: 'text', text: t }] }) as RemoteChatMessage,
       );
       setError(null);
       setMessages([...server, ...optimistic]);
@@ -148,12 +141,7 @@ export default function RemoteBotChatView({
     try {
       // prompt.submit 骑 owner 连接（1800s 预算与本地同款）；流式/回包全部
       // 经事件监听器到达（上方 handler），零轮询
-      void requestForBot(
-        { connectionId: chat.connId, profile: 'default' },
-        'prompt.submit',
-        { session_id: chat.sessionId, text },
-        1_800_000,
-      ).catch((e) => {
+      void submitRemotePrompt(chat.connId, chat.sessionId, text).catch((e) => {
         setError(`发送失败：${e instanceof Error ? e.message : String(e)}`);
       });
     } finally {

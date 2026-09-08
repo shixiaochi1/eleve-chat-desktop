@@ -77,8 +77,12 @@ async function relayAgentsOn(
   conn: { id: string; label: string; remote: RemoteConnection | null },
 ): Promise<RelayAgentRow[] | null> {
   try {
-    const roster = await requestForBot<BotRosterEntry[]>(routeOf(conn), 'bots.roster', {});
-    const rows = Array.isArray(roster) ? roster : [];
+    // 🔴 round-78d P0（契约断点修复）：后端 bots.roster 恒返回信封对象
+    // {bots:[...]}（rpc_bots.rs:469）——此前按裸数组判 Array.isArray 恒 false
+    // → relayAgentsOn 恒空（且空数组≠null 绕过 last-good 兜底）→ roster.sync
+    // 向各网关推空名册 → 跨网关目标解析全体"确定离线"拒绝
+    const roster = await requestForBot<{ bots?: BotRosterEntry[] }>(routeOf(conn), 'bots.roster', {});
+    const rows = Array.isArray(roster?.bots) ? roster.bots : [];
     return rows.map(e => ({
       profile: String(e.profile || ''),
       handle: String(e.handle || e.profile || ''),
@@ -124,7 +128,13 @@ async function syncRelayRostersUnlocked(): Promise<void> {
         // 失败读成"这台机器的 agent 都没了"）
         agentsByConnection.set(conn.id, relayAgentsCache.get(conn.id) || []);
       } else {
-        if (relayAgentsCache.size >= RELAY_AGENTS_CACHE_MAX) relayAgentsCache.clear();
+        // 🔴 round-78：超限按插入序淘汰最旧（此前全表 clear 会把其他连接
+        // 的 last-good 一并抹掉，下一轮失败读空）；断连清理仍是权威回收
+        while (relayAgentsCache.size >= RELAY_AGENTS_CACHE_MAX) {
+          const oldest = relayAgentsCache.keys().next().value;
+          if (oldest === undefined) break;
+          relayAgentsCache.delete(oldest);
+        }
         relayAgentsCache.set(conn.id, agents);
         agentsByConnection.set(conn.id, agents);
       }
@@ -243,8 +253,16 @@ interface PendingDispatch {
   member_id: string;
   member_profile: string;
   grant_token: string;
-  dispatch: Record<string, unknown>;
+  /** 🔴 round-78e 版本双兼容：新后端 serde 键 `dispatch`；未更新的远端网关
+   * 仍是 `dispatch_json`（round-78d 曾因此整体死路）——读取处必须二选一 */
+  dispatch?: Record<string, unknown>;
+  dispatch_json?: Record<string, unknown>;
   prompt: string;
+}
+
+/** 取 dispatch 载荷（新旧键双兼容） */
+function dispatchPayloadOf(d: PendingDispatch): Record<string, unknown> | undefined {
+  return d.dispatch ?? d.dispatch_json;
 }
 
 interface PeerTurnStatus {
@@ -291,7 +309,8 @@ async function drainPeerDispatches(): Promise<void> {
       continue; // 旧后端/离线——跳过
     }
     for (const d of items) {
-      if (d?.id && d?.grant_token && d?.dispatch) void deliverPeerDispatch(conn, d);
+      // 🔴 round-78e：dispatch 载荷新旧键双兼容（dispatchPayloadOf）
+      if (d?.id && d?.grant_token && dispatchPayloadOf(d)) void deliverPeerDispatch(conn, d);
     }
   }
 }
@@ -332,10 +351,16 @@ async function syncReplicas(): Promise<void> {
 
 async function syncReplicasUnlocked(): Promise<void> {
   const connections = relayConnections();
-  for (const t of replicaTargets.values()) {
+  for (const [key, t] of replicaTargets) {
     const authority = connections.find(c => c.id === t.authorityId);
     const target = connections.find(c => c.id === t.targetConnId);
-    if (!authority || !target) continue;
+    if (!authority || !target) {
+      // 🔴 round-78：调度条目随连接消失清理（此前只增不清——连接移除后
+      // 条目慢性残留）。下次投递成功会重新登记；临时掉线同删，重建成本
+      // 低（一次 dispatch）。服务器侧副本数据不受影响（那是网关侧持久层）
+      replicaTargets.delete(key);
+      continue;
+    }
     try {
       const [roomRes, evRes] = await Promise.all([
         requestForBot<{ rooms?: Array<{ room_id: string; name: string; members?: unknown[] }> }>(
@@ -399,7 +424,7 @@ async function deliverPeerDispatch(authority: { id: string; remote: RemoteConnec
       await requestForBot(
         routeOf(target),
         'bot.rooms.peer.dispatch',
-        { grant_token: d.grant_token, dispatch: d.dispatch, prompt: d.prompt },
+        { grant_token: d.grant_token, dispatch: dispatchPayloadOf(d), prompt: d.prompt },
       );
       // 🔴 stage-5 P2.5：本目标网关成为该房间的 replica 持有者——纳入副本
       // 维护循环（authority 日志增量 → target ingest），authority 死后可接管
@@ -415,8 +440,10 @@ async function deliverPeerDispatch(authority: { id: string; remote: RemoteConnec
       return;
     }
 
-    // 轮询目标侧成员轮收口（预算内；cursor 增量）
-    let since = 0;
+    // 轮询目标侧成员轮收口（预算内；🔴 round-78：不再回喂 cursor——peer
+    // status 已改无状态窗口扫描（自含"落库认领→TurnEnd 收口"完整状态机），
+    // 回喂 cursor 会让我们的消息滑出增量窗口 → TurnEnd 永不收口 → 900s
+    // 空转。since_seq 恒定传 0（后端 wire 兼容参数，不参与窗口计算））
     for (let _tick = 0; _tick < PEER_POLL_MAX_TICKS; _tick++) {
       // 🔴 P2-6：插件禁用/重载时终止在飞轮询（此前僵尸循环对远程网关
       // 继续打 status RPC 最长 900s）
@@ -436,7 +463,7 @@ async function deliverPeerDispatch(authority: { id: string; remote: RemoteConnec
             try {
               await requestForBot(
                 routeOf(target), 'bot.rooms.peer.cancel',
-                { grant_token: d.grant_token, dispatch: d.dispatch }, 10_000,
+                { grant_token: d.grant_token, dispatch: dispatchPayloadOf(d) }, 10_000,
               );
             } catch { /* 目标不可达——围栏丢失可接受（authority 已收口） */ }
             return;
@@ -444,12 +471,11 @@ async function deliverPeerDispatch(authority: { id: string; remote: RemoteConnec
         } catch { /* authority 暂不可达——下个窗口再查 */ }
       }
       try {
-        const res = await requestForBot<{ status?: PeerTurnStatus; cursor?: number }>(
+        const res = await requestForBot<{ status?: PeerTurnStatus }>(
           routeOf(target),
           'bot.rooms.peer.status',
-          { grant_token: d.grant_token, dispatch: d.dispatch, since_seq: since },
+          { grant_token: d.grant_token, dispatch: dispatchPayloadOf(d), since_seq: 0 },
         );
-        since = Number(res?.cursor ?? since);
         const st = res?.status;
         if (st?.state === 'completed') {
           await postResult({ reply: String(st.reply || '') });
@@ -570,10 +596,12 @@ export async function fetchUnionRoster(): Promise<UnionRosterRow[]> {
   await Promise.all(
     listRemoteConnections().map(async conn => {
       try {
-        const roster = await requestForBot<BotRosterEntry[]>(
+        // 🔴 round-78d P0：同上——信封形状修复（此前远端花名册恒空 → 远端行
+        // 不渲染 + 远端未读死路）
+        const roster = await requestForBot<{ bots?: BotRosterEntry[] }>(
           { connectionId: conn.id, profile: 'default' }, 'bots.roster', {}, 15_000,
         );
-        const entries = Array.isArray(roster) ? roster : [];
+        const entries = Array.isArray(roster?.bots) ? roster.bots : [];
         unionLastGood.set(conn.id, entries);
         rows.push(...entries.map(entry => ({
           entry, connectionId: conn.id, connectionLabel: conn.name, isRemote: true, reachable: true,

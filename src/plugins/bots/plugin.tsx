@@ -30,6 +30,7 @@ function BotsPaneShim() {
       onOpenBotChat={(id) => getPluginHost()?.openSession(id)}
       onOpenBotRoom={() => getPluginHost()?.openView('bots')}
       onEditAgent={(profile) => getPluginHost()?.openAgentEditor(profile)}
+      onRemoteChatOpened={() => getPluginHost()?.openView('bots')}
     />
   );
 }

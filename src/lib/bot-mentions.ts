@@ -11,7 +11,7 @@
  * 消费方：usePromptActions.handleSend（发送链注入）+ InputArea（@ 补全浮层）。
  * 群聊不经此路径（BotsRoomView 有自己的 mention 解析 + 后端 resolve_mentions）。
  */
-import { fetchUnionRoster } from '../services/bot-relay';
+import { getUnionRoster, isUnionFresh, refreshUnionRoster, type UnionRosterRow } from '../plugins/bots/state';
 
 export interface MentionRow {
   handle: string;
@@ -33,32 +33,28 @@ export function extractMentionTokens(text: string): string[] {
   );
 }
 
-let rosterCache: { rows: MentionRow[]; at: number } | null = null;
-let rosterInFlight: Promise<MentionRow[]> | null = null;
+function toMentionRows(rows: UnionRosterRow[]): MentionRow[] {
+  return rows.map((r) => ({
+    handle: r.entry.handle,
+    profile: r.entry.profile,
+    displayName: r.entry.display_name || r.entry.handle,
+    connectionId: r.isRemote ? r.connectionId : undefined,
+    isRemote: r.isRemote,
+  }));
+}
 
-/** 名册（本地 + 全部远端连接 union）；≤5s stale 直接应答（对齐 Hermes query cache） */
+/** 名册（本地 + 全部远端连接 union）。
+ * 🔴 round-78：读插件 store（此前本模块自持 5s cache + 独立在飞 Promise
+ * ——四路拉取之一）；≤5s stale 直接应答（对齐 Hermes query cache 语义不变），
+ * 超龄触发 store 刷新，失败降级 last-good。 */
 export function loadMentionRoster(): Promise<MentionRow[]> {
-  if (rosterCache && Date.now() - rosterCache.at <= 5_000) {
-    return Promise.resolve(rosterCache.rows);
+  const current = getUnionRoster();
+  if (current.length && isUnionFresh(5_000)) {
+    return Promise.resolve(toMentionRows(current));
   }
-  if (rosterInFlight) return rosterInFlight;
-  rosterInFlight = fetchUnionRoster()
-    .then((rows) => {
-      const mapped: MentionRow[] = rows.map((r) => ({
-        handle: r.entry.handle,
-        profile: r.entry.profile,
-        displayName: r.entry.display_name || r.entry.handle,
-        connectionId: r.isRemote ? r.connectionId : undefined,
-        isRemote: r.isRemote,
-      }));
-      rosterCache = { rows: mapped, at: Date.now() };
-      return mapped;
-    })
-    .catch(() => rosterCache?.rows ?? [])
-    .finally(() => {
-      rosterInFlight = null;
-    });
-  return rosterInFlight;
+  return refreshUnionRoster()
+    .then(toMentionRows)
+    .catch(() => toMentionRows(getUnionRoster()));
 }
 
 /** draft 中命中的队友（handle/profile 大小写不敏感精确匹配；@all/@everyone 非队友） */

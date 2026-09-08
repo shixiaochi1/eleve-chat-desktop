@@ -17,16 +17,16 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import { cn } from '@/lib/utils';
 import { Loader, Plus, Pencil, UsersRound, X } from 'lucide-react';
 import {
-  createBotRoom, ensureBotChat,
+  createBotRoom, ensureBotChat, fetchBotRoomReplicas, promoteBotRoomReplica,
 } from '../utils/api';
-import type { BotRosterEntry, BotRoom } from '../utils/api';
-import { fetchUnionRoster, type UnionRosterRow } from '../services/bot-relay';
+import type { BotRoom } from '../utils/api';
 import { requestForBot } from '../services/connections';
 import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnread';
 import { BotRosterRow } from './BotsView';
 import {
-  closeRemoteChat, isRoomsLoaded, openRemoteChat, refreshRooms, selectRoom,
-  useRooms, useRoomsLoaded, useSelectedRoomId,
+  closeRemoteChat, isRoomsLoaded, openRemoteChat, refreshRooms, refreshUnionRoster,
+  selectRoom, useRooms, useRoomsLoaded, useSelectedRoomId, useUnionRoster,
+  type UnionRosterRow,
 } from '../plugins/bots/state';
 import { onProfilesChanged } from '../lib/global-events';
 
@@ -34,6 +34,9 @@ interface BotsPaneProps {
   onOpenBotChat: (id: string) => void;
   onOpenBotRoom: (roomId: string) => void;
   onEditAgent?: (profile: string) => void;
+  /** 🔴 round-78：远端会话视图置位后的主区导航（RemoteBotChatView 只在
+   * viewMode==='bots' 主区渲染；缺导航则非 bots 主区下点远端行"没反应"） */
+  onRemoteChatOpened?: () => void;
 }
 
 interface ReplicaMetaRow {
@@ -97,8 +100,10 @@ function RoomCard({ room, active, onOpen }: { room: BotRoom; active: boolean; on
   );
 }
 
-export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: BotsPaneProps) {
-  const [bots, setBots] = useState<UnionRosterRow[]>([]);
+export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, onRemoteChatOpened }: BotsPaneProps) {
+  // 🔴 round-78：roster = union store（单一权威；此前组件 useState 本地副本
+  // 与轮询双轨——store 化对齐 round-75 rooms 同款裁定）
+  const bots = useUnionRoster();
   // 🔴 2026-09-07 round-75：rooms 改由 plugin store 单一权威提供（useRooms）
   // ——本地副本与 WS 订阅删除（三处 fetch 合并，见 plugins/bots/state.ts）。
   const rooms = useRooms();
@@ -117,19 +122,19 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: 
 
   const loadList = useCallback(async () => {
     try {
-      const unionRows = await fetchUnionRoster();
-      setBots(unionRows);
+      // 🔴 round-78：roster 经 store（refreshUnionRoster in-flight 合并；
+      // 拉取者 = useBotUnread 轮询 + 此处手动/挂载刷新，写入口唯一）
+      const unionRows = await refreshUnionRoster();
       // 🔴 2026-09-05 round-54：远端行一并 ingest（此前 filter !isRemote →
       // 远端 bot 无未读信号）；键由 canonical_session_id 区分，同名 profile
       // 不冲突。useBotUnread 轮询已挂远端帧，此处保留全量喂给 UI 即时性。
       ingestBotRoster(unionRows.map(r => r.entry));
       // 🔴 round-75：rooms 刷新归 store 的 refreshRooms（与主区/自动选房同源）
       void refreshRooms();
+      // 🔴 round-78 P0：replicas 命令收编 api.ts——此前裸 requestForBot(null)
+      // 落 bridge 无映射 → 抛 "No WS/HTTP mapping" → 待接管区块死路
       try {
-        const res = await requestForBot<{ replicas?: ReplicaMetaRow[] }>(
-          null, 'bot.rooms.replicas.list', {}, 15_000,
-        );
-        setReplicas(Array.isArray(res?.replicas) ? res.replicas : []);
+        setReplicas(await fetchBotRoomReplicas());
       } catch {
         setReplicas([]);
       }
@@ -254,6 +259,9 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: 
           sessionId: res.session_id,
           label: row.connectionLabel || row.entry.handle,
         });
+        // 🔴 round-78 P0：补主区导航（与本地行 onOpenBotChat 的切换语义等价；
+        // 此前只置 store 状态，single/grid 主区下点远端行纹丝不动）
+        onRemoteChatOpened?.();
       } else {
         setNotice(
           `已在远程连接「${row.connectionLabel}」就绪 @${row.entry.handle} 的 Bot Chat，` +
@@ -340,10 +348,8 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent }: 
                     className="px-2 py-1 rounded-md bg-primary/20 text-primary text-xs shrink-0 hover:bg-primary/30 transition-colors"
                     onClick={() => void (async () => {
                       try {
-                        const res = await requestForBot<{ epoch?: number }>(
-                          null, 'bot.rooms.replica.promote', { room_id: r.room_id },
-                        );
-                        setNotice(`房间「${r.room_name}」已在本机接管（epoch ${res?.epoch ?? '?'}）——讨论可继续`);
+                        const epoch = await promoteBotRoomReplica(r.room_id);
+                        setNotice(`房间「${r.room_name}」已在本机接管（epoch ${epoch || '?'}）——讨论可继续`);
                         await loadList();
                       } catch (e) {
                         setError(`接管失败：${(e as Error).message}`);

@@ -23,14 +23,19 @@
  */
 import { useSyncExternalStore } from 'react';
 import { fetchBotsRoster, type BotRosterEntry } from '../utils/api';
-import { fetchUnionRoster } from '../services/bot-relay';
+import { refreshUnionRoster } from '../plugins/bots/state';
+import { activeSessionId } from '../store/session-status';
+import { isPluginEnabled } from '../contrib/plugins-store';
 import { getWsClient } from '../services/ws-client';
-import * as storage from '../utils/storage';
 
 /** 轮询间隔（对齐 Hermes useRoster ≤5s stale） */
 const ROSTER_POLL_MS = 5 * 1000;
 
 // ── 内部状态 ──
+// 🔴 round-78（对齐 Hermes bot-state.ts "watermarks persist via plugin
+// storage"）：水位线/未读跨重启持久化。命名空间对齐插件存储约定
+// （eleve.plugin.bots.*）；模块级生命周期 ≠ 插件实例，故直写 localStorage
+// 而非 ctx.storage（ctx.storage 未暴露给 hooks 层，语义约定一致）。
 
 let seeded = false;
 /**
@@ -45,8 +50,28 @@ const watermarks = new Map<string, number>();
 /** 未读标志（键同上） */
 const unread = new Map<string, boolean>();
 
-/** 未读键：canonical session id 优先（跨连接唯一），回退 profile */
-function unreadKey(bot: BotRosterEntry): string {
+/** 持久化（幂等：快照未变化不写盘；轮询 5s 一跳，水位线多数 tick 不变）。
+ * 🔴 round-78：恢复后 seeded=true——历史水位线已覆盖，重启不误报旧消息。 */
+const UNREAD_PERSIST_KEY = 'eleve.plugin.bots.unreadState';
+let lastPersisted = '';
+function persist(): void {
+  try {
+    const snap = JSON.stringify({
+      w: Object.fromEntries(watermarks),
+      u: Object.fromEntries(unread),
+      l: Object.fromEntries(latestByKey),
+    });
+    if (snap === lastPersisted) return;
+    lastPersisted = snap;
+    localStorage.setItem(UNREAD_PERSIST_KEY, snap);
+  } catch {
+    /* 隐私模式降级内存态（会话内语义不变） */
+  }
+}
+
+/** 未读键：canonical session id 优先（跨连接唯一），回退 profile。
+ * 🔴 round-78：导出为唯一公式源（BotsView 行订阅此前手写第二份） */
+export function unreadKey(bot: BotRosterEntry): string {
   return bot.canonical_session_id || bot.profile;
 }
 
@@ -62,13 +87,8 @@ function subscribe(fn: () => void): () => void {
   return () => { listeners.delete(fn); };
 }
 
-/** 当前活动会话（session-status.ts activeSessionId 同构） */
-function activeSessionId(): string | null {
-  return storage.load('session_id', null) as string | null;
-}
-
 /**
- * 喂一帧 roster（BotsView 的 loadList 与本模块轮询共用单一入口，逻辑不重复）。
+ * 喂一帧 roster（本模块轮询与 BotsPane 挂载刷新共用单一入口，逻辑不重复）。
  * 首帧只播种；后续帧 last_active 越过水位线且会话不在屏上 → 置未读，并推进
  * 水位线（防同一活动重复触发）。
  */
@@ -95,6 +115,7 @@ export function ingestBotRoster(bots: BotRosterEntry[]): void {
   }
   seeded = true;
   if (changed) emit();
+  persist();
 }
 
 /** 打开某 bot 的私聊后调用：水位线推进到当前 + 清未读（Hermes ack 同义）。
@@ -118,6 +139,7 @@ export function markBotRead(profile: string, sessionId?: string): void {
     }
   }
   if (cleared) emit();
+  persist();
 }
 
 /** 轮询期间的最新 last_active（markBotRead 用，比水位线更新） */
@@ -136,7 +158,9 @@ async function pollUnionOnce(): Promise<void> {
   if (unionBusy) return;
   unionBusy = true;
   try {
-    ingestBotRoster((await fetchUnionRoster()).map(r => r.entry));
+    // 🔴 round-78：union 拉取收编插件 store（refreshUnionRoster in-flight
+    // 合并）——本模块是唯一拉取者，BotsPane/BotsView/bot-mentions 一律读 store
+    ingestBotRoster((await refreshUnionRoster()).map(r => r.entry));
   } catch {
     // 本地连接不可用等——下轮重试
   } finally {
@@ -147,6 +171,9 @@ async function pollUnionOnce(): Promise<void> {
 let localBusy = false;
 
 async function pollOnce(): Promise<void> {
+  // 🔴 round-78：插件禁用 = 信号停止（对齐 Hermes bundled 插件停机语义）——
+  // tick 守卫零 RPC，启用后下一 tick 自动恢复
+  if (!isPluginEnabled('bots')) return;
   // 🔴 2026-09-08 round-76：在飞保护（与 pollUnionOnce 的 unionBusy 同款）。
   // WS 断连期间每个 tick 都会往 pendingQueue 追加一条超时 60s 的 roster 请求，
   // 无守卫时 5s 一发持续堆积，重连瞬间 flush 风暴。
@@ -171,6 +198,34 @@ async function pollOnce(): Promise<void> {
   if (tick % 4 === 0) void pollUnionOnce();
 }
 
+// 🔴 round-78：恢复持久化水位线（须在 latestByKey 声明之后执行）。
+(function restorePersisted(): void {
+  try {
+    const raw = localStorage.getItem(UNREAD_PERSIST_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw) as {
+      w?: Record<string, number>;
+      u?: Record<string, boolean>;
+      l?: Record<string, number>;
+    };
+    for (const [k, v] of Object.entries(saved.w || {})) {
+      if (typeof v === 'number') watermarks.set(k, v);
+    }
+    for (const [k, v] of Object.entries(saved.u || {})) {
+      if (typeof v === 'boolean') unread.set(k, v);
+    }
+    for (const [k, v] of Object.entries(saved.l || {})) {
+      if (typeof v === 'number') latestByKey.set(k, v);
+    }
+    if (watermarks.size > 0) {
+      seeded = true; // 恢复的水位线已覆盖历史——重启不误报旧消息
+      lastPersisted = raw;
+    }
+  } catch {
+    /* 存储损坏忽略——退回首帧播种语义 */
+  }
+})();
+
 function ensurePolling(): void {
   if (polling) return;
   polling = true;
@@ -178,7 +233,7 @@ function ensurePolling(): void {
   setInterval(() => void pollOnce(), ROSTER_POLL_MS);
   // WS 重连后立即对账一次（断线期间的 DM 不能等 5s）
   getWsClient().onStateChange((s) => {
-    if (s === 'connected') void pollOnce();
+    if (s === 'connected' && isPluginEnabled('bots')) void pollOnce();
   });
 }
 ensurePolling();

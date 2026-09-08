@@ -173,6 +173,14 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   bot_rooms_rename:       'bot.rooms.rename',
   bot_rooms_stop:         'bot.rooms.stop',
   bot_rooms_disband:      'bot.rooms.disband',
+  // 🔴 2026-09-08 round-78：replicas 维护面（后端 rpc_bots.rs 已注册；缺映射
+  // → requestForBot(null) 落 bridge 抛 "No WS/HTTP mapping" → BotsPane 待
+  // 接管区块死路：replicas 恒 []、promote 永不可达）
+  bot_rooms_replicas_list:  'bot.rooms.replicas.list',
+  bot_rooms_replica_promote: 'bot.rooms.replica.promote',
+  bot_rooms_replica_demote:  'bot.rooms.replica.demote',
+  // 🔴 2026-09-08 round-78d：成员轮交互房间卡响应（clarify oneshot 转交）
+  bot_rooms_interact_respond: 'bot.rooms.interact.respond',
   // 🔴 2026-08-02 断线修复：Agent 编辑卡（EditAgentDialog）读/写 SOUL/MEMORY/USER + 主题色/昵称
   // 缺映射 → bridge 抛 "No WS/HTTP mapping" → 用户档案空白、保存失败
   get_soul:               'profiles.get_soul',

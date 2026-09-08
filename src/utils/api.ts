@@ -15,6 +15,7 @@
  * - 纯传输/无领域语义的调用（如 ping）可直接用 bridge.call
  */
 import { call, discoverPort, setHttpBase, getHttpBase } from './bridge';
+import { requestForBot } from '../services/connections';
 
 // ====== 会话 ======
 
@@ -789,6 +790,8 @@ export interface BotRosterEntry {
   canonical_session_id?: string | null;
   /** 🔴 活动信号：canonical Bot Chat 最近活动（epoch 秒；对齐 Hermes RosterRow.last_active） */
   last_active?: number | null;
+  /** 🔴 round-78d：角色描述（Hermes roster 行副行 role——此前后端透传前端未接） */
+  description?: string | null;
 }
 
 /** 群聊房间事件（bot.rooms.events / bot.room.event 推送） */
@@ -821,6 +824,76 @@ export async function fetchBotsRoster(): Promise<BotRosterEntry[]> {
 export async function ensureBotChat(profile: string): Promise<string> {
   const data = await call('bot_chat_ensure', { profile });
   return data?.session_id || '';
+}
+
+// ── 🔴 2026-09-08 round-78：远端 bot 链路命令收编（此前组件裸 requestForBot
+// 调 WS 方法名 → 两处 P0：方法名错误（get_session_messages ≠ 网关注册名
+// session.history）、replicas 走 bridge 无映射死路。领域命令统一加本文件）
+
+/** 远端会话消息（session.history 返回行；与主区消息同形 lite 版） */
+export interface RemoteChatMessage {
+  id?: string;
+  role: string;
+  parts?: Array<{ type?: string; text?: string }>;
+}
+
+/** 远端会话历史（骑 owner 连接）。🔴 方法名必须是网关 WS 注册名
+ * `session.history`——requestForBot 有 route 时字面发送，bridge 的
+ * get_session_messages 映射仅 null-route 生效 */
+export async function fetchRemoteSessionHistory(
+  connId: string,
+  sessionId: string,
+  limit = 50,
+): Promise<RemoteChatMessage[]> {
+  const data = await requestForBot<{ messages?: RemoteChatMessage[] }>(
+    { connectionId: connId, profile: 'default' },
+    'session.history',
+    { session_id: sessionId, limit },
+    15_000,
+  );
+  return Array.isArray(data?.messages) ? data.messages : [];
+}
+
+/** 远端会话发言（prompt.submit 骑 owner 连接，1800s 预算与本地同款） */
+export async function submitRemotePrompt(
+  connId: string,
+  sessionId: string,
+  text: string,
+): Promise<void> {
+  await requestForBot(
+    { connectionId: connId, profile: 'default' },
+    'prompt.submit',
+    { session_id: sessionId, text },
+    1_800_000,
+  );
+}
+
+/** 待接管副本房间（bot.rooms.replicas.list；state='replica' 的行可 promote） */
+export interface BotRoomReplica {
+  room_id: string;
+  room_name: string;
+  authority_gateway_id: string;
+  authority_epoch: number;
+  last_ingested_seq: number;
+  state: string;
+}
+
+export async function fetchBotRoomReplicas(): Promise<BotRoomReplica[]> {
+  const data = await call('bot_rooms_replicas_list', {});
+  return Array.isArray(data?.replicas) ? data.replicas : [];
+}
+
+/** 接管副本房间（显式用户动作；epoch+1 + authority.claimed） */
+export async function promoteBotRoomReplica(roomId: string): Promise<number> {
+  const data = await call('bot_rooms_replica_promote', { room_id: roomId });
+  return data?.epoch ?? 0;
+}
+
+/** 🔴 round-78d：响应成员轮交互房间卡（clarify——oneshot 转交解锁成员
+ * agent 的 clarify 工具；approval 卡走 approval.respond 不经此） */
+export async function respondBotRoomInteraction(requestId: string, answer: string): Promise<boolean> {
+  const data = await call('bot_rooms_interact_respond', { request_id: requestId, answer });
+  return data?.ok === true;
 }
 
 /** 创建群聊房间（2-6 名 bot；🔴 round-70 注释修正：每次 FRESH room——服务端

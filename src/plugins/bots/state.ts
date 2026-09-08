@@ -10,6 +10,11 @@
 import { useSyncExternalStore } from 'react';
 import { fetchBotRooms, type BotRoom } from '../../utils/api';
 import { getWsClient } from '../../services/ws-client';
+import { fetchUnionRoster, type UnionRosterRow } from '../../services/bot-relay';
+import { isPluginEnabled } from '../../contrib/plugins-store';
+
+// 组件层的行类型经本 store 引用（store 是 union roster 的单一消费入口）
+export type { UnionRosterRow };
 
 // 🔴 2026-09-06 round-68：选中房间持久化（localStorage）——点群聊按钮
 // 进入群聊界面时自动恢复"上次看的房间"（用户期望：进来即见最近群聊
@@ -202,15 +207,82 @@ export function useRemoteChat(): RemoteBotChat | null {
 
 // 模块加载时注册一次 WS 元信息事件订阅（生命周期 = 应用，与组件挂载解耦——
 // 主区在左栏未开时同样收到刷新；对齐 session-status.ts 的模块级接线惯例）。
+// 🔴 round-78：插件禁用即停——禁用 bots 插件后事件不再触发刷新/轮询
+// （对齐 Hermes bundled 插件 "disable here if unwanted" 的停机语义；此前
+// 禁用后模块级订阅仍消费事件）。
 getWsClient().addEventListener((eventName, data) => {
   if (eventName !== 'bot.room.event') return;
+  if (!isPluginEnabled('bots')) return;
   const kind = (data as { event?: { kind?: string } })?.event?.kind || '';
   if (
     kind === 'room.created' ||
     kind === 'room.renamed' ||
     kind === 'room.members_changed' ||
-    kind === 'room.disbanded'
+    kind === 'room.disbanded' ||
+    // 🔴 round-78 补齐：room.activity（线程收敛标记）——此前零消费，房间
+    // 活跃度/排序依赖的元信息在讨论收敛后不刷新（Hermes 房间元信息随事件失效）
+    kind === 'room.activity' ||
+    // 🔴 round-78d：authority 接管/退位——房间权威谱系变化需刷新列表
+    kind === 'authority.claimed' ||
+    kind === 'authority.lost'
   ) {
     scheduleRoomsRefresh();
   }
 });
+
+// ═════════════════════════════════════════════════════════════════════
+// 🔴 2026-09-08 round-78：union 花名册单一权威 store（审查建议项收口）。
+//
+// 此前四路独立拉取（BotsPane.loadList / useBotUnread.pollUnionOnce /
+// BotsView 挂载 effect / bot-mentions.loadMentionRoster）各带缓存与失败
+// 语义——请求放大（BotsView 只为本地列表也打穿全部远端连接）。
+//
+// 对齐 Hermes useRoster（≤5s stale）+ mergeMultiSourceRoster：拉取者唯一
+// （useBotUnread 轮询，与未读 ingest 同帧），消费者一律读 store；手动刷新
+// / 挂载补拉走 refreshUnionRoster（in-flight 合并）。
+// ═════════════════════════════════════════════════════════════════════
+
+let unionRoster: UnionRosterRow[] = [];
+let unionLoadedAt = 0;
+let unionInFlight: Promise<UnionRosterRow[]> | null = null;
+const unionListeners = new Set<() => void>();
+
+function emitUnion() {
+  for (const fn of unionListeners) fn();
+}
+
+/** 拉取 union 花名册并写入 store（唯一写入口；并发合并为单次在飞请求）。 */
+export function refreshUnionRoster(): Promise<UnionRosterRow[]> {
+  if (unionInFlight) return unionInFlight;
+  unionInFlight = fetchUnionRoster()
+    .then((rows) => {
+      unionRoster = rows;
+      unionLoadedAt = Date.now();
+      emitUnion();
+      return rows;
+    })
+    .finally(() => {
+      unionInFlight = null;
+    });
+  return unionInFlight;
+}
+
+export function getUnionRoster(): UnionRosterRow[] {
+  return unionRoster;
+}
+
+/** store 是否在 stale 窗口内（bot-mentions 的 ≤5s cache 同步应答判定）。 */
+export function isUnionFresh(maxAgeMs: number): boolean {
+  return unionLoadedAt > 0 && Date.now() - unionLoadedAt <= maxAgeMs;
+}
+
+export function useUnionRoster(): UnionRosterRow[] {
+  return useSyncExternalStore(
+    (fn) => {
+      unionListeners.add(fn);
+      return () => unionListeners.delete(fn);
+    },
+    getUnionRoster,
+    () => [] as UnionRosterRow[],
+  );
+}

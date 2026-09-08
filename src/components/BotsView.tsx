@@ -13,18 +13,19 @@ import { cn } from '@/lib/utils';
 import { ArrowLeft, Bot, Loader, Paperclip, Send, Settings2, Square, Trash2, UserPlus, UserMinus, X } from 'lucide-react';
 import {
   changeBotRoomMembers, disbandBotRoom, fetchBotRoomEvents,
-  renameBotRoom, sendBotRoomMessage,
+  renameBotRoom, respondBotRoomInteraction, sendBotRoomMessage,
   stopBotRoom,
   type BotRosterEntry, type BotRoom, type BotRoomEvent, type RoomAttachmentDraft,
 } from '../utils/api';
 import { getWsClient } from '../services/ws-client';
+import { formatMessageTime } from '../utils/time';
 import {
-  closeRemoteChat, refreshRooms, selectRoom, useRemoteChat, useRooms,
-  useRoomsLoaded, useSelectedRoomId,
+  closeRemoteChat, isUnionFresh, refreshRooms, refreshUnionRoster, selectRoom,
+  useRemoteChat, useRooms, useRoomsLoaded, useSelectedRoomId, useUnionRoster,
+  type UnionRosterRow,
 } from '../plugins/bots/state';
 import RemoteBotChatView from './RemoteBotChatView';
-import { fetchUnionRoster, type UnionRosterRow } from '../services/bot-relay';
-import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnread';
+import { ingestBotRoster, markBotRead, unreadKey, useBotUnread } from '../hooks/useBotUnread';
 
 interface BotsViewProps {
   /** 🔴 打开 bot 的 canonical chat（宿主层：宫格/Bots 视图先退 + forceProfile） */
@@ -77,8 +78,6 @@ export default function BotsRoomMainView() {
   // 自持 fetch/本地副本/WS 订阅全部删除（三处 fetch 合并，详见 state.ts）。
   const rooms = useRooms();
   const roomsLoaded = useRoomsLoaded();
-  const [localBots, setLocalBots] = useState<BotRosterEntry[]>([]);
-
   // 🔴 2026-09-06 round-68：用户显式关闭（onBack/解散回列表）→ 空态不被
   // 自动选房劫持；组件重挂（切走再切回群聊视图/重开应用）ref 重置 →
   // 自动选恢复（"进入群聊界面即见最近群聊"语义只对"进入"生效）。
@@ -91,17 +90,16 @@ export default function BotsRoomMainView() {
     [rooms, selectedRoomId],
   );
 
-  // 花名册（unionRoster——方案裁定不并入 rooms store：ingest 未读副作用
-  // 归 useBotUnread 域，保持独立一次拉取）。
+  // 🔴 round-78：本地花名册 = union store 派生（此前挂载 effect 直拉
+  // fetchUnionRoster——为本地列表打穿全部远端连接 + 第二份本地副本）。
+  // 拉取者唯一（useBotUnread 轮询 + 此处 stale 补拉），消费一律读 store。
+  const unionRows = useUnionRoster();
+  const localBots = useMemo(
+    () => unionRows.filter((r) => !r.isRemote).map((r) => r.entry),
+    [unionRows],
+  );
   useEffect(() => {
-    let cancelled = false;
-    fetchUnionRoster()
-      .then((rows) => {
-        if (cancelled) return;
-        setLocalBots(rows.filter((r) => !r.isRemote).map((r) => r.entry));
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
+    if (!isUnionFresh(5_000)) void refreshUnionRoster();
   }, []);
 
   // 🔴 round-75：首拉 + 自动选房 + 解散回退——全部数据驱动（store 变化
@@ -187,7 +185,7 @@ export function BotRosterRow({ row, onOpen, onRowMenu }: {
   // 🔴 2026-09-05 round-54：未读键 = canonical_session_id ?? profile（与
   // useBotUnread.ingest 同一公式）——union 远端行的同名 profile 不再与本地
   // 行共用水位线；preview identity = click identity（锚定的就是行点击打开的会话）。
-  const unread = useBotUnread(bot.canonical_session_id || bot.profile);
+  const unread = useBotUnread(unreadKey(bot));
   return (
     <button
       className={cn(
@@ -219,6 +217,9 @@ export function BotRosterRow({ row, onOpen, onRowMenu }: {
               {row.connectionLabel}
             </span>
           )}
+          {/* 🔴 round-78d：角色描述副行（对齐 Hermes roster role 行——后端
+              round-54 已透传 description，此前前端类型未接、无处落地） */}
+          {bot.description ? ` · ${bot.description}` : ''}
         </span>
       </span>
       {unread && (
@@ -261,6 +262,82 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     for (const m of room.members) map[m.handle] = m.display_name || m.handle;
     return map;
   }, [room.members]);
+
+  // 🔴 round-78d：成员轮交互镜像（对齐 Hermes GroupClarifyCard）——从事件流
+  // 推导未决交互（request 未 resolved 的最新一条），渲染房间内响应卡
+  const [pendingInteractions, setPendingInteractions] = useState<Map<string, {
+    memberId: string; kind: string; question: string; choices: string[]; multiSelect: boolean;
+    command: string; description: string; allowSession: boolean; allowPermanent: boolean;
+    sessionId?: string;
+  }>>(new Map());
+  // 🔴 round-78e：已响应集合（防双击 + 防 effect 重扫把乐观清掉的卡加回——
+  // resolved 事件到达后彻底退役；expired 同理由轮收口事件驱动）
+  const [respondedInteractions, setRespondedInteractions] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    // 🔴 round-78e：updater 必须纯函数——先纯收集 additions/resolutions，
+    // 再分离提交两个 setState（此前在 updater 内嵌套 setRespondedInteractions，
+    // React 严格模式双重执行会误清响应集）
+    const additions: Array<[string, {
+      memberId: string; kind: string; question: string; choices: string[]; multiSelect: boolean;
+      command: string; description: string; allowSession: boolean; allowPermanent: boolean;
+      sessionId?: string;
+    }]> = [];
+    const resolutions: string[] = [];
+    for (const ev of events) {
+      if (ev.kind === 'interaction.request') {
+        const rid = String(ev.payload.request_id || '');
+        if (!rid || pendingInteractions.has(rid) || respondedInteractions.has(rid)) continue;
+        additions.push([rid, {
+          memberId: String(ev.payload.member_id || ''),
+          kind: String(ev.payload.kind || 'clarify'),
+          question: String(ev.payload.question ?? ''),
+          choices: Array.isArray(ev.payload.choices) ? (ev.payload.choices as string[]) : [],
+          multiSelect: ev.payload.multi_select === true,
+          command: String(ev.payload.command ?? ''),
+          description: String(ev.payload.description ?? ''),
+          allowSession: ev.payload.allow_session !== false,
+          allowPermanent: ev.payload.allow_permanent === true,
+          sessionId: ev.payload.session_id ? String(ev.payload.session_id) : undefined,
+        }]);
+      } else if (ev.kind === 'interaction.resolved') {
+        const rid = String(ev.payload.request_id || '');
+        if (rid) resolutions.push(rid);
+      }
+    }
+    if (resolutions.length) {
+      const resolvedSet = new Set(resolutions);
+      setRespondedInteractions((s) => {
+        const ns = new Set(s);
+        for (const rid of resolvedSet) ns.delete(rid);
+        return ns;
+      });
+      setPendingInteractions((cur) => {
+        const next = new Map(cur);
+        for (const rid of resolvedSet) next.delete(rid);
+        return next;
+      });
+      return;
+    }
+    if (additions.length) {
+      setPendingInteractions((cur) => {
+        const next = new Map(cur);
+        for (const [rid, item] of additions) {
+          if (!next.has(rid) && !respondedInteractions.has(rid)) next.set(rid, item);
+        }
+        return next;
+      });
+    }
+  }, [events, respondedInteractions, pendingInteractions]);
+
+  const answerInteraction = useCallback(async (requestId: string, answer: string) => {
+    setRespondedInteractions((s) => new Set(s).add(requestId));
+    setPendingInteractions((cur) => {
+      const next = new Map(cur);
+      next.delete(requestId);
+      return next;
+    });
+    await respondBotRoomInteraction(requestId, answer);
+  }, []);
 
   // 增量合并：去重（seq 单调）
   const mergeEvents = useCallback((incoming: BotRoomEvent[]) => {
@@ -550,7 +627,12 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             // 对齐 Hermes 群聊"members are shown"的附件展示）
             const atts = Array.isArray(ev.payload.attachments) ? (ev.payload.attachments as Array<{ name?: string; kind?: string; thumb?: string }>) : [];
             return (
-              <div key={ev.seq} className="flex justify-end">
+              <div key={ev.seq} className="flex flex-col items-end">
+                {/* 🔴 round-78d：时间戳（对齐 Hermes 消息 log 带 at——异步多轮讨论
+                    需判读消息新旧；此前两种气泡零时间信息） */}
+                <span className="text-[10px] text-muted-foreground/60 mb-0.5 px-1">
+                  {formatMessageTime(ev.created_at)}
+                </span>
                 <div className="max-w-[85%] bg-user-bubble text-foreground border border-user-bubble-border rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm select-text">
                   {atts.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-1.5">
@@ -575,7 +657,7 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             const display = memberByHandle[handle] || handle;
             return (
               <div key={ev.seq} className="flex flex-col items-start">
-                <span className="text-[11px] text-muted-foreground mb-0.5 px-1 select-text">@{handle} · {display}</span>
+                <span className="text-[11px] text-muted-foreground mb-0.5 px-1 select-text">@{handle} · {display} · {formatMessageTime(ev.created_at)}</span>
                 <div className="max-w-[85%] bg-card text-card-foreground border border-[var(--ui-stroke-tertiary)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm select-text">
                   {String(ev.payload.text ?? '')}
                 </div>
@@ -638,13 +720,139 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             const h = String(ev.actor.handle || ev.actor.id || '');
             return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— @{h} 的发言已随停止取消 —</div>;
           }
-          return null; // turn.settled/failed/room.created 不渲染（信息在气泡与状态行里）
+          if (ev.kind === 'turn.settled') {
+            // 🔴 round-78d：pass=沉默可见（对齐 Hermes isGroupPassText 显示语义
+            // ——此前 settled 渲染 null，成员被点名却沉默完全无感）
+            if (ev.payload.passed === true) {
+              const h = String(ev.actor.handle || ev.actor.id || '');
+              return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— @{h} 保持沉默 —</div>;
+            }
+            return null; // 实质发言的 settled：内容在气泡里
+          }
+          if (ev.kind === 'room.renamed') {
+            // 🔴 round-78d：改名/成员变更轨迹可见（对齐 Hermes group-activity
+            // tile——此前 fallback null 且 saveEdit 注释宣称"事件可见"失实）
+            const newName = String(ev.payload.new_name ?? ev.payload.name ?? '');
+            return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— 房间已改名{newName ? `：「${newName}」` : ''} —</div>;
+          }
+          if (ev.kind === 'room.members_changed') {
+            const members = Array.isArray(room.members) ? room.members : [];
+            const nameOf = (id: string) => {
+              const m = members.find(x => x.member_id === id);
+              return m ? `@${m.handle}` : id.slice(0, 8);
+            };
+            const added = Array.isArray(ev.payload.added) ? (ev.payload.added as Array<{ profile?: string }>) : [];
+            const removed = Array.isArray(ev.payload.removed) ? (ev.payload.removed as Array<{ profile?: string; member_id?: string }>) : [];
+            const parts: string[] = [];
+            if (added.length) parts.push(`${added.map(a => a.profile || '?').join('、')} 加入`);
+            if (removed.length) parts.push(`${removed.map(r => r.profile || (r.member_id ? nameOf(r.member_id) : '?')).join('、')} 移出`);
+            if (!parts.length) return null;
+            return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— 成员变更：{parts.join('；')} —</div>;
+          }
+          if (ev.kind === 'authority.claimed' || ev.kind === 'authority.lost') {
+            // 🔴 round-78d：接管/退位可见（对齐 Hermes replicas lineage 事件）
+            return (
+              <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">
+                — {ev.kind === 'authority.claimed' ? '本机已接管讨论（副本晋升为权威）' : '权威已转移（本机退位为副本）'} —
+              </div>
+            );
+          }
+          return null; // turn.settled(实质发言)/room.created 不渲染（信息在气泡与状态行里）
         })}
         {/* 🔴 2026-09-05 round-60：讨论进行中的可见反馈——turn.started 已不
             渲染（round-53），成员轮 LLM 运行期间事件流完全静默，用户观感
             "发消息没反应"（发图卡死事故的观感放大器）。对齐 Hermes 群聊
             running 态：仅在等待时显示一行状态，下一事件到达即自然消失，
             不产生历史刷屏。 */}
+        {/* 🔴 round-78d：成员轮交互镜像卡（对齐 Hermes GroupClarifyCard——
+            成员 agent 向用户澄清/请求审批时在房间内响应，轮预算自动延长） */}
+        {[...pendingInteractions.entries()].map(([requestId, p]) => {
+          const member = room.members.find(m => m.member_id === p.memberId);
+          const label = member ? `@${member.handle}` : p.memberId.slice(0, 8);
+          return (
+            <div key={`interact-${requestId}`} className="max-w-[85%] self-center w-full border border-[var(--ui-stroke-tertiary)] rounded-xl bg-popover text-popover-foreground px-3 py-2.5 space-y-2 shadow-sm">
+              <div className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                {label} {p.kind === 'approval' ? '请求审批' : '需要你的澄清'}
+              </div>
+              {p.kind === 'clarify' ? (
+                <>
+                  <div className="text-sm text-foreground whitespace-pre-wrap break-words select-text">{p.question}</div>
+                  {p.choices.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {p.choices.map((c) => (
+                        <button
+                          key={c}
+                          className="px-2.5 py-1 rounded-md bg-accent text-accent-foreground text-xs hover:bg-accent/70 transition-colors"
+                          onClick={() => void answerInteraction(requestId, c)}
+                        >
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      className="flex-1 h-7 rounded-md border border-[var(--ui-stroke-tertiary)] bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+                      placeholder="自由回答…（Enter 发送）"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                          e.preventDefault();
+                          const v = e.currentTarget.value.trim();
+                          e.currentTarget.value = '';
+                          void answerInteraction(requestId, v);
+                        }
+                      }}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-sm text-foreground font-mono break-all select-text">{p.command}</div>
+                  {p.description && (
+                    <div className="text-xs text-muted-foreground break-words">{p.description}</div>
+                  )}
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { c: 'once', label: '允许一次' },
+                      ...(p.allowSession ? [{ c: 'session', label: '本会话内允许' }] : []),
+                      ...(p.allowPermanent ? [{ c: 'always', label: '始终允许' }] : []),
+                      { c: 'deny', label: '拒绝' },
+                    ].map(({ c, label: bl }) => (
+                      <button
+                        key={c}
+                        className={cn(
+                          'px-2.5 py-1 rounded-md text-xs transition-colors',
+                          c === 'deny'
+                            ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
+                            : 'bg-accent text-accent-foreground hover:bg-accent/70',
+                        )}
+                        onClick={() => {
+                          const ws = getWsClient();
+                          const targetSession = p.sessionId || room.room_id;
+                          ws.sendRpc('approval.respond', {
+                            session_id: targetSession,
+                            choice: c,
+                            resolve_all: true,
+                          }).catch(() => {
+                            void answerInteraction(requestId, c);
+                          });
+                          // 乐观清卡（approval.responded 事件/轮收口兜底）
+                          setPendingInteractions((cur) => {
+                            const next = new Map(cur);
+                            next.delete(requestId);
+                            return next;
+                          });
+                        }}
+                      >
+                        {bl}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })}
         {roomBusy && (
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground py-0.5">
             <Loader size={11} className="animate-spin opacity-60" />
@@ -772,7 +980,10 @@ interface MentionToken {
 
 function mentionTokenAt(text: string, caret: number): MentionToken | null {
   const upto = String(text || '').slice(0, caret);
-  const match = /(^|\s)@([a-z0-9._-]*)$/i.exec(upto);
+  // 🔴 round-78：token 含 CJK（与 lib/bot-mentions.ts 同一词汇表；后端
+  // resolve_mentions 本就支持 display 名中文匹配）——此前 ASCII-only，
+  // 群聊 @中文名 补全 query 恒空串（前缀过滤失效，全列表兜底）
+  const match = /(^|\s)@([\w\u4e00-\u9fa5.-]*)$/i.exec(upto);
   if (!match) return null;
   return { query: match[2].toLowerCase(), start: caret - match[2].length - 1 };
 }
