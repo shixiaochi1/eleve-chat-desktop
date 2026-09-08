@@ -9,22 +9,34 @@
  * 两个正交概念：
  * - `botChatSessions`：会话元数据（哪些会话是 forever-chat 的 canonical
  *   Bot Chat，round-51 设计）——判定的唯一事实源（isBotChatSession）。
- *   运行时内存态，与原 App useState 同生命周期（重启后由唯一注册点
- *   handleOpenBotChat 重新登记，行为等价）。
- * - `workspaceOwner`：当前 Bot 域焦点实体（bot-chat 的 sid / 群聊房间的
- *   名字）——Agent 域动作（restoreProfileSession/clearSessionView/
- *   loadSessionIntoView）统一清空。AGENT 会话装载三入口的清空点保证
- *   "离开 bot 域 = owner 复位"不变量单点维持。
+ *   持久化 localStorage（round-79c，重启恢复判定）。
+ * - `workspaceOwner`：当前 Bot 域焦点实体（canonical Bot Chat 的 sid）——
+ *   Agent 域动作（restoreProfileSession/clearSessionView/loadSessionIntoView）
+ *   统一清空 + settleWorkspaceOwnerForSession 全写点结算。"离开 bot 域 =
+ *   owner 复位"不变量单点维持。
+ *
+ * 🔴 round-79e 终审裁定：**不设 'room' kind（群聊域焦点由插件域 store 承载）**。
+ * 群聊焦点实体 = plugins/bots/state.ts 的 selectedRoomId（key=room_id，稳定
+ * 身份，localStorage eleve.bots.selectedRoomId 持久化）——rooms 数据归插件域
+ * 单一权威（round-75 裁定），'room' 置位等于给同一事实开第二写点。且 bots
+ * 主区三分（房间/远端私聊/空态）单一 'room' kind 无法表达：远端私聊的 fs 在
+ * 远端网关（round-76 有意不接本地 workspace 管线，右抽屉空态是该模型下的
+ * 正确结果）；置位需要 ≥8 个 viewMode↔owner 同步点（round-53/79 同型漂移
+ * 温床）而全仓 owner 值零读取（判定走 botChatSessions/viewMode）。与 Hermes
+ * 的差异是有理由的偏离：Hermes 的 workspace scope 是右栏 cwd 权威源，ELEVE
+ * 的 files 面板是"项目映射视图、不跟随会话"（2026-08-13 四条定稿）——owner
+ * 在 ELEVE 只承担不变量账本，该不变量不需要 room。未来若真出现 room 域消费
+ * 点（如群聊级文件区），连同 host 门+写点+消费点整体立项，key 一律用 room_id。
  *
  * 订阅模式复用 store/session-status.ts（useSyncExternalStore，不造轮子）。
  */
 import { useSyncExternalStore } from 'react';
 
-export type WorkspaceOwnerKind = 'none' | 'bot-chat' | 'room';
+export type WorkspaceOwnerKind = 'none' | 'bot-chat';
 
 export interface WorkspaceOwner {
   kind: WorkspaceOwnerKind;
-  /** bot-chat = canonical Bot Chat 的 session id；room = 房间名；none = null */
+  /** bot-chat = canonical Bot Chat 的 session id；none = null */
   key: string | null;
 }
 

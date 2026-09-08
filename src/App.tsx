@@ -2096,6 +2096,11 @@ export default function App() {
                       // Chat 激活 → 跟随该 bot 的 workspace（cwd = round-43
                       // 烙印值，经 session.info 推送）；其余 → 项目域 panelRoot
                       // （2026-08-13 四条定稿语义不动）。
+                      // 🔴 round-79e 终审：远端 Bot Chat（RemoteBotChatView）
+                      // 激活同属此空态——远端 fs 不接本地 workspace 管线
+                      // （round-76 插件域会话视图），显示本地目录是冒充。
+                      // 群聊焦点实体归插件域 store（selectedRoomId），
+                      // workspaceOwner 不承载 room（见 store/workspace.ts 裁定）。
                       if (viewMode === 'bots') return '';
                       if (isBorrowedBotChat(sess.sessionId)) return sessionCwd;
                       return panelRoot;
