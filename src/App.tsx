@@ -877,13 +877,23 @@ export default function App() {
   // 对齐 handleExitGrid）。此前 activate 只开左栏，主区停在群聊/宫格/旧态，
   // 须再点 Agent 卡片才切会话。关闭臂（null）与其余面板不联动。
   const handleLeftPanelChange = useCallback((panel: string | null) => {
-    if (panel === 'agents' && viewMode !== 'single') {
+    // 🔴 2026-09-08 round-79（用户实测：群聊/Bot Chat 聊天后点 AGENT 按钮，
+    // 主会话消息区与右抽屉残留 bot 域内容）：恢复臂判定补 bot 域借道态。
+    // handleOpenBotChat 会把 viewMode 拉回 'single' + 主视图会话切到 bot 域
+    // （Bot Chat 借道主视图渲染，round-51 设计）——原门 `viewMode !== 'single'`
+    // 在此恒 false，恢复臂死路：AGENT 按钮 = "完整进入 Agent 会话界面"
+    // （round-68 语义），主视图当前会话仍在 botChatSids（bot 域）时同样必须
+    // restoreProfileSession 恢复 map[currentProfile] 权威指针——消息区回
+    // agent 最近会话；右抽屉 files cwd 按 viewMode/botChatSids 域取值
+    // （:2068-2070），会话域纠正后自动回项目域 panelRoot，无需另改。
+    // 同 profile 恢复不清 scope/panelRoot（保留项目上下文，宫格退出同语义）。
+    if (panel === 'agents' && (viewMode !== 'single' || (sess.sessionId !== null && botChatSids.has(sess.sessionId)))) {
       if (viewMode === 'grid') gridRef.current?.persistPointers();
       setViewMode('single');
       restoreProfileSession(currentProfile);
     }
     setActivePanel(panel);
-  }, [viewMode, currentProfile, restoreProfileSession]);
+  }, [viewMode, currentProfile, restoreProfileSession, sess.sessionId, botChatSids]);
 
   // ── useSessionActions: session switch/delete/new ──
   // 先于 usePromptActions 调用，因为 handleNewSession 需要传给 usePromptActions
