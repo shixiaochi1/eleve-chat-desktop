@@ -559,6 +559,18 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     }
   };
 
+  // 🔴 round-79g：deferred 事件的显式重试（task_id == turn_id；对齐 Hermes
+  // 群聊任务行 retry 挂点——at-least-once 确认）
+  const handleRetryTaskById = async (turnId: string) => {
+    if (!window.confirm('重试将重新向该成员投递本轮任务（结果可能重复一次，at-least-once）。确认重试？')) return;
+    try {
+      await retryBotRoomTask(room.room_id, turnId);
+      await refresh();
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    }
+  };
+
   const stopRoom = async () => {
     setBusy(true);
     try { await stopBotRoom(room.room_id); await refresh(); } finally { setBusy(false); }
@@ -569,7 +581,16 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     // 二次确认防误触（此前单击直调，事件流与成员会话随之不可恢复）
     if (!window.confirm(`确定解散群聊「${room.name}」？此操作不可恢复。`)) return;
     setBusy(true);
-    try { await disbandBotRoom(room.room_id); onBack(); } finally { setBusy(false); }
+    try {
+      await disbandBotRoom(room.room_id);
+      onBack();
+    } catch (e) {
+      // 🔴 round-79g 对齐 Hermes disband（stop 未确认不得解散）：后端拒绝
+      // 时已触发取消——提示用户稍后重试（错误文案即行动指引）
+      setError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   // ── 房间编辑（重命名 + 成员增删；对齐 Hermes room.renamed/members_changed）──
@@ -731,8 +752,26 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— {label} 的发言已暂停 —</div>;
           }
           if (ev.kind === 'turn.deferred') {
-            const h = String(ev.actor.handle || ev.actor.id || '');
-            return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— @{h} 暂时缺席 —</div>;
+            // 🔴 round-79g：恢复层 deferred 事件 actor.id=member_id（handle 空）
+            // → handle 优先花名册映射；显式重试（对齐 Hermes 群聊任务行 retry
+            // ——at-least-once 确认；task_id == turn_id）
+            const mid = String(ev.payload.member_id || '');
+            const byId = (Array.isArray(room.members) ? room.members : []).find(m => m.member_id === mid);
+            const label = byId ? `@${byId.handle}` : `@${String(ev.actor.handle || ev.actor.id || mid)}`;
+            const turnId = /^turn:(.+):deferred$/.exec(String(ev.event_id ?? ''))?.[1] ?? null;
+            return (
+              <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">
+                — {label} 暂时缺席 —
+                {turnId && (
+                  <button
+                    className="ml-2 underline hover:text-foreground"
+                    onClick={() => void handleRetryTaskById(turnId)}
+                  >
+                    重试
+                  </button>
+                )}
+              </div>
+            );
           }
           if (ev.kind === 'turn.failed') {
             // 🔴 2026-09-04 失败可见（此前渲染 null——成员模型调用失败用户
