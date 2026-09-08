@@ -1,6 +1,7 @@
 import { useCallback, type MutableRefObject } from 'react';
 import { activateSession, resetSession } from '../utils/api';
 import { setMessages as storeSetMessages } from '../store/messages';
+import { settleWorkspaceOwnerForSession, unregisterBotChatSession } from '../store/workspace';
 import { setMonitor } from '../store/debug';
 import { getWsClient } from '../services/ws-client';
 import { clearSessionPointer, persistSessionPointer, profileFromSessionId, removeProfilePointer, sessionIdMatchesProfile } from '../utils/session';
@@ -97,6 +98,9 @@ export function useSessionActions({
   // ── session delete handler ──
   const handleDeleteSession = useCallback(async (id: string) => {
     sess.remove(id);
+    // 🔴 round-79c 终审（元数据生命周期闭环）：bot chat 删除时注销登记
+    // （此前 Set 只增不减泄漏；持久化表同步清理）
+    unregisterBotChatSession(id);
     // 🔴 P1-5: 删除会话同步清 profile_session_map，防僵尸指针复活
     const owner = profileFromSessionId(id);
     if (owner) {
@@ -120,6 +124,9 @@ export function useSessionActions({
   //   interrupt 在飞 turn + finalize + 子Agent中断(#55578) + 凭证清理 + DB轮换 + hooks）
   // 无会话 → 纯前端 draft（对齐 Hermes 桌面端 startFreshSessionDraft）
   const handleNewSession = useCallback(async (title?: string, cwd?: string) => {
+    // 🔴 round-79c 终审（域焦点结算）：新建 = agent 域动作 → owner 复位
+    //（覆盖 wake/新建按钮/懒创建等全部入口，此前借道态下新建 owner 残留）
+    settleWorkspaceOwnerForSession(null);
     // 🔴 2026-08-05 防御：调用方可能误传非字符串（onClick 直绑传 MouseEvent 等）。
     // 若此处抛错，前面 setSessionId(null)/switchSession('') 已执行 → 会话被清空但
     // 后续流程中断 → 下次发送传 null → 后端自动新建会话。入口统一防御：非字符串忽略。

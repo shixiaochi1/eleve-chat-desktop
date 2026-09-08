@@ -11,7 +11,7 @@ import { textPart } from '@/lib/chat-messages';
 import { requestComposerInsert } from '@/lib/composer-events';
 import { setCurrentSessionCwd, getCurrentSessionCwd, useSessionCwd } from '@/lib/session-cwd';
 import { isBorrowedBotChat, shouldRestoreAgentView } from '@/lib/workspace-domain';
-import { registerBotChatSession, setWorkspaceOwner, useWorkspaceOwner } from './store/workspace';
+import { registerBotChatSession, setWorkspaceOwner, settleWorkspaceOwnerForSession, useWorkspaceOwner } from './store/workspace';
 import { clearPreviewArtifacts } from '@/store/preview-status';
 import PreviewStatusStrip from './components/preview/PreviewStatusStrip';
 import { useSessions } from './hooks/useSessions';
@@ -813,9 +813,7 @@ export default function App() {
     // 🔴 2026-09-05 round-53 联动回归修复：群聊主区下点 Agent 卡片 → 先退回
     // 单视图再走完整四步恢复（否则主区卡在群聊房间、右抽屉被 group 域清空
     // ——用户实测"切换不联动"；对齐 grid 分支的视图切换语义）
-    if (viewMode === 'bots') {
-      setViewMode('single');
-    }
+    exitBotsToSingle();
     // 🔴 宫格模式：只切 UI 焦点 + WS 盖章，不做会话保存/恢复（useGridChat 自管 per-agent session）。
     // 侧栏点选 / 宫格点选 都走此路径，currentProfile 是焦点唯一权威源。
     if (viewMode === 'grid') {
@@ -860,6 +858,13 @@ export default function App() {
     setViewMode('single');
     restoreProfileSession(profile);
   }, [viewMode, restoreProfileSession]);
+
+  // 🔴 2026-09-08 round-79c 终审收敛：bots→single 先退守卫 5→1（此前在
+  // handleProfileChange/gridAwareSwitchSession/handleProjectEntered/
+  // handleSlashConfirmDone/wake 五处复制——round-53/76/79 同型漏分支温床）。
+  const exitBotsToSingle = useCallback(() => {
+    if (viewMode === 'bots') setViewMode('single');
+  }, [viewMode]);
 
   // 退出宫格（回到当前 profile 单视图）
   const handleExitGrid = useCallback(() => {
@@ -936,11 +941,13 @@ export default function App() {
       gridRef.current?.switchToSession(profile, id);
       return;
     }
-    if (viewMode === 'bots') {
-      setViewMode('single');
-    }
+    exitBotsToSingle();
+    // 🔴 round-79c 终审（owner 复位缺口收敛）：会话行/ArtifactPanel/
+    // CommandCenter/项目推荐全部经此——域焦点按目标会话结算（此前借道态
+    // 下切 agent 会话 owner 残留 bot-chat，不变量只覆盖 3/9+ 写点）
+    settleWorkspaceOwnerForSession(id);
     handleSwitchSession(id);
-  }, [viewMode, currentProfile, handleSwitchSession]);
+  }, [viewMode, currentProfile, handleSwitchSession, exitBotsToSingle]);
 
   // 🔴 2026-09-04 Bot Mode：打开 bot 的 canonical chat（对齐 Hermes Desktop
   // bot-mode-row-click-mirrors-registry——"点击必须落在那个会话"）。
@@ -1104,9 +1111,7 @@ export default function App() {
     // 原本只有 grid 分支（round-43 迁 bots 布局时遗漏），viewMode 卡在 'bots'：
     // 主区不换、右抽屉被 group 域清空。点项目/Agent 卡片 = 离开群聊上下文，
     // 统一先退回单视图再走既定联动链路。
-    if (viewMode === 'bots') {
-      setViewMode('single');
-    }
+    exitBotsToSingle();
     if (path) {
       setPanelRoot(path);        // ① 文件面板映射 → 项目绑定地址（视图，非项目地址本身）
       setCurrentSessionCwd(path);       // 终端/新会话落点 → 项目根（Hermes syncProjectCwd 语义）
@@ -1333,6 +1338,8 @@ export default function App() {
           });
           sid = created.session_id;
           sess.setSessionId(sid);
+          // 🔴 round-79c 终审：懒创建也是会话装载写点——域焦点结算（owner 复位）
+          settleWorkspaceOwnerForSession(sid);
           // 🔴 2026-08-11 修复：同 usePromptActions sessionCreate 分支（指针落盘）
           persistSessionPointer(sid);
           ws.switchSession(sid);
@@ -1449,12 +1456,15 @@ export default function App() {
     const output = result?.output || '';
     const newSid = result?.session_id;
     if (newSid && newSid !== sess.sessionId) {
-      // 🔴 2026-09-08 round-79 架构审查（阶段 1 域缺口补齐）：借道态下命令
-      // 换会话会把主指针切走而右抽屉/ContextBar 仍按旧域渲染——先回单视图
-      // 保证结果会话以正确域呈现（grid 主区下交互卡不可达，仅 bots 需退臂）
-      if (viewMode === 'bots') {
-        setViewMode('single');
-      }
+      // 🔴 2026-09-08 round-79 架构审查（阶段 1 域缺口补齐）+ round-79c 终审：
+      // 借道态下命令换会话会把主指针切走而右抽屉/ContextBar 仍按旧域渲染——
+      // 先回单视图保证结果会话以正确域呈现。补齐"三无"写点（原直写指针无
+      // resetStream/无锁复位/无 owner 结算——对齐 loadSessionIntoView 纪律：
+      // 调用方必须先 resetStream 同步锁定过滤 ref，否则过期守卫失效）
+      exitBotsToSingle();
+      resetStream(newSid);
+      resetSendingLockRef.current?.();
+      settleWorkspaceOwnerForSession(newSid);
       if (sess.sessionId) {
         storeSetMessages((prev) => {
           sess.saveCache((cache) => ({ ...cache, [sess.sessionId!]: prev }));
@@ -1470,7 +1480,7 @@ export default function App() {
     } else {
       storeSetMessages((prev) => [...prev, { id: genId(), role: 'system', parts: [textPart(output)] } as ChatMessage]);
     }
-  }, [sess, genId, setSessionListVersion, viewMode]);
+  }, [sess, genId, setSessionListVersion, exitBotsToSingle, resetStream]);
 
   // ── sudo done（2026-08-17 阶段4：按会话参数化——request_id 从交互项取）──
   const handleSudoDone = useCallback(async (sessionId: string, password: string) => {
@@ -1542,14 +1552,11 @@ export default function App() {
   //   targetProfile re-home + newSessionInProfile）；否则当前 profile 开新会话。
   useEffect(() => {
     return onWakeDetected((detail) => {
-      // 🔴 2026-09-08 round-79 架构审查（阶段 1 域缺口补齐）：bots 主区下唤醒
-      // 开新会话会改主指针而主区停在群聊视图（round-79 同型隐患）——先回
-      // 单视图再走既定链路（与 handleProfileChange 的 bots 退臂同语义）。
-      // grid 分支不受影响（viewMode 互斥）；宫格指针写回由 GridModeView
-      // 卸载 cleanup 兜底。
-      if (viewMode === 'bots') {
-        setViewMode('single');
-      }
+      // 🔴 2026-09-08 round-79 架构审查（阶段 1 域缺口补齐）+ round-79c 终审
+      // 守卫单源：bots 主区下唤醒开新会话会改主指针而主区停在群聊视图——
+      // 先回单视图再走既定链路。grid 分支不受影响（viewMode 互斥）；
+      // 宫格指针写回由 GridModeView 卸载 cleanup 兜底。
+      exitBotsToSingle();
       const targetProfile = detail.profile?.trim();
       if (targetProfile && targetProfile !== currentProfile) {
         // 对齐 Hermes：唤醒词归属 profile 先 re-home（切盖章）再开新会话；
@@ -1567,7 +1574,7 @@ export default function App() {
         gridAwareNewSession();
       }
     });
-  }, [gridAwareNewSession, currentProfile, viewMode, handleNewSession]);
+  }, [gridAwareNewSession, currentProfile, exitBotsToSingle, handleNewSession]);
 
   // ── titlebar controls ──
   const winMin = () => tauriWindow?.minimize();

@@ -30,8 +30,28 @@ export interface WorkspaceOwner {
 
 const IDLE_OWNER: WorkspaceOwner = { kind: 'none', key: null };
 
+// 🔴 round-79c 终审补：botChatSessions 持久化（对齐 Hermes plugin storage——
+// 内存态重启即丢，恢复的 bot 会话 isBotChat 判定失效）。storage key 与读写
+// helper 必须先于 botChatSessions 初始化（模块顶层求值顺序）。
+const BOT_CHAT_STORAGE_KEY = 'eleve.bot_chat_sessions';
+
+function loadPersistedBotChats(): Set<string> {
+  try {
+    const raw = localStorage.getItem(BOT_CHAT_STORAGE_KEY);
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function persistBotChats(): void {
+  try {
+    localStorage.setItem(BOT_CHAT_STORAGE_KEY, JSON.stringify([...botChatSessions]));
+  } catch { /* 存储满/禁用：内存态兜底（与未持久化时代同行为） */ }
+}
+
 let owner: WorkspaceOwner = IDLE_OWNER;
-const botChatSessions = new Set<string>();
+const botChatSessions = new Set<string>(loadPersistedBotChats());
 const listeners = new Set<() => void>();
 
 function emit(): void {
@@ -66,10 +86,34 @@ export function setWorkspaceOwner(next: WorkspaceOwner): void {
 export function registerBotChatSession(sessionId: string): void {
   if (botChatSessions.has(sessionId)) return;
   botChatSessions.add(sessionId);
+  persistBotChats();
+  emit();
+}
+
+/** 会话删除时注销（round-79c 终审：handleDeleteSession 闭环，防 Set 只增不减泄漏） */
+export function unregisterBotChatSession(sessionId: string): void {
+  if (!botChatSessions.has(sessionId)) return;
+  botChatSessions.delete(sessionId);
+  persistBotChats();
   emit();
 }
 
 /** Bot Chat 会话判定（借道态谓词的唯一事实源，替代散落的 Set.has） */
 export function isBotChatSession(sessionId: string | null): boolean {
   return sessionId !== null && botChatSessions.has(sessionId);
+}
+
+/**
+ * 🔴 round-79c 终审（owner 复位缺口收敛）：会话装进主指针时的域焦点结算——
+ * 目标是已登记的 Bot Chat → 置 bot-chat；否则复位 none。所有"切会话"写点
+ * （会话行/ArtifactPanel/CommandCenter/slash 换会话/懒创建）统一经此，
+ * "离开 bot 域 = owner 复位"不变量从 3 个装载入口扩展到全部写点。
+ * handleOpenBotChat 无需改：settle 对已登记 sid 置位与显式置位等价。
+ */
+export function settleWorkspaceOwnerForSession(sessionId: string | null): void {
+  setWorkspaceOwner(
+    isBotChatSession(sessionId)
+      ? { kind: 'bot-chat', key: sessionId }
+      : { kind: 'none', key: null },
+  );
 }
