@@ -42,7 +42,7 @@
  *   每 Agent 最多 WINDOW_MAX 条消息，超出从头部 evict。
  *   流式 delta 只写 ref 累加器，33ms flush 到状态（不触发消息列表重渲染）。
  */
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useCallback } from 'react';
 import { getWsClient } from '@/services/ws-client';
 import { call } from '../utils/bridge';
 import { profileFromSessionId, sessionIdMatchesProfile, persistSessionPointer } from '../utils/session';
@@ -50,6 +50,7 @@ import { toChatMessages, textPart, finalContinuesInterim, type SessionMessage, t
 import { createAccumulator, resetAccumulator, resetAccumulatorForStep, processAccumulatorEvent, finalizeAccumulator, extractPendingInteractions, type StreamAccumulator } from '@/lib/ws-event-processor';
 import { submitPromptViaWs } from '@/lib/prompt-submit';
 import { normalizeWsEvent } from '@/lib/ws-event-router';
+import { createAtomStore, type AtomStore } from '@/lib/store-factory';
 import { completionErrorText } from '@/lib/completion-error';
 import { handleGlobalEvent } from '@/lib/global-events';
 import { writeAgentTerminalChunk } from '@/lib/agent-terminal-stream';
@@ -81,6 +82,48 @@ function scheduleAccFlush(): void {
   if (accFlushPending) return;
   accFlushPending = true;
   accFlushChannel.port2.postMessage(null);
+}
+
+// ── per-slot scoped atom store（🔴 阶段3 统一，②状态收敛核心）──
+// 原 hook 内 useState<Record<profile, AgentChatState>>：①随 useGridChat 卸载
+// 全丢（宫格↔单视图切换 = 全量 loadLatest 重拉）；②任何 slot patch 都经一次
+// 聚合 setState 重渲染 GridModeView。收敛为模块级 per-profile AtomStore：
+// 状态跨视图切换保留；patch 只通知本 slot 订阅者。useGridChat 返回的聚合
+// states 记录经 slotsVersion 订阅 + useMemo 收集（消费方 API 零改动）。
+const gridSlotStores = new Map<string, AtomStore<AgentChatState>>();
+
+function gridSlotStore(profile: string): AtomStore<AgentChatState> {
+  let s = gridSlotStores.get(profile);
+  if (!s) {
+    s = createAtomStore<AgentChatState>(emptyState());
+    gridSlotStores.set(profile, s);
+  }
+  return s;
+}
+
+/** 聚合版本号——任意 slot 真实变更（AtomStore.set 返回 true）时 bump，
+ *  GridModeView 级消费方据此重建聚合快照 */
+const gridSlotsVersion = createAtomStore(0);
+
+function bumpSlotsVersion(changed: boolean): void {
+  if (changed) gridSlotsVersion.set((v) => v + 1);
+}
+
+function collectSlotStates(): Record<string, AgentChatState> {
+  const out: Record<string, AgentChatState> = {};
+  for (const [p, s] of gridSlotStores) out[p] = s.get();
+  return out;
+}
+
+/** hook 内订阅聚合版本（版本 bump → 重建 states 快照） */
+function useSlotsVersion(): number {
+  return gridSlotsVersion.useAtom();
+}
+
+/** 🔴 导出：卡片级精确订阅入口（AgentChatCard 后续接线用；现消费方继续走
+ *  states prop + memo 浅比较，两条路径读同一 store 无双源） */
+export function useAgentChatSlotState(profile: string): AgentChatState {
+  return gridSlotStore(profile).useAtom();
 }
 // 🔴 2026-08-13 Phase 2 拆分：类型/常量移入 gridChatTypes.ts（re-export 保持消费方零改动）
 export type { AgentStatus, AgentChatState } from './gridChatTypes';
@@ -129,23 +172,32 @@ export function useGridChat(
    *  （QueuePanel 编辑/删除排队条目后同步乐观气泡用） */
   patchMessages: (profile: string, updater: (msgs: ChatMessage[]) => ChatMessage[]) => void;
 } {
-  const [states, setStates] = useState<Record<string, AgentChatState>>({});
+  // 🔴 阶段3 统一（frontend-chat-unification-2026-09-09）：②状态收敛——
+  // per-slot AgentChatState 从 hook 内 useState<Record> 迁**模块级 scoped atom**
+  // （gridSlotStores，见文件头）。useGridChat API（states 记录/patch 签名）
+  // 保持不变：GridModeView/SessionWindowApp 消费方零改动。
+  // 收益：①宫格↔单视图切换（useGridChat 卸载/重挂）slot 状态保留——
+  // 原实现 useState 随 hook 卸载全丢，切回全量 loadLatest 重拉；
+  // ②AgentChatCard 可经 useAgentChatState(profile) 精确订阅本卡（后续接线），
+  // 消费方仍可继续走 states prop + memo 浅比较（现形态）。
+  // statesRef 渲染镜像语义保留（事件 handler 同步读）。
+  const slotsVersion = useSlotsVersion();
+  const states = useMemo(() => collectSlotStates(), [slotsVersion]);
+  const statesRef = useRef(states);
+  statesRef.current = states;
 
   // per-agent 流式累加器（ref，高频写不触发渲染）
   const accRef = useRef<Record<string, StreamAccumulator>>({});
-  // 🔴 阶段3 统一：flushTimerRef/setInterval 退役（事件驱动 + MessageChannel 单飞）
-
-  const statesRef = useRef(states);
-  statesRef.current = states;
 
   // 🔴 per-agent 发送锁（2026-08-16 方案A：localStorage 队列已退役，无排队）
   const sendingRef = useRef<Record<string, boolean>>({});
   // 注：2026-08-16 方案A 队列退役——本地队列已删除，sendingRef 保留为 per-agent 发送锁
   // 锁由 message.complete 单一权威释放（Phase B），见 abortAgent/complete 分支
 
-  // 单 Agent 状态更新（不可变 patch）
+  // 单 Agent 状态更新（不可变 patch；AtomStore.set 同引用短路 = 免费去抖；
+  // 真实变更 bump 聚合版本 → GridModeView 级 states 快照重建）
   const patch = useCallback((profile: string, updater: (s: AgentChatState) => AgentChatState) => {
-    setStates((prev) => ({ ...prev, [profile]: updater(prev[profile] ?? emptyState()) }));
+    bumpSlotsVersion(gridSlotStore(profile).set(updater));
   }, []);
 
   // 🔴 2026-08-13 架构统一：卡片会话记录 = 订阅（attach → 后端推 session.info 恢复快照：
@@ -955,19 +1007,13 @@ export function useGridChat(
       const accs = accRef.current;
       const profiles = Object.keys(accs);
       if (profiles.length === 0) return;
-      setStates((prev) => {
-        let changed = false;
-        const next = { ...prev };
-        for (const p of profiles) {
-          const a = accs[p];
-          const cur = next[p] ?? emptyState();
-          if (cur.streamParts !== a.parts) {
-            next[p] = { ...cur, streamParts: a.parts };
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
+      for (const p of profiles) {
+        const a = accs[p];
+        // 原浅比较保留：streamParts 引用未变 → store.set 同引用短路 → 不通知
+        bumpSlotsVersion(gridSlotStore(p).set((cur) =>
+          cur.streamParts !== a.parts ? { ...cur, streamParts: a.parts } : cur,
+        ));
+      }
     };
 
     return () => {
