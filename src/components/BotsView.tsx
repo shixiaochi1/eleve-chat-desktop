@@ -25,6 +25,7 @@ import {
   type UnionRosterRow,
 } from '../plugins/bots/state';
 import RemoteBotChatView from './RemoteBotChatView';
+import MessageRow from './MessageRow';
 import { ingestBotRoster, markBotRead, unreadKey, useBotUnread } from '../hooks/useBotUnread';
 
 interface BotsViewProps {
@@ -674,9 +675,12 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             的窗口化思路；长房间事件流不无限增长 DOM）——完整日志仍在后端 */}
         {events.slice(-200).map((ev) => {
           if (ev.kind === KIND_USER) {
-            // 🔴 2026-09-05 round-50：附件渲染（图片缩略图 / 文件徽标——
-            // 对齐 Hermes 群聊"members are shown"的附件展示）
+            // 🔴 阶段1 统一（frontend-chat-unification-2026-09-09）：用户气泡
+            // 走 MessageRow（与单视图/宫格同一渲染原语）——附件缩略图经
+            // attachmentRefs（MessageRow user 分支：dataURL=img+图N 角标，
+            // 文件=徽标，语义与原实现一致）。时间戳是房间特有 UI，保留在前缀行。
             const atts = Array.isArray(ev.payload.attachments) ? (ev.payload.attachments as Array<{ name?: string; kind?: string; thumb?: string }>) : [];
+            const attachmentRefs = atts.map((a) => a.thumb || a.name || 'file');
             return (
               <div key={ev.seq} className="flex flex-col items-end">
                 {/* 🔴 round-78d：时间戳（对齐 Hermes 消息 log 带 at——异步多轮讨论
@@ -684,33 +688,35 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
                 <span className="text-[10px] text-muted-foreground/60 mb-0.5 px-1">
                   {formatMessageTime(ev.created_at)}
                 </span>
-                <div className="max-w-[85%] bg-user-bubble text-foreground border border-user-bubble-border rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm select-text">
-                  {atts.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-1.5">
-                      {atts.map((a, i) =>
-                        a.thumb ? (
-                          <img key={i} src={a.thumb} alt={a.name || 'attachment'} className="h-20 rounded-lg border border-black/10" />
-                        ) : (
-                          <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded bg-black/10 text-[10px]">
-                            📎 {a.name || 'file'}
-                          </span>
-                        ),
-                      )}
-                    </div>
-                  )}
-                  {String(ev.payload.text ?? '')}
+                <div className="w-full max-w-[85%] [&>div]:items-end">
+                  <MessageRow
+                    message={{
+                      id: `ev-${ev.seq}`,
+                      role: 'user',
+                      parts: [{ type: 'text', text: String(ev.payload.text ?? '') }],
+                      attachmentRefs: attachmentRefs.length > 0 ? attachmentRefs : undefined,
+                    }}
+                  />
                 </div>
               </div>
             );
           }
           if (ev.kind === KIND_MEMBER) {
+            // 🔴 阶段1 统一：成员气泡走 MessageRow（agent 气泡原语）。
+            // 成员前缀行（@handle · display · time）是群聊特有归属 UI，保留。
             const handle = String(ev.actor.handle || ev.actor.id || '');
             const display = memberByHandle[handle] || handle;
             return (
               <div key={ev.seq} className="flex flex-col items-start">
                 <span className="text-[11px] text-muted-foreground mb-0.5 px-1 select-text">@{handle} · {display} · {formatMessageTime(ev.created_at)}</span>
-                <div className="max-w-[85%] bg-card text-card-foreground border border-[var(--ui-stroke-tertiary)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm select-text">
-                  {String(ev.payload.text ?? '')}
+                <div className="w-full max-w-[85%] [&>div]:items-start">
+                  <MessageRow
+                    message={{
+                      id: `ev-${ev.seq}`,
+                      role: 'assistant',
+                      parts: [{ type: 'text', text: String(ev.payload.text ?? '') }],
+                    }}
+                  />
                 </div>
               </div>
             );

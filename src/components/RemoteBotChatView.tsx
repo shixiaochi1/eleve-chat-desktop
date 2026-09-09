@@ -23,11 +23,28 @@ import { getRemoteSocket } from '../services/connections';
 import { fetchRemoteSessionHistory, submitRemotePrompt, type RemoteChatMessage } from '../utils/api';
 import type { RemoteBotChat } from '../plugins/bots/state';
 import { cn } from '@/lib/utils';
+// 🔴 阶段1 统一（frontend-chat-unification-2026-09-09）：渲染层收敛到
+// MessageRow——删除手写气泡/自造光标，与单视图/宫格同一渲染原语。
+import MessageRow from './MessageRow';
+import type { ChatMessage } from '@/types';
 
 function partsText(m: RemoteChatMessage): string {
   return (m.parts || [])
     .map((p) => (typeof p?.text === 'string' ? p.text : ''))
     .join('');
+}
+
+/** RemoteChatMessage（session.history lite 行）→ ChatMessage（MessageRow 输入）。
+ *  远端历史是 lite 版（仅 text parts），role 收敛到 MessageRole 三态。 */
+function toChatMessage(m: RemoteChatMessage, index: number): ChatMessage {
+  const parts = (m.parts || [])
+    .filter((p): p is { type: 'text'; text: string } => p?.type === 'text' && typeof p.text === 'string')
+    .map((p) => ({ type: 'text' as const, text: p.text }));
+  return {
+    id: m.id || `r-${index}`,
+    role: m.role === 'user' || m.role === 'system' ? m.role : 'assistant',
+    parts,
+  };
 }
 
 export default function RemoteBotChatView({
@@ -173,46 +190,28 @@ export default function RemoteBotChatView({
         </div>
       )}
 
-      {/* 消息流：权威历史 + 流式气泡（事件驱动，无轮询） */}
+      {/* 消息流：权威历史 + 流式气泡（事件驱动，无轮询）。
+          🔴 阶段1 统一：渲染走 MessageRow（与单视图/宫格同一原语）；
+          流式 = 合成 pending assistant 消息（MessageRow 的 streaming 门控
+          自带平滑揭示与光标，删除原手写光标 span）。 */}
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-2">
         {messages.length === 0 && !streamingText && (
           <div className="flex items-center justify-center h-full text-xs text-muted-foreground/70">
             尚无消息——发送第一条开始对话
           </div>
         )}
-        {messages.map((m, i) => {
-          const text = partsText(m);
-          if (m.role === 'user') {
-            return (
-              <div key={m.id || `u-${i}`} className="flex justify-end">
-                <div className="max-w-[85%] bg-user-bubble text-foreground border border-user-bubble-border rounded-2xl rounded-br-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm select-text">
-                  {text}
-                </div>
-              </div>
-            );
-          }
-          if (m.role === 'system') {
-            return (
-              <div key={m.id || `s-${i}`} className="text-center text-[11px] text-muted-foreground/60 py-1">
-                {text}
-              </div>
-            );
-          }
-          return (
-            <div key={m.id || `a-${i}`} className="flex justify-start">
-              <div className="max-w-[85%] bg-[var(--ui-bg-card)] text-foreground border border-[var(--ui-stroke-tertiary)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words select-text">
-                {text || '（无文本内容）'}
-              </div>
-            </div>
-          );
-        })}
+        {messages.map((m, i) => (
+          <MessageRow key={m.id || `r-${i}`} message={toChatMessage(m, i)} />
+        ))}
         {streamingText !== null && (
-          <div className="flex justify-start">
-            <div className="max-w-[85%] bg-[var(--ui-bg-card)] text-foreground border border-[var(--ui-stroke-tertiary)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words select-text">
-              {streamingText || '…'}
-              <span className="inline-block w-1.5 h-3.5 ml-0.5 align-text-bottom bg-primary/70 animate-pulse" />
-            </div>
-          </div>
+          <MessageRow
+            message={{
+              id: 'remote-streaming',
+              role: 'assistant',
+              parts: [{ type: 'text', text: streamingText || '…' }],
+              pending: true,
+            }}
+          />
         )}
         <div ref={bottomRef} />
       </div>
