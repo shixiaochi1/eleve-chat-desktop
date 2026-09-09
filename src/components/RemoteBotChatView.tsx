@@ -23,6 +23,11 @@ import { getRemoteSocket } from '../services/connections';
 import { submitPromptViaWs } from '../lib/prompt-submit';
 import { fetchRemoteSessionHistory, type RemoteChatMessage } from '../utils/api';
 import type { RemoteBotChat } from '../plugins/bots/state';
+import {
+  appendRemoteChatDelta, appendRemoteChatMessage, claimRemoteChatState,
+  clearRemoteChatStreaming, remoteChatOwner, setRemoteChatError,
+  setRemoteChatMessages, useRemoteChatState,
+} from '../plugins/bots/remoteChatState';
 import { cn } from '@/lib/utils';
 // 🔴 阶段1 统一（frontend-chat-unification-2026-09-09）：渲染层收敛到
 // MessageRow——删除手写气泡/自造光标，与单视图/宫格同一渲染原语。
@@ -57,10 +62,10 @@ export default function RemoteBotChatView({
 }) {
   const chatRef = useRef(chat);
   chatRef.current = chat;
-  const [messages, setMessages] = useState<RemoteChatMessage[]>([]);
-  /** 流式中的 assistant 文本（message.delta 累积；message.complete 清空并 load） */
-  const [streamingText, setStreamingText] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // 🔴 阶段3 统一：消息/流式/错误状态迁组件外 atom（remoteChatState，owner 键
+  // 守卫写入）——draft/sending/optimistic pending 是纯视图局部态，保留 useState/ref
+  const remoteState = useRemoteChatState();
+  const { messages, streamingText, error } = remoteState;
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   /** 已发送但服务器历史尚未出现的用户文本（optimistic；message.complete 后 load 清退） */
@@ -70,6 +75,8 @@ export default function RemoteBotChatView({
   /** 权威历史重拉（后端唯一事实源；与主区"始终 loadHistory"同一原则） */
   const load = useCallback(async () => {
     const c = chatRef.current;
+    // owner 在发起点钉死：async 响应期间切 chat → 写入被 owner 守卫丢弃
+    const owner = remoteChatOwner(c.connId, c.sessionId);
     try {
       // 🔴 round-78 P0：方法名必须是网关 WS 注册名 `session.history`——
       // requestForBot 有 route 时字面发送，bridge 的 get_session_messages
@@ -84,20 +91,24 @@ export default function RemoteBotChatView({
       const optimistic = pendingRef.current.map(
         (t) => ({ id: `pending-${t}`, role: 'user', parts: [{ type: 'text', text: t }] }) as RemoteChatMessage,
       );
-      setError(null);
-      setMessages([...server, ...optimistic]);
+      setRemoteChatError(owner, null);
+      setRemoteChatMessages(owner, [...server, ...optimistic]);
     } catch (e) {
-      setError(`远程连接不可达：${e instanceof Error ? e.message : String(e)}`);
+      setRemoteChatError(owner, `远程连接不可达：${e instanceof Error ? e.message : String(e)}`);
     }
   }, []);
 
   // ── 事件订阅（对齐 Hermes：事件流经 Desktop 持有的 socket 直达）──
   useEffect(() => {
+    const owner = remoteChatOwner(chat.connId, chat.sessionId);
+    // 🔴 阶段3：挂载/切换 chat 即认领（reset + 换 owner——旧 chat 状态不残留，
+    // 旧视图迟到写入被 owner 守卫丢弃）
+    claimRemoteChatState(owner);
     let sock: ReturnType<typeof getRemoteSocket>;
     try {
       sock = getRemoteSocket(chat.connId);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setRemoteChatError(owner, e instanceof Error ? e.message : String(e));
       return;
     }
     const sid = chat.sessionId;
@@ -108,12 +119,12 @@ export default function RemoteBotChatView({
       if (eventName === 'message.delta') {
         const delta = (data.delta as string) || '';
         if (!delta) return;
-        setStreamingText((cur) => (cur ?? '') + delta);
+        appendRemoteChatDelta(owner, delta);
         return;
       }
       if (eventName === 'message.complete') {
         // 轮收口 → 权威历史覆盖（流式气泡退役）
-        setStreamingText(null);
+        clearRemoteChatStreaming(owner);
         void load();
         return;
       }
@@ -149,13 +160,15 @@ export default function RemoteBotChatView({
     const text = draft.trim();
     if (!text || sending) return;
     setSending(true);
-    setError(null);
+    const owner = remoteChatOwner(chat.connId, chat.sessionId);
+    setRemoteChatError(owner, null);
     pendingRef.current = [...pendingRef.current, text];
     setDraft('');
-    setMessages((cur) => [
-      ...cur,
-      { id: `pending-${text}`, role: 'user', parts: [{ type: 'text', text }] },
-    ]);
+    appendRemoteChatMessage(owner, {
+      id: `pending-${text}`,
+      role: 'user',
+      parts: [{ type: 'text', text }],
+    });
     try {
       // 🔴 阶段2 统一：prompt.submit 公共骨架（ensureConnected + steer/queued
       // outcome toast + 新会话回调）——协议与单视图/宫格同源，此前独立实现
@@ -164,7 +177,7 @@ export default function RemoteBotChatView({
         getRemoteSocket(chat.connId),
         { text, sessionId: chat.sessionId },
       ).catch((e) => {
-        setError(`发送失败：${e instanceof Error ? e.message : String(e)}`);
+        setRemoteChatError(owner, `发送失败：${e instanceof Error ? e.message : String(e)}`);
       });
     } finally {
       setSending(false);
