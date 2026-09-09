@@ -3,6 +3,7 @@ import { useIsStreaming, setIsStreaming as storeSetIsStreaming, getIsStreaming }
 import { getWsClient } from '@/services/ws-client';
 import { handleGlobalEvent } from '@/lib/global-events';
 import { submitPromptViaWs } from '@/lib/prompt-submit';
+import { normalizeWsEvent } from '@/lib/ws-event-router';
 import { notifyExternalChange } from '@/lib/workspace-events';
 import { persistSessionPointer } from '../utils/session';
 import { createAccumulator, resetAccumulator, resetAccumulatorForStep, finalizeAccumulator, processAccumulatorEvent, type StreamAccumulator } from '@/lib/ws-event-processor';
@@ -688,20 +689,18 @@ export function useSSE(
   const routeWsEvent = useCallback((eventName: string, data: unknown) => {
     const cbs = cbsRef.current;
     const acc = wsAccumulatorsRef.current;
-    const raw = data as Record<string, unknown>;
-    if (!raw) return;
-
-    // WS payload 内聚：业务数据在 payload 字段下（对齐 Hermes _emit 格式）
-    const chunkBase = (raw.payload && typeof raw.payload === 'object' ? raw.payload : raw) as Record<string, unknown>;
-    const chunk: Record<string, unknown> = {
-      ...chunkBase,
-      ...(raw.session_id != null && chunkBase.session_id == null ? { session_id: raw.session_id } : {}),
-      ...(raw.run_id != null && chunkBase.run_id == null ? { run_id: raw.run_id } : {}),
-    };
+    // 🔴 阶段2 地基：payload 归一化收敛到 lib/ws-event-router（与宫格同一份）
+    const norm = normalizeWsEvent(data);
+    if (!norm) return;
+    const { raw, chunk } = norm;
 
     // 🔴 2026-08-17 阶段4（per-session 并发轮配套）：交互类事件**先于**会话
     // 过滤——并发轮架构下后台会话的轮可能发起审批/澄清/凭据请求，被过滤
     // 丢弃 = 工具挂到超时。交互事件必须直达回调（按 sid 渲染/响应）。
+    // 🔴 差异注记：本集合含 delegate.*（子代理事件恒带父会话 sid，切到别的
+    // 会话查看时若被过滤丢弃，切回后监控卡片永久停在 running）；宫格
+    // GRID_INTERACTION_EVENTS 刻意不含 delegate.*（宫格按 profile 路由，
+    // delegate 走 slot switch）——非重复待合并，是刻意差异。
     if (INTERACTION_EVENT_NAMES.has(eventName)) {
       processEvent(eventName, chunk, acc, cbs);
       return;

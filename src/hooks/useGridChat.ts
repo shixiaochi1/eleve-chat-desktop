@@ -49,6 +49,7 @@ import { profileFromSessionId, sessionIdMatchesProfile, persistSessionPointer } 
 import { toChatMessages, textPart, finalContinuesInterim, type SessionMessage, type ChatMessagePart } from '@/lib/chat-messages';
 import { createAccumulator, resetAccumulator, resetAccumulatorForStep, processAccumulatorEvent, finalizeAccumulator, extractPendingInteractions, type StreamAccumulator } from '@/lib/ws-event-processor';
 import { submitPromptViaWs } from '@/lib/prompt-submit';
+import { normalizeWsEvent } from '@/lib/ws-event-router';
 import { completionErrorText } from '@/lib/completion-error';
 import { handleGlobalEvent } from '@/lib/global-events';
 import { writeAgentTerminalChunk } from '@/lib/agent-terminal-stream';
@@ -86,6 +87,9 @@ export type { AgentStatus, AgentChatState } from './gridChatTypes';
 
 // 🔴 2026-08-17 阶段4：交互类事件不受 slot 守卫约束（后台会话并发轮的
 // 审批/澄清/凭据请求必须可见可响应）。
+// 🔴 差异注记：刻意不含 delegate.*（单视图 useSSE 的 INTERACTION_EVENT_NAMES
+// 含——子代理监控跨会话放行）；宫格 delegate.* 走 profile 路由进 slot switch。
+// 非重复待合并，是刻意差异（2b 路由器合并时保留两端集合）。
 const GRID_INTERACTION_EVENTS = new Set([
   'approval.request',
   'approval.responded',
@@ -456,9 +460,11 @@ export function useGridChat(
     const ws = getWsClient();
 
     const handler = (eventName: string, data: unknown) => {
-      const raw = data as Record<string, unknown>;
-      if (!raw) return;
-      const payload = (raw.payload && typeof raw.payload === 'object' ? raw.payload : raw) as Record<string, unknown>;
+      // 🔴 阶段2 地基：payload 归一化收敛到 lib/ws-event-router（与单视图同一份）
+      const norm = normalizeWsEvent(data);
+      if (!norm) return;
+      const raw = norm.raw;
+      const payload = norm.chunk;
       // 🔴 2026-08-11 对齐 Hermes agent.terminal.output：writer 按 process_id 键控，
       // 不依赖会话路由——宫格模式 useSSE 卸载后必须在此消费（原实现走 profile 路由
       // 无 case → 丢弃 → 实时输出降级为 5s 快照对账 = 功能降级）。terminal.close 同走
@@ -471,7 +477,8 @@ export function useGridChat(
         handleGlobalEvent(eventName, payload);
         return;
       }
-      const sessionId = (raw.session_id ?? payload.session_id) as string | undefined;
+      // chunk 已含顶层 session_id 兜底提升（原 raw.session_id ?? payload.session_id）
+      const sessionId = payload.session_id as string | undefined;
       const profile = profileFromSessionId(sessionId);
       if (!profile) {
         // ── 全局事件（无 session_id）— 委托共享处理器（与单视图 useMessageStream 同一权威源）──
