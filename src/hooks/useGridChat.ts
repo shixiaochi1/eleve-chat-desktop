@@ -57,7 +57,30 @@ import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
 
 import { getSessionStatus } from '@/store/session-status';
 import type { ChatMessage } from '@/types';
-import { WINDOW_MAX, PAGE_SIZE, FLUSH_MS, emptyState, gridMsgId, type AgentStatus, type AgentChatState } from './gridChatTypes';
+import { WINDOW_MAX, PAGE_SIZE, emptyState, gridMsgId, type AgentStatus, type AgentChatState } from './gridChatTypes';
+
+// ── 流式 flush 调度（🔴 阶段3 统一，frontend-chat-unification-2026-09-09）──
+// 原 setInterval(FLUSH_MS) 常驻扫描两宗罪：①隐藏/遮挡 renderer 被 Chromium
+// timer 钳制（后台流式更新延迟 1s；深度节流下更糟——store/messages.ts 实测
+// 33ms 定时器 31.5s 不触发）；②无流式时每 33ms 空扫全量 acc。
+// 改为**事件驱动 + MessageChannel 单飞**（对齐 store/messages 先例：port 消息
+// 是独立宏任务，hidden renderer 不节流消息事件；pending 标志合并同帧高频
+// delta）。flush 实现保留原浅比较扫描（streamParts !== acc.parts 才 setStates，
+// React 对同引用 bail out，零成本）。flush 实现依赖 hook 内 setStates，经
+// accFlushImpl 注入（active effect 挂载时注册，卸载时摘除）——模块级单例，
+// GridModeView 单实例挂载，注入式回调避免 hook 内建 MessageChannel。
+let accFlushPending = false;
+let accFlushImpl: (() => void) | null = null;
+const accFlushChannel = new MessageChannel();
+accFlushChannel.port1.onmessage = () => {
+  accFlushPending = false;
+  accFlushImpl?.();
+};
+function scheduleAccFlush(): void {
+  if (accFlushPending) return;
+  accFlushPending = true;
+  accFlushChannel.port2.postMessage(null);
+}
 // 🔴 2026-08-13 Phase 2 拆分：类型/常量移入 gridChatTypes.ts（re-export 保持消费方零改动）
 export type { AgentStatus, AgentChatState } from './gridChatTypes';
 
@@ -106,7 +129,8 @@ export function useGridChat(
 
   // per-agent 流式累加器（ref，高频写不触发渲染）
   const accRef = useRef<Record<string, StreamAccumulator>>({});
-  const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 🔴 阶段3 统一：flushTimerRef/setInterval 退役（事件驱动 + MessageChannel 单飞）
+
   const statesRef = useRef(states);
   statesRef.current = states;
 
@@ -481,7 +505,11 @@ export function useGridChat(
       }
 
       // 🔴 P2-D: 流式累加事件走共享处理器（与单视图 useMessageStream 同一权威路径）
-      if (!processAccumulatorEvent(acc, eventName, payload)) {
+      // 🔴 阶段3：累加器消费（parts 可能已变）→ 单飞调度流式镜像 flush
+      // （原 setInterval 节拍退役——见文件头调度器注释）
+      if (processAccumulatorEvent(acc, eventName, payload)) {
+        scheduleAccFlush();
+      } else {
       switch (eventName) {
         case 'run.started':
         case 'message.start':
@@ -908,13 +936,15 @@ export function useGridChat(
           handleGlobalEvent(eventName, payload);
           break;
       }
-      } // end if (!processAccumulatorEvent)
+      } // end else（processAccumulatorEvent 未消费 → 显式 switch 分支）
     };
 
     ws.addEventListener(handler);
 
-    // 30fps flush：把累加器 parts 镜像到状态的 streamParts（只更新流式气泡，不动 messages）
-    flushTimerRef.current = setInterval(() => {
+    // 🔴 阶段3：流式镜像 flush 实现（原 setInterval(FLUSH_MS) 常驻节拍退役）——
+    // 把累加器 parts 镜像到状态的 streamParts（只更新流式气泡，不动 messages）。
+    // 触发改为 processAccumulatorEvent 消费处的 scheduleAccFlush() 单飞。
+    accFlushImpl = () => {
       const accs = accRef.current;
       const profiles = Object.keys(accs);
       if (profiles.length === 0) return;
@@ -931,11 +961,11 @@ export function useGridChat(
         }
         return changed ? next : prev;
       });
-    }, FLUSH_MS);
+    };
 
     return () => {
       ws.removeEventListener(handler);
-      if (flushTimerRef.current) { clearInterval(flushTimerRef.current); flushTimerRef.current = null; }
+      accFlushImpl = null;
       // 🔴 2026-08-13 架构统一：视图卸载 → 取消卡片会话订阅（重连不再 re-attach）；
       // 跳过全局当前会话——宫格退出时 restoreProfileSession 已 switchSession 目标会话，
       // 若误取消则单视图重连后 pending 不恢复

@@ -9,7 +9,8 @@ import type { ChatMessagePart, ChatMessage } from '@/types';
 
 export const WINDOW_MAX = 100;   // 每 Agent 内存最多保留消息数（超出 evict 头部）
 export const PAGE_SIZE = 20;     // 每次加载条数
-export const FLUSH_MS = 33;      // ~30fps 流式 flush
+// 🔴 阶段3 统一：FLUSH_MS 退役——流式 flush 从 setInterval(33ms) 常驻扫描改为
+// 事件驱动 + MessageChannel 单飞（对齐 store/messages 先例，见 useGridChat.ts）。
 
 export type AgentStatus = 'idle' | 'streaming' | 'waiting';
 
