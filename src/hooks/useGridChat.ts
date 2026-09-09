@@ -49,7 +49,7 @@ import { profileFromSessionId, sessionIdMatchesProfile, persistSessionPointer } 
 import { toChatMessages, textPart, finalContinuesInterim, type SessionMessage, type ChatMessagePart } from '@/lib/chat-messages';
 import { createAccumulator, resetAccumulator, resetAccumulatorForStep, processAccumulatorEvent, finalizeAccumulator, extractPendingInteractions, type StreamAccumulator } from '@/lib/ws-event-processor';
 import { submitPromptViaWs } from '@/lib/prompt-submit';
-import { normalizeWsEvent } from '@/lib/ws-event-router';
+import { normalizeWsEvent, admitBySlotGuard } from '@/lib/ws-event-router';
 import { createAtomStore, type AtomStore } from '@/lib/store-factory';
 import { completionErrorText } from '@/lib/completion-error';
 import { handleGlobalEvent } from '@/lib/global-events';
@@ -547,20 +547,24 @@ export function useGridChat(
       // 视同 null 放行。所有 sessionId 写入点均经校验（GridModeView 初始化/switchToSession + 后端响应天然正确），
       // 脏数据理论上不可能；此行使守卫不依赖“slot 恒干净”的隐式不变量，
       // 并覆盖 sendTo 同步清理尚未镜像到 statesRef（render-phase 镜像）的理论窗口。
+      // 🔴 2b 地基：守卫判定纯函数化（admitBySlotGuard，语义由
+      // ws-event-router.test.ts 锁定）——1:1 提取，行为零变化。
       const slotSid = statesRef.current[profile]?.sessionId;
-      if (sessionId && slotSid && sessionIdMatchesProfile(slotSid, profile) && sessionId !== slotSid) {
-        // 🔴 2026-08-17 阶段4（per-session 并发轮配套）：交互类事件**不受**
-        // slot 守卫约束——后台会话的审批/澄清/凭据请求必须可见可响应
-        // （被丢弃 = 工具挂到超时）。放行进 switch 按 sid 存多槽。
-        if (GRID_INTERACTION_EVENTS.has(eventName)) {
-          // fall through（不 return）
-        } else {
-          if (eventName === 'message.complete' || eventName === 'error') {
-            sendingRef.current[profile] = false;
-            resetAccumulator(acc);
-          }
-          return;
+      const slotVerdict = admitBySlotGuard(
+        sessionId,
+        slotSid,
+        slotSid ? sessionIdMatchesProfile(slotSid, profile) : false,
+        GRID_INTERACTION_EVENTS.has(eventName),
+      );
+      if (slotVerdict === 'drop') {
+        // 🔴 2026-08-17 阶段4（per-session 并发轮配套）：交互类事件不受 slot
+        // 守卫约束（admitBySlotGuard 内放行）——后台会话的审批/澄清/凭据请求
+        // 必须可见可响应（被丢弃 = 工具挂到超时）。
+        if (eventName === 'message.complete' || eventName === 'error') {
+          sendingRef.current[profile] = false;
+          resetAccumulator(acc);
         }
+        return;
       }
 
       // 🔴 P2-D: 流式累加事件走共享处理器（与单视图 useMessageStream 同一权威路径）

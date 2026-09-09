@@ -3,7 +3,7 @@ import { useIsStreaming, setIsStreaming as storeSetIsStreaming, getIsStreaming }
 import { getWsClient } from '@/services/ws-client';
 import { handleGlobalEvent } from '@/lib/global-events';
 import { submitPromptViaWs } from '@/lib/prompt-submit';
-import { normalizeWsEvent } from '@/lib/ws-event-router';
+import { normalizeWsEvent, admitByCurrentSession } from '@/lib/ws-event-router';
 import { notifyExternalChange } from '@/lib/workspace-events';
 import { persistSessionPointer } from '../utils/session';
 import { createAccumulator, resetAccumulator, resetAccumulatorForStep, finalizeAccumulator, processAccumulatorEvent, type StreamAccumulator } from '@/lib/ws-event-processor';
@@ -710,23 +710,21 @@ export function useSSE(
     // （2026-08-17 评估：单视图发送锁是全局的，在过滤分支释放会误伤"当前
     // 会话正在流式"的锁（截断终稿）——锁的释放由切换链 resetSendingLock /
     // 当前会话 message.complete 负责，F1 已保证切离 busy 会话时锁被释放。）
+    // 🔴 2b 地基：守卫判定纯函数化（admitByCurrentSession，语义由
+    // ws-event-router.test.ts 锁定）——1:1 提取，行为零变化。
     const eventSessionId = chunk.session_id as string | undefined;
-    if (eventSessionId && currentSessionIdRef) {
-      const current = currentSessionIdRef.current;
-      if (current) {
-        // 已锁定当前会话：非本会话事件一律丢弃
-        if (eventSessionId !== current) return;
-      } else if (pendingSendRef.current) {
-        // 🔴 绝对闭环：current 为 null 且本人刚发送新建会话——session 未知，缓冲原始事件，
-        // 待响应锁定 session 后冲洗。不丢自己的早期事件（session.info/message.start），不漏外来流式。
-        pendingBufferRef.current?.push({ eventName, data });
-        return;
-      } else {
-        // 🔴 串台根因修复：current 为 null 但非本人发送（切到空白 Agent）→ 丢弃外来流式。
-        // 后端已持久化，切回源 Agent 时 loadHistory 恢复，不丢消息。
-        return;
-      }
+    const verdict = admitByCurrentSession(
+      eventSessionId,
+      currentSessionIdRef ? currentSessionIdRef.current : undefined,
+      pendingSendRef.current,
+    );
+    if (verdict === 'buffer') {
+      // 🔴 绝对闭环：current 为 null 且本人刚发送新建会话——session 未知，缓冲原始事件，
+      // 待响应锁定 session 后冲洗。不丢自己的早期事件（session.info/message.start），不漏外来流式。
+      pendingBufferRef.current?.push({ eventName, data });
+      return;
     }
+    if (verdict === 'drop') return;
 
     const result = processEvent(eventName, chunk, acc, cbs);
 
