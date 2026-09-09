@@ -302,7 +302,11 @@ async function drainPeerDispatches(): Promise<void> {
     let items: PendingDispatch[] = [];
     try {
       const res = await requestForBot<{ dispatches?: PendingDispatch[] }>(
-        routeOf(conn), 'bot.rooms.peer_dispatches.pending', {}, 15_000,
+        routeOf(conn), 'bot.rooms.peer_dispatches.pending', {},
+        // 🔴 round-87：15s → 60s——满额 4×15MB 附件的 dispatch 载荷 ~80MB，
+        // 拉取即认领（pending→sent）：15s 超时后行已 sent、投递循环不再启动
+        // → authority 只能等 900s 轮预算超时（大附件场景隐性失败放大）。
+        60_000,
       );
       items = Array.isArray(res?.dispatches) ? res.dispatches : [];
     } catch {
