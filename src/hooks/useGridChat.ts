@@ -507,6 +507,14 @@ export function useGridChat(
   }, [patch, sendTo]);
 
   // ── WS 事件解复用（active 时接管所有事件） ──
+  // 🔴 2b 收口裁定（frontend-chat-unification-2026-09-09）：与单视图
+  // useSSE.routeWsEvent 的**可共享件已全部收敛**——归一化（normalizeWsEvent）、
+  // 守卫（admitBySlotGuard/admitByCurrentSession，语义有 ws-event-router.test.ts
+  // 回归网）、流式累加（processAccumulatorEvent）、flush（MessageChannel 单飞）、
+  // send 骨架（submitPromptViaWs）、状态层（scoped atom）。剩余差异是合理
+  // 语义差异（本 handler 的 terminal 前置直通 / profile 路由 / 全局事件分流层；
+  // 消费端 switch 的 interim settle/usage/failure 是宫格视图语义）——强行
+  // 抽象 RouterPolicy 只会产生为差异而设的可选钩子集合，不再合并。
   useEffect(() => {
     if (!active) return;
     const ws = getWsClient();

@@ -686,6 +686,12 @@ export function useSSE(
   const wsAccumulatorsRef = useRef<StreamAccumulator>(createAccumulator());
 
   // ── WS 事件 → 统一路由（含 session 过滤） ──
+  // 🔴 2b 收口裁定（frontend-chat-unification-2026-09-09）：与宫格
+  // useGridChat.handler 的可共享件已全部收敛到 lib（normalizeWsEvent /
+  // admitByCurrentSession / submitPromptViaWs / StreamAccumulator / scoped
+  // atom / MessageChannel flush，守卫语义有回归网）——剩余差异（pendingSend
+  // 缓冲窗、delegate 免过滤、SSECallbacks 消费形态）是单视图特有语义，
+  // 不再强行合并为 RouterPolicy 抽象。
   const routeWsEvent = useCallback((eventName: string, data: unknown) => {
     const cbs = cbsRef.current;
     const acc = wsAccumulatorsRef.current;
