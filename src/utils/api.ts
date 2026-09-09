@@ -998,7 +998,7 @@ export interface PendingRoomTask {
   status: string;
   member_id: string | null;
   round_index: number | null;
-  indeterminate_at: number | null;
+  // 🔴 round-81：indeterminate_at 字段已随后端列删除（60s 冷却窗退役后零消费）
 }
 
 // ====== API Base URL ======
