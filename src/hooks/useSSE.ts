@@ -2,6 +2,7 @@ import { useRef, useCallback, useEffect } from 'react';
 import { useIsStreaming, setIsStreaming as storeSetIsStreaming, getIsStreaming } from '@/store/messages';
 import { getWsClient } from '@/services/ws-client';
 import { handleGlobalEvent } from '@/lib/global-events';
+import { submitPromptViaWs } from '@/lib/prompt-submit';
 import { notifyExternalChange } from '@/lib/workspace-events';
 import { persistSessionPointer } from '../utils/session';
 import { createAccumulator, resetAccumulator, resetAccumulatorForStep, finalizeAccumulator, processAccumulatorEvent, type StreamAccumulator } from '@/lib/ws-event-processor';
@@ -802,64 +803,43 @@ export function useSSE(
     const cbs = cbsRef.current;
 
     // ── WS only：对齐 Hermes TUI，无 HTTP 降级 ──
-    // Hermes Desktop 做法参考 (use-gateway-request.ts):
-    //   1. WS 断了 → 先重连 (ensureGatewayOpen)
-    //   2. 重连成功 → 重试请求
-    //   3. 重连失败 → 才报错
-    // 🔴 3.1: 统一连接保障入口（消灭 3 份重复）
+    // 🔴 阶段2 统一（frontend-chat-unification-2026-09-09）：ensureConnected +
+    // prompt.submit + route_busy_submit outcome（steered/redirected/queued
+    // toast）+ 新会话回传——公共骨架收敛到 lib/prompt-submit.ts（此前与宫格
+    // useGridChat.sendTo 逐段对偶 ~120 行）。本层保留：wasBusy 锁/流式态管理、
+    // pendingSend 缓冲窗、累加器重置、错误 onError 通道。
     const wsClient = getWsClient();
-    const connected = await wsClient.ensureConnected(10000);
-    if (!connected) {
-      console.error('[useSSE] WS not connected after waiting 10s');
-      if (!wasBusy) {
-        storeSetIsStreaming(false);
-        isStreamingRef.current = false;
-      }
-      pendingSendRef.current = false;
-      pendingBufferRef.current = null;
-      if (cbs?.onError) {
-        cbs.onError('连接断开，正在重连，请稍后重试');
-      }
-      return;
-    }
 
     // 🔴 Phase 2: busy 直发不重置累加器 —— live turn 正在其中累积 delta，重置会抹掉终稿
     if (!wasBusy) wsAccumulatorsRef.current = createAccumulator();
 
     try {
-      const result = await wsClient.promptSubmit(text, sessionId || undefined, modelOpts) as { session_id?: string; status?: string };
-      // 🔴 Phase 2: 消费后端 route_busy_submit outcome（对齐宫格 useGridChat sendTo）：
-      // - steered → 注入 live turn，无新 turn 事件，UI 提示
-      // - queued 类 → live turn 的 message.complete 是锁释放唯一权威入口，
-      //   后端 spawn_ws_turn_with_drain 接续排队消息。两种情况都不动流式态/锁。
-      // - 无 status = idle accepted → 正常持锁等 message.complete 释放
-      if (result?.status === 'steered') {
-        import('../utils/notifications').then(({ notifyInfo }) => notifyInfo('已注入当前轮（steer）', '消息已送达')).catch(() => {});
-      }
-      // GAP-1: redirect 软重定向成功 → 修正已取消在飞模型请求并注入当前轮
-      if (result?.status === 'redirected') {
-        import('../utils/notifications').then(({ notifyInfo }) => notifyInfo('已重定向当前轮（redirect）', '修正已注入当前回复')).catch(() => {});
-      }
-      // 🔴 2026-08-16 方案A 补反馈：queued（busy 直发进 Inbox.followup）——
-      // 后端 route_busy_submit 立即 ack（不再挂到轮末），排队可见性由
-      // QueuePanel（queue.status 轮询）承担，此处 toast 明确告知用户
-      // "已排队，当前任务完成后自动执行"（消除"卡住"感知）。
-      if (result?.status === 'queued') {
-        import('../utils/notifications').then(({ notifyInfo }) => notifyInfo('任务已加入队列', '当前任务完成后自动执行')).catch(() => {});
-      }
-      // 对齐架构原则：后端是 session_id 的唯一权威源
-      // 后端自动创建 session 时返回 session_id，前端消费并更新本地状态
-      if (result?.session_id && result.session_id !== sessionId) {
-        const newSid = result.session_id;
-        persistSessionPointer(newSid);
-        // 🔴 立即锁定 session 过滤 ref
-        if (currentSessionIdRef) currentSessionIdRef.current = newSid;
-        // 🔴 绝对闭环：锁定后冲洗缓冲窗口（自己的事件匹配放行，外来丢弃）
-        flushPendingBuffer();
-        if (cbs?.onSessionCreated) {
-          cbs.onSessionCreated(newSid);
-        }
-      } else {
+      const result = await submitPromptViaWs(
+        wsClient,
+        {
+          text,
+          // promptSubmit 原语义：未显式指定会话时兜底主客户端全局指针
+          sessionId: sessionId ?? wsClient.getCurrentSessionId() ?? undefined,
+          ...(modelOpts?.model ? { model: modelOpts.model, provider: modelOpts.provider } : {}),
+          ...(modelOpts?.title ? { title: modelOpts.title } : {}),
+          ...(modelOpts?.queued ? { queued: true } : {}),
+        },
+        {
+          // 对齐架构原则：后端是 session_id 的唯一权威源
+          // 后端自动创建 session 时返回 session_id，前端消费并更新本地状态
+          onSessionCreated: (newSid) => {
+            persistSessionPointer(newSid);
+            // 🔴 立即锁定 session 过滤 ref
+            if (currentSessionIdRef) currentSessionIdRef.current = newSid;
+            // 🔴 绝对闭环：锁定后冲洗缓冲窗口（自己的事件匹配放行，外来丢弃）
+            flushPendingBuffer();
+            if (cbs?.onSessionCreated) {
+              cbs.onSessionCreated(newSid);
+            }
+          },
+        },
+      );
+      if (!(result?.session_id && result.session_id !== sessionId)) {
         // 响应未带新 session（已有会话或异常）→ 安全关窗，防缓冲卡死
         pendingSendRef.current = false;
         pendingBufferRef.current = null;

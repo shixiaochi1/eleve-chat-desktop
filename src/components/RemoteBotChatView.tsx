@@ -20,7 +20,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Bot, Send } from 'lucide-react';
 import { getRemoteSocket } from '../services/connections';
-import { fetchRemoteSessionHistory, submitRemotePrompt, type RemoteChatMessage } from '../utils/api';
+import { submitPromptViaWs } from '../lib/prompt-submit';
+import { fetchRemoteSessionHistory, type RemoteChatMessage } from '../utils/api';
 import type { RemoteBotChat } from '../plugins/bots/state';
 import { cn } from '@/lib/utils';
 // 🔴 阶段1 统一（frontend-chat-unification-2026-09-09）：渲染层收敛到
@@ -156,9 +157,13 @@ export default function RemoteBotChatView({
       { id: `pending-${text}`, role: 'user', parts: [{ type: 'text', text }] },
     ]);
     try {
-      // prompt.submit 骑 owner 连接（1800s 预算与本地同款）；流式/回包全部
-      // 经事件监听器到达（上方 handler），零轮询
-      void submitRemotePrompt(chat.connId, chat.sessionId, text).catch((e) => {
+      // 🔴 阶段2 统一：prompt.submit 公共骨架（ensureConnected + steer/queued
+      // outcome toast + 新会话回调）——协议与单视图/宫格同源，此前独立实现
+      // 无 outcome 消费。流式/回包全部经事件监听器到达（上方 handler），零轮询
+      void submitPromptViaWs(
+        getRemoteSocket(chat.connId),
+        { text, sessionId: chat.sessionId },
+      ).catch((e) => {
         setError(`发送失败：${e instanceof Error ? e.message : String(e)}`);
       });
     } finally {

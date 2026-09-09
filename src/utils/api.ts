@@ -840,6 +840,7 @@ export interface RemoteChatMessage {
 /** 远端会话历史（骑 owner 连接）。🔴 方法名必须是网关 WS 注册名
  * `session.history`——requestForBot 有 route 时字面发送，bridge 的
  * get_session_messages 映射仅 null-route 生效 */
+
 export async function fetchRemoteSessionHistory(
   connId: string,
   sessionId: string,
@@ -854,19 +855,9 @@ export async function fetchRemoteSessionHistory(
   return Array.isArray(data?.messages) ? data.messages : [];
 }
 
-/** 远端会话发言（prompt.submit 骑 owner 连接，1800s 预算与本地同款） */
-export async function submitRemotePrompt(
-  connId: string,
-  sessionId: string,
-  text: string,
-): Promise<void> {
-  await requestForBot(
-    { connectionId: connId, profile: 'default' },
-    'prompt.submit',
-    { session_id: sessionId, text },
-    1_800_000,
-  );
-}
+// 🔴 阶段2 统一：submitRemotePrompt 已删除——prompt.submit 公共骨架收敛到
+// lib/prompt-submit.ts（RemoteBotChatView 直接经 GatewayWsClient 走
+// submitPromptViaWs，与单视图/宫格同一 outcome 消费）。
 
 /** 待接管副本房间（bot.rooms.replicas.list；state='replica' 的行可 promote） */
 export interface BotRoomReplica {

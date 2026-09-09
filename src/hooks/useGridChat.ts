@@ -48,6 +48,7 @@ import { call } from '../utils/bridge';
 import { profileFromSessionId, sessionIdMatchesProfile, persistSessionPointer } from '../utils/session';
 import { toChatMessages, textPart, finalContinuesInterim, type SessionMessage, type ChatMessagePart } from '@/lib/chat-messages';
 import { createAccumulator, resetAccumulator, resetAccumulatorForStep, processAccumulatorEvent, finalizeAccumulator, extractPendingInteractions, type StreamAccumulator } from '@/lib/ws-event-processor';
+import { submitPromptViaWs } from '@/lib/prompt-submit';
 import { completionErrorText } from '@/lib/completion-error';
 import { handleGlobalEvent } from '@/lib/global-events';
 import { writeAgentTerminalChunk } from '@/lib/agent-terminal-stream';
@@ -265,52 +266,28 @@ export function useGridChat(
     // 若此处加锁，旧 turn 的 complete 会误 drain 前端队列，且 queued 分支的释放逻辑双写。
     if (!wasBusy) sendingRef.current[profile] = true;
 
-    // 🔴 3.1: 统一连接保障入口（消灭 3 份重复）
-    const ws = getWsClient();
-    // 🔴 P1-7: 检查返回值（对齐单视图 useSSE.send）—— 超时时快速失败，不让 sendRpc 排队 30min 静默卡死
-    const connected = await ws.ensureConnected(10000);
-    if (!connected) {
-      if (!wasBusy) {
-        sendingRef.current[profile] = false;
-        patch(profile, (s) => ({ ...s, status: 'idle', streamParts: [], activityHint: '' }));
-      }
-      // 🔴 #11: 显式失败反馈（旧实现静默 return — 用户以为发出去了）
-      import('../utils/notifications').then(({ notifyError }) => notifyError('WebSocket 连接超时，消息未发送', '发送失败')).catch(() => {});
-      return;
-    }
-
-    // 🔴 Phase 2: drain 续发带 queued:true（红线 3 — Hermes server.py:7258 竞态保护：
-    // client drain 的消息强制 queue，绝不劫持/打断 live turn）
+    // 🔴 阶段2 统一（frontend-chat-unification-2026-09-09）：ensureConnected +
+    // prompt.submit + route_busy_submit outcome（steered/redirected/queued
+    // toast）+ 新会话回传——公共骨架收敛到 lib/prompt-submit.ts。本层保留：
+    // per-slot 锁/状态管理、sessionId 前缀守卫、失败 toast。
     try {
-      const result = await ws.sendRpc('prompt.submit', {
-        text, profile, session_id: sessionId ?? '',
-        // 🔴 对齐单视图：传递 model/provider（ModelPill 选择的模型生效）
-        ...(modelOpts?.model ? { model: modelOpts.model, provider: modelOpts.provider || '' } : {}),
-      }) as { session_id?: string; status?: string };
-      // 后端可能新建 session → 记录 sessionId + 🔴 P1-F 即时持久化（防崩溃丢失）
-      if (result?.session_id && result.session_id !== sessionId) {
-        patch(profile, (st) => ({ ...st, sessionId: result.session_id! }));
-        noteSession(result.session_id);
-      }
-      // 🔴 Phase 2: busy 直发消费后端路由结果（route_busy_submit outcome）：
-      // - status 存在 = 命中 busy 分支。steered → 注入 live turn，无新 turn 事件，UI 提示。
-      // - queued 类（interrupt 打断后入队 / 纯 queue / steer fall through）→ live turn 的
-      //   message.complete(interrupted) 是锁释放 + drain 的唯一权威入口，后端
-      //   spawn_ws_turn_with_drain 接续排队消息起新 turn，run.started 事件驱动 UI。
-      //   两种情况都【不动发送锁】：锁归属仍是 live turn，早释放会打开双提交窗口。
-      // - 无 status = idle accepted → 正常持锁（上方已加锁），等 message.complete 释放。
-      if (result?.status === 'steered') {
-        import('../utils/notifications').then(({ notifyInfo }) => notifyInfo('已注入当前轮（steer）', '消息已送达')).catch(() => {});
-      }
-      // 🔴 2026-08-16 审计 P2：与单视图 useSSE 同款反馈——queued（进
-      // Inbox.followup）/redirected（软重定向）toast，队列面板 3s 轮询前的
-      // 即时反馈通道（否则 busy 直发排队无任何提示）。
-      if (result?.status === 'redirected') {
-        import('../utils/notifications').then(({ notifyInfo }) => notifyInfo('已重定向当前轮（redirect）', '修正已注入当前回复')).catch(() => {});
-      }
-      if (result?.status === 'queued') {
-        import('../utils/notifications').then(({ notifyInfo }) => notifyInfo('任务已加入队列', '当前任务完成后自动执行')).catch(() => {});
-      }
+      await submitPromptViaWs(
+        getWsClient(),
+        {
+          text,
+          sessionId,
+          profile,
+          // 🔴 对齐单视图：传递 model/provider（ModelPill 选择的模型生效）
+          ...(modelOpts?.model ? { model: modelOpts.model, provider: modelOpts.provider } : {}),
+        },
+        {
+          // 后端可能新建 session → 记录 sessionId + 🔴 P1-F 即时持久化（防崩溃丢失）
+          onSessionCreated: (newSid) => {
+            patch(profile, (st) => ({ ...st, sessionId: newSid }));
+            noteSession(newSid);
+          },
+        },
+      );
     } catch (e) {
       // 🔴 Phase 2: wasBusy 直发失败不动锁 —— 锁归属是 live turn（其 complete 负责释放）
       if (!wasBusy) {
