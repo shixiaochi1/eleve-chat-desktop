@@ -26,6 +26,7 @@ import {
 } from '../plugins/bots/state';
 import RemoteBotChatView from './RemoteBotChatView';
 import MessageRow from './MessageRow';
+import ClarifyCard from './ClarifyCard';
 import { ingestBotRoster, markBotRead, unreadKey, useBotUnread } from '../hooks/useBotUnread';
 
 interface BotsViewProps {
@@ -330,15 +331,21 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     }
   }, [events, respondedInteractions, pendingInteractions]);
 
-  const answerInteraction = useCallback(async (requestId: string, answer: string) => {
+  // 🔴 阶段2 统一：卡片退役清卡（responded 集合 + pending 槽移除）——
+  // ClarifyCard onDone/onExpired 与 approval fallback 共用
+  const settleInteraction = useCallback((requestId: string) => {
     setRespondedInteractions((s) => new Set(s).add(requestId));
     setPendingInteractions((cur) => {
       const next = new Map(cur);
       next.delete(requestId);
       return next;
     });
-    await respondBotRoomInteraction(requestId, answer);
   }, []);
+
+  const answerInteraction = useCallback(async (requestId: string, answer: string) => {
+    settleInteraction(requestId);
+    await respondBotRoomInteraction(requestId, answer);
+  }, [settleInteraction]);
 
   // 增量合并：去重（seq 单调）
   const mergeEvents = useCallback((incoming: BotRoomEvent[]) => {
@@ -844,45 +851,39 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
         {[...pendingInteractions.entries()].map(([requestId, p]) => {
           const member = room.members.find(m => m.member_id === p.memberId);
           const label = member ? `@${member.handle}` : p.memberId.slice(0, 8);
+          // 🔴 阶段2 统一（frontend-chat-unification-2026-09-09）：clarify 分支
+          // 换装 ClarifyCard（提交通道注入 respondBotRoomInteraction——round-78d
+          // 房间域转交通道），与单视图/宫格同一交互卡渲染原语。单选项即提交、
+          // 手动输入兜底、过期折叠态全部免费获得。multiSelect 不传（原手写卡
+          // 亦无多选语义——房间后端 interact_respond 按 answer 原文转交）。
+          if (p.kind === 'clarify') {
+            return (
+              <div key={`interact-${requestId}`} className="max-w-[85%] self-center w-full">
+                <ClarifyCard
+                  clarifyId={requestId}
+                  question={p.question}
+                  choices={p.choices}
+                  title={`${label} 需要你的澄清`}
+                  submit={async (resp) => {
+                    const ok = await respondBotRoomInteraction(requestId, resp);
+                    return ok ? { status: 'resolved' } : { status: 'error' };
+                  }}
+                  onDone={() => settleInteraction(requestId)}
+                  onExpired={() => settleInteraction(requestId)}
+                />
+              </div>
+            );
+          }
+          // 🔴 approval 分支保留手写卡：round-78d 双通道裁定——房间审批走
+          // approval.respond + resolve_all（多成员并发轮全部裁决），与主网关
+          // ApprovalCard 的 all:false 语义不同，非重复待合并。
           return (
             <div key={`interact-${requestId}`} className="max-w-[85%] self-center w-full border border-[var(--ui-stroke-tertiary)] rounded-xl bg-popover text-popover-foreground px-3 py-2.5 space-y-2 shadow-sm">
               <div className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                {label} {p.kind === 'approval' ? '请求审批' : '需要你的澄清'}
+                {label} 请求审批
               </div>
-              {p.kind === 'clarify' ? (
-                <>
-                  <div className="text-sm text-foreground whitespace-pre-wrap break-words select-text">{p.question}</div>
-                  {p.choices.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {p.choices.map((c) => (
-                        <button
-                          key={c}
-                          className="px-2.5 py-1 rounded-md bg-accent text-accent-foreground text-xs hover:bg-accent/70 transition-colors"
-                          onClick={() => void answerInteraction(requestId, c)}
-                        >
-                          {c}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      className="flex-1 h-7 rounded-md border border-[var(--ui-stroke-tertiary)] bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
-                      placeholder="自由回答…（Enter 发送）"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                          e.preventDefault();
-                          const v = e.currentTarget.value.trim();
-                          e.currentTarget.value = '';
-                          void answerInteraction(requestId, v);
-                        }
-                      }}
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="text-sm text-foreground font-mono break-all select-text">{p.command}</div>
+              <>
+                <div className="text-sm text-foreground font-mono break-all select-text">{p.command}</div>
                   {p.description && (
                     <div className="text-xs text-muted-foreground break-words">{p.description}</div>
                   )}
@@ -924,7 +925,6 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
                     ))}
                   </div>
                 </>
-              )}
             </div>
           );
         })}

@@ -20,10 +20,20 @@ interface ClarifyCardProps {
   multiSelect?: boolean;
   /** 🔴 卡片归属 profile（宫格模式显式传入）；undefined 时自动盖当前活跃 profile（单视图正确） */
   profile?: string;
+  /** 🔴 阶段2 统一（frontend-chat-unification-2026-09-09）：提交通道注入——
+   *  默认走 submitClarifyResponse（主网关 clarify 通道）；群聊房间交互
+   *  注入 respondBotRoomInteraction（bot_rooms_interact_respond 房间域，
+   *  round-78d 双通道裁定：clarify 经房间转交 / approval 走 approval.respond）。
+   *  返回 {status:'resolved'|'ok'} = 成功；其它 = 后端已无 pending。 */
+  submit?: (response: string) => Promise<{ status: string }>;
+  /** 卡片标题（单视图默认"Agent 想确认一下"；房间注入成员归属文案） */
+  title?: string;
   onDone?: (response: string) => void;
+  /** 🔴 过期折叠时回调（房间侧：把 rid 从 pending 槽移除，防外层重复渲染折叠卡） */
+  onExpired?: () => void;
 }
 
-export default function ClarifyCard({ clarifyId, question, choices, multiSelect, profile, onDone }: ClarifyCardProps) {
+export default function ClarifyCard({ clarifyId, question, choices, multiSelect, profile, submit, title, onDone, onExpired }: ClarifyCardProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [multiSelected, setMultiSelected] = useState<string[]>([]);
   // 手动输入兜底（选项都不合适时的自定义回答）
@@ -43,20 +53,26 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
     if (submitting || submitted || expired) return;
     setSubmitting(true);
     try {
-      const result = await submitClarifyResponse(clarifyId ?? "", response ?? "", profile);
+      // 🔴 阶段2 统一：提交通道可注入（默认主网关 clarify 通道；房间交互注入
+      // respondBotRoomInteraction——见 props 注释）
+      const result = submit
+        ? await submit(response ?? "")
+        : await submitClarifyResponse(clarifyId ?? "", response ?? "", profile);
       if (result.status === 'resolved' || result.status === 'ok') {
         setSubmitted(true);
         onDone?.(response);
       } else {
         setExpired(true);
+        onExpired?.();
       }
     } catch (err: unknown) {
       // 🔴 后端已无 pending（超时/中断清理）→ 折叠过期态，不再让用户反复点击
       setExpired(true);
+      onExpired?.();
     } finally {
       setSubmitting(false);
     }
-  }, [clarifyId, submitting, submitted, expired, profile, onDone]);
+  }, [clarifyId, submitting, submitted, expired, profile, submit, onDone, onExpired]);
 
   // 单选：点选项即提交（Hermes 语义，与批量卡"选中即前进"即时性一致）
   const handleChoice = useCallback((choice: string) => {
@@ -128,9 +144,9 @@ export default function ClarifyCard({ clarifyId, question, choices, multiSelect,
 
   return (
     <div className="mx-3 rounded-lg bg-popover text-popover-foreground shadow-lg px-3 py-2.5 space-y-2.5">
-      {/* 头部：标题（与批量卡同款样式） */}
+      {/* 头部：标题（与批量卡同款样式；房间场景注入成员归属文案） */}
       <div className="flex items-center justify-between gap-2">
-        <div className="text-[13px] font-medium text-foreground truncate">Agent 想确认一下</div>
+        <div className="text-[13px] font-medium text-foreground truncate">{title ?? 'Agent 想确认一下'}</div>
       </div>
 
       {/* 问题文本 */}
