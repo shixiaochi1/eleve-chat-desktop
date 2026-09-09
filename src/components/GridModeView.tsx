@@ -233,16 +233,8 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
     onFocusedSessionChange?.(focusedSessionId);
   }, [focusedSessionId, onFocusedSessionChange]);
 
-  // 🔴 2026-08-29 对齐 Hermes $sessionTiles：全部 Agent 卡片当前会话 = 宫格
-  // "可见 tile 集合"。上抛 App 供 preview onScreen 门禁（focus 判定之外，
-  // 任一可见 tile 会话的 open_preview/close_preview 也要放行）
-  const visibleSessionIds = useMemo(
-    () => Object.values(states).map((s) => s.sessionId).filter((id): id is string => Boolean(id)),
-    [states],
-  );
-  useEffect(() => {
-    onVisibleSessionsChange?.(visibleSessionIds);
-  }, [visibleSessionIds, onVisibleSessionsChange]);
+  // 🔴 2026-08-29 对齐 Hermes $sessionTiles：visibleSessionIds 上抛 App——
+  // 声明与 effect 一并移到 orderedProfiles 之后（下方），流式风暴修复同处。
 
   // 🔴 新建会话：per-agent 状态槽归零 + 全局副作用（复用单视图 handleNewSession 同一套工具链）
   // 🔴 2026-08-11 对齐 Hermes openNewSessionTile：卡片新建 = 立即创建后端会话
@@ -569,6 +561,27 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   const orderedProfiles = order
     .map((name) => profiles.find((p) => p.name === name))
     .filter((p): p is ProfileInfo => !!p);
+
+  // 🔴 2026-08-29 对齐 Hermes $sessionTiles：全部 Agent 卡片当前会话 = 宫格
+  // "可见 tile 集合"。上抛 App 供 preview onScreen 门禁（focus 判定之外，
+  // 任一可见 tile 会话的 open_preview/close_preview 也要放行）
+  // 🔴 流式渲染风暴修复（frontend-chat-unification-2026-09-09 复核发现，既有
+  // 缺陷非回归）：原 useMemo 依赖 [states] 聚合快照——状态迁 scoped atom 后
+  // 流式 flush（事件驱动单飞，高频）每次都换聚合引用 → visibleSessionIds
+  // 每帧新数组 → 上抛 effect 每帧触发 App setState（原 useState 实现同病）。
+  // 集合语义只取决于各 slot 的 sessionId——以 sessionId 序列键为依赖：流式
+  // delta（streamParts/messages 变化）不改 key → 数组引用稳定 → effect 静默。
+  const sessionIdKey = orderedProfiles
+    .map((p) => states[p.name]?.sessionId ?? '')
+    .join('|');
+  const visibleSessionIds = useMemo(
+    () => orderedProfiles.map((p) => states[p.name]?.sessionId).filter((id): id is string => Boolean(id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sessionIdKey],
+  );
+  useEffect(() => {
+    onVisibleSessionsChange?.(visibleSessionIds);
+  }, [visibleSessionIds, onVisibleSessionsChange]);
 
   return (
     <div className="flex flex-col h-full min-h-0">

@@ -437,8 +437,16 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
       // 重复拉取由 mergeEvents 按 seq 去重（幂等）。
       mergeEvents([ev]);
     });
-    const timer = setInterval(refresh, 15000); // 二道保险（事件丢失兜底）
-    return () => { unsubscribe(); clearInterval(timer); };
+    // 🔴 轮询治理（frontend-chat-unification-2026-09-09）：15s 固定轮询退役
+    // ——事件丢失的唯一现实窗口是 **WS 断线期间**（连接中投递由后端 ws_clients
+    // 保证），治理对齐 session-status.ts/useBotUnread 先例：重连恢复对账一次
+    // （断线窗口内的事件经 refresh 增量游标补齐——mergeEvents 幂等去重）。
+    // 连接稳定时零轮询（15s interval 对长会话是纯 IO 放大）；首次 connect 的
+    // onStateChange 与 effect 开头 refresh 重叠无害（幂等）。
+    const unsubState = ws.onStateChange((s) => {
+      if (s === 'connected') void refresh();
+    });
+    return () => { unsubscribe(); unsubState(); };
   }, [room.room_id, refresh, mergeEvents]);
 
   // 自动滚底
