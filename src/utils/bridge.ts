@@ -184,6 +184,12 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   bot_rooms_replica_demote:  'bot.rooms.replica.demote',
   // 🔴 2026-09-08 round-78d：成员轮交互房间卡响应（clarify oneshot 转交）
   bot_rooms_interact_respond: 'bot.rooms.interact.respond',
+  bot_rooms_approve: 'bot.rooms.approve',
+  bot_rooms_capabilities: 'bot.rooms.capabilities',
+  bot_rooms_grant_invite: 'bot.rooms.grant.invite',
+  bot_rooms_grant_capabilities: 'bot.rooms.grant.capabilities',
+  bot_rooms_grant_revoke: 'bot.rooms.grant.revoke',
+  bot_rooms_grant_register: 'bot.rooms.grant.register',
   // 🔴 2026-08-02 断线修复：Agent 编辑卡（EditAgentDialog）读/写 SOUL/MEMORY/USER + 主题色/昵称
   // 缺映射 → bridge 抛 "No WS/HTTP mapping" → 用户档案空白、保存失败
   get_soul:               'profiles.get_soul',

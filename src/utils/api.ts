@@ -881,10 +881,34 @@ export async function promoteBotRoomReplica(roomId: string): Promise<number> {
 }
 
 /** 🔴 round-78d：响应成员轮交互房间卡（clarify——oneshot 转交解锁成员
- * agent 的 clarify 工具；approval 卡走 approval.respond 不经此） */
+ * agent 的 clarify 工具；approval 卡是裁决不是回答，走 approveBotRoomTask） */
 export async function respondBotRoomInteraction(requestId: string, answer: string): Promise<boolean> {
   const data = await call('bot_rooms_interact_respond', { request_id: requestId, answer });
   return data?.ok === true;
+}
+
+/** 🔴 round-94：`groups.approve` —— 成员轮执行策略审批卡的一次性裁决。
+ * 对齐 Hermes：task_id + execution_generation + request_id **三者全等**才受理
+ * （否则后端回 "room approval is no longer pending"）——同一条 command 的
+ * 第二次审批是合法重试，身份只能靠 task_id + 代次，不能靠 command。
+ * @returns 被裁决的审批条数（0 = 卡已匹配但后端已无对应待审批） */
+export async function approveBotRoomTask(params: {
+  roomId: string;
+  memberId: string;
+  taskId: string;
+  executionGeneration: number;
+  requestId: string;
+  choice: 'once' | 'deny' | 'session' | 'always';
+}): Promise<number> {
+  const data = await call('bot_rooms_approve', {
+    room_id: params.roomId,
+    member_id: params.memberId,
+    task_id: params.taskId,
+    execution_generation: params.executionGeneration,
+    request_id: params.requestId,
+    choice: params.choice,
+  });
+  return typeof data?.resolved === 'number' ? data.resolved : 0;
 }
 
 /** 创建群聊房间（2-6 名 bot；🔴 round-70 注释修正：每次 FRESH room——服务端

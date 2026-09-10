@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent 
 import { cn } from '@/lib/utils';
 import { ArrowLeft, Bot, Loader, Paperclip, Send, Settings2, Square, Trash2, UserPlus, UserMinus, X } from 'lucide-react';
 import {
-  changeBotRoomMembers, disbandBotRoom, fetchBotRoomEvents,
+  approveBotRoomTask, changeBotRoomMembers, disbandBotRoom, fetchBotRoomEvents,
   fetchBotRoomPendingTask, renameBotRoom, respondBotRoomInteraction, retryBotRoomTask,
   sendBotRoomMessage, stopBotRoom,
   type BotRosterEntry, type BotRoom, type BotRoomEvent, type PendingRoomTask, type RoomAttachmentDraft,
@@ -271,6 +271,9 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     memberId: string; kind: string; question: string; choices: string[]; multiSelect: boolean;
     command: string; description: string; allowSession: boolean; allowPermanent: boolean;
     sessionId?: string;
+    // 🔴 round-94：裁决坐标（随 interaction.request 下发，approve 原样回传，
+    // 后端 task_id + execution_generation + request_id 三者全等才受理）
+    roomId: string; taskId: string; executionGeneration: number;
   }>>(new Map());
   // 🔴 round-78e：已响应集合（防双击 + 防 effect 重扫把乐观清掉的卡加回——
   // resolved 事件到达后彻底退役；expired 同理由轮收口事件驱动）
@@ -283,6 +286,9 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
       memberId: string; kind: string; question: string; choices: string[]; multiSelect: boolean;
       command: string; description: string; allowSession: boolean; allowPermanent: boolean;
       sessionId?: string;
+      // 🔴 round-94：裁决坐标（随 interaction.request 下发，approve 原样回传，
+      // 后端 task_id + execution_generation + request_id 三者全等才受理）
+      roomId: string; taskId: string; executionGeneration: number;
     }]> = [];
     const resolutions: string[] = [];
     for (const ev of events) {
@@ -300,6 +306,9 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
           allowSession: ev.payload.allow_session !== false,
           allowPermanent: ev.payload.allow_permanent === true,
           sessionId: ev.payload.session_id ? String(ev.payload.session_id) : undefined,
+          roomId: String(ev.payload.room_id || room.room_id),
+          taskId: String(ev.payload.task_id || ''),
+          executionGeneration: Number(ev.payload.execution_generation ?? 0),
         }]);
       } else if (ev.kind === 'interaction.resolved') {
         const rid = String(ev.payload.request_id || '');
@@ -946,21 +955,30 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
                             : 'bg-accent text-accent-foreground hover:bg-accent/70',
                         )}
                         onClick={() => {
-                          const ws = getWsClient();
-                          const targetSession = p.sessionId || room.room_id;
-                          // 🔴 round-92：清卡从"无条件乐观"改为"确认成功才清"。
-                          // 此前 RPC 一发出就删卡，失败（或 WS 不通转兜底也
-                          // 失败）后卡片已不在原地，用户无从重试——审批静默失败。
-                          ws.sendRpc('approval.respond', {
-                            session_id: targetSession,
-                            choice: c,
-                            resolve_all: true,
-                          }).then(() => {
-                            settleInteraction(requestId);
-                          }).catch(() => {
-                            // 主通道不通 → 回到房间域转交通道（成功才清卡）
-                            void answerInteraction(requestId, c);
-                          });
+                          // 🔴 round-94：审批改走 `bot.rooms.approve`（对齐
+                          // Hermes groups.approve）。此前走 approval.respond +
+                          // resolve_all:true 有两个断点：
+                          // ① 按 **session** 全量裁决——"Group:" 成员会话可经
+                          //    bot.chats.list 在 UI 单独打开，用户侧可能另有
+                          //    注册，一次点击连带 deny 掉他人待审批；
+                          // ② 只认 session_id，没有 task/代次身份——上一轮遗留
+                          //    的卡会被新一轮的点击误裁（放行的是别人那一次）。
+                          // 房间域裁决带 task_id + execution_generation +
+                          // request_id 三坐标，后端全等才受理。
+                          // 清卡仍坚持 round-92 的"确认成功才清"（失败保留卡片
+                          // 可重试，不让审批静默失败）。
+                          void approveBotRoomTask({
+                            roomId: p.roomId || room.room_id,
+                            memberId: p.memberId,
+                            taskId: p.taskId,
+                            executionGeneration: p.executionGeneration,
+                            requestId,
+                            choice: c as 'once' | 'deny' | 'session' | 'always',
+                          })
+                            .then(() => settleInteraction(requestId))
+                            .catch((e) => {
+                              setError(`审批失败：${e instanceof Error ? e.message : String(e)}`);
+                            });
                         }}
                       >
                         {bl}
