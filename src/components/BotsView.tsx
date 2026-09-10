@@ -10,14 +10,15 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from 'react';
 import { cn } from '@/lib/utils';
-import { ArrowLeft, Bot, ChevronDown, ChevronRight, Loader, PauseCircle, Paperclip, Send, Settings2, Square, Trash2, UserPlus, UserMinus, X } from 'lucide-react';
+import { ArrowLeft, Bot, ChevronDown, ChevronRight, Loader, PauseCircle, Paperclip, Send, Settings2, Square, Trash2, UserPlus, UserMinus, WifiOff, X } from 'lucide-react';
 import {
   approveBotRoomTask, changeBotRoomMembers, disbandBotRoom, fetchBotRoomEvents,
   fetchBotRoomPendingTask, renameBotRoom, respondBotRoomInteraction, retryBotRoomTask,
   sendBotRoomMessage, stopBotRoom,
-  type BotRosterEntry, type BotRoom, type BotRoomEvent, type PendingRoomTask, type RoomAttachmentDraft,
+  type BotRoom, type BotRoomEvent, type PendingRoomTask, type RoomAttachmentDraft,
 } from '../utils/api';
 import { formatRowAge } from '../utils/time';
+import { findMemberRoster, memberAvailability, memberPickLabel, pickableMembers } from '../lib/bot-members';
 import { getWsClient } from '../services/ws-client';
 import { formatMessageTime } from '../utils/time';
 import {
@@ -98,10 +99,6 @@ export default function BotsRoomMainView() {
   // fetchUnionRoster——为本地列表打穿全部远端连接 + 第二份本地副本）。
   // 拉取者唯一（useBotUnread 轮询 + 此处 stale 补拉），消费一律读 store。
   const unionRows = useUnionRoster();
-  const localBots = useMemo(
-    () => unionRows.filter((r) => !r.isRemote).map((r) => r.entry),
-    [unionRows],
-  );
   useEffect(() => {
     if (!isUnionFresh(5_000)) void refreshUnionRoster();
   }, []);
@@ -169,7 +166,7 @@ export default function BotsRoomMainView() {
     <BotsRoomView
       key={room.room_id}
       room={room}
-      bots={localBots}
+      roster={unionRows}
       onBack={handleClose}
     />
   );
@@ -242,7 +239,14 @@ export function BotRosterRow({ row, onOpen, onRowMenu }: {
 // 房间视图 — 事件流 + 发言 + 停止/解散
 // ══════════════════════════════════════════════════════════════════
 
-function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEntry[]; onBack: () => void }) {
+function BotsRoomView({ room, roster, onBack }: {
+  room: BotRoom;
+  /** union 花名册（**含远端**）——成员选择/可达性/归属显示的唯一真值。
+   *  🔴 round-95：此前只传本地 `BotRosterEntry[]`，远端 bot 既进不了成员
+   *  选择器，也无法在房间头判定可达性。 */
+  roster: UnionRosterRow[];
+  onBack: () => void;
+}) {
   const [events, setEvents] = useState<BotRoomEvent[]>([]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -601,6 +605,11 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     return room.members.filter(m => held.has(m.member_id));
   }, [room.holds, room.members]);
 
+  // 🔴 round-95：房间头成员可达性（与左栏房间行同一个派生函数）
+  const { known: availKnown, available: memberAvailable } =
+    memberAvailability(room.members, roster);
+  const memberDegraded = availKnown && memberAvailable < room.members.length;
+
   // 🔴 round-95 G5：本轮 Activity 折叠摘要（对齐 Hermes group-activity.ts +
   // group-chat-view.tsx 的折叠条）。Hermes 的 epoch 是**纯前端运行时**计数器
   // （"a newer send bumps the epoch"），后端不存。ELEVE 取等价语义：以最后一条
@@ -749,8 +758,22 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
         </button>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium text-foreground truncate">{room.name}</div>
-          <div className="text-[11px] text-muted-foreground truncate">
-            {room.members.map((m) => `@${m.handle}`).join(' ')}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <div className="text-[11px] text-muted-foreground truncate min-w-0">
+              {room.members.map((m) => `@${m.handle}`).join(' ')}
+            </div>
+            {/* 🔴 round-95：房间头可用性计数（对齐 Hermes
+                group-chat-view.tsx:677-689 "X of Y available"）。派生复用
+                房间行同一函数——两个面不能对"几个成员可用"给出两个答案。 */}
+            {memberDegraded && (
+              <span
+                className="shrink-0 inline-flex items-center gap-0.5 text-[10px] text-amber-500"
+                title={`${memberAvailable} / ${room.members.length} 个成员可用`}
+              >
+                <WifiOff size={9} strokeWidth={2.5} />
+                {memberAvailable}/{room.members.length}
+              </span>
+            )}
           </div>
         </div>
         {/* 🔴 round-76：停止是"运行态"的对应动作，无讨论在飞时不可点（此前空跑
@@ -770,7 +793,7 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
       {showEdit && (
         <RoomEditDialog
           room={room}
-          bots={bots}
+          roster={roster}
           editName={editName}
           setEditName={setEditName}
           error={editError}
@@ -888,9 +911,31 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
             // 成员前缀行（@handle · display · time）是群聊特有归属 UI，保留。
             const handle = String(ev.actor.handle || ev.actor.id || '');
             const display = memberByHandle[handle] || handle;
+            // 🔴 round-95：发言者归属（对齐 Hermes group-chat-view.tsx:980-1002
+            // botAppearance 头像 + :1008-1017 跨连接同名消歧）。此前前缀只有
+            // 文本，两个连接上的同名 bot 在 transcript 里完全无法区分。
+            const who = findMemberRoster(roster, handle, String(ev.actor.profile || ''));
             return (
               <div key={ev.seq} className="flex flex-col items-start">
-                <span className="text-[11px] text-muted-foreground mb-0.5 px-1 select-text">@{handle} · {display} · {formatMessageTime(ev.created_at)}</span>
+                <span className="flex items-center gap-1 mb-0.5 px-1 select-text min-w-0">
+                  <span
+                    className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[9px] font-semibold text-white"
+                    style={{ background: who?.entry.color || 'var(--accent)' }}
+                  >
+                    {(display || handle).slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground truncate">
+                    @{handle} · {display} · {formatMessageTime(ev.created_at)}
+                  </span>
+                  {who?.isRemote && (
+                    <span className={cn(
+                      'shrink-0 rounded px-1 py-px text-[9px]',
+                      who.reachable ? 'bg-accent/60 text-foreground' : 'bg-destructive/20 text-destructive',
+                    )}>
+                      {who.connectionLabel}
+                    </span>
+                  )}
+                </span>
                 <div className="w-full max-w-[85%] [&>div]:items-start">
                   <MessageRow
                     message={{
@@ -1402,10 +1447,10 @@ function MentionTextarea({
 // ══════════════════════════════════════════════════════════════════
 
 function RoomEditDialog({
-  room, bots, editName, setEditName, error, onSave, onClose,
+  room, roster, editName, setEditName, error, onSave, onClose,
 }: {
   room: BotRoom;
-  bots: BotRosterEntry[];
+  roster: UnionRosterRow[];
   editName: string;
   setEditName: (v: string) => void;
   error: string | null;
@@ -1419,8 +1464,9 @@ function RoomEditDialog({
   // 硬约束——此前编辑允许删到 1 人，存盘后房间无法驱动）
   const canSave = nextCount >= 2 && nextCount <= 6;
 
-  const addable = bots.filter(
-    (b) => !room.members.some((m) => m.profile === b.profile) && !pendingAdd.includes(b.profile),
+  // 🔴 round-95：与创建弹层共用同一份派生（含远端 + 不可达禁用 + 跨连接消歧）
+  const addable = pickableMembers(roster).filter(
+    (r) => !room.members.some((m) => m.profile === r.profile) && !pendingAdd.includes(r.profile),
   );
 
   return (
@@ -1462,13 +1508,23 @@ function RoomEditDialog({
             );
           })}
           {/* 可添加成员 */}
-          {addable.map((b) => (
-            <div key={b.profile} className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-accent/30">
-              <span className="text-sm text-muted-foreground">@{b.handle} · {b.display_name}</span>
+          {addable.map((row) => (
+            <div
+              key={row.key}
+              className={cn(
+                'flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-accent/30',
+                row.disabled && 'opacity-40',
+              )}
+              title={row.disabledReason || (row.isRemote ? `远端 · ${row.connectionLabel}` : undefined)}
+            >
+              <span className="text-sm text-muted-foreground truncate">
+                {memberPickLabel(row)} · {row.displayName}
+              </span>
               <button
-                className="p-1 rounded hover:bg-accent/50"
-                title="添加成员"
-                onClick={() => setPendingAdd((cur) => [...cur, b.profile])}
+                className="p-1 rounded hover:bg-accent/50 disabled:cursor-not-allowed"
+                title={row.disabled ? row.disabledReason : '添加成员'}
+                disabled={row.disabled}
+                onClick={() => setPendingAdd((cur) => [...cur, row.profile])}
               >
                 <UserPlus size={13} className="text-foreground" />
               </button>

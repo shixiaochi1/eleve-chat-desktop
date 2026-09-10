@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import { cn } from '@/lib/utils';
 import { HelpCircle, Loader, Plus, Pencil, UsersRound, WifiOff, X } from 'lucide-react';
 import { formatRowAge } from '../utils/time';
+import { memberAvailability, memberPickLabel, pickableMembers } from '../lib/bot-members';
 import {
   createBotRoom, ensureBotChat, fetchBotRoomReplicas, promoteBotRoomReplica,
 } from '../utils/api';
@@ -54,18 +55,8 @@ interface ReplicaMetaRow {
  *
  * 纯函数——房间行、未来的房间头部、@提及面板都读同一份答案，不做第二套推导。 */
 function roomRowReads(room: BotRoom, roster: UnionRosterRow[]) {
-  // G4 可达性。真值 = union roster 的 `reachable`（远端连接拉取失败 → ghost 行，
-  // 对齐 Hermes RosterRow.sourceReachable / sourceMissing）。
-  // 归并 Hermes `botSourceStatus` 的两条不可用判定：
-  //   - sourceMissing（名册里查无此人）→ 匹配行数为 0
-  //   - sourceReachable === false      → 匹配行全部不可达
-  // 任一行可达即可用（同一 profile 可能同时在本机与远端注册）。
-  // 🔴 roster 未加载（空）时**不判**：否则首帧把全体成员打成不可用，一片琥珀。
-  const known = roster.length > 0;
-  let available = 0;
-  for (const m of room.members) {
-    if (roster.some(r => r.entry.profile === m.profile && r.reachable)) available += 1;
-  }
+  // G4 可达性——派生走共享实现（房间头与房间行必须是同一个答案）
+  const { known, available } = memberAvailability(room.members, roster);
 
   // G6 预览：Hermes = `You: …` / `@handle: …`，无消息则回落到成员数。
   // 带作者是刻意的——群聊里没有作者的预览是歧义的（"这段是谁说的？"）。
@@ -183,6 +174,11 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   const [rowMenu, setRowMenu] = useState<{ profile: string; x: number; y: number } | null>(null);
   const localBots = useMemo(() => bots.filter(b => !b.isRemote).map(b => b.entry), [bots]);
   const remoteCount = useMemo(() => bots.filter(b => b.isRemote).length, [bots]);
+  // 🔴 round-95：成员选择改走共享派生（含远端 + 不可达禁用 + 跨连接消歧）。
+  // 此前创建弹层只列 localBots → 远端 bot 进不了群聊；本地不足 2 个时连
+  // 创建入口都被"至少需要 2 个"提示挡死（即使远端连着一堆 bot）。
+  const pickRows = useMemo(() => pickableMembers(bots), [bots]);
+  const pickableCount = useMemo(() => pickRows.filter(r => !r.disabled).length, [pickRows]);
   const [replicas, setReplicas] = useState<ReplicaMetaRow[]>([]);
   const takeableReplicas = useMemo(() => replicas.filter(r => r.state === 'replica'), [replicas]);
 
@@ -251,8 +247,8 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   const submitCreate = async () => {
     if (newMembers.length < 2 || newMembers.length > 6) return;
     const fallback = newMembers
-      .map((p) => localBots.find((b) => b.profile === p))
-      .map((b) => b?.display_name || b?.handle || b?.profile || '')
+      .map((p) => pickRows.find((r) => r.profile === p))
+      .map((r) => r?.displayName || '')
       .filter(Boolean)
       .join('、');
     const base = (newName.trim() || fallback).trim().slice(0, 60);
@@ -491,8 +487,8 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
                 // 对齐 Hermes placeholder 语义）
                 newMembers.length
                   ? newMembers
-                      .map((p) => localBots.find((b) => b.profile === p))
-                      .map((b) => b?.display_name || b?.handle || '')
+                      .map((p) => pickRows.find((r) => r.profile === p))
+                      .map((r) => r?.displayName || '')
                       .filter(Boolean)
                       .join('、')
                       .slice(0, 40) || '群聊名称（可空）'
@@ -501,24 +497,34 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
               className="w-full px-2.5 py-1.5 rounded-md bg-accent/30 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
             />
             <div className="max-h-44 overflow-y-auto space-y-1">
-              {localBots.length < 2 && (
+              {pickableCount < 2 && (
                 <div className="text-xs text-muted-foreground px-2 py-1.5">
-                  当前只有 {localBots.length} 个本地 Agent——群聊至少需要 2 个。请先到「Agent」页面新建更多 Agent。
+                  当前可选 Agent 只有 {pickableCount} 个（本机 {localBots.length}
+                  {remoteCount > 0 ? ` · 远端 ${remoteCount}` : ''}）——群聊至少需要 2 个。
+                  请先新建 Agent，或连接远端机器。
                 </div>
               )}
-              {localBots.map((bot) => {
-                const checked = newMembers.includes(bot.profile);
+              {pickRows.map((row) => {
+                const checked = newMembers.includes(row.profile);
                 return (
-                  <label key={bot.profile} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent/30 cursor-pointer">
+                  <label
+                    key={row.key}
+                    className={cn(
+                      'flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent/30',
+                      row.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
+                    )}
+                    title={row.disabledReason || (row.isRemote ? `远端 · ${row.connectionLabel}` : undefined)}
+                  >
                     <input
                       type="checkbox"
                       checked={checked}
+                      disabled={row.disabled}
                       onChange={() => setNewMembers((cur) =>
-                        checked ? cur.filter((p) => p !== bot.profile) : [...cur, bot.profile])}
+                        checked ? cur.filter((p) => p !== row.profile) : [...cur, row.profile])}
                       className="accent-[var(--accent)]"
                     />
-                    <span className="text-sm text-foreground">{bot.display_name || bot.handle}</span>
-                    <span className="text-xs text-muted-foreground">@{bot.handle}</span>
+                    <span className="text-sm text-foreground truncate">{row.displayName}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">{memberPickLabel(row)}</span>
                   </label>
                 );
               })}
