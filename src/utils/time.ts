@@ -43,3 +43,30 @@ export function formatTimeSeparator(ts: number): string {
 export function formatShortDateTime(d: Date): string {
   return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
+
+/**
+ * 侧栏行的紧凑年龄（"刚刚" / "3分钟前" / "5小时前" / "2天前" / "9月8日"）。
+ * 入参 Unix **秒**（与后端 created_at / last_at 同源）。
+ *
+ * 🔴 round-95：由 SessionsPanel 的局部 `fmtTime` 上提为共享实现——Bots 左栏的
+ * 群聊行与同一左栏的会话行必须对"多久之前"说同一种话（对齐 Hermes
+ * bot-row.tsx `rowAge` 的注释：刻意复用会话行的 coarseElapsed + 后缀，免得
+ * 一条侧栏里两套拼法）。SessionsPanel 侧改为 import 别名，行为零变化。
+ */
+export function formatRowAge(ts: number | null | undefined): string {
+  if (!ts) return '';
+  const now = Date.now();
+  const then = new Date(toSeconds(ts) * 1000);
+  const diffMin = Math.floor((now - then.getTime()) / 60000);
+  if (diffMin < 1) return '刚刚';
+  if (diffMin < 60) return `${diffMin}分钟前`;
+  const diffHrs = Math.floor(diffMin / 60);
+  if (diffHrs < 24) return `${diffHrs}小时前`;
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays < 7) return `${diffDays}天前`;
+  const sameYear = then.getFullYear() === new Date().getFullYear();
+  const mm = then.getMonth() + 1;
+  const dd = then.getDate();
+  if (sameYear) return `${mm}月${dd}日`;
+  return `${then.getFullYear()}年${mm}月${dd}日`;
+}

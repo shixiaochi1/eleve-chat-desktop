@@ -15,7 +15,8 @@
  */
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
-import { HelpCircle, Loader, Plus, Pencil, UsersRound, X } from 'lucide-react';
+import { HelpCircle, Loader, Plus, Pencil, UsersRound, WifiOff, X } from 'lucide-react';
+import { formatRowAge } from '../utils/time';
 import {
   createBotRoom, ensureBotChat, fetchBotRoomReplicas, promoteBotRoomReplica,
 } from '../utils/api';
@@ -49,11 +50,46 @@ interface ReplicaMetaRow {
   state: string;
 }
 
+/** 🔴 round-95 G4+G6：房间行的两个派生读数（对齐 Hermes bot-row.tsx GroupRow）。
+ *
+ * 纯函数——房间行、未来的房间头部、@提及面板都读同一份答案，不做第二套推导。 */
+function roomRowReads(room: BotRoom, roster: UnionRosterRow[]) {
+  // G4 可达性。真值 = union roster 的 `reachable`（远端连接拉取失败 → ghost 行，
+  // 对齐 Hermes RosterRow.sourceReachable / sourceMissing）。
+  // 归并 Hermes `botSourceStatus` 的两条不可用判定：
+  //   - sourceMissing（名册里查无此人）→ 匹配行数为 0
+  //   - sourceReachable === false      → 匹配行全部不可达
+  // 任一行可达即可用（同一 profile 可能同时在本机与远端注册）。
+  // 🔴 roster 未加载（空）时**不判**：否则首帧把全体成员打成不可用，一片琥珀。
+  const known = roster.length > 0;
+  let available = 0;
+  for (const m of room.members) {
+    if (roster.some(r => r.entry.profile === m.profile && r.reachable)) available += 1;
+  }
+
+  // G6 预览：Hermes = `You: …` / `@handle: …`，无消息则回落到成员数。
+  // 带作者是刻意的——群聊里没有作者的预览是歧义的（"这段是谁说的？"）。
+  const last = room.last_message ?? null;
+  const who = last ? (last.actor_kind === 'user' ? '你' : `@${last.actor_handle || '成员'}`) : '';
+  const body = last ? last.text.replace(/\s+/g, ' ').trim() : '';
+  const preview = last ? `${who}：${body || '…'}` : `${room.members.length} 个成员`;
+
+  return { known, available, preview, lastAt: last ? last.created_at : 0 };
+}
+
 /** 🔴 2026-09-05 round-52：群聊小卡片——与 Agent 卡片（ProfilePanel）/项目卡片
  *  （ProjectTreeItems）同构：rounded-lg 卡片底 + 主题色 30% 描边 + 选中发光竖条
  *  /光环投影/扫光（card-selected-sweep）。结构 = 名称行（色块图标 + 房间名 +
  *  成员数徽标）+ 成员 @handle 副行。 */
-function RoomCard({ room, active, needsYou, onOpen }: { room: BotRoom; active: boolean; needsYou: boolean; onOpen: () => void }) {
+function RoomCard({ room, active, needsYou, roster, onOpen }: {
+  room: BotRoom; active: boolean; needsYou: boolean; roster: UnionRosterRow[]; onOpen: () => void;
+}) {
+  const { known, available, preview, lastAt } = roomRowReads(room, roster);
+  // 🔴 G4：可达性徽标（对齐 Hermes bot-row.tsx:522-531 的 debug-disconnect
+  // 角标 + "N of M available"）——成员失联不提示，用户会把"没人回话"误读成
+  // "成员在思考"，一直干等。
+  const degraded = known && available < room.members.length;
+  const age = lastAt ? formatRowAge(lastAt) : '';
   return (
     <div
       role="button"
@@ -83,10 +119,18 @@ function RoomCard({ room, active, needsYou, onOpen }: { room: BotRoom; active: b
           }}
         />
       )}
-      {/* 名称行 */}
+      {/* 名称行（对齐 Hermes GroupRow：名称 → needs-you → 年龄） */}
       <div className="flex items-center gap-1.5">
-        <div className="flex items-center justify-center w-6 h-6 rounded-md shrink-0 overflow-hidden bg-muted/40">
-          <UsersRound size={13} strokeWidth={1.5} className="text-muted-foreground" />
+        <div className="relative flex items-center justify-center w-6 h-6 rounded-md shrink-0 overflow-hidden bg-muted/40">
+          <UsersRound size={13} strokeWidth={1.5} className={degraded ? 'text-amber-500' : 'text-muted-foreground'} />
+          {degraded && (
+            <span
+              className="absolute -bottom-0.5 -right-0.5 flex items-center justify-center w-3 h-3 rounded-full bg-card text-amber-500"
+              title={`${available} / ${room.members.length} 个成员可用`}
+            >
+              <WifiOff size={8} strokeWidth={2.5} />
+            </span>
+          )}
         </div>
         <span className="text-xs font-medium text-foreground truncate flex-1">{room.name}</span>
         {/* 🔴 round-94 G1：needs-you 徽标（对齐 Hermes bot-row.tsx:536-540
@@ -101,13 +145,19 @@ function RoomCard({ room, active, needsYou, onOpen }: { room: BotRoom; active: b
             <HelpCircle size={11} strokeWidth={2.5} />
           </span>
         )}
+        {/* G6：相对时间（与同栏会话行同一套拼写，见 utils/time.ts formatRowAge） */}
+        {age && (
+          <span className="text-[10px] text-muted-foreground/70 shrink-0 tabular-nums" title={new Date(lastAt * 1000).toLocaleString('zh-CN')}>
+            {age}
+          </span>
+        )}
+      </div>
+      {/* 副行：末条消息预览 + 成员数（对齐 Hermes GroupRow 的 preview 行） */}
+      <div className="flex items-center gap-1.5 pl-[26px]">
+        <span className="text-xs text-muted-foreground truncate flex-1" title={preview}>{preview}</span>
         <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] bg-muted text-muted-foreground shrink-0" title={`${room.members.length} 个成员`}>
           {room.members.length} 人
         </span>
-      </div>
-      {/* 成员副行 */}
-      <div className="text-xs text-muted-foreground truncate pl-[26px]">
-        {room.members.map((m) => `@${m.handle}`).join(' ')}
       </div>
     </div>
   );
@@ -389,6 +439,7 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
                   room={room}
                   active={selectedRoomId === room.room_id}
                   needsYou={roomsNeedingYou.has(room.room_id)}
+                  roster={bots}
                   onOpen={() => openRoom(room)}
                 />
               ))}

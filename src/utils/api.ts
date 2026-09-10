@@ -812,6 +812,22 @@ export interface BotRoom {
   next_seq: number;
   created_at: number;
   disbanded_at?: number | null;
+  /** 🔴 round-95 G3：当前 hold 中的 member_id（**常驻**真值，来自后端
+   *  bot_room_holds 表，跨 epoch / 跨刷新存活；对齐 Hermes GroupChat.holds）。
+   *  房间内的一次性 room.holds_changed 事件只是"变更流水"，不能当现状用。 */
+  holds?: string[];
+  /** 🔴 round-95 G6：最后一条消息预览（无消息 = null）。
+   *  带作者——Hermes 房间行预览是 `You: …` / `@handle: …`；群聊里没有作者的
+   *  预览是歧义的（"这段是谁说的？"）。作者与文本由后端同一次查询取出。 */
+  last_message?: {
+    text: string;
+    /** Unix 秒 */
+    created_at: number;
+    /** `user` | `member` */
+    actor_kind: string;
+    /** 成员发言为 handle；用户发言为空串 */
+    actor_handle: string;
+  } | null;
 }
 
 /** Bot 花名册（运行时已注册 profile） */

@@ -269,7 +269,14 @@ getWsClient().addEventListener((eventName, data) => {
     kind === 'room.activity' ||
     // 🔴 round-78d：authority 接管/退位——房间权威谱系变化需刷新列表
     kind === 'authority.claimed' ||
-    kind === 'authority.lost'
+    kind === 'authority.lost' ||
+    // 🔴 round-95 G6：房间行的**末条消息预览 + 时间**由后端 rooms.list 派生，
+    // 消息事件不触发重拉 → 左栏房间行会一直停在打开房间那一刻的预览。
+    // 150ms 防抖已把一轮讨论的多条消息并成一次重拉。
+    kind === 'message.user' ||
+    kind === 'message.member' ||
+    // 🔴 round-95 G3：hold 集变更 → 房间行摘要里的 holds 需同步
+    kind === 'room.holds_changed'
   ) {
     scheduleRoomsRefresh();
   }

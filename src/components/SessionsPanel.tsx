@@ -25,6 +25,8 @@ import { markSessionRead, useSessionStatus } from '../store/session-status';
 import { Input } from './ui/input';
 import * as storage from '../utils/storage';
 import { notifyError, notifySuccess, notifyInfo } from '../utils/notifications';
+// 🔴 round-95：行年龄改走共享实现（Bots 左栏群聊行复用同一套拼写）
+import { formatRowAge as fmtTime } from '../utils/time';
 import type { Session, SessionSearchResult } from '@/types';
 import {
   CheckSquare, Square, Trash2, Download, Pin, PinOff,
@@ -114,26 +116,6 @@ function loadSet(key: string): Set<string> {
 }
 function saveSet(key: string, set: Set<string>) {
   try { storage.save(key, JSON.stringify([...set])); } catch { /* ignore */ }
-}
-
-/** 格式化会话时间 — 对齐 Eleve timeAgo */
-function fmtTime(ts: number | null | undefined): string {
-  if (!ts) return '';
-  const now = Date.now();
-  const then = new Date(ts * 1000);
-  const diffMs = now - then.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return '刚刚';
-  if (diffMin < 60) return `${diffMin}分钟前`;
-  const diffHrs = Math.floor(diffMin / 60);
-  if (diffHrs < 24) return `${diffHrs}小时前`;
-  const diffDays = Math.floor(diffHrs / 24);
-  if (diffDays < 7) return `${diffDays}天前`;
-  const sameYear = then.getFullYear() === new Date().getFullYear();
-  const mm = then.getMonth() + 1;
-  const dd = then.getDate();
-  if (sameYear) return `${mm}月${dd}日`;
-  return `${then.getFullYear()}年${mm}月${dd}日`;
 }
 
 // ── 右键菜单组件 ──

@@ -10,13 +10,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from 'react';
 import { cn } from '@/lib/utils';
-import { ArrowLeft, Bot, Loader, Paperclip, Send, Settings2, Square, Trash2, UserPlus, UserMinus, X } from 'lucide-react';
+import { ArrowLeft, Bot, ChevronDown, ChevronRight, Loader, PauseCircle, Paperclip, Send, Settings2, Square, Trash2, UserPlus, UserMinus, X } from 'lucide-react';
 import {
   approveBotRoomTask, changeBotRoomMembers, disbandBotRoom, fetchBotRoomEvents,
   fetchBotRoomPendingTask, renameBotRoom, respondBotRoomInteraction, retryBotRoomTask,
   sendBotRoomMessage, stopBotRoom,
   type BotRosterEntry, type BotRoom, type BotRoomEvent, type PendingRoomTask, type RoomAttachmentDraft,
 } from '../utils/api';
+import { formatRowAge } from '../utils/time';
 import { getWsClient } from '../services/ws-client';
 import { formatMessageTime } from '../utils/time';
 import {
@@ -590,6 +591,49 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     return room.members.filter(m => ids.has(m.member_id)).map(m => m.handle);
   }, [inflightTurns, room.members]);
 
+  // 🔴 round-95 G3：常驻 hold 状态（对齐 Hermes group-hold-status.tsx）。
+  // 真值 = `room.holds`（后端 bot_room_holds 表的**持久** map），**不是**事件流
+  // 里的 room.holds_changed——后者只是变更流水，重载即与现状脱节；Hermes 原文：
+  // "Activity is scoped to one run and disappears across epochs/reloads; this
+  // status reads the room's persisted hold map instead."
+  const heldMembers = useMemo(() => {
+    const held = new Set(room.holds ?? []);
+    return room.members.filter(m => held.has(m.member_id));
+  }, [room.holds, room.members]);
+
+  // 🔴 round-95 G5：本轮 Activity 折叠摘要（对齐 Hermes group-activity.ts +
+  // group-chat-view.tsx 的折叠条）。Hermes 的 epoch 是**纯前端运行时**计数器
+  // （"a newer send bumps the epoch"），后端不存。ELEVE 取等价语义：以最后一条
+  // message.user 为轮边界——用户每次发送即开启新一轮，之前轮的事件不再描述当前
+  // 工作（Hermes 原文："superseded runs are dropped from view instead of
+  // describing work that already ended"）。故这里无需后端加字段。
+  const [activityOpen, setActivityOpen] = useState(false);
+  const runActivity = useMemo(() => {
+    let startSeq = 0;
+    for (const e of events) if (e.kind === KIND_USER) startSeq = Math.max(startSeq, e.seq);
+    const handleOf = (id: unknown) => {
+      const key = String(id ?? '');
+      const m = room.members.find(x => x.member_id === key);
+      return m ? `@${m.handle}` : '@成员';
+    };
+    const rows: { key: string; label: string; at: number; bad: boolean }[] = [];
+    for (const e of events) {
+      if (e.seq < startSeq) continue;
+      const who = handleOf(e.payload?.member_id);
+      const passed = e.payload?.passed === true;
+      let label = '';
+      let bad = false;
+      if (e.kind === 'turn.settled') label = passed ? `${who} 跳过本轮` : `${who} 已回复`;
+      else if (e.kind === 'turn.failed') { label = `${who} 出错`; bad = true; }
+      else if (e.kind === 'turn.cancelled') label = `${who} 的轮已取消`;
+      else if (e.kind === 'turn.deferred') { label = `${who} 缺席（暂不可用）`; bad = true; }
+      else if (e.kind === 'turn.held') label = `${who} 已暂停发言`;
+      else continue;
+      rows.push({ key: String(e.seq), label, at: e.created_at, bad });
+    }
+    return rows;
+  }, [events, room.members]);
+
   // 🔴 round-92：忙态兜底。上面的事件流配对是**快路径**，前提是"每个 started
   // 最终都有一条终态事件"。driver 在 started 与终态之间崩溃（进程被杀/跨进程
   // 接管）时这个前提被打破：前端永远等不到配对 → 发送键永久停在"停止"态，
@@ -734,6 +778,62 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
           onClose={() => { setShowEdit(false); setEditName(room.name); setEditError(null); }}
         />
       )}
+
+      {/* 🔴 round-95 G3：常驻 hold 状态条——**有 hold 才出现，且读持久真值**，
+          与事件流里那条一次性的 "已暂停…" 内并行互补（那条是变更当时的流水）。 */}
+      {heldMembers.length > 0 && (
+        <div
+          role="status"
+          className="flex items-start gap-1.5 border-b border-[var(--ui-stroke-tertiary)] bg-muted/30 px-3 py-1.5 text-[11px] shrink-0"
+        >
+          <PauseCircle size={12} className="mt-0.5 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
+            <div className="font-medium text-foreground">
+              {heldMembers.length === room.members.length
+                ? `已暂停全部 ${room.members.length} 个成员的发言`
+                : `已暂停 ${heldMembers.map(m => `@${m.handle}`).join('、')} 的发言`}
+            </div>
+            <div className="text-muted-foreground">@提及该成员、或发送 resume 可恢复其发言</div>
+          </div>
+        </div>
+      )}
+
+      {/* 🔴 round-95 G5：本轮 Activity 折叠条（对齐 Hermes：默认收起，收起态显示
+          最新一条；展开按倒序列出本轮全部轮次事件） */}
+      <div className="border-b border-[var(--ui-stroke-tertiary)] shrink-0">
+        <button
+          className="flex w-full min-w-0 items-center gap-1.5 px-3 py-1 text-left text-[11px] text-muted-foreground hover:text-foreground"
+          aria-expanded={activityOpen}
+          title={activityOpen ? '收起本轮进展' : '展开本轮进展'}
+          onClick={() => setActivityOpen(v => !v)}
+        >
+          {activityOpen ? <ChevronDown size={11} className="shrink-0" /> : <ChevronRight size={11} className="shrink-0" />}
+          <span className="shrink-0 font-medium">本轮进展</span>
+          {runActivity.length > 0 && (
+            <span className="min-w-0 flex-1 truncate">
+              {`${runActivity[runActivity.length - 1].label} · ${formatRowAge(runActivity[runActivity.length - 1].at)}`}
+            </span>
+          )}
+        </button>
+        {activityOpen && (
+          <div className="grid gap-0.5 px-3 pb-1.5">
+            {runActivity.length ? (
+              [...runActivity].reverse().map((row) => (
+                <div key={row.key} className="flex items-center gap-1.5 text-[11px]">
+                  <span className={row.bad ? 'min-w-0 flex-1 truncate text-destructive' : 'min-w-0 flex-1 truncate'}>
+                    {row.label}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground/70 tabular-nums">
+                    {formatRowAge(row.at)}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div className="text-[10px] text-muted-foreground/70">本轮暂无进展</div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* 事件流 */}
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-2">
