@@ -228,6 +228,9 @@ async function drainRelayOutboxes(): Promise<void> {
 
     // 🔴 stage-5 P1-b：authority 的 remote 成员轮投递队列（hosted rooms）
     void drainPeerDispatches();
+    // 🔴 round-94：投递之前先确保**票已就位**（无票 authority 直接
+    // turn.failed，根本不会产出 dispatch 行——补票只能前置）
+    void syncRoomGrants();
   } finally {
     drainBusy = false;
     if (drainRerun) {
@@ -394,6 +397,119 @@ async function syncReplicasUnlocked(): Promise<void> {
     } catch {
       // authority/target 暂不可达——下轮重试
     }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 🔴 round-94：跨机授权握手（Desktop 作 courier）
+// 对齐 Hermes `groups.peer.invite/revoke/register`：**票由 target 自签自验**。
+// 此前 authority 用自己的 home 密钥签发、target 用自己的密钥验签（per-home
+// 随机）→ 跨机恒 SignatureMismatch。修法不是同步密钥，而是让签发方与验签方
+// 同为 target——两机之间不共享任何密钥。
+//
+// 闭环：
+//   ① authority: bot.rooms.grant.pending   → 谁缺票 + invite 所需 fencing 坐标
+//   ② target:    bot.rooms.grant.invite    → target 用自己的密钥签一张票
+//   ③ target:    bot.rooms.grant.capabilities → target 自验并回显全部坐标（probe）
+//   ④ authority: bot.rooms.grant.register  → 三重比对（probe↔room↔票面）后落库
+//
+// 为什么必须**前置**：无票时 authority 的远端成员轮直接 turn.failed，压根不
+// 产出 dispatch 行——"投递失败再补票"这条兜底路径不存在。
+// ══════════════════════════════════════════════════════════════════
+
+interface GrantNeed {
+  room_id: string;
+  member_id: string;
+  member_profile: string;
+  home_install_id: string;
+  authority_gateway_id: string;
+  authority_epoch: number;
+  expires_at: number | null;
+}
+
+/** 握手失败退避（目标离线时不要每 tick 打三趟 RPC） */
+const grantRetryAfter = new Map<string, number>();
+const GRANT_RETRY_BACKOFF_MS = 60_000;
+/** 在飞握手防重入 */
+const grantHandshakes = new Set<string>();
+/** 票寿命（秒）——提前 5 分钟续（pending 判据里的 refresh_margin_secs） */
+const GRANT_TTL_SECONDS = 86_400;
+const GRANT_REFRESH_MARGIN_SECS = 300;
+
+/** 问各 authority「谁缺票」，按回执跑三步闭环 */
+async function syncRoomGrants(): Promise<void> {
+  for (const authority of relayConnections()) {
+    let needs: GrantNeed[] = [];
+    try {
+      const res = await requestForBot<{ needs?: GrantNeed[] }>(
+        routeOf(authority),
+        'bot.rooms.grant.pending',
+        { refresh_margin_secs: GRANT_REFRESH_MARGIN_SECS },
+        15_000,
+      );
+      needs = Array.isArray(res?.needs) ? res.needs : [];
+    } catch {
+      continue; // 旧后端（无该 RPC）/ 离线——跳过
+    }
+    for (const n of needs) {
+      if (!n?.room_id || !n?.member_id || !n?.member_profile) continue;
+      const key = `${authority.id}:${n.room_id}:${n.member_id}`;
+      if (grantHandshakes.has(key)) continue;
+      if (Date.now() < (grantRetryAfter.get(key) || 0)) continue;
+      void runGrantHandshake(authority, n, key);
+    }
+  }
+}
+
+async function runGrantHandshake(
+  authority: { id: string; remote: RemoteConnection | null },
+  n: GrantNeed,
+  key: string,
+): Promise<void> {
+  grantHandshakes.add(key);
+  try {
+    const { conn: target, ambiguous } = findConnectionForProfile(n.member_profile);
+    if (!target || ambiguous) {
+      // 目标不在线 / 跨连接同名歧义——退避重试（名册变化后可能可达；歧义不盲
+      // 选路由，与 deliverPeerDispatch 同一保守面）
+      grantRetryAfter.set(key, Date.now() + GRANT_RETRY_BACKOFF_MS);
+      return;
+    }
+    // ② target 自签
+    const inv = await requestForBot<{ grant?: string }>(
+      routeOf(target),
+      'bot.rooms.grant.invite',
+      {
+        room_id: n.room_id,
+        member_id: n.member_id,
+        home_install_id: n.home_install_id,
+        authority_gateway_id: n.authority_gateway_id,
+        authority_epoch: n.authority_epoch,
+        target_profile: n.member_profile,
+        ttl_seconds: GRANT_TTL_SECONDS,
+      },
+      15_000,
+    );
+    const grant = String(inv?.grant || '');
+    if (!grant) throw new Error('target issued an empty grant');
+    // ③ target 自验回显——authority 没有 target 的密钥，票面不可信，probe 是
+    // 唯一可交叉校验的坐标来源
+    const probe = await requestForBot<Record<string, unknown>>(
+      routeOf(target), 'bot.rooms.grant.capabilities', { grant }, 15_000,
+    );
+    // ④ authority 落库（Hermes: "Persistence is the publication boundary."）
+    await requestForBot(
+      routeOf(authority),
+      'bot.rooms.grant.register',
+      { room_id: n.room_id, member_id: n.member_id, grant, probe, target_url: target.id },
+      15_000,
+    );
+    grantRetryAfter.delete(key);
+  } catch (e) {
+    grantRetryAfter.set(key, Date.now() + GRANT_RETRY_BACKOFF_MS);
+    console.warn('[bot-relay] grant handshake failed:', key, e);
+  } finally {
+    grantHandshakes.delete(key);
   }
 }
 
