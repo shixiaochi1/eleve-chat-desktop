@@ -342,9 +342,22 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     });
   }, []);
 
+  // 🔴 round-92：回应是成员轮解锁的**唯一通道**。此前"先清卡再发 RPC"把失败
+  // 变成静默断点——卡片消失、responded 集合已记账，用户以为回答过了，成员轮
+  // 却永远等不到回执（房间卡在这一轮，直到轮预算耗尽）。且 `ok:false`（后端
+  // 拒绝/请求已过期）也未曾校验，只判了"有没有抛异常"。
+  // 对齐语义：**确认成功才退役卡片**；失败原样保留 + 错误可见 → 可重试。
   const answerInteraction = useCallback(async (requestId: string, answer: string) => {
-    settleInteraction(requestId);
-    await respondBotRoomInteraction(requestId, answer);
+    try {
+      const ok = await respondBotRoomInteraction(requestId, answer);
+      if (!ok) {
+        setError('回应未被后端接受（请求可能已过期），请重试');
+        return; // 卡片保留：等 approval/clarify 事件或用户再次提交
+      }
+      settleInteraction(requestId);
+    } catch (e) {
+      setError(`回应失败：${e instanceof Error ? e.message : String(e)}`);
+    }
   }, [settleInteraction]);
 
   // 增量合并：去重（seq 单调）
@@ -531,7 +544,7 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
   //   turn.started 开轮；settled / failed / cancelled / deferred / held 收口；
   //   msg 是**中间产物**（发言先落库、收口随后到），不参与配对。
   // 事件日志是唯一事实源——不引入任何前端本地计时器。
-  const roomBusy = useMemo(() => {
+  const inflightBusy = useMemo(() => {
     const inflight = new Set<string>();
     for (const e of events) {
       const m = /^turn:(.+):(started|settled|failed|cancelled|deferred|held)$/.exec(
@@ -545,24 +558,46 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     return inflight.size > 0;
   }, [events]);
 
+  // 🔴 round-92：忙态兜底。上面的事件流配对是**快路径**，前提是"每个 started
+  // 最终都有一条终态事件"。driver 在 started 与终态之间崩溃（进程被杀/跨进程
+  // 接管）时这个前提被打破：前端永远等不到配对 → 发送键永久停在"停止"态，
+  // 房间对用户界面级死锁（后端可能早已恢复并收口）。
+  // 后端 `bot_rooms_pending_task`（driver_first_unresolved：running/indeterminate/
+  // stopping）才是"究竟还有没有在飞轮"的真相源。连续两次轮询（20s）都查不到
+  // 在飞任务 → 判定事件流缺口，解除忙态。正常长轮期间 task 恒为 running，
+  // 不会误解除；解除只影响前端按钮，不动后端恢复语义。
+  const [busyStuck, setBusyStuck] = useState(false);
+  useEffect(() => { if (!inflightBusy) setBusyStuck(false); }, [inflightBusy]);
+  const roomBusy = inflightBusy && !busyStuck;
+
   // 🔴 round-79f 跨进程 driver：未决任务簿记可见性（driver_tasks 首次出网关）。
   // roomBusy 期间每 10s 轻量查询一次——indeterminate（崩溃恢复/接管中）在
   // 单进程下转瞬即逝，跨进程接管后停留可观察，提供显式重试（人工豁免
   // 恢复层 60s 冷却窗，对齐 Hermes groups.retry 的 at-least-once 确认语义）。
   const [pendingTask, setPendingTask] = useState<PendingRoomTask | null>(null);
   useEffect(() => {
-    if (!roomBusy) { setPendingTask(null); return; }
+    if (!inflightBusy) { setPendingTask(null); return; }
     let cancelled = false;
+    let emptyPolls = 0;
     const poll = async () => {
       try {
         const tasks = await fetchBotRoomPendingTask(room.room_id);
-        if (!cancelled) setPendingTask(tasks[0] ?? null);
+        if (cancelled) return;
+        setPendingTask(tasks[0] ?? null);
+        if (tasks.length) {
+          emptyPolls = 0;
+        } else {
+          emptyPolls += 1;
+          // 判据是"后端无在飞"而非"时间够久"：网关离线时查询抛错走 catch，
+          // 不累计，不会把断网误判成空闲。
+          if (emptyPolls >= 2) setBusyStuck(true);
+        }
       } catch { /* 网关离线：下轮重试 */ }
     };
     void poll();
     const timer = setInterval(poll, 10_000);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [roomBusy, room.room_id]);
+  }, [inflightBusy, room.room_id]);
 
   const handleRetryTask = async () => {
     if (!pendingTask) return;
@@ -913,18 +948,18 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
                         onClick={() => {
                           const ws = getWsClient();
                           const targetSession = p.sessionId || room.room_id;
+                          // 🔴 round-92：清卡从"无条件乐观"改为"确认成功才清"。
+                          // 此前 RPC 一发出就删卡，失败（或 WS 不通转兜底也
+                          // 失败）后卡片已不在原地，用户无从重试——审批静默失败。
                           ws.sendRpc('approval.respond', {
                             session_id: targetSession,
                             choice: c,
                             resolve_all: true,
+                          }).then(() => {
+                            settleInteraction(requestId);
                           }).catch(() => {
+                            // 主通道不通 → 回到房间域转交通道（成功才清卡）
                             void answerInteraction(requestId, c);
-                          });
-                          // 乐观清卡（approval.responded 事件/轮收口兜底）
-                          setPendingInteractions((cur) => {
-                            const next = new Map(cur);
-                            next.delete(requestId);
-                            return next;
                           });
                         }}
                       >
