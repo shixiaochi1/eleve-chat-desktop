@@ -65,6 +65,51 @@ export function useSelectedRoomId(): string | null {
 }
 
 // ═════════════════════════════════════════════════════════════════════
+// 🔴 round-94 G1：「需要你」房间集合（对齐 Hermes `$groupNeedsYou`）。
+//
+// Hermes 语义（group-turns.ts:496-500）：成员被 clarify/approval 阻塞 →
+// 房间行打 needs-you 徽标；用户发言即清除（group-rounds.ts:977-980）。
+// ELEVE 的置位条件 = **该房间有未决交互卡**（澄清/审批在等用户响应）——
+// 这是"房间在等人"的唯一可靠信号；@提及用户那条路径 ELEVE 房间内无用户
+// handle 语义，不做。
+//
+// 快照不可变（useSyncExternalStore 用 Object.is 判快照；原地 mutate 同一个
+// Set 会被判为"没变"而不重渲染）。
+// ═════════════════════════════════════════════════════════════════════
+
+const EMPTY_SET: ReadonlySet<string> = new Set<string>();
+let needsYouSnapshot: ReadonlySet<string> = EMPTY_SET;
+
+export function getRoomsNeedingYou(): ReadonlySet<string> {
+  return needsYouSnapshot;
+}
+
+export function markRoomNeedsYou(roomId: string): void {
+  if (!roomId || needsYouSnapshot.has(roomId)) return;
+  needsYouSnapshot = new Set(needsYouSnapshot).add(roomId);
+  emit();
+}
+
+export function clearRoomNeedsYou(roomId: string): void {
+  if (!needsYouSnapshot.has(roomId)) return;
+  const next = new Set(needsYouSnapshot);
+  next.delete(roomId);
+  needsYouSnapshot = next;
+  emit();
+}
+
+export function useRoomsNeedingYou(): ReadonlySet<string> {
+  return useSyncExternalStore(
+    (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    getRoomsNeedingYou,
+    () => EMPTY_SET,
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
 // 🔴 2026-09-07 round-75（架构去重落地）：房间列表单一权威 store。
 //
 // 此前 bot.rooms.list 有三个独立消费点（BotsPane.loadList / 主区元信息

@@ -15,7 +15,7 @@
  */
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
-import { Loader, Plus, Pencil, UsersRound, X } from 'lucide-react';
+import { HelpCircle, Loader, Plus, Pencil, UsersRound, X } from 'lucide-react';
 import {
   createBotRoom, ensureBotChat, fetchBotRoomReplicas, promoteBotRoomReplica,
 } from '../utils/api';
@@ -25,7 +25,8 @@ import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnrea
 import { BotRosterRow } from './BotsView';
 import {
   closeRemoteChat, isRoomsLoaded, openRemoteChat, refreshRooms, refreshUnionRoster,
-  selectRoom, useRooms, useRoomsLoaded, useSelectedRoomId, useUnionRoster,
+  selectRoom, useRooms, useRoomsLoaded, useRoomsNeedingYou, useSelectedRoomId,
+  useUnionRoster,
   type UnionRosterRow,
 } from '../plugins/bots/state';
 import { onProfilesChanged } from '../lib/global-events';
@@ -52,7 +53,7 @@ interface ReplicaMetaRow {
  *  （ProjectTreeItems）同构：rounded-lg 卡片底 + 主题色 30% 描边 + 选中发光竖条
  *  /光环投影/扫光（card-selected-sweep）。结构 = 名称行（色块图标 + 房间名 +
  *  成员数徽标）+ 成员 @handle 副行。 */
-function RoomCard({ room, active, onOpen }: { room: BotRoom; active: boolean; onOpen: () => void }) {
+function RoomCard({ room, active, needsYou, onOpen }: { room: BotRoom; active: boolean; needsYou: boolean; onOpen: () => void }) {
   return (
     <div
       role="button"
@@ -88,6 +89,18 @@ function RoomCard({ room, active, onOpen }: { room: BotRoom; active: boolean; on
           <UsersRound size={13} strokeWidth={1.5} className="text-muted-foreground" />
         </div>
         <span className="text-xs font-medium text-foreground truncate flex-1">{room.name}</span>
+        {/* 🔴 round-94 G1：needs-you 徽标（对齐 Hermes bot-row.tsx:536-540
+             Codicon question + tooltip needsYourInput）。房间里有未决的澄清 /
+             审批卡 = 讨论卡在等人，不看这个标用户根本不知道要点进来。 */}
+        {needsYou && (
+          <span
+            className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500 text-white shrink-0"
+            title="需要你处理：有成员正在等待澄清或审批"
+            aria-label="需要你处理"
+          >
+            <HelpCircle size={11} strokeWidth={2.5} />
+          </span>
+        )}
         <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] bg-muted text-muted-foreground shrink-0" title={`${room.members.length} 个成员`}>
           {room.members.length} 人
         </span>
@@ -283,6 +296,7 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
 
   // 🔴 2026-09-05 round-52：群聊卡片选中态（选中房间 = 主区正在显示的房间）
   const selectedRoomId = useSelectedRoomId();
+  const roomsNeedingYou = useRoomsNeedingYou();
 
   return (
     <div className="relative h-full flex flex-col min-h-0">
@@ -374,6 +388,7 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
                   key={room.room_id}
                   room={room}
                   active={selectedRoomId === room.room_id}
+                  needsYou={roomsNeedingYou.has(room.room_id)}
                   onOpen={() => openRoom(room)}
                 />
               ))}

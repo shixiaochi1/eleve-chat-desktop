@@ -20,8 +20,9 @@ import {
 import { getWsClient } from '../services/ws-client';
 import { formatMessageTime } from '../utils/time';
 import {
-  closeRemoteChat, isUnionFresh, refreshRooms, refreshUnionRoster, selectRoom,
-  useRemoteChat, useRooms, useRoomsLoaded, useSelectedRoomId, useUnionRoster,
+  clearRoomNeedsYou, closeRemoteChat, isUnionFresh, markRoomNeedsYou, refreshRooms,
+  refreshUnionRoster, selectRoom, useRemoteChat, useRooms, useRoomsLoaded,
+  useSelectedRoomId, useUnionRoster,
   type UnionRosterRow,
 } from '../plugins/bots/state';
 import RemoteBotChatView from './RemoteBotChatView';
@@ -369,6 +370,14 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     }
   }, [settleInteraction]);
 
+  // 🔴 round-94 G1：needs-you 徽标——本房间有未决交互卡（澄清/审批在等用户
+  // 响应）时给左栏房间行打标，卡清掉即撤（对齐 Hermes `$groupNeedsYou`：
+  // 成员被 clarify/approval 阻塞 = 房间在等人）。
+  useEffect(() => {
+    if (pendingInteractions.size > 0) markRoomNeedsYou(room.room_id);
+    else clearRoomNeedsYou(room.room_id);
+  }, [pendingInteractions, room.room_id]);
+
   // 增量合并：去重（seq 单调）
   const mergeEvents = useCallback((incoming: BotRoomEvent[]) => {
     if (!incoming.length) return;
@@ -534,6 +543,8 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
     setAttachments([]);
     try {
       await sendBotRoomMessage(room.room_id, text || '（附件）', clientEventId, snapshotAtts);
+      // 用户已回应 → needs-you 撤标（Hermes：用户发言清除 $groupNeedsYou）
+      clearRoomNeedsYou(room.room_id);
       setError(null); // 清掉"讨论进行中"等一次性提示
       await refresh();
     } catch (e) {
@@ -553,19 +564,31 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
   //   turn.started 开轮；settled / failed / cancelled / deferred / held 收口；
   //   msg 是**中间产物**（发言先落库、收口随后到），不参与配对。
   // 事件日志是唯一事实源——不引入任何前端本地计时器。
-  const inflightBusy = useMemo(() => {
-    const inflight = new Set<string>();
+  const inflightTurns = useMemo(() => {
+    // 🔴 round-94 G2：顺带把 **谁** 在飞解出来（对齐 Hermes 单行
+    // `room.turn` → `memberThinking(groupSpeakerLabel(room.turn))`）。
+    // 此前只有 bool，"成员讨论中…" 无归属；用户看不出在等谁、也看不出
+    // 是不是卡在某个成员上。成员 id 取自 turn.started 的 payload
+    // （事件日志自带，无需后端加字段）。
+    const inflight = new Map<string, string>(); // turnId → memberId
     for (const e of events) {
       const m = /^turn:(.+):(started|settled|failed|cancelled|deferred|held)$/.exec(
         String(e.event_id ?? ''),
       );
       if (!m) continue;
       const [, turnId, kind] = m;
-      if (kind === 'started') inflight.add(turnId);
+      if (kind === 'started') inflight.set(turnId, String(e.payload?.member_id ?? ''));
       else inflight.delete(turnId);
     }
-    return inflight.size > 0;
+    return inflight;
   }, [events]);
+  const inflightBusy = inflightTurns.size > 0;
+  /** 当前正在发言的成员（按房间名册顺序稳定输出） */
+  const speakingHandles = useMemo(() => {
+    const ids = new Set([...inflightTurns.values()].filter(Boolean));
+    if (!ids.size) return [];
+    return room.members.filter(m => ids.has(m.member_id)).map(m => m.handle);
+  }, [inflightTurns, room.members]);
 
   // 🔴 round-92：忙态兜底。上面的事件流配对是**快路径**，前提是"每个 started
   // 最终都有一条终态事件"。driver 在 started 与终态之间崩溃（进程被杀/跨进程
@@ -1005,7 +1028,11 @@ function BotsRoomView({ room, bots, onBack }: { room: BotRoom; bots: BotRosterEn
                 </button>
               </>
             ) : (
-              <span>成员讨论中…</span>
+              <span>
+                {speakingHandles.length
+                  ? `@${speakingHandles.join('、@')} 正在发言…`
+                  : '成员讨论中…'}
+              </span>
             )}
           </div>
         )}
