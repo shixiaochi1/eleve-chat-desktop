@@ -96,6 +96,9 @@ function RoomCard({ room, active, needsYou, roster, onOpen }: {
       tabIndex={0}
       onClick={onOpen}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
+      // 🔴 副行从 @handle 列表换成末条消息预览（对齐 Hermes GroupRow）后，
+      // 成员清单不能就此丢失——收进行 tooltip。
+      title={room.members.map((m) => `@${m.handle}`).join(' ')}
       className={cn(
         'group relative w-full text-left px-2.5 py-2 rounded-lg border bg-card shadow-sm transition-all duration-150 cursor-pointer overflow-hidden space-y-1 hover:bg-accent/30',
         active && 'card-selected-sweep',
