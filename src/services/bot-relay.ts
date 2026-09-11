@@ -35,8 +35,13 @@ const RELAY_DRAIN_INTERVAL_MS = 30_000;
  *  于是在"首次 attempt 超时 → 自动重试"的那条路径上，Desktop 会在目标仍在
  *  跑的轮上先放弃、写回一条"投递失败"；几秒后真实回信写好却已无收件人
  *  （发送侧 waiter 的超时回执也已发出）。数字必须与 `eleve_core::bot` 的
- *  `DELIVER_WORST_CASE_SECONDS = 900 × 2 + 60 = 1860s` 同源。 */
-const RELAY_DELIVER_TIMEOUT_MS = (900 * 2 + 60) * 1000;
+ *  `DELIVER_WORST_CASE_SECONDS = 900 × 2 + 60 = 1860s` 同源。
+ *
+ *  🔴 round-111b（自查修复）：**导出 + 由测试钉住具体数值**（`bot-relay-timeouts.test.ts`）
+ *  ——此前它是模块内字面量，后端改 `TURN_MAX_ATTEMPTS`/单轮预算时前端会**静默**
+ *  不同步（无编译期、无测试信号）。现在漂移会响亮失败，与后端
+ *  `assert_eq!(TURN_ATTEMPT_TIMEOUT_SECONDS, 900)` 同一手法。 */
+export const RELAY_DELIVER_TIMEOUT_MS = (900 * 2 + 60) * 1000;
 
 /** 本地（主）连接的稳定 id */
 export const LOCAL_CONNECTION_ID = 'local';
@@ -228,7 +233,17 @@ async function drainRelayOutboxes(): Promise<void> {
           const res = await requestForBot<{ reply?: string }>(
             routeOf(target),
             'bot_relay.deliver',
-            { profile: String(envelope?.target_profile || ''), message: String(envelope?.message || '') },
+            {
+              profile: String(envelope?.target_profile || ''),
+              message: String(envelope?.message || ''),
+              // 🔴 round-113：relayed DM 的作者一律带 origin（**本机 "local" 也带**）
+              // ——对齐 Hermes bot_relay.deliver 的 from_connection
+              //（*"a relayed DM always crosses gateways"*）。目标网关据此把归属
+              // 前缀改写成 `@handle@connection`，收件方回信不再错投给本机同名 agent。
+              from_profile: String(envelope?.from_profile || ''),
+              from_handle: String(envelope?.from_handle || ''),
+              from_connection: sender.id,
+            },
             RELAY_DELIVER_TIMEOUT_MS,
           );
           await postReply({ reply: String(res?.reply || '') });
@@ -300,8 +315,15 @@ interface PeerTurnStatus {
 
 /** 在飞轮询防重入（dispatchId → true） */
 const dispatchPollers = new Map<string, boolean>();
-const PEER_POLL_INTERVAL_MS = 5_000;
-const PEER_POLL_MAX_TICKS = 180; // 900s 预算（与后端 REPLY_WAIT_SECONDS 对齐）
+export const PEER_POLL_INTERVAL_MS = 5_000;
+/** 180 × 5s = 900s = 后端 **`TURN_ATTEMPT_TIMEOUT_SECONDS`**（单轮成员轮预算）。
+ *
+ *  🔴 round-111b（自查修复）：原注释写"与后端 REPLY_WAIT_SECONDS 对齐"——
+ *  round-111 之后 `REPLY_WAIT_SECONDS` 已是**发送侧 relay waiter** 预算（1920s），
+ *  不再是单轮值。若有人照那条注释把 ticks 提到 384"对齐"，peer 轮询会多等一倍。 */
+export const PEER_POLL_MAX_TICKS = 180;
+/** 轮询总预算（ms）——数值由测试钉住（见 `bot-relay-timeouts.test.ts`）。 */
+export const PEER_POLL_BUDGET_MS = PEER_POLL_INTERVAL_MS * PEER_POLL_MAX_TICKS;
 
 /** 按 profile 找归属连接（返回 null=不可达，返回 ambiguous=跨连接同名歧义）。
  * 🔴 2026-09-05 P1-3 修复：路由解析不能只依赖 UI 层填充的 unionLastGood
