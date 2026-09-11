@@ -790,6 +790,17 @@ export interface BotRosterEntry {
   canonical_session_id?: string | null;
   /** 🔴 活动信号：canonical Bot Chat 最近活动（epoch 秒；对齐 Hermes RosterRow.last_active） */
   last_active?: number | null;
+  /** 🔴 round-106：最新一条 **worker 来源**会话（kanban / tool）——对齐 Hermes
+   *  `profiles.list` 的 `worker_session`。worker 会话被拒在会话列表之外，所以
+   *  必须单独带一路出来，否则 bot 跑 kanban 任务时行上一直显示空闲
+   *  （Hermes #90268）。null = 无 worker（旧网关同样省略）。 */
+  worker_session?: {
+    id: string;
+    source: string;
+    title: string;
+    /** epoch 秒 */
+    last_active: number;
+  } | null;
   /** 🔴 round-78d：角色描述（Hermes roster 行副行 role——此前后端透传前端未接） */
   description?: string | null;
 }

@@ -25,7 +25,7 @@ import { groupEventsByThread, LEGACY_THREAD, threadReplyCount, threadSummaryLabe
 // 🔴 round-99：轮终态词表（唯一真值；档位对齐 Hermes groupActivityTone）
 import { isRoomBoundedActivity, turnStatusOf, turnToneClass, type TurnTone } from '../lib/bot-turn-status';
 // 🔴 round-105：bot roster 行的活跃判定（对齐 Hermes ACTIVE_WINDOW_S）
-import { isBotActive } from '../lib/bot-activity';
+import { isBotActive, isBotWorkerActive } from '../lib/bot-activity';
 // 🔴 round-97：图片工具上提到 lib（房间图/附件缩略图/头像共用一份 canvas 实现）
 import { makeImageThumb, readImageFile } from '../lib/image-file';
 import { getWsClient } from '../services/ws-client';
@@ -177,8 +177,11 @@ export function BotRosterRow({ row, onOpen, onRowMenu }: {
   // 行共用水位线；preview identity = click identity（锚定的就是行点击打开的会话）。
   const unread = useBotUnread(unreadKey(bot));
   // 🔴 round-105：活跃指示——`BotRosterEntry.last_active` 此前**零消费**
-  // （字段已由后端透传）。语义近似说明见 `lib/bot-activity.ts`。
-  const botActive = isBotActive(bot.last_active);
+  // （字段已由后端透传）。
+  // 🔴 round-106：补上 Hermes 的**第二路**输入 `workerActive`——worker 会话
+  // 不进会话列表，缺了这一路时跑 kanban 任务的 bot 会被显示成空闲（#90268）。
+  const workerActive = isBotWorkerActive(bot.worker_session);
+  const botActive = isBotActive(bot.last_active) || workerActive;
   return (
     <button
       className={cn(
@@ -204,12 +207,14 @@ export function BotRosterRow({ row, onOpen, onRowMenu }: {
         </span>
         {/* 🔴 round-105：活跃指示（对齐 Hermes bot-row 的状态点：
             贴在头像上。Hermes 的 `mood` 走 `BotFace（头像）的 work|idle`）。
-            用与本面板同款的圆点（未读点也是 `bg-success`）+ 脉冲。 */}
+            用与本面板同款的圆点（未读点也是 `bg-success`）+ 脉冲。
+            🔴 round-106：worker 心跳同亮（Hermes `botMood` 的 `workerActive`
+            一路）——此时语义是「正在干活」而非「刚刚聊过」。 */}
         {botActive && (
           <span
             className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full bg-success ring-2 ring-card animate-pulse"
-            title="刚刚有活动"
-            aria-label="活跃"
+            title={workerActive ? '正在执行任务' : '刚刚有活动'}
+            aria-label={workerActive ? '正在执行任务' : '活跃'}
           />
         )}
       </span>

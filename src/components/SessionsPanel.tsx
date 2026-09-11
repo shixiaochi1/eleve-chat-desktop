@@ -99,7 +99,10 @@ function SessionArcBorder({ sessionId, isCurrent }: { sessionId: string; isCurre
 // SessionActor，右键 undo/compress/branch/usage 全部 Session not found（后端 session.list 已同步排除）
 // 🔴 2026-09-05 round-43：补 'bot'——bot 会话在 Bots 面板单独呈现，
 // 不进主会话列表（对齐后端 WS session.list exclude 词表；此前前端防线漏 bot）
-const HIDDEN_SOURCES = new Set(['tool', 'cron', 'api', 'cli', 'bot']);
+// 🔴 round-106：补 'kanban'——kanban worker 会话现由 worker 进程自打来源标记
+// （对齐 Hermes `HERMES_SESSION_SOURCE=kanban`），后端 exclude 词表已同步；
+// 前端兜底同步，否则 worker 行会改头换面出现在主列表里。
+const HIDDEN_SOURCES = new Set(['tool', 'cron', 'api', 'cli', 'bot', 'kanban']);
 
 // ── 虚拟列表行类型 ──
 type VirtualRow =
