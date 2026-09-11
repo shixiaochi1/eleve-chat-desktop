@@ -26,6 +26,12 @@ import { groupEventsByThread, LEGACY_THREAD, threadReplyCount, threadSummaryLabe
 import { isRoomBoundedActivity, turnStatusOf, turnToneClass, type TurnTone } from '../lib/bot-turn-status';
 // 🔴 round-105：bot roster 行的活跃判定（对齐 Hermes ACTIVE_WINDOW_S）
 import { isBotActive, isBotWorkerActive } from '../lib/bot-activity';
+// 🔴 round-107：房间级草稿（模块级 Map——切房重挂不丢草稿，对齐 Hermes group-panes.ts）
+import {
+  botRoomDraftSnapshot,
+  patchBotRoomDraft,
+  restoreBotRoomDraft,
+} from '../lib/bot-room-drafts';
 // 🔴 round-97：图片工具上提到 lib（房间图/附件缩略图/头像共用一份 canvas 实现）
 import { makeImageThumb, readImageFile } from '../lib/image-file';
 import { getWsClient } from '../services/ws-client';
@@ -257,17 +263,20 @@ function BotsRoomView({ room, roster, onBack }: {
   onBack: () => void;
 }) {
   const [events, setEvents] = useState<BotRoomEvent[]>([]);
-  const [draft, setDraft] = useState('');
+  // 🔴 round-107：草稿初值从模块级库来（切房回来草稿还在）。
+  // 本组件以 key={room.room_id} 重挂 ⇒ initializer 每次切房都重跑。
+  const [draft, setDraft] = useState(() => botRoomDraftSnapshot(room.room_id).main);
   // 🔴 round-97：线程草稿（按线程 id 分桶——对齐 Hermes replyDrafts[thread]）
-  const [threadDrafts, setThreadDrafts] = useState<Record<string, string>>({});
+  const [threadDrafts, setThreadDrafts] = useState<Record<string, string>>(
+    () => botRoomDraftSnapshot(room.room_id).replies,
+  );
   // 被用户显式展开的历史线程（最近活跃的那个恒展开，不在此集合里）
-  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    // 房间切换：线程草稿/展开集不该跨房残留（线程 id 虽唯一，残留只会造成
-    // 一条语义错位的草稿）
-    setThreadDrafts({});
-    setExpandedThreads(new Set());
-  }, [room.room_id]);
+  // 🔴 round-107：展开集也按房分桶。
+  // round-97 曾在此处用 useEffect 清空草稿/展开集——那正是"切房丢草稿"的根源
+  // （每次切房都把刚恢复的草稿又抹掉），现由"按 room_id 分桶"彻底取代。
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(
+    () => new Set(botRoomDraftSnapshot(room.room_id).expandedThreads),
+  );
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -541,7 +550,13 @@ function BotsRoomView({ room, roster, onBack }: {
       if (kind === 'image') thumb = await makeImageThumb(data);
       picked.push({ name: f.name || 'file', kind, thumb, data });
     }
-    if (picked.length) setAttachments((cur) => [...cur, ...picked].slice(0, 4));
+    if (picked.length) {
+      setAttachments((cur) => {
+        const next = [...cur, ...picked].slice(0, 4);
+        patchBotRoomDraft(room.room_id, { attachments: next });
+        return next;
+      });
+    }
   }, [attachments.length]);
 
   const send = async () => {
@@ -555,12 +570,13 @@ function BotsRoomView({ room, roster, onBack }: {
       return;
     }
     setSending(true);
-    const snapshot = draft;
     const snapshotAtts = attachments;
     // 🔴 round-76：幂等键（后端 event_id = "user:sha256(room:client_event_id)"）。
     // 此前恒传 undefined → 后端用随机 UUID 兜底，重发/重试必然产生重复用户消息
     // （= 重复开一轮讨论）。同一次发送固定一个 id。
     const clientEventId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const beforeDraft = botRoomDraftSnapshot(room.room_id);
+    const cleared = patchBotRoomDraft(room.room_id, { main: '', attachments: [] });
     setDraft('');
     setAttachments([]);
     try {
@@ -572,8 +588,15 @@ function BotsRoomView({ room, roster, onBack }: {
     } catch (e) {
       // 🔴 2026-09-04 发送失败必须可见（此前静默吞错——用户"发消息没反应"）
       setError(`发送失败：${(e as Error).message}`);
-      setDraft(snapshot); // 恢复草稿
-      setAttachments(snapshotAtts);
+      // 🔴 round-107：乐观恢复带 revision 守卫（对齐 Hermes
+      // `restoreGroupComposerDraft(key, cleared.revision, before)`）——
+      // 发送到失败这段空窗里用户可能已敲了新内容，无守卫的恢复会把它覆盖掉。
+      // 恢复失败（null）就保持用户的新输入。
+      const restored = restoreBotRoomDraft(room.room_id, cleared.revision, beforeDraft);
+      if (restored) {
+        setDraft(restored.main);
+        setAttachments(restored.attachments);
+      }
     } finally {
       setSending(false);
     }
@@ -590,6 +613,10 @@ function BotsRoomView({ room, roster, onBack }: {
     }
     setSending(true);
     const clientEventId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const beforeThread = botRoomDraftSnapshot(room.room_id);
+    const clearedThread = patchBotRoomDraft(room.room_id, {
+      replies: { ...threadDrafts, [thread]: '' },
+    });
     setThreadDrafts((cur) => ({ ...cur, [thread]: '' }));
     try {
       await sendBotRoomMessage(room.room_id, text, clientEventId, undefined, thread);
@@ -598,7 +625,16 @@ function BotsRoomView({ room, roster, onBack }: {
       await refresh();
     } catch (e) {
       setError(`发送失败：${(e as Error).message}`);
-      setThreadDrafts((cur) => ({ ...cur, [thread]: text }));
+      const restoredThread = restoreBotRoomDraft(
+        room.room_id,
+        clearedThread.revision,
+        beforeThread,
+      );
+      if (restoredThread) {
+        setThreadDrafts(restoredThread.replies);
+      } else {
+        setThreadDrafts((cur) => ({ ...cur, [thread]: text }));
+      }
     } finally {
       setSending(false);
     }
@@ -958,7 +994,13 @@ function BotsRoomView({ room, roster, onBack }: {
                 label={threadSummaryLabel(sec)}
                 replies={threadReplyCount(sec)}
                 at={sec.lastAt}
-                onExpand={() => setExpandedThreads((cur) => new Set(cur).add(sec.thread))}
+                onExpand={() =>
+                  setExpandedThreads((cur) => {
+                    const next = new Set(cur).add(sec.thread);
+                    patchBotRoomDraft(room.room_id, { expandedThreads: [...next] });
+                    return next;
+                  })
+                }
               />
             );
           }
@@ -1163,7 +1205,13 @@ function BotsRoomView({ room, roster, onBack }: {
                 <ThreadReplyBox
                   members={room.members}
                   value={threadDrafts[sec.thread] ?? ''}
-                  onChange={(v) => setThreadDrafts((cur) => ({ ...cur, [sec.thread]: v }))}
+                  onChange={(v) =>
+                    setThreadDrafts((cur) => {
+                      const next = { ...cur, [sec.thread]: v };
+                      patchBotRoomDraft(room.room_id, { replies: next });
+                      return next;
+                    })
+                  }
                   onSubmit={() => void sendInThread(sec.thread)}
                   busy={roomBusy || sending}
                 />
@@ -1323,7 +1371,13 @@ function BotsRoomView({ room, roster, onBack }: {
                 )}
                 <button
                   className="absolute -top-1.5 -right-1.5 p-0.5 rounded-full bg-background border border-[var(--ui-stroke-tertiary)] text-muted-foreground"
-                  onClick={() => setAttachments((cur) => cur.filter((_, j) => j !== i))}
+                  onClick={() =>
+                    setAttachments((cur) => {
+                      const next = cur.filter((_, j) => j !== i);
+                      patchBotRoomDraft(room.room_id, { attachments: next });
+                      return next;
+                    })
+                  }
                   title="移除附件"
                 >
                   <X size={10} />
@@ -1340,7 +1394,10 @@ function BotsRoomView({ room, roster, onBack }: {
             <MentionTextarea
               members={room.members}
               value={draft}
-              onChange={setDraft}
+              onChange={(v) => {
+                setDraft(v);
+                patchBotRoomDraft(room.room_id, { main: v });
+              }}
               onSubmit={send}
               onPaste={(e) => { const fs = e.clipboardData?.files; if (fs?.length) { e.preventDefault(); void addFiles(fs); } }}
               placeholder={`发消息到「${room.name}」… 输入 @ 唤起成员，可粘贴/拖入附件`}

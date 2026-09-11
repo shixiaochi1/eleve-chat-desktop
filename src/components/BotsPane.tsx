@@ -15,9 +15,11 @@
  */
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
-import { EyeOff, HelpCircle, Loader, Pin, Plus, Pencil, UsersRound, WifiOff, X } from 'lucide-react';
+import { Copy, EyeOff, HelpCircle, Loader, Pin, Plus, Pencil, UsersRound, WifiOff, X } from 'lucide-react';
 import { formatRowAge } from '../utils/time';
 import { memberAvailability, memberPickLabel, pickableMembers } from '../lib/bot-members';
+// 🔴 round-107：复制 Agent（对齐 Hermes profile-ops.ts:301 duplicateBot）
+import { duplicateAgent } from '../lib/bot-duplicate';
 // 🔴 round-97：房间图（新建群聊 + 房间设置共用一份控件）
 import RoomImageControls from './RoomImageControls';
 // 🔴 round-104：roster 展示偏好（置顶 / 隐藏，对齐 Hermes hidden-bots.ts）
@@ -231,6 +233,8 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [rowMenu, setRowMenu] = useState<{ profile: string; x: number; y: number } | null>(null);
+  /** 🔴 round-107：复制进行中（防连点造出多个副本） */
+  const [duplicating, setDuplicating] = useState(false);
   const localBots = useMemo(() => bots.filter(b => !b.isRemote).map(b => b.entry), [bots]);
   const remoteCount = useMemo(() => bots.filter(b => b.isRemote).length, [bots]);
   // 🔴 round-95：成员选择改走共享派生（含远端 + 不可达禁用 + 跨连接消歧）。
@@ -398,6 +402,44 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
       }
     } catch (e) {
       setError(`远程 Bot Chat 就绪失败：${(e as Error).message}`);
+    }
+  };
+
+  /** 🔴 round-107：复制 Agent —— 对齐 Hermes `duplicateBot`。
+   *
+   *  - 名占用集**按连接作用域**（远端同名 profile 不挡本机复制，对齐 Hermes
+   *    用 `botMetaKey` 前缀过滤同一 owner 的候选）；
+   *  - 路由：远端行照 Hermes `requestForBot(bot, 'profiles.create', …)` 骑 owner
+   *    连接，本机行 route=null（round-96 起本机也走 RPC 名，不再经 bridge 映射表）；
+   *  - 成功后 `refreshUnionRoster()` 让新行出现（对齐 Hermes
+   *    `queryClient.invalidateQueries(ROSTER_KEY)`）。 */
+  const runDuplicateAgent = async (profile: string) => {
+    if (duplicating) return;
+    const row = bots.find((r) => r.entry.profile === profile);
+    if (!row) return;
+    setDuplicating(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const name = await duplicateAgent(
+        {
+          profile: row.entry.profile,
+          displayName: row.entry.display_name,
+          description: row.entry.description ?? null,
+          look: { color: row.entry.color ?? null, avatarKey: row.entry.avatar_key ?? null },
+        },
+        row.isRemote ? { connectionId: row.connectionId, profile: 'default' } : null,
+        requestForBot,
+        bots.filter((r) => r.connectionId === row.connectionId).map((r) => r.entry.profile),
+      );
+      setRowMenu(null);
+      await refreshUnionRoster();
+      setNotice(`已创建 ${name} —— ${profile} 的完整副本（配置 / skills / SOUL 与外观；不含聊天记录）`);
+    } catch (e) {
+      setError(`复制 Agent 失败：${(e as Error).message}`);
+      setRowMenu(null);
+    } finally {
+      setDuplicating(false);
     }
   };
 
@@ -655,6 +697,16 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
           >
             <Pencil size={13} className="text-muted-foreground" />
             编辑 Agent
+          </button>
+          {/* 🔴 round-107：复制 Agent（对齐 Hermes bot-row 的 Duplicate 菜单项：
+              建 profile → 复制外观 → 标题加 (copy)，不复制聊天记录） */}
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent/50 text-left disabled:opacity-50"
+            disabled={duplicating}
+            onClick={() => void runDuplicateAgent(rowMenu.profile)}
+          >
+            <Copy size={13} className="text-muted-foreground" />
+            {duplicating ? '正在复制…' : '复制 Agent'}
           </button>
         </div>
       )}
