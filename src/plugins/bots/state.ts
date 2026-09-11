@@ -258,7 +258,35 @@ export function useRemoteChat(): RemoteBotChat | null {
 getWsClient().addEventListener((eventName, data) => {
   if (eventName !== 'bot.room.event') return;
   if (!isPluginEnabled('bots')) return;
-  const kind = (data as { event?: { kind?: string } })?.event?.kind || '';
+  const envelope = data as {
+    room_id?: string;
+    event?: { kind?: string; payload?: Record<string, unknown> };
+  };
+  const kind = envelope?.event?.kind || '';
+  // ═════════════════════════════════════════════════════════════════════
+  // 🔴 round-104 D2：needs-you 的**第二置位源**（对齐 Hermes
+  // `group-chat.ts:1458-1463` 的 `if (from.kind === 'member' && /@user\b/i.test(
+  // entry.text))`）。
+  //
+  // round-94 只对齐了第一源（`group-turns.ts:496-500`：成员被 clarify/approval
+  // 阻塞 → 房间在等人，见下方 BotsView 的 pendingInteractions 派生），漏了这条
+  // "成员在回复里**直接 @ 用户**求助"——也是 Hermes 房间行亮徽标的独立入口。
+  //
+  // 放在模块级监听（而非 BotsView）的原因：未打开的房间同样要能被点亮；且
+  // Hermes 的该判定发生在 `appendGroupChatEntry`（房间 append 时刻），与是否
+  // 正在观看无关。
+  //
+  // 清理面不变：用户发言成功（BotsView.send/sendInThread）与打开房间
+  // （pendingInteractions 派生 effect）——两者都与 Hermes 的
+  // `sendToGroupChat` / `openGroupChat` 清位时机对应。
+  // ═════════════════════════════════════════════════════════════════════
+  if (kind === 'message.member') {
+    const roomId = envelope?.room_id;
+    const text = envelope?.event?.payload?.text;
+    if (roomId && typeof text === 'string' && /@user\b/i.test(text)) {
+      markRoomNeedsYou(roomId);
+    }
+  }
   if (
     kind === 'room.created' ||
     kind === 'room.renamed' ||
