@@ -29,3 +29,7 @@ src-tauri/.eleve/
 # Tauri v2 ACL 权限定义（allow-*/deny-* TOML）——缺失时 build.rs 校验失败、
 # 命令被 ACL 拒绝（2026-08-19 画布按钮 not allowed by ACL 事故根因）
 PortableGit-*.7z.exe
+
+# Agent 产出的本地产物（提交信息草稿 / 一次性补丁脚本）——不入库
+commit-msg-*.txt
+.codebuddy/
