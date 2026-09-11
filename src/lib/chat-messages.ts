@@ -589,6 +589,26 @@ function transcriptContent(displayKind: string | undefined, content: string): st
   return displayKind === 'hidden' ? null : content
 }
 
+/**
+ * steer 行的显示还原（2026-09-11 对齐 Hermes desktop）。
+ *
+ * 后端把中途 `/steer` 交付为**独立 `role:user` 行**（对齐 Hermes
+ * `d24810483d`：不再涂抹已落库的 tool 行），其 content 是**模型侧的 OOB 标记壳**：
+ *   [OUT-OF-BAND USER MESSAGE — …]\n<用户的话>\n[/OUT-OF-BAND USER MESSAGE]
+ * 展示面必须还原为**用户自己说的话**（Hermes 原文 *"history projects the steer row
+ * as the user's own words instead of the model-facing marker wrapper"*）。
+ * 幂等：无标记时原样返回；未闭合开口（理论上不会出现）→ 丢尾。
+ */
+export function stripSteerMarker(content: string): string {
+  return content
+    .replace(
+      /\[OUT-OF-BAND USER MESSAGE[^\]]*\]\n([\s\S]*?)\n\[\/OUT-OF-BAND USER MESSAGE\]/g,
+      '$1',
+    )
+    .replace(/\[OUT-OF-BAND USER MESSAGE[\s\S]*$/, '')
+    .trim()
+}
+
 /** 远端旧后端可能把 display_metadata 存为 JSON 文本，`in` 对原始值会抛——
  *  解析失败不能弄坏整个会话恢复（对标 Hermes parseDisplayMetadata） */
 function parseDisplayMetadata(metadata: unknown): null | Record<string, unknown> {
@@ -829,9 +849,14 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
       message.display_kind === 'bot_dm'
         ? 'system'
         : (message.role as MessageRole)
+    // 🔴 steer 行（2026-09-11 对齐 Hermes desktop）：后端交付形态是独立 role:user
+    // 行、content 为模型侧 OOB 标记壳 ⇒ 展示面还原为用户自己说的话（否则历史里
+    // 会看到一整坨标记文本）。role 保持 user（气泡），不进 system 事件行分支。
+    const contentForDisplay =
+      message.display_kind === 'steer' ? stripSteerMarker(textFromUnknown(content)) : content
     const displayContent = transcriptContent(
       message.display_kind,
-      timelineDisplayContent(message, displayContentForMessage(message.role, content)),
+      timelineDisplayContent(message, displayContentForMessage(message.role, contentForDisplay)),
     )
     // 🔴 2026-08-08 图片附件恢复：user 消息的多模态图片提取为 attachmentRefs
     // （对齐 Hermes history → attachmentRefs 渲染缩略图）。来源：
