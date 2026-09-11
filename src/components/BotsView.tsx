@@ -653,7 +653,14 @@ function BotsRoomView({ room, roster, onBack }: {
       if (e.kind === 'turn.settled') label = passed ? `${who} 跳过本轮` : `${who} 已回复`;
       else if (e.kind === 'turn.failed') { label = `${who} 出错`; bad = true; }
       else if (e.kind === 'turn.cancelled') label = `${who} 的轮已取消`;
-      else if (e.kind === 'turn.deferred') { label = `${who} 缺席（暂不可用）`; bad = true; }
+      else if (e.kind === 'turn.deferred') {
+        // round-98: 区分两种“缺席”——`turn_deadline_exceeded` 是**超时**
+        // （会话仍在跑，回信迟到时会被收割补投，不是故障，故不标红）；
+        // 其余 deferred 才是“成员暂不可用”。
+        const deadline = e.payload?.reason_code === 'turn_deadline_exceeded';
+        label = deadline ? `${who} 超时（回复迟到时会补投）` : `${who} 缺席（暂不可用）`;
+        bad = !deadline;
+      }
       else if (e.kind === 'turn.held') label = `${who} 已暂停发言`;
       else continue;
       rows.push({ key: String(e.seq), label, at: e.created_at, bad });
@@ -998,6 +1005,17 @@ function BotsRoomView({ room, roster, onBack }: {
                               {who.connectionLabel}
                             </span>
                           )}
+                          {/* round-98: 迟到补投——该轮曾超时，这条回复是会话跑完后由
+                              收割补进原线程的（对齐 Hermes delivered 活动）。不标出来用户
+                              会看到“两条回复”却不知后者属于更早的提问。 */}
+                          {ev.payload?.late === true && (
+                            <span
+                              className="shrink-0 rounded px-1 py-px text-[9px] bg-accent/60 text-muted-foreground"
+                              title="该轮曾超时，回复随后补投到本线程"
+                            >
+                              迟到补投
+                            </span>
+                          )}
                         </span>
                         <div className="w-full max-w-[85%] [&>div]:items-start">
                           <MessageRow
@@ -1055,10 +1073,14 @@ function BotsRoomView({ room, roster, onBack }: {
                     const byId = (Array.isArray(room.members) ? room.members : []).find(m => m.member_id === mid);
                     const label = byId ? `@${byId.handle}` : `@${String(ev.actor.handle || ev.actor.id || mid)}`;
                     const turnId = /^turn:(.+):deferred$/.exec(String(ev.event_id ?? ''))?.[1] ?? null;
+                    // round-98: **超时**造成的缺席不给“重试”——会话里那一轮还在跑，
+                    // 重试会把它双注入同一成员会话；Hermes 对超时也不重试，而是等
+                    // 会话跑完由收割补投（见后端 stranded harvest）。
+                    const isDeadline = ev.payload.reason_code === 'turn_deadline_exceeded';
                     return (
                       <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">
-                        — {label} 暂时缺席 —
-                        {turnId && (
+                        — {label} {isDeadline ? '本轮超时（回复迟到时会自动补投）' : '暂时缺席'} —
+                        {turnId && !isDeadline && (
                           <button
                             className="ml-2 underline hover:text-foreground"
                             onClick={() => void handleRetryTaskById(turnId)}
