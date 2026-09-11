@@ -15,11 +15,21 @@
  */
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
-import { HelpCircle, Loader, Plus, Pencil, UsersRound, WifiOff, X } from 'lucide-react';
+import { EyeOff, HelpCircle, Loader, Pin, Plus, Pencil, UsersRound, WifiOff, X } from 'lucide-react';
 import { formatRowAge } from '../utils/time';
 import { memberAvailability, memberPickLabel, pickableMembers } from '../lib/bot-members';
 // 🔴 round-97：房间图（新建群聊 + 房间设置共用一份控件）
 import RoomImageControls from './RoomImageControls';
+// 🔴 round-104：roster 展示偏好（置顶 / 隐藏，对齐 Hermes hidden-bots.ts）
+import {
+  filterVisibleRooms,
+  loadHiddenRooms,
+  loadPinnedRooms,
+  saveHiddenRooms,
+  savePinnedRooms,
+  sortRoomsByPin,
+  toggleMember,
+} from '../lib/roster-prefs';
 import {
   createBotRoom, ensureBotChat, fetchBotRoomReplicas, promoteBotRoomReplica,
 } from '../utils/api';
@@ -74,8 +84,11 @@ function roomRowReads(room: BotRoom, roster: UnionRosterRow[]) {
  *  （ProjectTreeItems）同构：rounded-lg 卡片底 + 主题色 30% 描边 + 选中发光竖条
  *  /光环投影/扫光（card-selected-sweep）。结构 = 名称行（色块图标 + 房间名 +
  *  成员数徽标）+ 成员 @handle 副行。 */
-function RoomCard({ room, active, needsYou, roster, onOpen }: {
-  room: BotRoom; active: boolean; needsYou: boolean; roster: UnionRosterRow[]; onOpen: () => void;
+function RoomCard({ room, active, needsYou, roster, pinned, hidden, onTogglePin, onToggleHide, onOpen }: {
+  room: BotRoom; active: boolean; needsYou: boolean; roster: UnionRosterRow[];
+  pinned: boolean; hidden: boolean;
+  onTogglePin: () => void; onToggleHide: () => void;
+  onOpen: () => void;
 }) {
   const { known, available, preview, lastAt } = roomRowReads(room, roster);
   // 🔴 G4：可达性徽标（对齐 Hermes bot-row.tsx:522-531 的 debug-disconnect
@@ -93,8 +106,10 @@ function RoomCard({ room, active, needsYou, roster, onOpen }: {
       // 成员清单不能就此丢失——收进行 tooltip。
       title={room.members.map((m) => `@${m.handle}`).join(' ')}
       className={cn(
-        'group relative w-full text-left px-2.5 py-2 rounded-lg border bg-card shadow-sm transition-all duration-150 cursor-pointer overflow-hidden space-y-1 hover:bg-accent/30',
+        'group/room relative w-full text-left px-2.5 py-2 rounded-lg border bg-card shadow-sm transition-all duration-150 cursor-pointer overflow-hidden space-y-1 hover:bg-accent/30',
         active && 'card-selected-sweep',
+        // 已隐藏项在开关打开时出现 → 淡化（对齐 Hermes "reveal hidden bots (dimmed)")
+        hidden && 'opacity-55',
       )}
       style={{
         // 描边 = 主题 primary 30% 透明混合（选中/未选中一致；与 Agent/项目卡片同构）
@@ -153,6 +168,29 @@ function RoomCard({ room, active, needsYou, roster, onOpen }: {
             {age}
           </span>
         )}
+        {/* 🔴 round-104：roster 展示偏好（对齐 Hermes：right-click → Hide Bot / 置顶）。
+            用 hover 操作区而非右键菜单：不引入浮层，与本面板其余交互一致。 */}
+        {pinned && (
+          <Pin size={10} className="shrink-0 text-muted-foreground" aria-label="已置顶" />
+        )}
+        <div className="hidden group-hover/room:flex items-center gap-0.5 shrink-0">
+          <button
+            type="button"
+            className="p-0.5 rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+            title={pinned ? '取消置顶' : '置顶（排在最前）'}
+            onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
+          >
+            <Pin size={11} />
+          </button>
+          <button
+            type="button"
+            className="p-0.5 rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+            title={hidden ? '取消隐藏' : '隐藏（不移除成员，仍可 @提及）'}
+            onClick={(e) => { e.stopPropagation(); onToggleHide(); }}
+          >
+            <EyeOff size={11} />
+          </button>
+        </div>
       </div>
       {/* 副行：末条消息预览 + 成员数（对齐 Hermes GroupRow 的 preview 行） */}
       <div className="flex items-center gap-1.5 pl-[26px]">
@@ -172,6 +210,17 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   // 🔴 2026-09-07 round-75：rooms 改由 plugin store 单一权威提供（useRooms）
   // ——本地副本与 WS 订阅删除（三处 fetch 合并，见 plugins/bots/state.ts）。
   const rooms = useRooms();
+  // 🔴 round-104：roster 展示偏好——置顶（排序优先）/ 隐藏。
+  // 隐藏**只影响展示**（Hermes 原文："a hidden bot keeps
+  // working, remains mentionable, keeps group membership"）；
+  // `showHidden` 对齐 Hermes `$showHiddenBots`——**session-only**，不持久化。
+  const [pinnedRooms, setPinnedRooms] = useState<Set<string>>(() => loadPinnedRooms());
+  const [hiddenRooms, setHiddenRooms] = useState<Set<string>>(() => loadHiddenRooms());
+  const [showHidden, setShowHidden] = useState(false);
+  const shownRooms = useMemo(
+    () => filterVisibleRooms(sortRoomsByPin(rooms, pinnedRooms), hiddenRooms, showHidden),
+    [rooms, pinnedRooms, hiddenRooms, showHidden],
+  );
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -447,18 +496,40 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
         {/* ── 群聊 section（点卡片 → 主区房间视图）── */}
         {rooms.length > 0 && (
           <section>
-            <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">群聊</div>
+            <div className="flex items-center justify-between mb-1.5 px-1">
+              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">群聊</div>
+              {/* 🔴 round-104：显示已隐藏（对齐 Hermes `$showHiddenBots`：session-only）。
+                  开关必须在"全部隐藏"时也可见，否则无法恢复。 */}
+              {hiddenRooms.size > 0 && (
+                <button
+                  type="button"
+                  className="text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                  title={showHidden ? '收起已隐藏的群聊' : `显示 ${hiddenRooms.size} 个已隐藏的群聊`}
+                  onClick={() => setShowHidden((v) => !v)}
+                >
+                  <EyeOff size={10} />
+                  {showHidden ? '收起隐藏项' : `已隐藏 ${hiddenRooms.size}`}
+                </button>
+              )}
+            </div>
             <div className="space-y-1.5">
-              {rooms.map((room) => (
+              {shownRooms.map((room) => (
                 <RoomCard
                   key={room.room_id}
                   room={room}
                   active={selectedRoomId === room.room_id}
                   needsYou={roomsNeedingYou.has(room.room_id)}
                   roster={bots}
+                  pinned={pinnedRooms.has(room.room_id)}
+                  hidden={hiddenRooms.has(room.room_id)}
+                  onTogglePin={() => setPinnedRooms((cur) => { const next = toggleMember(cur, room.room_id); savePinnedRooms(next); return next; })}
+                  onToggleHide={() => setHiddenRooms((cur) => { const next = toggleMember(cur, room.room_id); saveHiddenRooms(next); return next; })}
                   onOpen={() => openRoom(room)}
                 />
               ))}
+              {!shownRooms.length && (
+                <div className="text-[11px] text-muted-foreground/70 px-1 py-1">全部群聊已隐藏（点上方「已隐藏 N」可显示）</div>
+              )}
             </div>
           </section>
         )}
