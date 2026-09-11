@@ -26,7 +26,7 @@ import { dragHasPaths, collectDroppedPaths } from '@/lib/paths-dnd';
 import { useSessionActions } from './hooks/useSessionActions';
 import { setActiveSessionOverride } from './store/session-status';
 import { onWakeDetected } from './lib/wake-events';
-import { onProjectsChanged } from './lib/global-events';
+import { emitProfilesChanged, onProjectsChanged } from './lib/global-events';
 import useModels from './hooks/useModels';
 import * as storage from './utils/storage';
 import { call, isDesktop, discoverPort, getHttpBase } from './utils/bridge';
@@ -980,7 +980,9 @@ export default function App() {
     setPluginHost({
       openSession: (sid) => openBotChatRef.current(sid),
       openView: (viewId) => setViewMode(viewId as 'single' | 'grid' | 'bots'),
-      openAgentEditor: (profile) => setEditTarget(profile),
+      // 🔴 round-112：收 AgentEditTarget；传裸名 = 本机 Agent（兼容旧调用）
+      openAgentEditor: (target) =>
+        setEditTarget(typeof target === 'string' ? { profile: target } : target),
       setPanel: (panel) => setActivePanel(panel),
     });
     return () => setPluginHost(null);
@@ -1664,7 +1666,8 @@ export default function App() {
                   onColorsChange={setAgentColors}
                   onAvatarKeysChange={setAgentAvatarKeys}
                   refreshSignal={profileRefreshSignal}
-                  onEditAgent={setEditTarget}
+                  // 🔴 round-112：左栏 Agent 卡片 = 本机 profile → 只需名字
+                  onEditAgent={(name) => setEditTarget({ profile: name })}
                   onOpenSettings={handleOpenSettings}
                   onRestart={handleRestartService}
                   sessionId={viewMode === 'grid' ? (focusedGridSessionId ?? sess.sessionId) : sess.sessionId}
@@ -2204,20 +2207,31 @@ export default function App() {
       {/* Toast 通知栈 — 顶部居中浮动 */}
       <Toast />
 
-      {/* Agent 编辑面板（双击宫格卡片打开） */}
+      {/* Agent 编辑面板（双击宫格卡片 / 花名册右键打开） */}
       {editTarget && (
         <EditAgentDialog
           profile={{
-            name: editTarget,
-            display_name: displayNames[editTarget] || null,
-            color: agentColors[editTarget] || null,
-            avatar_key: agentAvatarKeys[editTarget] || null,
+            name: editTarget.profile,
+            // 🔴 round-112：远端行优先用**该行带来的种子**——本地三个映射只覆盖
+            // 本机 profile，同名远端行会读到本机同名者的昵称/颜色/头像。
+            display_name: editTarget.displayName ?? displayNames[editTarget.profile] ?? null,
+            color: editTarget.color ?? agentColors[editTarget.profile] ?? null,
+            avatar_key: editTarget.avatarKey ?? agentAvatarKeys[editTarget.profile] ?? null,
           }}
+          connectionId={editTarget.connectionId ?? null}
           onClose={() => setEditTarget(null)}
           onSaved={(nick) => {
+            // 🔴 round-112：远端 Agent 的改动**不能**写进本地映射（那是本机
+            // 同名 profile 的展示读数），刷新花名册让远端带回真值即可。
+            if (editTarget.connectionId) {
+              // 远端网关不会广播到本机 → 宿主主动广播（BotsPane 监听后重拉花名册）。
+              // 不直接 import 插件 store：依赖方向必须 插件 → 宿主。
+              emitProfilesChanged();
+              return;
+            }
             // 昵称保存 → App 即时更新 displayNames（状态栏/会话列表立即生效）
             if (nick && nick.trim()) {
-              setDisplayNames((prev) => ({ ...prev, [editTarget]: nick.trim() }));
+              setDisplayNames((prev) => ({ ...prev, [editTarget.profile]: nick.trim() }));
             }
             // 🔴 热更新：重拉 Agent 列表（宫格卡片昵称/颜色即时生效，不依赖重启）
             bumpProfileRefresh();

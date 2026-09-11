@@ -15,7 +15,7 @@
  * - 纯传输/无领域语义的调用（如 ping）可直接用 bridge.call
  */
 import { call, discoverPort, setHttpBase, getHttpBase } from './bridge';
-import { requestForBot } from '../services/connections';
+import { requestForBot, type BotRoute } from '../services/connections';
 
 // ====== 会话 ======
 
@@ -413,58 +413,58 @@ export async function createProfile(name: string, displayName?: string, cloneSou
 }
 
 /** profiles.set_color — 设置 Agent 主题色（#RRGGBB，仅 UI） */
-export async function setProfileColor(name: string, color: string): Promise<any> {
-  return call('set_color', { name, color });
+export async function setProfileColor(name: string, color: string, route?: BotRoute | null): Promise<any> {
+  return requestForBot(route, 'profiles.set_color', { name, color });
 }
 
 /** profiles.set_avatar — 上传 Agent 头像（base64 data URL → 后端 avatar.png） */
-export async function setProfileAvatar(name: string, dataUrl: string): Promise<any> {
-  return call('set_avatar', { name, data: dataUrl });
+export async function setProfileAvatar(name: string, dataUrl: string, route?: BotRoute | null): Promise<any> {
+  return requestForBot(route, 'profiles.set_avatar', { name, data: dataUrl });
 }
 
 /** profiles.set_avatar_key — 设置 Agent 默认头像（预设头像库 key，写 profile.yaml） */
-export async function setProfileAvatarKey(name: string, avatarKey: string | null): Promise<any> {
-  return call('set_avatar_key', { name, avatar_key: avatarKey });
+export async function setProfileAvatarKey(name: string, avatarKey: string | null, route?: BotRoute | null): Promise<any> {
+  return requestForBot(route, 'profiles.set_avatar_key', { name, avatar_key: avatarKey });
 }
 
 /** profiles.get_avatar — 读取 Agent 头像（返回 { exists, data?: dataURL }） */
-export async function getProfileAvatar(name: string): Promise<{ exists: boolean; data?: string; mime?: string }> {
-  return call('get_avatar', { name });
+export async function getProfileAvatar(name: string, route?: BotRoute | null): Promise<{ exists: boolean; data?: string; mime?: string }> {
+  return requestForBot(route, 'profiles.get_avatar', { name });
 }
 
 /** profiles.set_display_name — 设置 Agent 昵称（同步 SOUL.md 身份块） */
-export async function setDisplayName(name: string, displayName: string): Promise<any> {
-  return call('set_display_name', { name, display_name: displayName });
+export async function setDisplayName(name: string, displayName: string, route?: BotRoute | null): Promise<any> {
+  return requestForBot(route, 'profiles.set_display_name', { name, display_name: displayName });
 }
 
 /** profiles.get_soul — 读取 Agent SOUL.md */
-export async function getProfileSoul(name: string): Promise<{ content: string; exists: boolean }> {
-  return call('get_soul', { name });
+export async function getProfileSoul(name: string, route?: BotRoute | null): Promise<{ content: string; exists: boolean }> {
+  return requestForBot(route, 'profiles.get_soul', { name });
 }
 
 /** profiles.set_soul — 写入 Agent SOUL.md */
-export async function setProfileSoul(name: string, content: string): Promise<any> {
-  return call('set_soul', { name, content });
+export async function setProfileSoul(name: string, content: string, route?: BotRoute | null): Promise<any> {
+  return requestForBot(route, 'profiles.set_soul', { name, content });
 }
 
 /** profiles.get_memory — 读取 Agent MEMORY.md */
-export async function getProfileMemory(name: string): Promise<{ content: string; exists: boolean }> {
-  return call('get_memory', { name });
+export async function getProfileMemory(name: string, route?: BotRoute | null): Promise<{ content: string; exists: boolean }> {
+  return requestForBot(route, 'profiles.get_memory', { name });
 }
 
 /** profiles.set_memory — 写入 Agent MEMORY.md */
-export async function setProfileMemory(name: string, content: string): Promise<any> {
-  return call('set_memory', { name, content });
+export async function setProfileMemory(name: string, content: string, route?: BotRoute | null): Promise<any> {
+  return requestForBot(route, 'profiles.set_memory', { name, content });
 }
 
 /** profiles.get_user — 读取 Agent USER.md */
-export async function getProfileUser(name: string): Promise<{ content: string; exists: boolean }> {
-  return call('get_user', { name });
+export async function getProfileUser(name: string, route?: BotRoute | null): Promise<{ content: string; exists: boolean }> {
+  return requestForBot(route, 'profiles.get_user', { name });
 }
 
 /** profiles.set_user — 写入 Agent USER.md */
-export async function setProfileUser(name: string, content: string): Promise<any> {
-  return call('set_user', { name, content });
+export async function setProfileUser(name: string, content: string, route?: BotRoute | null): Promise<any> {
+  return requestForBot(route, 'profiles.set_user', { name, content });
 }
 
 /** profiles.delete — 删除 Agent（移入回收站，可恢复；per-profile 凭证隔离不影响其它 Agent） */
@@ -848,6 +848,15 @@ export interface BotRoom {
    *  语义与 Agent 的 hidden 一致：**纯展示**——隐藏的房间照常收发消息、
    *  成员照常发言、@提及照常生效。 */
   hidden?: boolean;
+  /** 🔴 round-111：**本地展示顺序**（对齐 Hermes `GroupChat.rosterOrder`，
+   *  提交 `9d66e76c5d`——原文 "Local display order, deliberately excluded from
+   *  the gateway mirror."）。
+   *
+   *  `null`/`undefined` = **从未手动排过序** → 保持 pin/activity 原序并落到
+   *  同 band 队尾（Hermes 缺省 `Infinity`）。排序与上/下移见 `lib/group-order.ts`。
+   *  与 `pinned`/`hidden` 同层落 `bot_rooms` 表（我方刻意偏离 Hermes 的本地
+   *  storage），但同样是**纯展示序**：不进房间事件流、不参与跨网关镜像。 */
+  roster_order?: number | null;
   members: { member_id: string; profile: string; handle: string; display_name: string }[];
   next_seq: number;
   created_at: number;
@@ -987,16 +996,16 @@ export async function setBotRoomImage(roomId: string, image: string | null): Pro
   return !!data?.event;
 }
 
-/** 🔴 round-110：设置房间的花名册展示偏好（置顶 / 隐藏）。
+/** 🔴 round-110：设置房间的花名册展示偏好（置顶 / 隐藏 / 🔴 round-111 手动顺序）。
  *
- *  **至少给一个字段**——两者都缺后端会拒绝（空写几乎必是漏传参数，静默 no-op
- *  会把 bug 藏起来）。
+ *  **至少给一个字段**——全缺后端会拒绝（空写几乎必是漏传参数，静默 no-op
+ *  会把 bug 藏起来）。缺键 = 该字段不动（与显式 `false`/`0` 区分）。
  *
  *  与 `setBotRoomImage` 不同，本调用**不产生房间事件**（偏好是纯展示状态，
  *  不进房间历史）⇒ 写后调用方应重拉 `rooms.list` 回灌本地行。 */
 export async function setBotRoomPrefs(
   roomId: string,
-  patch: { pinned?: boolean; hidden?: boolean },
+  patch: { pinned?: boolean; hidden?: boolean; roster_order?: number },
 ): Promise<BotRoom> {
   const data = await call('bot_rooms_set_prefs', { room_id: roomId, ...patch });
   return data?.room;

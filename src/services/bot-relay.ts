@@ -28,9 +28,15 @@ const RELAY_ROSTER_INTERVAL_MS = 60_000;
 /** backstop 节奏：push 信号（bot_relay.outbox.pending，v2）承载信封延迟，
  *  30s 轮询兜旧后端/丢事件（对齐 #93594 注释） */
 const RELAY_DRAIN_INTERVAL_MS = 30_000;
-/** deliver 客户端预算：目标网关一轮 Bot Chat（REPLY_WAIT_SECONDS=900s）
- *  + 结算/传输余量（对齐 Hermes ceiling+margin 形态） */
-const RELAY_DELIVER_TIMEOUT_MS = 1_500_000;
+/** deliver 客户端预算：目标网关单轮 `TURN_ATTEMPT_TIMEOUT_SECONDS`（900s）
+ *  × 最多 `TURN_MAX_ATTEMPTS`（2 次：首次 + 一次策略性重试）+ 结算余量 60s。
+ *
+ *  🔴 round-111：此前写死 1_500_000ms（1500s），**小于后端最坏 1800s** ——
+ *  于是在"首次 attempt 超时 → 自动重试"的那条路径上，Desktop 会在目标仍在
+ *  跑的轮上先放弃、写回一条"投递失败"；几秒后真实回信写好却已无收件人
+ *  （发送侧 waiter 的超时回执也已发出）。数字必须与 `eleve_core::bot` 的
+ *  `DELIVER_WORST_CASE_SECONDS = 900 × 2 + 60 = 1860s` 同源。 */
+const RELAY_DELIVER_TIMEOUT_MS = (900 * 2 + 60) * 1000;
 
 /** 本地（主）连接的稳定 id */
 export const LOCAL_CONNECTION_ID = 'local';

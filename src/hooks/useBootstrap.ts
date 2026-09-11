@@ -14,6 +14,7 @@ import { touchAndPruneMsgCache, clampCacheTails } from '../lib/msg-cache';
 import { loadDisplaySettings } from '../store/display-settings';
 import type { ChatMessage } from '../types';
 import type { useSessions } from './useSessions';
+import type { AgentEditTarget } from '../contrib/host';
 
 /**
  * useBootstrap — 启动编排（port / storage / profile / deps 门控）
@@ -43,7 +44,9 @@ export function useBootstrap({ sess }: { sess: ReturnType<typeof useSessions> })
   const [agentColors, setAgentColors] = useState<Record<string, string>>({});
   const [agentAvatarKeys, setAgentAvatarKeys] = useState<Record<string, string>>({});
   const [profileRefreshSignal, setProfileRefreshSignal] = useState(0);
-  const [editTarget, setEditTarget] = useState<string | null>(null);
+  // 🔴 round-112：编辑目标由裸 profile 名升级为 `AgentEditTarget`（远端 Agent
+  // 可编辑 → 需要 connectionId + 展示读数种子；见 contrib/host.ts）。
+  const [editTarget, setEditTarget] = useState<AgentEditTarget | null>(null);
   const profileDegradedRef = useRef(false); // 🔴 P1-5: getActiveProfile 重试耗尽降级标志
   const bumpProfileRefresh = useCallback(() => setProfileRefreshSignal((t) => t + 1), []);
 

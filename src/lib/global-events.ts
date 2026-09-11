@@ -53,6 +53,26 @@ export function onProfilesChanged(fn: ProfilesChangedListener): () => void {
 }
 
 /**
+ * 本地广播一次 `profiles.changed`（与后端 WS 事件**同一条分发路径**）。
+ *
+ * 🔴 round-112：宿主层编辑**远端** Agent 后需要花名册重拉——远端网关的改动
+ * 不经过本机 `ws/mod.rs` 的 `broadcast_profiles_changed`（那条只覆盖本机
+ * profiles.create/delete/rename），只能由宿主主动广播。
+ *
+ * 用广播而不是让 App 直接 import 插件 store：依赖方向必须是
+ * **插件 → 宿主**；宿主反向 import 插件模块会把插件变成宿主的编译期依赖。
+ */
+export function emitProfilesChanged(): void {
+  for (const fn of profilesChangedListeners) {
+    try {
+      fn()
+    } catch (err) {
+      console.error('[global-events] profiles.changed listener failed', err)
+    }
+  }
+}
+
+/**
  * 处理全局 WS 事件（无 session_id）。
  * 动态 import 保持零静态耦合（通知/终端 store 按需加载）。
  * @returns true 如果事件被处理（调用方可跳过后续逻辑）
@@ -148,13 +168,7 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
     // profiles.changed — Agent 生命周期变化（新建/删除/改名成功后广播）。
     // 消费方（BotsPane 花名册等）各自重拉；payload 带 action/name。
     case 'profiles.changed': {
-      for (const fn of profilesChangedListeners) {
-        try {
-          fn()
-        } catch (err) {
-          console.error('[global-events] profiles.changed listener failed', err)
-        }
-      }
+      emitProfilesChanged()
       return true
     }
 

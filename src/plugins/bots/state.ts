@@ -67,11 +67,12 @@ export function useSelectedRoomId(): string | null {
 // ═════════════════════════════════════════════════════════════════════
 // 🔴 round-94 G1：「需要你」房间集合（对齐 Hermes `$groupNeedsYou`）。
 //
-// Hermes 语义（group-turns.ts:496-500）：成员被 clarify/approval 阻塞 →
-// 房间行打 needs-you 徽标；用户发言即清除（group-rounds.ts:977-980）。
-// ELEVE 的置位条件 = **该房间有未决交互卡**（澄清/审批在等用户响应）——
-// 这是"房间在等人"的唯一可靠信号；@提及用户那条路径 ELEVE 房间内无用户
-// handle 语义，不做。
+// 🔴 round-111 语义收窄：本集合现在**只承载"成员在回复里 @ 了你"**这一路
+// 注意力（Hermes `appendGroupChatEntry` 的 `/@user\b/i` 判定），用户发言即清除
+// （group-rounds.ts:977-980）——这符合"用户在房间里回了话 = 回应了那次求助"。
+//
+// clarify/approval 那一路**不再写这里**，改由 [`useRoomsWithPendingClarify`]
+// 派生（见其注释：两个独立来源共写一个可写标志会互相抹掉对方的信号）。
 //
 // 快照不可变（useSyncExternalStore 用 Object.is 判快照；原地 mutate 同一个
 // Set 会被判为"没变"而不重渲染）。
@@ -106,6 +107,93 @@ export function useRoomsNeedingYou(): ReadonlySet<string> {
     },
     getRoomsNeedingYou,
     () => EMPTY_SET,
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// 🔴 round-111：「有成员卡在澄清/审批」的房间集合——**派生值，不是可写标志**。
+//
+// 根因（对齐 Hermes `ad08688bc6 fix(bot-mode): derive group clarify/approval
+// attention from $groupClarify instead of duplicating it into $groupNeedsYou`）：
+// 此前 needs-you 只有一个可写标志集，却被**两个互不感知的来源**写：
+//   ① `message.member` 文本含 `@user`（成员在回复里直接求助）；
+//   ② 打开房间的 `pendingInteractions` 非空（成员轮 clarify/approval 阻塞）。
+// 于是任何一侧的"清位"都会顺手抹掉另一侧**仍然成立**的信号：
+//   - 用户发言（本意只回应 ①）会把"成员还在等澄清"一起清掉
+//     → 徽标熄灭但房间里卡着一张没人处理的澄清卡；
+//   - 回答澄清（清 ②）会把"成员 @ 了你"一起清掉。
+// Hermes 的解法同构：`$groupClarify` 才是 clarify/approval 注意力的唯一真值，
+// 花名册读 `groupNeedsYou[group] || groupHasPendingClarify(...)`，**不再回写**。
+//
+// ELEVE 的对应物：本集合由模块级 `bot.room.event` 监听从
+// `interaction.request` / `interaction.resolved` 维护——**覆盖所有房间**
+// （顺带修掉"只有正在看的那个房间才会亮 clarify 徽标"的覆盖缺口）。
+// 渲染处取并集：`mentionNeedsYou.has(id) || pendingClarify.has(id)`。
+//
+// 键 = 稳定的 `room_id`。Hermes 用房间名做键，所以它额外需要
+// `renameGroupClarify` 迁移；ELEVE 改名不改 id，**无此等价物**。
+// 快照不可变（useSyncExternalStore 用 Object.is 判快照）。
+// ═════════════════════════════════════════════════════════════════════
+
+const EMPTY_ROOM_SET: ReadonlySet<string> = new Set<string>();
+let pendingClarifyByRoom: ReadonlyMap<string, ReadonlySet<string>> = new Map();
+let pendingClarifyRooms: ReadonlySet<string> = EMPTY_ROOM_SET;
+const clarifyListeners = new Set<() => void>();
+
+function emitClarify() {
+  for (const fn of clarifyListeners) fn();
+}
+
+/** 有未决交互的房间 id 集合（渲染用；与 `roomNeedsYou` 取并集）。 */
+export function getRoomsWithPendingClarify(): ReadonlySet<string> {
+  return pendingClarifyRooms;
+}
+
+/** 登记一条未决交互（`interaction.request` 广播）。 */
+export function noteRoomClarify(roomId: string, requestId: string): void {
+  if (!roomId || !requestId) return;
+  const cur = pendingClarifyByRoom.get(roomId);
+  if (cur?.has(requestId)) return;
+  const next = new Map(pendingClarifyByRoom);
+  next.set(roomId, new Set(cur ?? []).add(requestId));
+  pendingClarifyByRoom = next;
+  pendingClarifyRooms = new Set(next.keys());
+  emitClarify();
+}
+
+/** 清除一条未决交互（`interaction.resolved`：answered / expired 都走这里）。 */
+export function clearRoomClarify(roomId: string, requestId: string): void {
+  const cur = pendingClarifyByRoom.get(roomId);
+  if (!cur?.has(requestId)) return;
+  const next = new Map(pendingClarifyByRoom);
+  const remaining = new Set(cur);
+  remaining.delete(requestId);
+  if (remaining.size) next.set(roomId, remaining);
+  else next.delete(roomId);
+  pendingClarifyByRoom = next;
+  pendingClarifyRooms = new Set(next.keys());
+  emitClarify();
+}
+
+/** 房间解散：撤掉它的全部未决交互 —— 对齐 Hermes "retire late work after
+ *  disband"。否则房间里那条永远不会再被消费的信号会把徽标永远点亮。 */
+export function dropRoomClarify(roomId: string): void {
+  if (!pendingClarifyByRoom.has(roomId)) return;
+  const next = new Map(pendingClarifyByRoom);
+  next.delete(roomId);
+  pendingClarifyByRoom = next;
+  pendingClarifyRooms = new Set(next.keys());
+  emitClarify();
+}
+
+export function useRoomsWithPendingClarify(): ReadonlySet<string> {
+  return useSyncExternalStore(
+    (fn) => {
+      clarifyListeners.add(fn);
+      return () => clarifyListeners.delete(fn);
+    },
+    getRoomsWithPendingClarify,
+    () => EMPTY_ROOM_SET,
   );
 }
 
@@ -276,9 +364,11 @@ getWsClient().addEventListener((eventName, data) => {
   // Hermes 的该判定发生在 `appendGroupChatEntry`（房间 append 时刻），与是否
   // 正在观看无关。
   //
-  // 清理面不变：用户发言成功（BotsView.send/sendInThread）与打开房间
-  // （pendingInteractions 派生 effect）——两者都与 Hermes 的
-  // `sendToGroupChat` / `openGroupChat` 清位时机对应。
+  // 清理面：只由**用户发言成功**（BotsView.send/sendInThread）清除——对齐
+  // Hermes `sendToGroupChat` 的清位时机。🔴 round-111：此前这里还写着
+  // "打开房间（pendingInteractions 派生 effect）"，那条写路径已删除——
+  // clarify/approval 注意力改由 `pendingClarifyByRoom` 派生，不再写本标志
+  // （两个来源共写一个标志会互相抹掉对方的信号，见上方长注释）。
   // ═════════════════════════════════════════════════════════════════════
   if (kind === 'message.member') {
     const roomId = envelope?.room_id;
@@ -286,6 +376,25 @@ getWsClient().addEventListener((eventName, data) => {
     if (roomId && typeof text === 'string' && /@user\b/i.test(text)) {
       markRoomNeedsYou(roomId);
     }
+  }
+  // ═════════════════════════════════════════════════════════════════════
+  // 🔴 round-111：clarify/approval 注意力的**唯一真值**来源（等价 Hermes
+  // `$groupClarify`）。房间事件流本身广播 request/resolved——在这里维护即可
+  // 覆盖所有房间，无需依赖"用户正打开着哪个房间"。
+  // ═════════════════════════════════════════════════════════════════════
+  if (kind === 'interaction.request') {
+    const roomId = envelope?.room_id;
+    const requestId = envelope?.event?.payload?.request_id;
+    if (roomId && typeof requestId === 'string') noteRoomClarify(roomId, requestId);
+  } else if (kind === 'interaction.resolved') {
+    const roomId = envelope?.room_id;
+    const requestId = envelope?.event?.payload?.request_id;
+    if (roomId && typeof requestId === 'string') clearRoomClarify(roomId, requestId);
+  } else if (kind === 'room.disbanded') {
+    // 对齐 Hermes "retire late work after disband"：解散房里残留的未决信号
+    // 永远等不到 resolved，必须显式撤掉。
+    const roomId = envelope?.room_id;
+    if (roomId) dropRoomClarify(roomId);
   }
   if (
     kind === 'room.created' ||

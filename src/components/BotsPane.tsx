@@ -15,9 +15,16 @@
  */
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
-import { Check, Copy, EyeOff, HelpCircle, Loader, Pin, Plus, Pencil, Search, SlidersHorizontal, UsersRound, WifiOff, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Copy, EyeOff, HelpCircle, Loader, Pin, Plus, Pencil, Search, SlidersHorizontal, UsersRound, WifiOff, X } from 'lucide-react';
 import { formatRowAge } from '../utils/time';
-import { memberAvailability, memberPickLabel, pickableMembers } from '../lib/bot-members';
+// 🔴 round-111：花名册行定位一律走 `rosterRowKey` / `findRosterRowByKey`
+// ——跨连接同名（本机 coder + 远端 coder）时 `profile` 会撞，按 profile
+// `find()` 恒命中本机那条 → 置顶/隐藏/编辑/复制全作用到错误连接。
+import {
+  findRosterRowByKey, memberAvailability, memberPickLabel, pickableMembers, rosterRowKey,
+} from '../lib/bot-members';
+// 🔴 round-111：房间手动顺序（对齐 Hermes group-order.ts）
+import { reorderRosterRooms, rosterOrderWrites, sortRosterRooms } from '../lib/group-order';
 // 🔴 round-107：复制 Agent（对齐 Hermes profile-ops.ts:301 duplicateBot）
 import { duplicateAgent } from '../lib/bot-duplicate';
 // 🔴 round-108：花名册工具条（搜索 / 类型 / 活跃度 / 连接 过滤 + 活动度排序）
@@ -54,16 +61,21 @@ import { ingestBotRoster, markBotRead, useBotUnread } from '../hooks/useBotUnrea
 import { BotRosterRow } from './BotsView';
 import {
   closeRemoteChat, isRoomsLoaded, openRemoteChat, refreshRooms, refreshUnionRoster,
-  selectRoom, useRooms, useRoomsLoaded, useRoomsNeedingYou, useSelectedRoomId,
-  useUnionRoster,
+  selectRoom, useRooms, useRoomsLoaded, useRoomsNeedingYou, useRoomsWithPendingClarify,
+  useSelectedRoomId, useUnionRoster,
   type UnionRosterRow,
 } from '../plugins/bots/state';
 import { onProfilesChanged } from '../lib/global-events';
+// 🔴 round-112：Agent 编辑目标（含远端连接 + 展示读数种子）
+import type { AgentEditTarget } from '../contrib/host';
 
 interface BotsPaneProps {
   onOpenBotChat: (id: string) => void;
   onOpenBotRoom: (roomId: string) => void;
-  onEditAgent?: (profile: string) => void;
+  /** 🔴 round-112：改收 `AgentEditTarget`（含 connectionId + 展示读数种子）——
+   *  远端 Agent 现在也能编辑（编辑链骑 owner 连接），不再是 round-111 的
+   *  "只对本机行开放"。对齐 Hermes `EditProfileDialog bot={RosterRow}`。 */
+  onEditAgent?: (target: AgentEditTarget) => void;
   /** 🔴 round-78：远端会话视图置位后的主区导航（RemoteBotChatView 只在
    * viewMode==='bots' 主区渲染；缺导航则非 bots 主区下点远端行"没反应"） */
   onRemoteChatOpened?: () => void;
@@ -99,10 +111,14 @@ function roomRowReads(room: BotRoom, roster: UnionRosterRow[]) {
  *  （ProjectTreeItems）同构：rounded-lg 卡片底 + 主题色 30% 描边 + 选中发光竖条
  *  /光环投影/扫光（card-selected-sweep）。结构 = 名称行（色块图标 + 房间名 +
  *  成员数徽标）+ 成员 @handle 副行。 */
-function RoomCard({ room, active, needsYou, roster, pinned, hidden, onTogglePin, onToggleHide, onOpen }: {
+function RoomCard({ room, active, needsYou, roster, pinned, hidden, canMoveUp, canMoveDown, onTogglePin, onToggleHide, onMoveUp, onMoveDown, onOpen }: {
   room: BotRoom; active: boolean; needsYou: boolean; roster: UnionRosterRow[];
   pinned: boolean; hidden: boolean;
+  /** 🔴 round-111：能否在**同一 pin band 的可见邻居**间移动（对齐 Hermes
+   *  `reorderGroupRows` 的 band 判定——band 边缘即禁用，而不是绕到别处）。 */
+  canMoveUp: boolean; canMoveDown: boolean;
   onTogglePin: () => void; onToggleHide: () => void;
+  onMoveUp: () => void; onMoveDown: () => void;
   onOpen: () => void;
 }) {
   const { known, available, preview, lastAt } = roomRowReads(room, roster);
@@ -189,6 +205,26 @@ function RoomCard({ room, active, needsYou, roster, pinned, hidden, onTogglePin,
           <Pin size={10} className="shrink-0 text-muted-foreground" aria-label="已置顶" />
         )}
         <div className="hidden group-hover/room:flex items-center gap-0.5 shrink-0">
+          {/* 🔴 round-111：手动顺序（对齐 Hermes group-order 的 Move up / Move down）。
+              只在**同 pin band 的可见**邻居间交换；band 边缘禁用而非绕行。 */}
+          <button
+            type="button"
+            className="p-0.5 rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+            title="上移（同置顶组内）"
+            disabled={!canMoveUp}
+            onClick={(e) => { e.stopPropagation(); onMoveUp(); }}
+          >
+            <ChevronUp size={11} />
+          </button>
+          <button
+            type="button"
+            className="p-0.5 rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+            title="下移（同置顶组内）"
+            disabled={!canMoveDown}
+            onClick={(e) => { e.stopPropagation(); onMoveDown(); }}
+          >
+            <ChevronDown size={11} />
+          </button>
           <button
             type="button"
             className="p-0.5 rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
@@ -282,17 +318,20 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
     setShowFilters(false);
   };
 
-  /** 通过筛选的房间（置顶优先 + 活动度降序 → 搜索/连接 → 活跃度） */
+  /** 🔴 round-111：**全部**房间的展示序——pin 外层 band → 手动顺序
+   *  （`roster_order`，缺省落在同 band 队尾）→ 其余保持活动度原序。
+   *
+   *  隐藏/被筛掉的房间**保留自己的槽位**（构建 `roomsOrdered` 时不过滤），
+   *  这是"retain hidden room slots"能在上/下移时成立的前提。 */
+  const roomsOrdered = useMemo(() => sortRosterRooms(rooms, roomActivityMs), [rooms]);
+
+  /** 通过筛选的房间（展示序 → 搜索/连接 → 活跃度） */
   const visibleRooms = useMemo(() => {
     if (!kindAllowsRooms(kindFilter)) return [];
-    return sortByPinThenActivity(
-      rooms,
-      (r) => Boolean(r.pinned),
-      roomActivityMs,
-    )
+    return roomsOrdered
       .filter((r) => roomMatchesFilters(r, bots, query, gatewayFilter))
       .filter((r) => matchesActivityFilter(roomRowMeta(r), activityFilter));
-  }, [rooms, bots, query, gatewayFilter, activityFilter, kindFilter, roomRowMeta]);
+  }, [roomsOrdered, bots, query, gatewayFilter, activityFilter, kindFilter, roomRowMeta]);
 
   /** 通过筛选的 Agent 行（与房间行同一套管线；置顶来自**服务端**偏好） */
   const filteredBots = useMemo(() => {
@@ -323,6 +362,9 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
     () => filterHiddenRooms(visibleRooms, showHidden || hasConstraint),
     [visibleRooms, showHidden, hasConstraint],
   );
+  /** 🔴 round-111：当前可见房间的 id 列表——房间移动的"邻居范围"（对齐 Hermes
+   *  `reorderGroupRows(rows, name, delta, visible)` 的 `visible` 参数）。 */
+  const shownRoomIds = useMemo(() => shownRooms.map((r) => r.room_id), [shownRooms]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -332,10 +374,14 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   const [newImage, setNewImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [rowMenu, setRowMenu] = useState<{ profile: string; x: number; y: number } | null>(null);
-  /** 🔴 round-109：右键菜单当前指向的 Agent 行（置顶/隐藏要读它的当前值）。 */
+  const [rowMenu, setRowMenu] = useState<{ rowKey: string; x: number; y: number } | null>(null);
+  /** 🔴 round-109：右键菜单当前指向的 Agent 行（置顶/隐藏要读它的当前值）。
+   *  🔴 round-111：改按 **`rosterRowKey`**（`connectionId::profile`）定位——
+   *  此前存/查都只用 `profile`，跨连接同名时恒命中本机那条：菜单显示的是远端
+   *  行的置顶态，点下去写的却是本机 `coder` 的偏好（route 也跟着指错连接）。
+   *  对齐 Hermes `bot-row.tsx`：菜单动作整体收 `bot: RosterRow`，不拆成 name。 */
   const menuRow = useMemo(
-    () => (rowMenu ? bots.find((r) => r.entry.profile === rowMenu.profile) ?? null : null),
+    () => findRosterRowByKey(bots, rowMenu?.rowKey),
     [rowMenu, bots],
   );
 
@@ -532,10 +578,11 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
    *    连接，本机行 route=null（round-96 起本机也走 RPC 名，不再经 bridge 映射表）；
    *  - 成功后 `refreshUnionRoster()` 让新行出现（对齐 Hermes
    *    `queryClient.invalidateQueries(ROSTER_KEY)`）。 */
-  const runDuplicateAgent = async (profile: string) => {
+  // 🔴 round-111：**直接收行**（不再收 profile 再 find）——同名跨连接时
+  // `find(profile)` 会取到另一条连接的行，于是"复制远端的 coder"实际
+  // 复制的是本机 coder（且 route 走本机）。对齐 Hermes `duplicateBot(bot)`。
+  const runDuplicateAgent = async (row: UnionRosterRow) => {
     if (duplicating) return;
-    const row = bots.find((r) => r.entry.profile === profile);
-    if (!row) return;
     setDuplicating(true);
     setError(null);
     setNotice(null);
@@ -553,7 +600,7 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
       );
       setRowMenu(null);
       await refreshUnionRoster();
-      setNotice(`已创建 ${name} —— ${profile} 的完整副本（配置 / skills / SOUL 与外观；不含聊天记录）`);
+      setNotice(`已创建 ${name} —— ${row.entry.profile} 的完整副本（配置 / skills / SOUL 与外观；不含聊天记录）`);
     } catch (e) {
       setError(`复制 Agent 失败：${(e as Error).message}`);
       setRowMenu(null);
@@ -602,6 +649,29 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
     }
   };
 
+  /** 🔴 round-111：房间上/下移（对齐 Hermes group-order 的 Move up / Move down）。
+   *
+   *  - band = **同一 `pinned` 状态 ∩ 当前可见**的房间——`Pinned` 的房间移动时
+   *    不会跳过未置顶的房间，反之亦然；被搜索/隐藏过滤掉的房间**保留槽位**，
+   *    只是不参与"邻居"判定（对齐 `reorderGroupRows(..., visible)`）。
+   *  - 写回**全部**房间的新下标（只写真正变化的行）：只换两行会让"从未排过序"
+   *    的行继续 NULL，下次再拖又按活动度重排——顺序会漂。
+   *  - 纯展示序：不发房间事件，写后重拉 `rooms.list` 回灌（`setRoomPrefs` 同款）。 */
+  const moveRoom = async (room: BotRoom, delta: -1 | 1) => {
+    const visibleIds = shownRooms.map((r) => r.room_id);
+    const next = reorderRosterRooms(roomsOrdered, room.room_id, delta, visibleIds);
+    if (!next) return; // band 边缘 / 目标已消失：按钮本就该是禁用的
+    const writes = rosterOrderWrites(roomsOrdered, next);
+    if (!writes.length) return;
+    setError(null);
+    try {
+      for (const w of writes) await setBotRoomPrefs(w.roomId, { roster_order: w.rosterOrder });
+      await refreshRooms();
+    } catch (e) {
+      setError(`调整房间顺序失败：${(e as Error).message}`);
+    }
+  };
+
   const openRoom = (room: BotRoom) => {
     // 🔴 2026-09-08 round-76：房间选择与远端会话视图互斥——否则 remoteChat
     // 激活时点群聊行，主区仍被远端视图遮蔽（"点了没反应"）
@@ -613,6 +683,10 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   // 🔴 2026-09-05 round-52：群聊卡片选中态（选中房间 = 主区正在显示的房间）
   const selectedRoomId = useSelectedRoomId();
   const roomsNeedingYou = useRoomsNeedingYou();
+  // 🔴 round-111：clarify/approval 注意力是**派生**的独立源（对齐 Hermes
+  // 花名册读 `groupNeedsYou[g] || groupHasPendingClarify(...)`）——两个 store
+  // 各自可重渲染本行，任一来源变化都会重画徽标。
+  const roomsWithClarify = useRoomsWithPendingClarify();
 
   return (
     <div className="relative h-full flex flex-col min-h-0">
@@ -775,12 +849,19 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
                   key={room.room_id}
                   room={room}
                   active={selectedRoomId === room.room_id}
-                  needsYou={roomsNeedingYou.has(room.room_id)}
+                  // 🔴 round-111：两个来源取并集（@提及 或 未决澄清/审批）
+                  needsYou={roomsNeedingYou.has(room.room_id) || roomsWithClarify.has(room.room_id)}
                   roster={bots}
                   pinned={Boolean(room.pinned)}
                   hidden={Boolean(room.hidden)}
+                  // 🔴 round-111：能否移动 = **同一判定函数**说了算（band ∩ 可见），
+                  // 不在这里另写一份 band 规则——两套实现迟早漂移。
+                  canMoveUp={reorderRosterRooms(roomsOrdered, room.room_id, -1, shownRoomIds) !== null}
+                  canMoveDown={reorderRosterRooms(roomsOrdered, room.room_id, 1, shownRoomIds) !== null}
                   onTogglePin={() => void setRoomPrefs(room, { pinned: !room.pinned })}
                   onToggleHide={() => void setRoomPrefs(room, { hidden: !room.hidden })}
+                  onMoveUp={() => void moveRoom(room, -1)}
+                  onMoveDown={() => void moveRoom(room, 1)}
                   onOpen={() => openRoom(room)}
                 />
               ))}
@@ -804,11 +885,12 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
           <div className="space-y-1">
             {visibleBots.map((row) => (
               <BotRosterRow
-                key={`${row.connectionId}:${row.entry.profile}`}
+                key={rosterRowKey(row)}
                 row={row}
                 dimmed={Boolean(row.entry.hidden) && showHidden && !hasConstraint}
                 onOpen={() => (row.isRemote ? openRemoteBotChat(row) : openBotChat(row.entry.profile))}
-                onRowMenu={(x, y) => setRowMenu({ profile: row.entry.profile, x, y })}
+                // 🔴 round-111：菜单锚点 = 唯一键（不是 profile）
+                onRowMenu={(x, y) => setRowMenu({ rowKey: rosterRowKey(row), x, y })}
               />
             ))}
             {!loading && bots.length === 0 && (
@@ -928,16 +1010,32 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
         </div>
       )}
 
-      {/* ── 花名册行右键菜单 ── */}
-      {rowMenu && (
+      {/* ── 花名册行右键菜单 ──
+          🔴 round-111：整体以 `menuRow`（按唯一键解出的**那一行**）为准。
+          行在花名册刷新后消失时菜单自会收起，不会退化成"按 profile 猜一行"。 */}
+      {rowMenu && menuRow && (
         <div
           className="fixed z-50 min-w-36 rounded-lg border border-[var(--ui-stroke-tertiary)] bg-popover text-popover-foreground py-1 shadow-xl"
           style={{ left: rowMenu.x, top: Math.min(rowMenu.y, window.innerHeight - 90) }}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* 🔴 round-111：入口按解出的那一行定位；🔴 round-112：**远端行也开放**
+              ——编辑链已路由化（`EditAgentDialog` 的 connectionId → 每一条
+              `profiles.*` 都骑 owner 连接），不再是"必然写坏本机同名 profile"。
+              种子读数（昵称/颜色/头像）随行带过去：宿主的本地映射只覆盖本机
+              profile，同名远端行不传种子会显示成**本机同名**的值。 */}
           <button
             className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent/50 text-left"
-            onClick={() => { onEditAgent?.(rowMenu.profile); setRowMenu(null); }}
+            onClick={() => {
+              onEditAgent?.({
+                profile: menuRow.entry.profile,
+                connectionId: menuRow.isRemote ? menuRow.connectionId : null,
+                displayName: menuRow.entry.display_name ?? null,
+                color: menuRow.entry.color ?? null,
+                avatarKey: menuRow.entry.avatar_key ?? null,
+              });
+              setRowMenu(null);
+            }}
           >
             <Pencil size={13} className="text-muted-foreground" />
             编辑 Agent
@@ -947,31 +1045,27 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
           <button
             className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent/50 text-left disabled:opacity-50"
             disabled={duplicating}
-            onClick={() => void runDuplicateAgent(rowMenu.profile)}
+            onClick={() => void runDuplicateAgent(menuRow)}
           >
             <Copy size={13} className="text-muted-foreground" />
             {duplicating ? '正在复制…' : '复制 Agent'}
           </button>
           {/* 🔴 round-109：花名册展示偏好（对齐 Hermes bot-row 的 Pin / Hide Bot） */}
-          {menuRow && (
-            <>
-              <button
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent/50 text-left"
-                onClick={() => void setBotPrefs(menuRow, { pinned: !menuRow.entry.pinned })}
-              >
-                <Pin size={13} className="text-muted-foreground" />
-                {menuRow.entry.pinned ? '取消置顶' : '置顶'}
-              </button>
-              <button
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent/50 text-left"
-                title="隐藏只影响展示——仍可 @提及、仍在群里、私聊不断"
-                onClick={() => void setBotPrefs(menuRow, { hidden: !menuRow.entry.hidden })}
-              >
-                <EyeOff size={13} className="text-muted-foreground" />
-                {menuRow.entry.hidden ? '取消隐藏' : '隐藏'}
-              </button>
-            </>
-          )}
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent/50 text-left"
+            onClick={() => void setBotPrefs(menuRow, { pinned: !menuRow.entry.pinned })}
+          >
+            <Pin size={13} className="text-muted-foreground" />
+            {menuRow.entry.pinned ? '取消置顶' : '置顶'}
+          </button>
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent/50 text-left"
+            title="隐藏只影响展示——仍可 @提及、仍在群里、私聊不断"
+            onClick={() => void setBotPrefs(menuRow, { hidden: !menuRow.entry.hidden })}
+          >
+            <EyeOff size={13} className="text-muted-foreground" />
+            {menuRow.entry.hidden ? '取消隐藏' : '隐藏'}
+          </button>
         </div>
       )}
     </div>

@@ -8,7 +8,7 @@
  *   - MEMORY.md：Agent 长期记忆编辑器（profiles.get_memory / set_memory）
  *   - USER.md：用户对 Agent 的指示/用户档案（profiles.get_user / set_user）
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader, Palette, Save, Sparkles, X, BookOpen, User, Camera, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getProfileSoul, getProfileMemory, getProfileUser, setProfileColor, setDisplayName, setProfileSoul, setProfileMemory, setProfileUser, setProfileAvatar, getProfileAvatar, setProfileAvatarKey } from '../utils/api';
@@ -20,12 +20,27 @@ type EditTab = 'appearance' | 'soul' | 'memory' | 'user';
 
 interface EditAgentDialogProps {
   profile: { name: string; display_name?: string | null; color?: string | null; avatar_key?: string | null };
+  /**
+   * 🔴 round-112：非空 = 编辑**远端** Agent —— 面板里每一条 §profiles.* 调用
+   * 都骑这条 owner 连接（对齐 Hermes `EditProfileDialog` 的
+   * `requestForBot(bot, 'profiles.configure'|'set_asset'|…)`）。
+   *
+   * 刻意收**基本类型**而非 `BotRoute` 对象：`undefined ≠ 同一个对象`，若收对象，
+   * 本组件里那些 `[profile.name, …]` 的懒加载 effect 会在宿主每次重渲染时重跑
+   * （App 是内联构造 route 的 → 引用恒定变化 → setState → 再重渲染的取数死循环）。
+   */
+  connectionId?: string | null;
   onClose: () => void;
   /** 编辑完成后回调（App 刷新 displayNames / 列表）；昵称保存时携带新昵称 */
   onSaved?: (nickname?: string) => void;
 }
 
-export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgentDialogProps) {
+export default function EditAgentDialog({ profile, connectionId, onClose, onSaved }: EditAgentDialogProps) {
+  /** 编辑链的路由（本机 = null：走主连接）。由基本类型 memo 出来 → 引用稳定。 */
+  const route = useMemo(
+    () => (connectionId ? { connectionId, profile: 'default' } : null),
+    [connectionId],
+  );
   const [tab, setTab] = useState<EditTab>('appearance');
   const [color, setColor] = useState<string>(profile.color || AGENT_PALETTE[0]);
   const [colorBusy, setColorBusy] = useState(false);
@@ -106,7 +121,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
     if (tab === 'soul' && !loadedRef.current.soul) {
       loadedRef.current.soul = true;
       setSoulLoading(true);
-      getProfileSoul(profile.name)
+      getProfileSoul(profile.name, route)
         .then((data) => { setSoul(data.content); setSoulOriginal(data.content); })
         .catch((err) => setError(err instanceof Error ? err.message : String(err)))
         .finally(() => setSoulLoading(false));
@@ -114,7 +129,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
     if (tab === 'memory' && !loadedRef.current.memory) {
       loadedRef.current.memory = true;
       setMemoryLoading(true);
-      getProfileMemory(profile.name)
+      getProfileMemory(profile.name, route)
         .then((data) => { setMemory(data.content); setMemoryOriginal(data.content); })
         .catch((err) => setError(err instanceof Error ? err.message : String(err)))
         .finally(() => setMemoryLoading(false));
@@ -122,22 +137,24 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
     if (tab === 'user' && !loadedRef.current.user) {
       loadedRef.current.user = true;
       setUserLoading(true);
-      getProfileUser(profile.name)
+      getProfileUser(profile.name, route)
         .then((data) => { setUser(data.content); setUserOriginal(data.content); })
         .catch((err) => setError(err instanceof Error ? err.message : String(err)))
         .finally(() => setUserLoading(false));
     }
-  }, [tab, profile.name]);
+    // 🔴 round-112：`route` 由 `connectionId`（基本类型）memo 得到 → 引用稳定，
+    // 放进依赖不会引发重取；切换编辑目标（本机 ↔ 远端）时应当重取，故必须带上。
+  }, [tab, profile.name, route]);
 
   // 🔴 2026-08-02 头像：挂载时拉取上传图（仅无默认头像 key 时；有 key 用预设 SVG）
   useEffect(() => {
     if (avatarKey) { setAvatar(null); return; }
     let cancelled = false;
-    getProfileAvatar(profile.name)
+    getProfileAvatar(profile.name, route)
       .then((res) => { if (!cancelled && res?.exists && res.data) setAvatar(res.data); })
       .catch(() => { /* 静默：无头像 */ });
     return () => { cancelled = true; };
-  }, [profile.name, avatarKey]);
+  }, [profile.name, avatarKey, route]);
 
   const flashSaved = useCallback((msg: string) => {
     setSaved(msg);
@@ -151,14 +168,14 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
     setAvatar(null);
     setError(null);
     try {
-      await setProfileAvatarKey(profile.name, key);
+      await setProfileAvatarKey(profile.name, key, route);
       flashSaved('头像已更新');
       onSaved?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       notifyError(err, '保存头像失败');
     }
-  }, [profile.name, flashSaved, onSaved]);
+  }, [profile.name, flashSaved, onSaved, route]);
 
   // 🔴 2026-08-02 头像上传：读文件 → base64 dataURL → set_avatar → 本地即时预览 + 通知刷新
   const handleAvatarChange = useCallback(async (file: File | undefined) => {
@@ -183,7 +200,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
       // 先本地预览（即时反馈），再上传
       setAvatar(dataUrl);
       setAvatarKey(null);
-      await setProfileAvatar(profile.name, dataUrl);
+      await setProfileAvatar(profile.name, dataUrl, route);
       flashSaved('头像已更新');
       // 🔴 热更新：通知 App 刷新列表（侧栏/宫格头像即时生效）
       onSaved?.();
@@ -193,14 +210,14 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
     } finally {
       setAvatarBusy(false);
     }
-  }, [profile.name, flashSaved, onSaved]);
+  }, [profile.name, flashSaved, onSaved, route]);
 
   const handlePickColor = useCallback(async (c: string) => {
     setColor(c);
     setColorBusy(true);
     setError(null);
     try {
-      await setProfileColor(profile.name, c);
+      await setProfileColor(profile.name, c, route);
       flashSaved('颜色已保存');
       // 🔴 热更新：保存后通知 App 刷新列表（宫格卡片/侧栏色块即时生效，不依赖重启）
       onSaved?.();
@@ -210,7 +227,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
     } finally {
       setColorBusy(false);
     }
-  }, [profile.name, flashSaved, onSaved]);
+  }, [profile.name, flashSaved, onSaved, route]);
 
   const handleSaveNickname = useCallback(async () => {
     const nick = nickname.trim();
@@ -218,7 +235,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
     setNickBusy(true);
     setError(null);
     try {
-      const res = await setDisplayName(profile.name, nick);
+      const res = await setDisplayName(profile.name, nick, route);
       if (res?.warning) setError(String(res.warning));
       flashSaved('昵称已保存');
       onSaved?.(nick);
@@ -228,13 +245,13 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
     } finally {
       setNickBusy(false);
     }
-  }, [nickname, profile.name, flashSaved, onSaved]);
+  }, [nickname, profile.name, flashSaved, onSaved, route]);
 
   const handleSaveSoul = useCallback(async () => {
     setSoulBusy(true);
     setError(null);
     try {
-      await setProfileSoul(profile.name, soul);
+      await setProfileSoul(profile.name, soul, route);
       setSoulOriginal(soul);
       flashSaved('SOUL.md 已保存');
     } catch (err) {
@@ -243,13 +260,13 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
     } finally {
       setSoulBusy(false);
     }
-  }, [soul, profile.name, flashSaved]);
+  }, [soul, profile.name, flashSaved, route]);
 
   const handleSaveMemory = useCallback(async () => {
     setMemoryBusy(true);
     setError(null);
     try {
-      await setProfileMemory(profile.name, memory);
+      await setProfileMemory(profile.name, memory, route);
       setMemoryOriginal(memory);
       flashSaved('MEMORY.md 已保存');
     } catch (err) {
@@ -258,13 +275,13 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
     } finally {
       setMemoryBusy(false);
     }
-  }, [memory, profile.name, flashSaved]);
+  }, [memory, profile.name, flashSaved, route]);
 
   const handleSaveUser = useCallback(async () => {
     setUserBusy(true);
     setError(null);
     try {
-      await setProfileUser(profile.name, user);
+      await setProfileUser(profile.name, user, route);
       setUserOriginal(user);
       flashSaved('USER.md 已保存');
     } catch (err) {
@@ -273,7 +290,7 @@ export default function EditAgentDialog({ profile, onClose, onSaved }: EditAgent
     } finally {
       setUserBusy(false);
     }
-  }, [user, profile.name, flashSaved]);
+  }, [user, profile.name, flashSaved, route]);
 
   const tabBtn = (id: EditTab, label: string, icon: React.ReactNode) => (
     <button

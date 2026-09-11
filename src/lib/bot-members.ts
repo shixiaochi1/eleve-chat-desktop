@@ -41,6 +41,38 @@ export interface MemberPickRow {
 }
 
 /**
+ * 🔴 round-111：花名册行的**唯一键**（跨连接同名安全的唯一真值）。
+ *
+ * 根因：跨连接同名时 `profile` 会撞（本机 `coder` + 远端 `coder`）。任何
+ * "按 profile 找行"的写法（`find(r => r.entry.profile === p)`）都恒命中
+ * **第一条 = 本机那条**，于是置顶 / 隐藏 / 编辑 / 复制全作用到**错误的连接**
+ * ——`setBotPrefs` 的 route 随之指向错误 socket，写的是另一个 Agent 的偏好。
+ *
+ * 对齐 Hermes `botRosterKey(bot)`（`96ed0e71ea fix(bot-mode): match scoped
+ * bot selection in reset guard`，测试注释 *"An identically named bot on
+ * another connection must not win the lookup."*）。差别：Hermes 只在
+ * `sourceScoped || remoteSource` 时加连接前缀、否则回落 `name`；ELEVE 的
+ * union roster **每行恒带 connectionId**（本机 = `LOCAL_CONNECTION_ID`），
+ * 故无需回落分支——回落反而会重新引入同名歧义。
+ *
+ * 与 `MemberPickRow.key` 同式（成员选择器的 checkbox 行也靠它去重）。
+ */
+export function rosterRowKey(row: UnionRosterRow): string {
+  return `${row.connectionId}::${row.entry.profile}`;
+}
+
+/** 按花名册唯一键精确取行（`null` / 找不到 → `null`）。
+ *
+ * 右键菜单、复制等都经此定位——**不要**再写 `find(profile)`。 */
+export function findRosterRowByKey(
+  rows: UnionRosterRow[],
+  key: string | null | undefined,
+): UnionRosterRow | null {
+  if (!key) return null;
+  return rows.find((r) => rosterRowKey(r) === key) ?? null;
+}
+
+/**
  * 派生可选成员行。
  *
  * 排序：本机在前、远端按连接名再按 handle——群聊绝大多数成员是本机 bot，
@@ -61,7 +93,8 @@ export function pickableMembers(roster: UnionRosterRow[]): MemberPickRow[] {
       connectionLabel: r.isRemote ? r.connectionLabel : '',
       disabled: r.isRemote && !r.reachable,
       disabledReason: r.isRemote && !r.reachable ? `远端连接「${r.connectionLabel}」不可达` : '',
-      key: `${r.connectionId}::${e.profile}`,
+      // 🔴 round-111：改走唯一真值（此前是本文件里的同一公式的第二次手写）
+      key: rosterRowKey(r),
     };
     (r.isRemote ? remote : local).push(row);
   }

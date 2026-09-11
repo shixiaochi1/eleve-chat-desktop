@@ -37,7 +37,7 @@ import { makeImageThumb, readImageFile } from '../lib/image-file';
 import { getWsClient } from '../services/ws-client';
 import { formatMessageTime } from '../utils/time';
 import {
-  clearRoomNeedsYou, closeRemoteChat, isUnionFresh, markRoomNeedsYou, refreshRooms,
+  clearRoomNeedsYou, closeRemoteChat, isUnionFresh, refreshRooms,
   refreshUnionRoster, selectRoom, useRemoteChat, useRooms, useRoomsLoaded,
   useSelectedRoomId, useUnionRoster,
   type UnionRosterRow,
@@ -427,13 +427,14 @@ function BotsRoomView({ room, roster, onBack }: {
     }
   }, [settleInteraction]);
 
-  // 🔴 round-94 G1：needs-you 徽标——本房间有未决交互卡（澄清/审批在等用户
-  // 响应）时给左栏房间行打标，卡清掉即撤（对齐 Hermes `$groupNeedsYou`：
-  // 成员被 clarify/approval 阻塞 = 房间在等人）。
-  useEffect(() => {
-    if (pendingInteractions.size > 0) markRoomNeedsYou(room.room_id);
-    else clearRoomNeedsYou(room.room_id);
-  }, [pendingInteractions, room.room_id]);
+  // 🔴 round-111：**此处的 needs-you 写路径已删除**（原 round-94 G1 的
+  // `pendingInteractions.size > 0 ? mark : clear`）。它把 clarify/approval
+  // 注意力写进了与"成员 @ 了你"共用的那个可写标志，于是两边互相抹信号
+  // （用户发言清掉仍在等澄清的徽标 / 回答澄清清掉 @ 提及的徽标）。
+  // 现在由模块级 `bot.room.event` 监听维护 `pendingClarifyByRoom`，
+  // 渲染处取并集（对齐 Hermes `ad08688bc6`：从 `$groupClarify` 派生，
+  // 不再复制进 `$groupNeedsYou`）。本组件的 `pendingInteractions`
+  // 只负责**渲染房间内的响应卡**，不再兼职徽标。
 
   // 增量合并：去重（seq 单调）
   const mergeEvents = useCallback((incoming: BotRoomEvent[]) => {
