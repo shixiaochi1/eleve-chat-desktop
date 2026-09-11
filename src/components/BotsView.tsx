@@ -1572,8 +1572,14 @@ function RoomEditDialog({
           className="w-full px-2.5 py-1.5 rounded-md bg-accent/30 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
         />
 
-        {/* 🔴 round-97：房间图（对齐 Hermes group-chat-parts GroupImageControls） */}
-        <RoomImageControls image={editImage} onImage={setEditImage} />
+        {/* 🔴 round-97：房间图（对齐 Hermes group-chat-parts GroupImageControls）
+            🔴 round-100：补"生成"（prompt 用编辑中的房间名 + 当前成员） */}
+        <RoomImageControls
+          image={editImage}
+          onImage={setEditImage}
+          name={editName}
+          memberHandles={room.members.map((m) => m.handle)}
+        />
 
         <div className="max-h-48 overflow-y-auto space-y-1">
           {/* 当前成员（标记移除） */}

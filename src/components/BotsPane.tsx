@@ -189,6 +189,16 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   // 创建入口都被"至少需要 2 个"提示挡死（即使远端连着一堆 bot）。
   const pickRows = useMemo(() => pickableMembers(bots), [bots]);
   const pickableCount = useMemo(() => pickRows.filter(r => !r.disabled).length, [pickRows]);
+  // 🔴 round-100：已选成员的展示名——建房 fallback 房间名与"房间图生成"的 prompt
+  // （Hermes `seedMembers`）**共用同一份口径**，避免两处各拼一次而漂移。
+  const pickedNames = useMemo(
+    () =>
+      newMembers
+        .map((p) => pickRows.find((r) => r.profile === p))
+        .map((r) => r?.displayName || '')
+        .filter(Boolean),
+    [newMembers, pickRows],
+  );
   const [replicas, setReplicas] = useState<ReplicaMetaRow[]>([]);
   const takeableReplicas = useMemo(() => replicas.filter(r => r.state === 'replica'), [replicas]);
 
@@ -256,11 +266,7 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   // ⑤成功 notice 反馈（对齐 host.notify "created with N bots"）。
   const submitCreate = async () => {
     if (newMembers.length < 2 || newMembers.length > 6) return;
-    const fallback = newMembers
-      .map((p) => pickRows.find((r) => r.profile === p))
-      .map((r) => r?.displayName || '')
-      .filter(Boolean)
-      .join('、');
+    const fallback = pickedNames.join('、');
     const base = (newName.trim() || fallback).trim().slice(0, 60);
     if (!base) return;
     const taken = new Set(rooms.filter((r) => !r.disbanded_at).map((r) => r.name));
@@ -508,8 +514,14 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
               className="w-full px-2.5 py-1.5 rounded-md bg-accent/30 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
             />
             {/* 🔴 round-97：房间图（可选；对齐 Hermes create-dialog 的
-                GroupImageControls——建房即可带图） */}
-            <RoomImageControls image={newImage} onImage={setNewImage} />
+                GroupImageControls——建房即可带图）
+                🔴 round-100：补"生成"（prompt 用当前房间名 + 已选成员） */}
+            <RoomImageControls
+              image={newImage}
+              onImage={setNewImage}
+              name={newName}
+              memberHandles={pickedNames}
+            />
             <div className="max-h-44 overflow-y-auto space-y-1">
               {pickableCount < 2 && (
                 <div className="text-xs text-muted-foreground px-2 py-1.5">
