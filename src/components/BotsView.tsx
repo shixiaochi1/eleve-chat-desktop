@@ -8,7 +8,7 @@
  *
  * 数据流：命令 → utils/api.ts（bots 命令层）；事件 → ws-client 监听器。
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from 'react';
 import { cn } from '@/lib/utils';
 import { ArrowLeft, Bot, ChevronDown, ChevronRight, Loader, PauseCircle, Paperclip, Send, Settings2, Square, Trash2, UserPlus, UserMinus, Users, WifiOff, X } from 'lucide-react';
 import {
@@ -20,6 +20,8 @@ import {
 } from '../utils/api';
 import { formatRowAge } from '../utils/time';
 import { findMemberRoster, memberAvailability, memberPickLabel, pickableMembers } from '../lib/bot-members';
+// 🔴 round-97：线程分组（唯一派生；见 lib/bot-threads.ts）
+import { groupEventsByThread, LEGACY_THREAD, threadReplyCount, threadSummaryLabel } from '../lib/bot-threads';
 // 🔴 round-97：图片工具上提到 lib（房间图/附件缩略图/头像共用一份 canvas 实现）
 import { makeImageThumb, readImageFile } from '../lib/image-file';
 import { getWsClient } from '../services/ws-client';
@@ -232,6 +234,16 @@ function BotsRoomView({ room, roster, onBack }: {
 }) {
   const [events, setEvents] = useState<BotRoomEvent[]>([]);
   const [draft, setDraft] = useState('');
+  // 🔴 round-97：线程草稿（按线程 id 分桶——对齐 Hermes replyDrafts[thread]）
+  const [threadDrafts, setThreadDrafts] = useState<Record<string, string>>({});
+  // 被用户显式展开的历史线程（最近活跃的那个恒展开，不在此集合里）
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    // 房间切换：线程草稿/展开集不该跨房残留（线程 id 虽唯一，残留只会造成
+    // 一条语义错位的草稿）
+    setThreadDrafts({});
+    setExpandedThreads(new Set());
+  }, [room.room_id]);
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -543,6 +555,31 @@ function BotsRoomView({ room, roster, onBack }: {
     }
   };
 
+  /** 🔴 round-97：线程内回复——**继续**该线程（主输入框 = 开新线程，二者不同）。
+   *  与主 send 同款：忙态拦截、幂等键、失败恢复草稿。 */
+  const sendInThread = async (thread: string) => {
+    const text = (threadDrafts[thread] ?? '').trim();
+    if (!text || sending) return;
+    if (roomBusy) {
+      setError('成员正在讨论中——请等本轮结束，或点停止后再发言。');
+      return;
+    }
+    setSending(true);
+    const clientEventId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    setThreadDrafts((cur) => ({ ...cur, [thread]: '' }));
+    try {
+      await sendBotRoomMessage(room.room_id, text, clientEventId, undefined, thread);
+      clearRoomNeedsYou(room.room_id);
+      setError(null);
+      await refresh();
+    } catch (e) {
+      setError(`发送失败：${(e as Error).message}`);
+      setThreadDrafts((cur) => ({ ...cur, [thread]: text }));
+    } finally {
+      setSending(false);
+    }
+  };
+
   // 🔴 2026-09-08 round-76：**在飞轮集合**判定（此前只看事件流末条 turn.*，
   // 一旦末尾是某个成员的 settled 而另一个成员的轮仍在跑，忙态就被误判为
   // false → 发送键错切成发送态，消息被塞进在飞讨论）。
@@ -623,6 +660,9 @@ function BotsRoomView({ room, roster, onBack }: {
     }
     return rows;
   }, [events, room.members]);
+
+  // 🔴 round-97：线程分区（渲染窗口仍 ≤200 条——切片后再分组，总量不变）
+  const threadSections = useMemo(() => groupEventsByThread(events.slice(-200)), [events]);
 
   // 🔴 round-92：忙态兜底。上面的事件流配对是**快路径**，前提是"每个 started
   // 最终都有一条终态事件"。driver 在 started 与终态之间崩溃（进程被杀/跨进程
@@ -883,188 +923,221 @@ function BotsRoomView({ room, roster, onBack }: {
         </div>
         {/* 🔴 2026-09-05 round-48：渲染窗口上限（对齐 Hermes GROUP_CHAT_HISTORY_LIMIT
             的窗口化思路；长房间事件流不无限增长 DOM）——完整日志仍在后端 */}
-        {events.slice(-200).map((ev) => {
-          if (ev.kind === KIND_USER) {
-            // 🔴 阶段1 统一（frontend-chat-unification-2026-09-09）：用户气泡
-            // 走 MessageRow（与单视图/宫格同一渲染原语）——附件缩略图经
-            // attachmentRefs（MessageRow user 分支：dataURL=img+图N 角标，
-            // 文件=徽标，语义与原实现一致）。时间戳是房间特有 UI，保留在前缀行。
-            const atts = Array.isArray(ev.payload.attachments) ? (ev.payload.attachments as Array<{ name?: string; kind?: string; thumb?: string }>) : [];
-            const attachmentRefs = atts.map((a) => a.thumb || a.name || 'file');
+        {threadSections.map((sec, si) => {
+          const isLast = si === threadSections.length - 1;
+          // LEGACY 桶（首条用户消息之前的房间级事件）恒展开、无回复框
+          const expandable = sec.thread !== LEGACY_THREAD;
+          const open = !expandable || isLast || expandedThreads.has(sec.thread);
+          if (!open) {
             return (
-              <div key={ev.seq} className="flex flex-col items-end">
-                {/* 🔴 round-78d：时间戳（对齐 Hermes 消息 log 带 at——异步多轮讨论
-                    需判读消息新旧；此前两种气泡零时间信息） */}
-                <span className="text-[10px] text-muted-foreground/60 mb-0.5 px-1">
-                  {formatMessageTime(ev.created_at)}
-                </span>
-                <div className="w-full max-w-[85%] [&>div]:items-end">
-                  <MessageRow
-                    message={{
-                      id: `ev-${ev.seq}`,
-                      role: 'user',
-                      parts: [{ type: 'text', text: String(ev.payload.text ?? '') }],
-                      attachmentRefs: attachmentRefs.length > 0 ? attachmentRefs : undefined,
-                    }}
-                  />
-                </div>
-              </div>
+              <ThreadSummaryRow
+                key={`sum-${sec.thread}`}
+                label={threadSummaryLabel(sec)}
+                replies={threadReplyCount(sec)}
+                at={sec.lastAt}
+                onExpand={() => setExpandedThreads((cur) => new Set(cur).add(sec.thread))}
+              />
             );
           }
-          if (ev.kind === KIND_MEMBER) {
-            // 🔴 阶段1 统一：成员气泡走 MessageRow（agent 气泡原语）。
-            // 成员前缀行（@handle · display · time）是群聊特有归属 UI，保留。
-            const handle = String(ev.actor.handle || ev.actor.id || '');
-            const display = memberByHandle[handle] || handle;
-            // 🔴 round-95：发言者归属（对齐 Hermes group-chat-view.tsx:980-1002
-            // botAppearance 头像 + :1008-1017 跨连接同名消歧）。此前前缀只有
-            // 文本，两个连接上的同名 bot 在 transcript 里完全无法区分。
-            const who = findMemberRoster(roster, handle, String(ev.actor.profile || ''));
-            return (
-              <div key={ev.seq} className="flex flex-col items-start">
-                <span className="flex items-center gap-1 mb-0.5 px-1 select-text min-w-0">
-                  <span
-                    className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[9px] font-semibold text-white"
-                    style={{ background: who?.entry.color || 'var(--accent)' }}
-                  >
-                    {(display || handle).slice(0, 1).toUpperCase()}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground truncate">
-                    @{handle} · {display} · {formatMessageTime(ev.created_at)}
-                  </span>
-                  {who?.isRemote && (
-                    <span className={cn(
-                      'shrink-0 rounded px-1 py-px text-[9px]',
-                      who.reachable ? 'bg-accent/60 text-foreground' : 'bg-destructive/20 text-destructive',
-                    )}>
-                      {who.connectionLabel}
-                    </span>
-                  )}
-                </span>
-                <div className="w-full max-w-[85%] [&>div]:items-start">
-                  <MessageRow
-                    message={{
-                      id: `ev-${ev.seq}`,
-                      role: 'assistant',
-                      parts: [{ type: 'text', text: String(ev.payload.text ?? '') }],
-                    }}
-                  />
-                </div>
-              </div>
-            );
-          }
-          if (ev.kind === 'room.stop_requested') {
-            return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground py-0.5">— 讨论已停止 —</div>;
-          }
-          if (ev.kind === 'room.disbanded') {
-            return <div key={ev.seq} className="text-center text-[11px] text-destructive py-0.5">— 群聊已解散 —</div>;
-          }
-          {/* 🔴 2026-09-05 round-48 member holds（对齐 Hermes #93129）：
-              hold 集变更 + 成员扣留跳过对用户可见 */}
-          if (ev.kind === 'room.holds_changed') {
-            const members = Array.isArray(room.members) ? room.members : [];
-            const nameOf = (id: string) => {
-              const m = members.find(x => x.member_id === id);
-              return m ? `@${m.handle}` : id.slice(0, 8);
-            };
-            const held = Array.isArray(ev.payload.held) ? (ev.payload.held as string[]) : [];
-            const released = Array.isArray(ev.payload.released) ? (ev.payload.released as string[]) : [];
-            const parts: string[] = [];
-            if (ev.payload.release_all === true) parts.push('已恢复全体成员发言');
-            if (held.length) parts.push(`已暂停 ${held.map(nameOf).join('、')} 的发言`);
-            if (released.length) parts.push(`已恢复 ${released.map(nameOf).join('、')} 的发言`);
-            if (!parts.length) return null;
-            return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground py-0.5">— {parts.join('；')} —</div>;
-          }
-          // 🔴 2026-09-05 round-53：turn.started 不再渲染（用户实测刷屏——
-          // 每个成员发言前都有一条"· @ 发言中"，且 gateway actor 无 handle
-          // 显示为空 @；成员发言气泡本身就是"已回应"指示，轮转状态由
-          // roomBusy 双态键表达）。事件保留在日志供审计。
-          if (ev.kind === 'turn.started') {
-            return null;
-          }
-          if (ev.kind === 'turn.held') {
-            const h = String(ev.actor.handle || ev.actor.id || '');
-            const byId = (Array.isArray(room.members) ? room.members : []).find(m => m.member_id === ev.payload.member_id);
-            const label = byId ? `@${byId.handle}` : `@${h}`;
-            return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— {label} 的发言已暂停 —</div>;
-          }
-          if (ev.kind === 'turn.deferred') {
-            // 🔴 round-79g：恢复层 deferred 事件 actor.id=member_id（handle 空）
-            // → handle 优先花名册映射；显式重试（对齐 Hermes 群聊任务行 retry
-            // ——at-least-once 确认；task_id == turn_id）
-            const mid = String(ev.payload.member_id || '');
-            const byId = (Array.isArray(room.members) ? room.members : []).find(m => m.member_id === mid);
-            const label = byId ? `@${byId.handle}` : `@${String(ev.actor.handle || ev.actor.id || mid)}`;
-            const turnId = /^turn:(.+):deferred$/.exec(String(ev.event_id ?? ''))?.[1] ?? null;
-            return (
-              <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">
-                — {label} 暂时缺席 —
-                {turnId && (
-                  <button
-                    className="ml-2 underline hover:text-foreground"
-                    onClick={() => void handleRetryTaskById(turnId)}
-                  >
-                    重试
-                  </button>
-                )}
-              </div>
-            );
-          }
-          if (ev.kind === 'turn.failed') {
-            // 🔴 2026-09-04 失败可见（此前渲染 null——成员模型调用失败用户
-            // 完全无感，是"没反应"体验的直接来源之一）
-            const h = String(ev.actor.handle || ev.actor.id || '');
-            const rc = String(ev.payload.reason_code || 'error');
-            const msg = String(ev.payload.error || '').slice(0, 80);
-            return (
-              <div key={ev.seq} className="text-center text-[11px] text-destructive/80 py-0.5">
-                — @{h} 发言失败（{rc}）{msg ? `：${msg}` : ''} —
-              </div>
-            );
-          }
-          if (ev.kind === 'turn.cancelled') {
-            const h = String(ev.actor.handle || ev.actor.id || '');
-            return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— @{h} 的发言已随停止取消 —</div>;
-          }
-          if (ev.kind === 'turn.settled') {
-            // 🔴 round-78d：pass=沉默可见（对齐 Hermes isGroupPassText 显示语义
-            // ——此前 settled 渲染 null，成员被点名却沉默完全无感）
-            if (ev.payload.passed === true) {
-              const h = String(ev.actor.handle || ev.actor.id || '');
-              return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— @{h} 保持沉默 —</div>;
-            }
-            return null; // 实质发言的 settled：内容在气泡里
-          }
-          if (ev.kind === 'room.renamed') {
-            // 🔴 round-78d：改名/成员变更轨迹可见（对齐 Hermes group-activity
-            // tile——此前 fallback null 且 saveEdit 注释宣称"事件可见"失实）
-            const newName = String(ev.payload.new_name ?? ev.payload.name ?? '');
-            return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— 房间已改名{newName ? `：「${newName}」` : ''} —</div>;
-          }
-          if (ev.kind === 'room.members_changed') {
-            const members = Array.isArray(room.members) ? room.members : [];
-            const nameOf = (id: string) => {
-              const m = members.find(x => x.member_id === id);
-              return m ? `@${m.handle}` : id.slice(0, 8);
-            };
-            const added = Array.isArray(ev.payload.added) ? (ev.payload.added as Array<{ profile?: string }>) : [];
-            const removed = Array.isArray(ev.payload.removed) ? (ev.payload.removed as Array<{ profile?: string; member_id?: string }>) : [];
-            const parts: string[] = [];
-            if (added.length) parts.push(`${added.map(a => a.profile || '?').join('、')} 加入`);
-            if (removed.length) parts.push(`${removed.map(r => r.profile || (r.member_id ? nameOf(r.member_id) : '?')).join('、')} 移出`);
-            if (!parts.length) return null;
-            return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— 成员变更：{parts.join('；')} —</div>;
-          }
-          if (ev.kind === 'authority.claimed' || ev.kind === 'authority.lost') {
-            // 🔴 round-78d：接管/退位可见（对齐 Hermes replicas lineage 事件）
-            return (
-              <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">
-                — {ev.kind === 'authority.claimed' ? '本机已接管讨论（副本晋升为权威）' : '权威已转移（本机退位为副本）'} —
-              </div>
-            );
-          }
-          return null; // turn.settled(实质发言)/room.created 不渲染（信息在气泡与状态行里）
+          return (
+            <Fragment key={sec.thread}>
+              {sec.events.map((ev) => {
+                  if (ev.kind === KIND_USER) {
+                    // 🔴 阶段1 统一（frontend-chat-unification-2026-09-09）：用户气泡
+                    // 走 MessageRow（与单视图/宫格同一渲染原语）——附件缩略图经
+                    // attachmentRefs（MessageRow user 分支：dataURL=img+图N 角标，
+                    // 文件=徽标，语义与原实现一致）。时间戳是房间特有 UI，保留在前缀行。
+                    const atts = Array.isArray(ev.payload.attachments) ? (ev.payload.attachments as Array<{ name?: string; kind?: string; thumb?: string }>) : [];
+                    const attachmentRefs = atts.map((a) => a.thumb || a.name || 'file');
+                    return (
+                      <div key={ev.seq} className="flex flex-col items-end">
+                        {/* 🔴 round-78d：时间戳（对齐 Hermes 消息 log 带 at——异步多轮讨论
+                            需判读消息新旧；此前两种气泡零时间信息） */}
+                        <span className="text-[10px] text-muted-foreground/60 mb-0.5 px-1">
+                          {formatMessageTime(ev.created_at)}
+                        </span>
+                        <div className="w-full max-w-[85%] [&>div]:items-end">
+                          <MessageRow
+                            message={{
+                              id: `ev-${ev.seq}`,
+                              role: 'user',
+                              parts: [{ type: 'text', text: String(ev.payload.text ?? '') }],
+                              attachmentRefs: attachmentRefs.length > 0 ? attachmentRefs : undefined,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  }
+                  if (ev.kind === KIND_MEMBER) {
+                    // 🔴 阶段1 统一：成员气泡走 MessageRow（agent 气泡原语）。
+                    // 成员前缀行（@handle · display · time）是群聊特有归属 UI，保留。
+                    const handle = String(ev.actor.handle || ev.actor.id || '');
+                    const display = memberByHandle[handle] || handle;
+                    // 🔴 round-95：发言者归属（对齐 Hermes group-chat-view.tsx:980-1002
+                    // botAppearance 头像 + :1008-1017 跨连接同名消歧）。此前前缀只有
+                    // 文本，两个连接上的同名 bot 在 transcript 里完全无法区分。
+                    const who = findMemberRoster(roster, handle, String(ev.actor.profile || ''));
+                    return (
+                      <div key={ev.seq} className="flex flex-col items-start">
+                        <span className="flex items-center gap-1 mb-0.5 px-1 select-text min-w-0">
+                          <span
+                            className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[9px] font-semibold text-white"
+                            style={{ background: who?.entry.color || 'var(--accent)' }}
+                          >
+                            {(display || handle).slice(0, 1).toUpperCase()}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground truncate">
+                            @{handle} · {display} · {formatMessageTime(ev.created_at)}
+                          </span>
+                          {who?.isRemote && (
+                            <span className={cn(
+                              'shrink-0 rounded px-1 py-px text-[9px]',
+                              who.reachable ? 'bg-accent/60 text-foreground' : 'bg-destructive/20 text-destructive',
+                            )}>
+                              {who.connectionLabel}
+                            </span>
+                          )}
+                        </span>
+                        <div className="w-full max-w-[85%] [&>div]:items-start">
+                          <MessageRow
+                            message={{
+                              id: `ev-${ev.seq}`,
+                              role: 'assistant',
+                              parts: [{ type: 'text', text: String(ev.payload.text ?? '') }],
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  }
+                  if (ev.kind === 'room.stop_requested') {
+                    return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground py-0.5">— 讨论已停止 —</div>;
+                  }
+                  if (ev.kind === 'room.disbanded') {
+                    return <div key={ev.seq} className="text-center text-[11px] text-destructive py-0.5">— 群聊已解散 —</div>;
+                  }
+                  {/* 🔴 2026-09-05 round-48 member holds（对齐 Hermes #93129）：
+                      hold 集变更 + 成员扣留跳过对用户可见 */}
+                  if (ev.kind === 'room.holds_changed') {
+                    const members = Array.isArray(room.members) ? room.members : [];
+                    const nameOf = (id: string) => {
+                      const m = members.find(x => x.member_id === id);
+                      return m ? `@${m.handle}` : id.slice(0, 8);
+                    };
+                    const held = Array.isArray(ev.payload.held) ? (ev.payload.held as string[]) : [];
+                    const released = Array.isArray(ev.payload.released) ? (ev.payload.released as string[]) : [];
+                    const parts: string[] = [];
+                    if (ev.payload.release_all === true) parts.push('已恢复全体成员发言');
+                    if (held.length) parts.push(`已暂停 ${held.map(nameOf).join('、')} 的发言`);
+                    if (released.length) parts.push(`已恢复 ${released.map(nameOf).join('、')} 的发言`);
+                    if (!parts.length) return null;
+                    return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground py-0.5">— {parts.join('；')} —</div>;
+                  }
+                  // 🔴 2026-09-05 round-53：turn.started 不再渲染（用户实测刷屏——
+                  // 每个成员发言前都有一条"· @ 发言中"，且 gateway actor 无 handle
+                  // 显示为空 @；成员发言气泡本身就是"已回应"指示，轮转状态由
+                  // roomBusy 双态键表达）。事件保留在日志供审计。
+                  if (ev.kind === 'turn.started') {
+                    return null;
+                  }
+                  if (ev.kind === 'turn.held') {
+                    const h = String(ev.actor.handle || ev.actor.id || '');
+                    const byId = (Array.isArray(room.members) ? room.members : []).find(m => m.member_id === ev.payload.member_id);
+                    const label = byId ? `@${byId.handle}` : `@${h}`;
+                    return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— {label} 的发言已暂停 —</div>;
+                  }
+                  if (ev.kind === 'turn.deferred') {
+                    // 🔴 round-79g：恢复层 deferred 事件 actor.id=member_id（handle 空）
+                    // → handle 优先花名册映射；显式重试（对齐 Hermes 群聊任务行 retry
+                    // ——at-least-once 确认；task_id == turn_id）
+                    const mid = String(ev.payload.member_id || '');
+                    const byId = (Array.isArray(room.members) ? room.members : []).find(m => m.member_id === mid);
+                    const label = byId ? `@${byId.handle}` : `@${String(ev.actor.handle || ev.actor.id || mid)}`;
+                    const turnId = /^turn:(.+):deferred$/.exec(String(ev.event_id ?? ''))?.[1] ?? null;
+                    return (
+                      <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">
+                        — {label} 暂时缺席 —
+                        {turnId && (
+                          <button
+                            className="ml-2 underline hover:text-foreground"
+                            onClick={() => void handleRetryTaskById(turnId)}
+                          >
+                            重试
+                          </button>
+                        )}
+                      </div>
+                    );
+                  }
+                  if (ev.kind === 'turn.failed') {
+                    // 🔴 2026-09-04 失败可见（此前渲染 null——成员模型调用失败用户
+                    // 完全无感，是"没反应"体验的直接来源之一）
+                    const h = String(ev.actor.handle || ev.actor.id || '');
+                    const rc = String(ev.payload.reason_code || 'error');
+                    const msg = String(ev.payload.error || '').slice(0, 80);
+                    return (
+                      <div key={ev.seq} className="text-center text-[11px] text-destructive/80 py-0.5">
+                        — @{h} 发言失败（{rc}）{msg ? `：${msg}` : ''} —
+                      </div>
+                    );
+                  }
+                  if (ev.kind === 'turn.cancelled') {
+                    const h = String(ev.actor.handle || ev.actor.id || '');
+                    return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— @{h} 的发言已随停止取消 —</div>;
+                  }
+                  if (ev.kind === 'turn.settled') {
+                    // 🔴 round-78d：pass=沉默可见（对齐 Hermes isGroupPassText 显示语义
+                    // ——此前 settled 渲染 null，成员被点名却沉默完全无感）
+                    if (ev.payload.passed === true) {
+                      const h = String(ev.actor.handle || ev.actor.id || '');
+                      return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— @{h} 保持沉默 —</div>;
+                    }
+                    return null; // 实质发言的 settled：内容在气泡里
+                  }
+                  if (ev.kind === 'room.renamed') {
+                    // 🔴 round-78d：改名/成员变更轨迹可见（对齐 Hermes group-activity
+                    // tile——此前 fallback null 且 saveEdit 注释宣称"事件可见"失实）
+                    const newName = String(ev.payload.new_name ?? ev.payload.name ?? '');
+                    return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— 房间已改名{newName ? `：「${newName}」` : ''} —</div>;
+                  }
+                  if (ev.kind === 'room.members_changed') {
+                    const members = Array.isArray(room.members) ? room.members : [];
+                    const nameOf = (id: string) => {
+                      const m = members.find(x => x.member_id === id);
+                      return m ? `@${m.handle}` : id.slice(0, 8);
+                    };
+                    const added = Array.isArray(ev.payload.added) ? (ev.payload.added as Array<{ profile?: string }>) : [];
+                    const removed = Array.isArray(ev.payload.removed) ? (ev.payload.removed as Array<{ profile?: string; member_id?: string }>) : [];
+                    const parts: string[] = [];
+                    if (added.length) parts.push(`${added.map(a => a.profile || '?').join('、')} 加入`);
+                    if (removed.length) parts.push(`${removed.map(r => r.profile || (r.member_id ? nameOf(r.member_id) : '?')).join('、')} 移出`);
+                    if (!parts.length) return null;
+                    return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— 成员变更：{parts.join('；')} —</div>;
+                  }
+                  if (ev.kind === 'authority.claimed' || ev.kind === 'authority.lost') {
+                    // 🔴 round-78d：接管/退位可见（对齐 Hermes replicas lineage 事件）
+                    return (
+                      <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">
+                        — {ev.kind === 'authority.claimed' ? '本机已接管讨论（副本晋升为权威）' : '权威已转移（本机退位为副本）'} —
+                      </div>
+                    );
+                  }
+                  return null; // turn.settled(实质发言)/room.created 不渲染（信息在气泡与状态行里）
+              })}
+              {/* 每个展开的线程都有自己的回复框（含最近活跃那个）——继续该线程；
+                  底部主输入框恒 = 开新线程（对齐 Hermes "Every open thread gets its
+                  own reply box"）。 */}
+              {expandable && (
+                <ThreadReplyBox
+                  members={room.members}
+                  value={threadDrafts[sec.thread] ?? ''}
+                  onChange={(v) => setThreadDrafts((cur) => ({ ...cur, [sec.thread]: v }))}
+                  onSubmit={() => void sendInThread(sec.thread)}
+                  busy={roomBusy || sending}
+                />
+              )}
+            </Fragment>
+          );
         })}
         {/* 🔴 2026-09-05 round-60：讨论进行中的可见反馈——turn.started 已不
             渲染（round-53），成员轮 LLM 运行期间事件流完全静默，用户观感
@@ -1557,6 +1630,87 @@ function RoomEditDialog({
             保存
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// 🔴 round-97：线程形状（对齐 Hermes group-chat-view.tsx:1064-1069 的
+// Slack/Discord 模型）——最近活跃的线程展开，更早的折叠成摘要行；
+// 每个展开的线程有自己的回复框（继续该线程）；底部主输入框开新线程。
+// ═════════════════════════════════════════════════════════════════════
+
+/** 折叠态的线程摘要行（Slack 风格：首条用户消息 + 回复数 + 时间）。 */
+function ThreadSummaryRow({
+  label,
+  replies,
+  at,
+  onExpand,
+}: {
+  label: string;
+  replies: number;
+  at: number;
+  onExpand: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onExpand}
+      className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded-md text-left hover:bg-accent/40 group"
+      title="展开该线程"
+    >
+      <ChevronRight size={12} className="shrink-0 text-muted-foreground group-hover:text-foreground" />
+      <span className="text-[11px] font-medium text-foreground shrink-0">
+        {replies > 0 ? `${replies} 条回复` : '无回复'}
+      </span>
+      <span className="text-[11px] text-muted-foreground truncate min-w-0 flex-1">{label}</span>
+      <span className="text-[10px] text-muted-foreground/70 shrink-0 tabular-nums">
+        {formatMessageTime(at)}
+      </span>
+    </button>
+  );
+}
+
+/** 展开态线程的回复框——**继续该线程**（对齐 Hermes `submitReply(thread)`）。 */
+function ThreadReplyBox({
+  members,
+  value,
+  onChange,
+  onSubmit,
+  busy,
+}: {
+  members: BotRoom['members'];
+  value: string;
+  onChange: (v: string) => void;
+  onSubmit: () => void;
+  busy: boolean;
+}) {
+  return (
+    <div className="composer-surface relative rounded-2xl border mt-1.5">
+      <div className="flex items-end gap-2 px-(--composer-surface-pad-x) py-(--composer-surface-pad-y)">
+        <div className="min-w-0 flex-1">
+          <MentionTextarea
+            members={members}
+            value={value}
+            onChange={onChange}
+            onSubmit={onSubmit}
+            placeholder="回复此线程…（输入 @ 唤起成员）"
+          />
+        </div>
+        <button
+          className={cn(
+            'inline-flex size-(--composer-control-primary-size) shrink-0 cursor-pointer items-center justify-center rounded-full p-0 outline-none transition-all duration-150',
+            'bg-foreground text-background hover:bg-foreground/90 active:scale-90',
+            'disabled:cursor-not-allowed disabled:bg-foreground/30 disabled:opacity-100 disabled:active:scale-100',
+          )}
+          disabled={busy || !value.trim()}
+          onClick={onSubmit}
+          title={busy ? '成员正在讨论中' : '回复此线程'}
+          aria-label="Reply in thread"
+        >
+          <Send size={15} />
+        </button>
       </div>
     </div>
   );

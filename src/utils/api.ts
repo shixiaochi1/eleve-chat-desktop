@@ -971,12 +971,16 @@ export async function sendBotRoomMessage(
   text: string,
   clientEventId?: string,
   attachments?: RoomAttachmentDraft[],
+  /** 🔴 round-97：线程内回复框传该线程 id（继续该线程）；主输入框不传 =
+   *  开新线程（对齐 Hermes `sendToGroupChat(group, members, text, thread, images)`）。 */
+  thread?: string,
 ): Promise<{ seq: number; event_id: string }> {
   return call('bot_rooms_send', {
     room_id: roomId,
     text,
     ...(clientEventId ? { client_event_id: clientEventId } : {}),
     ...(attachments?.length ? { attachments } : {}),
+    ...(thread ? { thread } : {}),
   });
 }
 
