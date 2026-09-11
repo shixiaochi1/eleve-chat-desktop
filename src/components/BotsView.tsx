@@ -10,15 +10,18 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from 'react';
 import { cn } from '@/lib/utils';
-import { ArrowLeft, Bot, ChevronDown, ChevronRight, Loader, PauseCircle, Paperclip, Send, Settings2, Square, Trash2, UserPlus, UserMinus, WifiOff, X } from 'lucide-react';
+import { ArrowLeft, Bot, ChevronDown, ChevronRight, Loader, PauseCircle, Paperclip, Send, Settings2, Square, Trash2, UserPlus, UserMinus, Users, WifiOff, X } from 'lucide-react';
 import {
   approveBotRoomTask, changeBotRoomMembers, disbandBotRoom, fetchBotRoomEvents,
   fetchBotRoomPendingTask, renameBotRoom, respondBotRoomInteraction, retryBotRoomTask,
+  setBotRoomImage,
   sendBotRoomMessage, stopBotRoom,
   type BotRoom, type BotRoomEvent, type PendingRoomTask, type RoomAttachmentDraft,
 } from '../utils/api';
 import { formatRowAge } from '../utils/time';
 import { findMemberRoster, memberAvailability, memberPickLabel, pickableMembers } from '../lib/bot-members';
+// 🔴 round-97：图片工具上提到 lib（房间图/附件缩略图/头像共用一份 canvas 实现）
+import { makeImageThumb, readImageFile } from '../lib/image-file';
 import { getWsClient } from '../services/ws-client';
 import { formatMessageTime } from '../utils/time';
 import {
@@ -28,6 +31,7 @@ import {
   type UnionRosterRow,
 } from '../plugins/bots/state';
 import RemoteBotChatView from './RemoteBotChatView';
+import RoomImageControls from './RoomImageControls';
 import MessageRow from './MessageRow';
 import ClarifyCard from './ClarifyCard';
 import { ingestBotRoster, markBotRead, unreadKey, useBotUnread } from '../hooks/useBotUnread';
@@ -47,27 +51,6 @@ interface BotsViewProps {
 
 const KIND_USER = 'message.user';
 const KIND_MEMBER = 'message.member';
-
-/** 🔴 2026-09-05 round-50：图片降采样缩略图（canvas 长边 320 / jpeg 0.6——
- * 对齐 Hermes group-attachments downscale；控制事件 payload 体积） */
-async function makeImageThumb(dataUrl: string): Promise<string | undefined> {
-  try {
-    const img = new Image();
-    await new Promise((res, rej) => {
-      img.onload = () => res(null);
-      img.onerror = () => rej(new Error('image load failed'));
-      img.src = dataUrl;
-    });
-    const scale = Math.min(1, 320 / Math.max(img.width || 1, img.height || 1));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round((img.width || 1) * scale));
-    canvas.height = Math.max(1, Math.round((img.height || 1) * scale));
-    canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.6);
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * 🔴 2026-09-05 round-42：BotsRoomMainView — 主区群聊房间容器（布局 1:1
@@ -253,6 +236,9 @@ function BotsRoomView({ room, roster, onBack }: {
   const [busy, setBusy] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [editName, setEditName] = useState(room.name);
+  // 🔴 round-97：房间图（编辑中态，随 Save 一起提交——对齐 Hermes
+  // group-chat-view.tsx:389 setGroupChatImage(finalName, image)）
+  const [editImage, setEditImage] = useState<string | null>(room.image ?? null);
   const [editError, setEditError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const latestSeq = useRef(0);
@@ -507,12 +493,7 @@ function BotsRoomView({ room, roster, onBack }: {
         setError(`${f.name || '附件'}：超过 15MB 上限`);
         continue;
       }
-      const data = await new Promise<string | null>((done) => {
-        const reader = new FileReader();
-        reader.onload = () => done(typeof reader.result === 'string' ? reader.result : null);
-        reader.onerror = () => done(null);
-        reader.readAsDataURL(f);
-      });
+      const data = await readImageFile(f);
       if (!data) continue;
       // 🔴 2026-09-05 round-60：kind 判定兜底——Windows 部分拖拽/粘贴场景
       // file.type 为空，此前图片会误判为 "file"（降级为名字引用，成员看不到图）
@@ -739,6 +720,11 @@ function BotsRoomView({ room, roster, onBack }: {
       if (addProfiles.length || removeMemberIds.length) {
         await changeBotRoomMembers(room.room_id, addProfiles, removeMemberIds);
       }
+      // 🔴 round-97：图变更单独一条 RPC（后端落 room.image_changed）——放最后：
+      // 改名/改成员价值更高，不该因为一张图标失败而整体不落。
+      if ((editImage ?? null) !== (room.image ?? null)) {
+        await setBotRoomImage(room.room_id, editImage);
+      }
       setShowEdit(false);
       // 🔴 2026-09-08 round-76：不再 onBack —— 改名/改成员后直接退空态，用户
       // 观感是"房间消失了"。留在房间内刷新事件流（room.renamed / members_changed
@@ -756,6 +742,14 @@ function BotsRoomView({ room, roster, onBack }: {
         <button className="p-1 rounded hover:bg-accent/50" onClick={onBack} title="返回">
           <ArrowLeft size={15} className="text-muted-foreground" />
         </button>
+        {/* 🔴 round-97：房间图（对齐 Hermes 群聊头部圆形房图；无图画组织字形） */}
+        <div className="size-7 shrink-0 overflow-hidden rounded-full bg-accent/30 flex items-center justify-center">
+          {room.image ? (
+            <img src={room.image} alt="" className="size-full object-cover" />
+          ) : (
+            <Users size={13} className="text-muted-foreground" />
+          )}
+        </div>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium text-foreground truncate">{room.name}</div>
           <div className="flex items-center gap-1.5 min-w-0">
@@ -781,7 +775,11 @@ function BotsRoomView({ room, roster, onBack }: {
         <button className="p-1.5 rounded hover:bg-accent/50" title="停止当前讨论" disabled={busy || !roomBusy} onClick={stopRoom}>
           <Square size={13} className="text-muted-foreground" />
         </button>
-        <button className="p-1.5 rounded hover:bg-accent/50" title="群聊设置（重命名/成员）" onClick={() => setShowEdit(true)}>
+        <button
+          className="p-1.5 rounded hover:bg-accent/50"
+          title="群聊设置（重命名/成员/房间图）"
+          onClick={() => { setEditImage(room.image ?? null); setShowEdit(true); }}
+        >
           <Settings2 size={13} className="text-muted-foreground" />
         </button>
         <button className="p-1.5 rounded hover:bg-destructive/20" title="解散群聊" disabled={busy} onClick={disband}>
@@ -796,9 +794,16 @@ function BotsRoomView({ room, roster, onBack }: {
           roster={roster}
           editName={editName}
           setEditName={setEditName}
+          editImage={editImage}
+          setEditImage={setEditImage}
           error={editError}
           onSave={saveEdit}
-          onClose={() => { setShowEdit(false); setEditName(room.name); setEditError(null); }}
+          onClose={() => {
+            setShowEdit(false);
+            setEditName(room.name);
+            setEditImage(room.image ?? null);
+            setEditError(null);
+          }}
         />
       )}
 
@@ -1447,12 +1452,15 @@ function MentionTextarea({
 // ══════════════════════════════════════════════════════════════════
 
 function RoomEditDialog({
-  room, roster, editName, setEditName, error, onSave, onClose,
+  room, roster, editName, setEditName, editImage, setEditImage, error, onSave, onClose,
 }: {
   room: BotRoom;
   roster: UnionRosterRow[];
   editName: string;
   setEditName: (v: string) => void;
+  /** 🔴 round-97：房间图（随 Save 提交；null = 清除） */
+  editImage: string | null;
+  setEditImage: (v: string | null) => void;
   error: string | null;
   onSave: (addProfiles: string[], removeMemberIds: string[]) => void;
   onClose: () => void;
@@ -1488,6 +1496,9 @@ function RoomEditDialog({
           placeholder="群聊名称"
           className="w-full px-2.5 py-1.5 rounded-md bg-accent/30 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
         />
+
+        {/* 🔴 round-97：房间图（对齐 Hermes group-chat-parts GroupImageControls） */}
+        <RoomImageControls image={editImage} onImage={setEditImage} />
 
         <div className="max-h-48 overflow-y-auto space-y-1">
           {/* 当前成员（标记移除） */}

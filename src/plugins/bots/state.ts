@@ -276,7 +276,10 @@ getWsClient().addEventListener((eventName, data) => {
     kind === 'message.user' ||
     kind === 'message.member' ||
     // 🔴 round-95 G3：hold 集变更 → 房间行摘要里的 holds 需同步
-    kind === 'room.holds_changed'
+    kind === 'room.holds_changed' ||
+    // 🔴 round-97：房间图变更 → 左栏行图标/主区房头需同步（图在 BotRoom 上，
+    // 不重拉 rooms.list 就一直是旧图；对齐 Hermes 房间元信息随事件失效）
+    kind === 'room.image_changed'
   ) {
     scheduleRoomsRefresh();
   }

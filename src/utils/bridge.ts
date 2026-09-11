@@ -171,6 +171,8 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   bot_rooms_events:       'bot.rooms.events',
   bot_rooms_members:      'bot.rooms.members',
   bot_rooms_rename:       'bot.rooms.rename',
+  // 🔴 round-97：房间图（对齐 Hermes setGroupChatImage）
+  bot_rooms_image:        'bot.rooms.image',
   bot_rooms_stop:         'bot.rooms.stop',
   bot_rooms_disband:      'bot.rooms.disband',
   // 🔴 round-79f 跨进程 driver：indeterminate 显式重试 + 未决任务可见性

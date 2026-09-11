@@ -808,6 +808,9 @@ export interface BotRoomEvent {
 export interface BotRoom {
   room_id: string;
   name: string;
+  /** 🔴 round-97：房间图（对齐 Hermes `GroupChat.image`）——256×256 PNG 的
+   *  data URL；null/undefined = 无图（渲染通用组织字形）。 */
+  image?: string | null;
   members: { member_id: string; profile: string; handle: string; display_name: string }[];
   next_seq: number;
   created_at: number;
@@ -929,9 +932,22 @@ export async function approveBotRoomTask(params: {
 
 /** 创建群聊房间（2-6 名 bot；🔴 round-70 注释修正：每次 FRESH room——服务端
  *  mint 新 room_id，无 (name,members) 幂等；重试防重由 UI single-flight 覆盖） */
-export async function createBotRoom(name: string, members: string[]): Promise<BotRoom> {
-  const data = await call('bot_rooms_create', { name, members });
+export async function createBotRoom(
+  name: string,
+  members: string[],
+  image?: string | null,
+): Promise<BotRoom> {
+  // 缺图不传键（后端把缺键/空串统一归一为 None，但少传一个键盘面更干净）
+  const data = await call('bot_rooms_create', image ? { name, members, image } : { name, members });
   return data?.room;
+}
+
+/** 🔴 round-97：设置/清除房间图（对齐 Hermes `setGroupChatImage`）。
+ *  `image = null` = 清除——**必须显式传**（后端把"缺 image 键"判为参数错误，
+ *  避免调用方漏参静默清图 = 数据丢失）。 */
+export async function setBotRoomImage(roomId: string, image: string | null): Promise<boolean> {
+  const data = await call('bot_rooms_image', { room_id: roomId, image });
+  return !!data?.event;
 }
 
 /** 群聊房间列表 */

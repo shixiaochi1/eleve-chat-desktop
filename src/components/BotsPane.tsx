@@ -18,6 +18,8 @@ import { cn } from '@/lib/utils';
 import { HelpCircle, Loader, Plus, Pencil, UsersRound, WifiOff, X } from 'lucide-react';
 import { formatRowAge } from '../utils/time';
 import { memberAvailability, memberPickLabel, pickableMembers } from '../lib/bot-members';
+// 🔴 round-97：房间图（新建群聊 + 房间设置共用一份控件）
+import RoomImageControls from './RoomImageControls';
 import {
   createBotRoom, ensureBotChat, fetchBotRoomReplicas, promoteBotRoomReplica,
 } from '../utils/api';
@@ -116,7 +118,13 @@ function RoomCard({ room, active, needsYou, roster, onOpen }: {
       {/* 名称行（对齐 Hermes GroupRow：名称 → needs-you → 年龄） */}
       <div className="flex items-center gap-1.5">
         <div className="relative flex items-center justify-center w-6 h-6 rounded-md shrink-0 overflow-hidden bg-muted/40">
-          <UsersRound size={13} strokeWidth={1.5} className={degraded ? 'text-amber-500' : 'text-muted-foreground'} />
+          {/* 🔴 round-97：房间图（对齐 Hermes bot-row.tsx:503-510——有图用图，
+              无图用组织字形） */}
+          {room.image ? (
+            <img src={room.image} alt="" className="size-full object-cover" />
+          ) : (
+            <UsersRound size={13} strokeWidth={1.5} className={degraded ? 'text-amber-500' : 'text-muted-foreground'} />
+          )}
           {degraded && (
             <span
               className="absolute -bottom-0.5 -right-0.5 flex items-center justify-center w-3 h-3 rounded-full bg-card text-amber-500"
@@ -169,6 +177,8 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newMembers, setNewMembers] = useState<string[]>([]);
+  // 🔴 round-97：新建群聊的房间图（对齐 Hermes create-dialog onImage）
+  const [newImage, setNewImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [rowMenu, setRowMenu] = useState<{ profile: string; x: number; y: number } | null>(null);
@@ -264,9 +274,10 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
     }
     setCreating(true);
     try {
-      const room = await createBotRoom(name, newMembers);
+      const room = await createBotRoom(name, newMembers, newImage);
       setNewName('');
       setNewMembers([]);
+      setNewImage(null);
       setShowCreate(false);
       await loadList();
       // 🔴 round-70：自动进入新房间（对齐 Hermes onCreated → openGroupChat）
@@ -496,6 +507,9 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
               }
               className="w-full px-2.5 py-1.5 rounded-md bg-accent/30 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
             />
+            {/* 🔴 round-97：房间图（可选；对齐 Hermes create-dialog 的
+                GroupImageControls——建房即可带图） */}
+            <RoomImageControls image={newImage} onImage={setNewImage} />
             <div className="max-h-44 overflow-y-auto space-y-1">
               {pickableCount < 2 && (
                 <div className="text-xs text-muted-foreground px-2 py-1.5">
