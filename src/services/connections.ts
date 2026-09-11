@@ -131,6 +131,23 @@ export function getRemoteSocket(id: string): GatewayWsClient {
  * 点中的 bot；relay drain 的 `bot_relay.deliver` 恒投给远端 default。
  * Hermes 同语义：requestForBot 仅路由、不改 params，业务参数由调用点自足。
  * route.profile 保留为未来 per-profile 路由的通道标识，不参与参数合成。
+ *
+ * 🔴 round-96 P0 修复（本机路径的**真断点**）：`method` 是 **RPC 名**
+ * （`'bots.roster'` / `'bot_relay.outbox.drain'` / `'bot.rooms.grant.pending'`
+ * …），不是 bridge 的 legacy snake_case 命令键。此前本机分支走
+ * `call(method)`，而 `call` 是 `COMMAND_TO_WS_METHOD[command]` **按键查表**
+ * （键是 `bots_roster` 这种下划线形式）→ RPC 名恒查不到 → 抛
+ * "No WS/HTTP mapping" → 被各处 `catch {}` 静默吞掉。于是整条跨机链路在
+ * **本机作 authority**（= 建房的那台机器，最常见）时全死：
+ *   - `relayConnections()` 首项就是本机，`routeOf(本机)` 返回 null；
+ *   - `deliverPeerDispatch` / `runGrantHandshake` 的 `routeOf(authority)`
+ *     同理（authority 就是本机）。
+ * 症状：本机网关收不到远端 roster（`read_remote_roster` 恒空 → 远端成员被
+ * 判"本机跑不了"并被 `ensure_profile` 物化成空 profile）、本机 outbox 永不
+ * 被拉、跨机 dispatch 队列永不拉取、peer 结果永远写不回、授权握手永不发起。
+ * 修法 = 本机分支与远端分支同构：直接 `sendRpc(RPC 名)`，不经命令表——
+ * 命令表只服务组件的 legacy 调用（那些走 `call()` 本身），不该出现在这里。
+ * `adaptParams` 对 RPC 名是 `default: return args`（no-op），故无行为损失。
  */
 export async function requestForBot<T = unknown>(
   route: BotRoute | null | undefined,
@@ -143,8 +160,8 @@ export async function requestForBot<T = unknown>(
     await sock.whenConnected();
     return sock.sendRpc(method, { ...params }, timeoutMs) as Promise<T>;
   }
-  const { call } = await import('../utils/bridge');
-  return call(method, params) as Promise<T>;
+  const { getWsClient } = await import('./ws-client');
+  return getWsClient().sendRpc(method, { ...params }, timeoutMs) as Promise<T>;
 }
 
 /** Probe a ws base: resolves { ok, latencyMs } or { ok: false, error }. */
