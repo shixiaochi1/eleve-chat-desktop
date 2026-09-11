@@ -24,6 +24,8 @@ import { findMemberRoster, memberAvailability, memberPickLabel, pickableMembers 
 import { groupEventsByThread, LEGACY_THREAD, threadReplyCount, threadSummaryLabel } from '../lib/bot-threads';
 // 🔴 round-99：轮终态词表（唯一真值；档位对齐 Hermes groupActivityTone）
 import { isRoomBoundedActivity, turnStatusOf, turnToneClass, type TurnTone } from '../lib/bot-turn-status';
+// 🔴 round-105：bot roster 行的活跃判定（对齐 Hermes ACTIVE_WINDOW_S）
+import { isBotActive } from '../lib/bot-activity';
 // 🔴 round-97：图片工具上提到 lib（房间图/附件缩略图/头像共用一份 canvas 实现）
 import { makeImageThumb, readImageFile } from '../lib/image-file';
 import { getWsClient } from '../services/ws-client';
@@ -174,6 +176,9 @@ export function BotRosterRow({ row, onOpen, onRowMenu }: {
   // useBotUnread.ingest 同一公式）——union 远端行的同名 profile 不再与本地
   // 行共用水位线；preview identity = click identity（锚定的就是行点击打开的会话）。
   const unread = useBotUnread(unreadKey(bot));
+  // 🔴 round-105：活跃指示——`BotRosterEntry.last_active` 此前**零消费**
+  // （字段已由后端透传）。语义近似说明见 `lib/bot-activity.ts`。
+  const botActive = isBotActive(bot.last_active);
   return (
     <button
       className={cn(
@@ -190,11 +195,23 @@ export function BotRosterRow({ row, onOpen, onRowMenu }: {
       onClick={onOpen}
       onContextMenu={(e) => { e.preventDefault(); onRowMenu(e.clientX, e.clientY); }}
     >
-      <span
-        className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[11px] font-semibold text-white"
-        style={{ background: bot.color || 'var(--accent)' }}
-      >
-        {(bot.display_name || bot.handle).slice(0, 1).toUpperCase()}
+      <span className="relative shrink-0">
+        <span
+          className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold text-white"
+          style={{ background: bot.color || 'var(--accent)' }}
+        >
+          {(bot.display_name || bot.handle).slice(0, 1).toUpperCase()}
+        </span>
+        {/* 🔴 round-105：活跃指示（对齐 Hermes bot-row 的状态点：
+            贴在头像上。Hermes 的 `mood` 走 `BotFace（头像）的 work|idle`）。
+            用与本面板同款的圆点（未读点也是 `bg-success`）+ 脉冲。 */}
+        {botActive && (
+          <span
+            className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full bg-success ring-2 ring-card animate-pulse"
+            title="刚刚有活动"
+            aria-label="活跃"
+          />
+        )}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm text-foreground truncate">{bot.display_name || bot.handle}</span>
