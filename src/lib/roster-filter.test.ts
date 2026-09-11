@@ -7,6 +7,9 @@ import {
   botMatchesQuery,
   filterByGateway,
   gatewayOptions,
+  filterHiddenBots,
+  isBotHidden,
+  isBotPinned,
   kindAllowsBots,
   kindAllowsRooms,
   matchesActivityFilter,
@@ -183,6 +186,35 @@ describe('kind 过滤', () => {
     expect([kindAllowsBots('all'), kindAllowsRooms('all')]).toEqual([true, true]);
     expect([kindAllowsBots('bots'), kindAllowsRooms('bots')]).toEqual([true, false]);
     expect([kindAllowsBots('groups'), kindAllowsRooms('groups')]).toEqual([false, true]);
+  });
+});
+
+describe('isBotHidden / isBotPinned / filterHiddenBots（对齐 Hermes hidden-bots.ts）', () => {
+  const row = (profile: string, patch: Partial<BotRosterEntry> = {}) => ({
+    entry: bot({ profile, ...patch }),
+  });
+
+  it('缺字段 = false（老网关不带这两个键）', () => {
+    expect(isBotHidden(bot())).toBe(false);
+    expect(isBotPinned(bot())).toBe(false);
+    expect(isBotHidden(bot({ hidden: true }))).toBe(true);
+    expect(isBotPinned(bot({ pinned: true }))).toBe(true);
+  });
+
+  it('🔴 revealHidden = false 时隐藏项被收起（隐藏是展示层行为）', () => {
+    const rows = [row('a'), row('b', { hidden: true }), row('c')];
+    expect(filterHiddenBots(rows, false).map((r) => r.entry.profile)).toEqual(['a', 'c']);
+  });
+
+  it('🔴 revealHidden = true 时隐藏项露出（调用方已把"有筛选约束"并进来）', () => {
+    const rows = [row('a'), row('b', { hidden: true })];
+    expect(filterHiddenBots(rows, true).map((r) => r.entry.profile)).toEqual(['a', 'b']);
+  });
+
+  it('不改原数组', () => {
+    const rows = [row('a'), row('b', { hidden: true })];
+    filterHiddenBots(rows, false);
+    expect(rows).toHaveLength(2);
   });
 });
 

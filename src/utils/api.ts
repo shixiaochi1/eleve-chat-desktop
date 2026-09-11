@@ -790,6 +790,14 @@ export interface BotRosterEntry {
   canonical_session_id?: string | null;
   /** 🔴 活动信号：canonical Bot Chat 最近活动（epoch 秒；对齐 Hermes RosterRow.last_active） */
   last_active?: number | null;
+  /** 🔴 round-109：花名册展示偏好——**置顶**（服务端持久化于 profile.yaml，
+   *  跨 Desktop 共享；对齐 Hermes `BotMeta.pinned`）。 */
+  pinned?: boolean;
+  /** 🔴 round-109：花名册展示偏好——**隐藏**。
+   *  🔴 隐藏是**纯展示**：隐藏的 Agent 照常工作、照常可被 @、照常留在群里
+   *  （对齐 Hermes：*"a hidden bot keeps working, remains mentionable, keeps group
+   *  membership, and any open chat stays open"*）。 */
+  hidden?: boolean;
   /** 🔴 round-108：创建时间（epoch 秒；对齐 Hermes `RosterRow.ui_meta.created`）。
    *  花名册"活动度"取 `max(created, last_active)`——新建的 Agent 还没有消息，
    *  只算 last_active 会让它沉到列表最底并被标"很久没活动"。 */

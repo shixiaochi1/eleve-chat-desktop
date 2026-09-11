@@ -27,7 +27,9 @@ import {
   activeFilterCount,
   botActivityMs,
   botMatchesQuery,
+  filterHiddenBots,
   gatewayOptions,
+  isBotPinned,
   kindAllowsBots,
   kindAllowsRooms,
   matchesActivityFilter,
@@ -301,17 +303,28 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
       .filter((r) => matchesActivityFilter(roomRowMeta(r), activityFilter));
   }, [rooms, bots, query, gatewayFilter, activityFilter, kindFilter, pinnedRooms, roomRowMeta]);
 
-  /** 通过筛选的 Agent 行（同上；Agent 行暂无置顶/隐藏，见轮次文档） */
-  const visibleBots = useMemo(() => {
+  /** 通过筛选的 Agent 行（与房间行同一套管线；置顶来自**服务端**偏好） */
+  const filteredBots = useMemo(() => {
     if (!kindAllowsBots(kindFilter)) return [];
     return sortByPinThenActivity(
       bots.filter((r) => botMatchesQuery(r.entry, r.connectionLabel, query)),
-      () => false,
+      (r) => isBotPinned(r.entry),
       (r) => botActivityMs(r.entry),
     )
       .filter((r) => gatewayFilter === 'all' || r.connectionId === gatewayFilter)
       .filter((r) => matchesActivityFilter(botRowMeta(r), activityFilter));
   }, [bots, query, gatewayFilter, activityFilter, kindFilter, botRowMeta]);
+
+  // 🔴 隐藏项只在"显示已隐藏"打开（或有筛选约束）时出现（对齐 Hermes
+  // `showHiddenRows = hiddenExpanded || hasRosterConstraint`）
+  const visibleBots = useMemo(
+    () => filterHiddenBots(filteredBots, showHidden || hasConstraint),
+    [filteredBots, showHidden, hasConstraint],
+  );
+
+  /** 隐藏项总数（房间来自本机偏好、Agent 来自服务端偏好） */
+  const hiddenBotsCount = useMemo(() => bots.filter((r) => r.entry.hidden).length, [bots]);
+  const hiddenCount = hiddenRooms.size + hiddenBotsCount;
 
   // 🔴 有约束时强制展开隐藏项（对齐 Hermes `showHiddenRows = hiddenExpanded || hasRosterConstraint`）
   const shownRooms = useMemo(
@@ -328,6 +341,12 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [rowMenu, setRowMenu] = useState<{ profile: string; x: number; y: number } | null>(null);
+  /** 🔴 round-109：右键菜单当前指向的 Agent 行（置顶/隐藏要读它的当前值）。 */
+  const menuRow = useMemo(
+    () => (rowMenu ? bots.find((r) => r.entry.profile === rowMenu.profile) ?? null : null),
+    [rowMenu, bots],
+  );
+
   /** 🔴 round-107：复制进行中（防连点造出多个副本） */
   const [duplicating, setDuplicating] = useState(false);
   const localBots = useMemo(() => bots.filter(b => !b.isRemote).map(b => b.entry), [bots]);
@@ -551,6 +570,29 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
     }
   };
 
+  /** 🔴 round-109：改 Agent 的展示偏好（置顶 / 隐藏）。
+   *
+   *  与 Hermes `saveBotMeta` 同构：**服务端才是 source of truth**
+   *  （profile.yaml，跨 Desktop 共享），写后由花名册轮询带回来。
+   *  远端行骑 owner 连接（`requestForBot` 的 route），本机 route=null。 */
+  const setBotPrefs = async (
+    row: UnionRosterRow,
+    patch: { pinned?: boolean; hidden?: boolean },
+  ) => {
+    setRowMenu(null);
+    setError(null);
+    try {
+      await requestForBot(
+        row.isRemote ? { connectionId: row.connectionId, profile: 'default' } : null,
+        'profiles.set_roster_prefs',
+        { name: row.entry.profile, ...patch },
+      );
+      await refreshUnionRoster();
+    } catch (e) {
+      setError(`设置展示偏好失败：${(e as Error).message}`);
+    }
+  };
+
   const openRoom = (room: BotRoom) => {
     // 🔴 2026-09-08 round-76：房间选择与远端会话视图互斥——否则 remoteChat
     // 激活时点群聊行，主区仍被远端视图遮蔽（"点了没反应"）
@@ -717,19 +759,6 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
           <section>
             <div className="flex items-center justify-between mb-1.5 px-1">
               <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">群聊</div>
-              {/* 🔴 round-104：显示已隐藏（对齐 Hermes `$showHiddenBots`：session-only）。
-                  开关必须在"全部隐藏"时也可见，否则无法恢复。 */}
-              {hiddenRooms.size > 0 && (
-                <button
-                  type="button"
-                  className="text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                  title={showHidden ? '收起已隐藏的群聊' : `显示 ${hiddenRooms.size} 个已隐藏的群聊`}
-                  onClick={() => setShowHidden((v) => !v)}
-                >
-                  <EyeOff size={10} />
-                  {showHidden ? '收起隐藏项' : `已隐藏 ${hiddenRooms.size}`}
-                </button>
-              )}
             </div>
             <div className="space-y-1.5">
               {shownRooms.map((room) => (
@@ -768,6 +797,7 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
               <BotRosterRow
                 key={`${row.connectionId}:${row.entry.profile}`}
                 row={row}
+                dimmed={Boolean(row.entry.hidden) && showHidden && !hasConstraint}
                 onOpen={() => (row.isRemote ? openRemoteBotChat(row) : openBotChat(row.entry.profile))}
                 onRowMenu={(x, y) => setRowMenu({ profile: row.entry.profile, x, y })}
               />
@@ -776,10 +806,27 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
               <div className="text-xs text-muted-foreground px-2 py-1.5">暂无已注册 Agent</div>
             )}
             {!loading && bots.length > 0 && visibleBots.length === 0 && (
-              <div className="text-xs text-muted-foreground/70 px-2 py-1.5">没有匹配的 Agent</div>
+              <div className="text-xs text-muted-foreground/70 px-2 py-1.5">
+                {hasConstraint ? '没有匹配的 Agent' : '全部 Agent 已隐藏'}
+              </div>
             )}
           </div>
         </section>
+        )}
+
+        {/* 🔴 round-109：显示已隐藏（对齐 Hermes 单个 `$showHiddenBots`：session-only，
+            同时覆盖房间与 Agent）。放在列表尾部 → 任意条目数下都可达，
+            不会因为"全部隐藏"而失去入口。 */}
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+            title={`已隐藏：群聊 ${hiddenRooms.size} · Agent ${hiddenBotsCount}`}
+            onClick={() => setShowHidden((v) => !v)}
+          >
+            <EyeOff size={11} />
+            {showHidden ? '收起隐藏项' : `已隐藏 ${hiddenCount}`}
+          </button>
         )}
       </div>
 
@@ -896,6 +943,26 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
             <Copy size={13} className="text-muted-foreground" />
             {duplicating ? '正在复制…' : '复制 Agent'}
           </button>
+          {/* 🔴 round-109：花名册展示偏好（对齐 Hermes bot-row 的 Pin / Hide Bot） */}
+          {menuRow && (
+            <>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent/50 text-left"
+                onClick={() => void setBotPrefs(menuRow, { pinned: !menuRow.entry.pinned })}
+              >
+                <Pin size={13} className="text-muted-foreground" />
+                {menuRow.entry.pinned ? '取消置顶' : '置顶'}
+              </button>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent/50 text-left"
+                title="隐藏只影响展示——仍可 @提及、仍在群里、私聊不断"
+                onClick={() => void setBotPrefs(menuRow, { hidden: !menuRow.entry.hidden })}
+              >
+                <EyeOff size={13} className="text-muted-foreground" />
+                {menuRow.entry.hidden ? '取消隐藏' : '隐藏'}
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

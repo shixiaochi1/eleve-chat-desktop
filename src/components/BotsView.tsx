@@ -172,10 +172,13 @@ export default function BotsRoomMainView() {
 // 活动权威 = canonical Bot Chat（行点击打开的就是它，点与会话永不描述两回事）。
 // 🔴 stage-3 UNION 行：远端行带连接标记（🏷 connectionLabel），拉取失败行
 // 降级 ghost（opacity + 不可达提示），不消失（对齐 Hermes annotateBotSource）。
-export function BotRosterRow({ row, onOpen, onRowMenu }: {
+export function BotRosterRow({ row, onOpen, onRowMenu, dimmed }: {
   row: UnionRosterRow;
   onOpen: () => void;
   onRowMenu: (x: number, y: number) => void;
+  /** 🔴 round-109：已隐藏但在"显示已隐藏"下露出的行 —— 淡化而非消失
+   *  （对齐 Hermes "reveal hidden bots (dimmed)"，与 RoomCard 同款 opacity-55）。 */
+  dimmed?: boolean;
 }) {
   const bot = row.entry;
   // 🔴 2026-09-05 round-54：未读键 = canonical_session_id ?? profile（与
@@ -193,6 +196,7 @@ export function BotRosterRow({ row, onOpen, onRowMenu }: {
       className={cn(
         'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent/40 transition-colors text-left',
         !row.reachable && 'opacity-40',
+        dimmed && 'opacity-55',
       )}
       title={
         !row.reachable

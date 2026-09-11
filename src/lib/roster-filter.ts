@@ -169,6 +169,30 @@ export function kindAllowsBots(kind: RosterKindFilter): boolean {
   return kind !== 'groups';
 }
 
+/** 🔴 round-109：该 Agent 是否被隐藏（1:1 对齐 Hermes `hidden-bots.ts:isBotHidden`）。
+ *  🔴 隐藏是**纯展示**——它照常工作、照常可被 @、照常留在群里。 */
+export function isBotHidden(entry: BotRosterEntry): boolean {
+  return Boolean(entry.hidden);
+}
+
+/** 🔴 round-109：该 Agent 是否置顶（1:1 对齐 Hermes `hidden-bots.ts:isBotPinned`）。 */
+export function isBotPinned(entry: BotRosterEntry): boolean {
+  return Boolean(entry.pinned);
+}
+
+/**
+ * 隐藏项过滤（对齐 Hermes `showHiddenRows = hiddenExpanded || hasRosterConstraint`）。
+ *
+ * `revealHidden` 由调用方算好：用户的"显示已隐藏"开关 **或** 当前有筛选约束
+ * ——有约束时隐藏项必须露出来，否则"搜不到明明存在的 Agent"。
+ */
+export function filterHiddenBots<T extends { entry: BotRosterEntry }>(
+  rows: readonly T[],
+  revealHidden: boolean,
+): T[] {
+  return revealHidden ? [...rows] : rows.filter((r) => !isBotHidden(r.entry));
+}
+
 /** 类型过滤：房间一侧（见 `kindAllowsBots`）。 */
 export function kindAllowsRooms(kind: RosterKindFilter): boolean {
   return kind !== 'bots';
