@@ -22,6 +22,8 @@ import { formatRowAge } from '../utils/time';
 import { findMemberRoster, memberAvailability, memberPickLabel, pickableMembers } from '../lib/bot-members';
 // 🔴 round-97：线程分组（唯一派生；见 lib/bot-threads.ts）
 import { groupEventsByThread, LEGACY_THREAD, threadReplyCount, threadSummaryLabel } from '../lib/bot-threads';
+// 🔴 round-99：轮终态词表（唯一真值；档位对齐 Hermes groupActivityTone）
+import { isRoomBoundedActivity, turnStatusOf, turnToneClass, type TurnTone } from '../lib/bot-turn-status';
 // 🔴 round-97：图片工具上提到 lib（房间图/附件缩略图/头像共用一份 canvas 实现）
 import { makeImageThumb, readImageFile } from '../lib/image-file';
 import { getWsClient } from '../services/ws-client';
@@ -643,27 +645,19 @@ function BotsRoomView({ room, roster, onBack }: {
       const m = room.members.find(x => x.member_id === key);
       return m ? `@${m.handle}` : '@成员';
     };
-    const rows: { key: string; label: string; at: number; bad: boolean }[] = [];
+    // 🔴 round-99：活动行改走 `turnStatusOf` 词表（与内联行同一份真值）。
+    // 档位对齐 Hermes `groupActivityTone`——**超时与出错同为 destructive**
+    // （round-98 曾把超时的行为语义“缺席”错误延伸到视觉层而不标红）。
+    const rows: { key: string; label: string; at: number; tone: TurnTone }[] = [];
     for (const e of events) {
       if (e.seq < startSeq) continue;
-      const who = handleOf(e.payload?.member_id);
-      const passed = e.payload?.passed === true;
-      let label = '';
-      let bad = false;
-      if (e.kind === 'turn.settled') label = passed ? `${who} 跳过本轮` : `${who} 已回复`;
-      else if (e.kind === 'turn.failed') { label = `${who} 出错`; bad = true; }
-      else if (e.kind === 'turn.cancelled') label = `${who} 的轮已取消`;
-      else if (e.kind === 'turn.deferred') {
-        // round-98: 区分两种“缺席”——`turn_deadline_exceeded` 是**超时**
-        // （会话仍在跑，回信迟到时会被收割补投，不是故障，故不标红）；
-        // 其余 deferred 才是“成员暂不可用”。
-        const deadline = e.payload?.reason_code === 'turn_deadline_exceeded';
-        label = deadline ? `${who} 超时（回复迟到时会补投）` : `${who} 缺席（暂不可用）`;
-        bad = !deadline;
-      }
-      else if (e.kind === 'turn.held') label = `${who} 已暂停发言`;
-      else continue;
-      rows.push({ key: String(e.seq), label, at: e.created_at, bad });
+      const st = turnStatusOf(e.kind, e.payload);
+      if (!st) continue;
+      // 房间级活动（bounded）没有成员归属 → 不冠 who
+      const label = isRoomBoundedActivity(e.kind, e.payload)
+        ? st.label
+        : `${handleOf(e.payload?.member_id)} ${st.label}`;
+      rows.push({ key: String(e.seq), label, at: e.created_at, tone: st.tone });
     }
     return rows;
   }, [events, room.members]);
@@ -895,7 +889,7 @@ function BotsRoomView({ room, roster, onBack }: {
             {runActivity.length ? (
               [...runActivity].reverse().map((row) => (
                 <div key={row.key} className="flex items-center gap-1.5 text-[11px]">
-                  <span className={row.bad ? 'min-w-0 flex-1 truncate text-destructive' : 'min-w-0 flex-1 truncate'}>
+                  <span className={cn('min-w-0 flex-1 truncate', turnToneClass(row.tone))}>
                     {row.label}
                   </span>
                   <span className="shrink-0 text-[10px] text-muted-foreground/70 tabular-nums">
@@ -1010,7 +1004,7 @@ function BotsRoomView({ room, roster, onBack }: {
                               会看到“两条回复”却不知后者属于更早的提问。 */}
                           {ev.payload?.late === true && (
                             <span
-                              className="shrink-0 rounded px-1 py-px text-[9px] bg-accent/60 text-muted-foreground"
+                              className="shrink-0 rounded px-1 py-px text-[9px] bg-accent/60 text-foreground"
                               title="该轮曾超时，回复随后补投到本线程"
                             >
                               迟到补投
@@ -1052,35 +1046,34 @@ function BotsRoomView({ room, roster, onBack }: {
                     if (!parts.length) return null;
                     return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground py-0.5">— {parts.join('；')} —</div>;
                   }
-                  // 🔴 2026-09-05 round-53：turn.started 不再渲染（用户实测刷屏——
-                  // 每个成员发言前都有一条"· @ 发言中"，且 gateway actor 无 handle
-                  // 显示为空 @；成员发言气泡本身就是"已回应"指示，轮转状态由
-                  // roomBusy 双态键表达）。事件保留在日志供审计。
-                  if (ev.kind === 'turn.started') {
-                    return null;
-                  }
-                  if (ev.kind === 'turn.held') {
-                    const h = String(ev.actor.handle || ev.actor.id || '');
-                    const byId = (Array.isArray(room.members) ? room.members : []).find(m => m.member_id === ev.payload.member_id);
-                    const label = byId ? `@${byId.handle}` : `@${h}`;
-                    return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— {label} 的发言已暂停 —</div>;
-                  }
-                  if (ev.kind === 'turn.deferred') {
-                    // 🔴 round-79g：恢复层 deferred 事件 actor.id=member_id（handle 空）
-                    // → handle 优先花名册映射；显式重试（对齐 Hermes 群聊任务行 retry
-                    // ——at-least-once 确认；task_id == turn_id）
-                    const mid = String(ev.payload.member_id || '');
+                  // 🔴 round-99：轮终态统一走 `turnStatusOf` 词表
+                  // （与活动行同一份真值；此前两处各自硬编码，措辞已漂移）。
+                  // 🔴 round-53：turn.started 不进词表逻辑——用户实测刷屏（每个成员发言前都有一条），
+                  // 且成员发言气泡本身就是“已回应”指示，轮转状态由 roomBusy 双态键表达。
+                  if (
+                    ev.kind === 'turn.settled' ||
+                    ev.kind === 'turn.failed' ||
+                    ev.kind === 'turn.cancelled' ||
+                    ev.kind === 'turn.deferred' ||
+                    ev.kind === 'turn.held'
+                  ) {
+                    const st = turnStatusOf(ev.kind, ev.payload);
+                    // 实质发言的 settled：内容在成员气泡里，不再重复一行
+                    if (!st || (ev.kind === 'turn.settled' && ev.payload?.passed !== true)) {
+                      return null;
+                    }
+                    // handle 优先花名册映射（恢复层事件的 actor.handle 为空）
+                    const mid = String(ev.payload?.member_id || '');
                     const byId = (Array.isArray(room.members) ? room.members : []).find(m => m.member_id === mid);
-                    const label = byId ? `@${byId.handle}` : `@${String(ev.actor.handle || ev.actor.id || mid)}`;
-                    const turnId = /^turn:(.+):deferred$/.exec(String(ev.event_id ?? ''))?.[1] ?? null;
-                    // round-98: **超时**造成的缺席不给“重试”——会话里那一轮还在跑，
-                    // 重试会把它双注入同一成员会话；Hermes 对超时也不重试，而是等
-                    // 会话跑完由收割补投（见后端 stranded harvest）。
-                    const isDeadline = ev.payload.reason_code === 'turn_deadline_exceeded';
+                    const who = byId ? `@${byId.handle}` : `@${String(ev.actor.handle || ev.actor.id || mid)}`;
+                    const turnId =
+                      /^turn:(.+):(settled|failed|cancelled|deferred|held)$/.exec(String(ev.event_id ?? ''))?.[1] ?? null;
                     return (
-                      <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">
-                        — {label} {isDeadline ? '本轮超时（回复迟到时会自动补投）' : '暂时缺席'} —
-                        {turnId && !isDeadline && (
+                      <div key={ev.seq} className={cn('text-center text-[11px] py-0.5', turnToneClass(st.tone))}>
+                        — {who} {st.label} —
+                        {/* 超时缺席不给重试：会话里那一轮还在跑，重试会双注入同一
+                            成员会话（Hermes 对超时也不重试，靠收割补投） */}
+                        {st.retryable && turnId && (
                           <button
                             className="ml-2 underline hover:text-foreground"
                             onClick={() => void handleRetryTaskById(turnId)}
@@ -1091,30 +1084,17 @@ function BotsRoomView({ room, roster, onBack }: {
                       </div>
                     );
                   }
-                  if (ev.kind === 'turn.failed') {
-                    // 🔴 2026-09-04 失败可见（此前渲染 null——成员模型调用失败用户
-                    // 完全无感，是"没反应"体验的直接来源之一）
-                    const h = String(ev.actor.handle || ev.actor.id || '');
-                    const rc = String(ev.payload.reason_code || 'error');
-                    const msg = String(ev.payload.error || '').slice(0, 80);
+                  // 🔴 round-99：房间级“达到上限而停止”（此前前端**零消费**）。
+                  // 讨论撞上轮数/消息数上限后静默停止，用户只看到“没人再回复”却不
+                  // 知为何。对齐 Hermes `capped` 活动。
+                  if (isRoomBoundedActivity(ev.kind, ev.payload)) {
+                    const st = turnStatusOf(ev.kind, ev.payload);
+                    if (!st) return null;
                     return (
-                      <div key={ev.seq} className="text-center text-[11px] text-destructive/80 py-0.5">
-                        — @{h} 发言失败（{rc}）{msg ? `：${msg}` : ''} —
+                      <div key={ev.seq} className={cn('text-center text-[11px] py-0.5', turnToneClass(st.tone))}>
+                        — {st.label} —
                       </div>
                     );
-                  }
-                  if (ev.kind === 'turn.cancelled') {
-                    const h = String(ev.actor.handle || ev.actor.id || '');
-                    return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— @{h} 的发言已随停止取消 —</div>;
-                  }
-                  if (ev.kind === 'turn.settled') {
-                    // 🔴 round-78d：pass=沉默可见（对齐 Hermes isGroupPassText 显示语义
-                    // ——此前 settled 渲染 null，成员被点名却沉默完全无感）
-                    if (ev.payload.passed === true) {
-                      const h = String(ev.actor.handle || ev.actor.id || '');
-                      return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">— @{h} 保持沉默 —</div>;
-                    }
-                    return null; // 实质发言的 settled：内容在气泡里
                   }
                   if (ev.kind === 'room.renamed') {
                     // 🔴 round-78d：改名/成员变更轨迹可见（对齐 Hermes group-activity
