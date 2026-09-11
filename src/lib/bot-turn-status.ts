@@ -97,7 +97,9 @@ export function turnStatusOf(
 
     case 'turn.held':
       // Hermes: held → 'is held (stopped by you) — @mention it or say resume to release'
-      return { label: '已暂停发言', tone: 'quiet', retryable: false };
+      // 🔴 round-103：**恢复指引必须带**——只说"已暂停"，用户不知道如何解除
+      // （Hermes 的 label 把释放方式写在文案里，与 stop 的 "held until resumed" 同源）。
+      return { label: '已暂停发言（说「resume」或直接 @ 它可恢复）', tone: 'quiet', retryable: false };
 
     case 'room.activity': {
       // 🔴 round-99：`bounded` 此前**前端零消费**——讨论撞上轮数/消息数上限后

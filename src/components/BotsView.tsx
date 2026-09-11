@@ -1024,7 +1024,15 @@ function BotsRoomView({ room, roster, onBack }: {
                     );
                   }
                   if (ev.kind === 'room.stop_requested') {
-                    return <div key={ev.seq} className="text-center text-[11px] text-muted-foreground py-0.5">— 讨论已停止 —</div>;
+                    // 🔴 round-103：文案补"粘性 hold + 如何恢复"——stop 现在会把全员
+                    // 置 held（对齐 Hermes `stopGroupThread`），只写"已停止"会让用户
+                    // 以为再发一条消息就能继续（Hermes 原文："remaining turns are
+                    // held until resumed"）。
+                    return (
+                      <div key={ev.seq} className="text-center text-[11px] text-muted-foreground py-0.5">
+                        — 讨论已停止（成员保持暂停 —— 说「resume」或直接 @ 某成员可恢复）—
+                      </div>
+                    );
                   }
                   if (ev.kind === 'room.disbanded') {
                     return <div key={ev.seq} className="text-center text-[11px] text-destructive py-0.5">— 群聊已解散 —</div>;
