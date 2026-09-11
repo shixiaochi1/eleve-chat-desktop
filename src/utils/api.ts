@@ -834,6 +834,20 @@ export interface BotRoom {
   /** 🔴 round-97：房间图（对齐 Hermes `GroupChat.image`）——256×256 PNG 的
    *  data URL；null/undefined = 无图（渲染通用组织字形）。 */
   image?: string | null;
+  /** 🔴 round-110：花名册展示偏好——**置顶**（列表排序优先）。
+   *
+   *  与 Hermes `GroupChat.pinned` 同名同义：那边前端读它排序
+   *  （`roster-pane.tsx:396`），但插件里**没有写点**（`types.ts:180` 原文
+   *  "no write site in the plugin today"）——Hermes 预留字段、未做入口，
+   *  ELEVE 把它做完整并落库。 */
+  pinned?: boolean;
+  /** 🔴 round-110：花名册展示偏好——**隐藏**。
+   *
+   *  ⚠️ Hermes 无对应字段（其 `hidden` 只存在于 Agent 元数据），是我方扩展；
+   *  但**与房间记录同源**存储（`bot_rooms` 表），不随浏览器缓存清空。
+   *  语义与 Agent 的 hidden 一致：**纯展示**——隐藏的房间照常收发消息、
+   *  成员照常发言、@提及照常生效。 */
+  hidden?: boolean;
   members: { member_id: string; profile: string; handle: string; display_name: string }[];
   next_seq: number;
   created_at: number;
@@ -971,6 +985,21 @@ export async function createBotRoom(
 export async function setBotRoomImage(roomId: string, image: string | null): Promise<boolean> {
   const data = await call('bot_rooms_image', { room_id: roomId, image });
   return !!data?.event;
+}
+
+/** 🔴 round-110：设置房间的花名册展示偏好（置顶 / 隐藏）。
+ *
+ *  **至少给一个字段**——两者都缺后端会拒绝（空写几乎必是漏传参数，静默 no-op
+ *  会把 bug 藏起来）。
+ *
+ *  与 `setBotRoomImage` 不同，本调用**不产生房间事件**（偏好是纯展示状态，
+ *  不进房间历史）⇒ 写后调用方应重拉 `rooms.list` 回灌本地行。 */
+export async function setBotRoomPrefs(
+  roomId: string,
+  patch: { pinned?: boolean; hidden?: boolean },
+): Promise<BotRoom> {
+  const data = await call('bot_rooms_set_prefs', { room_id: roomId, ...patch });
+  return data?.room;
 }
 
 /** 群聊房间列表 */

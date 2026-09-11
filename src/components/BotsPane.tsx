@@ -28,6 +28,7 @@ import {
   botActivityMs,
   botMatchesQuery,
   filterHiddenBots,
+  filterHiddenRooms,
   gatewayOptions,
   isBotPinned,
   kindAllowsBots,
@@ -43,17 +44,9 @@ import {
 import { ACTIVE_WINDOW_S, isBotActive, isBotWorkerActive } from '../lib/bot-activity';
 // 🔴 round-97：房间图（新建群聊 + 房间设置共用一份控件）
 import RoomImageControls from './RoomImageControls';
-// 🔴 round-104：roster 展示偏好（置顶 / 隐藏，对齐 Hermes hidden-bots.ts）
-import {
-  filterVisibleRooms,
-  loadHiddenRooms,
-  loadPinnedRooms,
-  saveHiddenRooms,
-  savePinnedRooms,
-  toggleMember,
-} from '../lib/roster-prefs';
 import {
   createBotRoom, ensureBotChat, fetchBotRoomReplicas, promoteBotRoomReplica,
+  setBotRoomPrefs,
 } from '../utils/api';
 import type { BotRoom } from '../utils/api';
 import { requestForBot } from '../services/connections';
@@ -238,12 +231,10 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   const [activityFilter, setActivityFilter] = useState<RosterActivityFilter>('all');
   const [gatewayFilter, setGatewayFilter] = useState('all');
   const [showFilters, setShowFilters] = useState(false);
-  // 🔴 round-104：roster 展示偏好——置顶（排序优先）/ 隐藏。
-  // 隐藏**只影响展示**（Hermes 原文："a hidden bot keeps
-  // working, remains mentionable, keeps group membership"）；
-  // `showHidden` 对齐 Hermes `$showHiddenBots`——**session-only**，不持久化。
-  const [pinnedRooms, setPinnedRooms] = useState<Set<string>>(() => loadPinnedRooms());
-  const [hiddenRooms, setHiddenRooms] = useState<Set<string>>(() => loadHiddenRooms());
+  // 🔴 round-110：房间的置顶/隐藏改读**服务端字段**（`BotRoom.pinned/hidden`，
+  // 落在 `bot_rooms` 表）——此前是 localStorage（round-104），与房间记录**不同源**：
+  // 清浏览器缓存即丢、房间解散后偏好仍残留、后端无从读取。
+  // 隐藏**只影响展示**；`showHidden` 对齐 Hermes `$showHiddenBots`——session-only。
   const [showHidden, setShowHidden] = useState(false);
   /** 房间行的过滤元数据：`active` = 最近消息落在 90s 窗内 **或** 任一成员正活跃
    *  （对齐 Hermes groupRows 的 `active: 最近活跃 || 成员活跃`）。 */
@@ -296,12 +287,12 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
     if (!kindAllowsRooms(kindFilter)) return [];
     return sortByPinThenActivity(
       rooms,
-      (r) => pinnedRooms.has(r.room_id),
+      (r) => Boolean(r.pinned),
       roomActivityMs,
     )
       .filter((r) => roomMatchesFilters(r, bots, query, gatewayFilter))
       .filter((r) => matchesActivityFilter(roomRowMeta(r), activityFilter));
-  }, [rooms, bots, query, gatewayFilter, activityFilter, kindFilter, pinnedRooms, roomRowMeta]);
+  }, [rooms, bots, query, gatewayFilter, activityFilter, kindFilter, roomRowMeta]);
 
   /** 通过筛选的 Agent 行（与房间行同一套管线；置顶来自**服务端**偏好） */
   const filteredBots = useMemo(() => {
@@ -322,14 +313,15 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
     [filteredBots, showHidden, hasConstraint],
   );
 
-  /** 隐藏项总数（房间来自本机偏好、Agent 来自服务端偏好） */
+  /** 隐藏项总数（房间与 Agent 现在**都**来自服务端偏好字段） */
   const hiddenBotsCount = useMemo(() => bots.filter((r) => r.entry.hidden).length, [bots]);
-  const hiddenCount = hiddenRooms.size + hiddenBotsCount;
+  const hiddenRoomCount = useMemo(() => rooms.filter((r) => r.hidden).length, [rooms]);
+  const hiddenCount = hiddenRoomCount + hiddenBotsCount;
 
   // 🔴 有约束时强制展开隐藏项（对齐 Hermes `showHiddenRows = hiddenExpanded || hasRosterConstraint`）
   const shownRooms = useMemo(
-    () => filterVisibleRooms(visibleRooms, hiddenRooms, showHidden || hasConstraint),
-    [visibleRooms, hiddenRooms, showHidden, hasConstraint],
+    () => filterHiddenRooms(visibleRooms, showHidden || hasConstraint),
+    [visibleRooms, showHidden, hasConstraint],
   );
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -593,6 +585,23 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
     }
   };
 
+  /** 🔴 round-110：改房间的展示偏好（置顶 / 隐藏）。
+   *
+   *  与 `setBotPrefs` 同构：**服务端才是 source of truth**（`bot_rooms` 表），
+   *  写后重拉 `rooms.list` 回灌。与图那类元数据不同，偏好**不产生房间事件**。 */
+  const setRoomPrefs = async (
+    room: BotRoom,
+    patch: { pinned?: boolean; hidden?: boolean },
+  ) => {
+    setError(null);
+    try {
+      await setBotRoomPrefs(room.room_id, patch);
+      await refreshRooms();
+    } catch (e) {
+      setError(`设置展示偏好失败：${(e as Error).message}`);
+    }
+  };
+
   const openRoom = (room: BotRoom) => {
     // 🔴 2026-09-08 round-76：房间选择与远端会话视图互斥——否则 remoteChat
     // 激活时点群聊行，主区仍被远端视图遮蔽（"点了没反应"）
@@ -768,17 +777,17 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
                   active={selectedRoomId === room.room_id}
                   needsYou={roomsNeedingYou.has(room.room_id)}
                   roster={bots}
-                  pinned={pinnedRooms.has(room.room_id)}
-                  hidden={hiddenRooms.has(room.room_id)}
-                  onTogglePin={() => setPinnedRooms((cur) => { const next = toggleMember(cur, room.room_id); savePinnedRooms(next); return next; })}
-                  onToggleHide={() => setHiddenRooms((cur) => { const next = toggleMember(cur, room.room_id); saveHiddenRooms(next); return next; })}
+                  pinned={Boolean(room.pinned)}
+                  hidden={Boolean(room.hidden)}
+                  onTogglePin={() => void setRoomPrefs(room, { pinned: !room.pinned })}
+                  onToggleHide={() => void setRoomPrefs(room, { hidden: !room.hidden })}
                   onOpen={() => openRoom(room)}
                 />
               ))}
               {!shownRooms.length && (
                 <div className="text-[11px] text-muted-foreground/70 px-1 py-1">
                   {hasConstraint
-                    ? (hiddenRooms.size > 0 && !showHidden
+                    ? (hiddenRoomCount > 0 && !showHidden
                         ? '没有匹配的群聊（部分群聊已隐藏）'
                         : '没有匹配的群聊')
                     : '全部群聊已隐藏（点上方「已隐藏 N」可显示）'}
@@ -821,7 +830,7 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
           <button
             type="button"
             className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
-            title={`已隐藏：群聊 ${hiddenRooms.size} · Agent ${hiddenBotsCount}`}
+            title={`已隐藏：群聊 ${hiddenRoomCount} · Agent ${hiddenBotsCount}`}
             onClick={() => setShowHidden((v) => !v)}
           >
             <EyeOff size={11} />

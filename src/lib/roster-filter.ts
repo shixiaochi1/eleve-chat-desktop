@@ -193,6 +193,17 @@ export function filterHiddenBots<T extends { entry: BotRosterEntry }>(
   return revealHidden ? [...rows] : rows.filter((r) => !isBotHidden(r.entry));
 }
 
+/** 🔴 round-110：房间的隐藏过滤——与 [`filterHiddenBots`] 同一口径。
+ *
+ *  房间的隐藏来自**服务端字段**（`BotRoom.hidden`；round-110 起从 localStorage
+ *  迁到 `bot_rooms` 表，与房间记录同源），语义与 Agent 端完全一致：纯展示。 */
+export function filterHiddenRooms<T extends { hidden?: boolean }>(
+  rows: readonly T[],
+  revealHidden: boolean,
+): T[] {
+  return revealHidden ? [...rows] : rows.filter((r) => !r.hidden);
+}
+
 /** 类型过滤：房间一侧（见 `kindAllowsBots`）。 */
 export function kindAllowsRooms(kind: RosterKindFilter): boolean {
   return kind !== 'bots';

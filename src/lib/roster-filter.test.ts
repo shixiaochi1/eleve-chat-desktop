@@ -8,6 +8,7 @@ import {
   filterByGateway,
   gatewayOptions,
   filterHiddenBots,
+  filterHiddenRooms,
   isBotHidden,
   isBotPinned,
   kindAllowsBots,
@@ -252,5 +253,20 @@ describe('activeFilterCount — 过滤徽标', () => {
     expect(activeFilterCount('all', 'all', 'all')).toBe(0);
     expect(activeFilterCount('bots', 'all', 'all')).toBe(1);
     expect(activeFilterCount('bots', 'recent', 'c1')).toBe(3);
+  });
+});
+
+describe('filterHiddenRooms — 房间隐藏过滤（round-110，与 Agent 端同口径）', () => {
+  it('revealHidden=false 收起隐藏项；true 全放行', () => {
+    const rooms = [{ hidden: true }, { hidden: false }, {}];
+    expect(filterHiddenRooms(rooms, false).map((r) => r.hidden)).toEqual([false, undefined]);
+    expect(filterHiddenRooms(rooms, true)).toHaveLength(3);
+  });
+
+  it('不改原数组', () => {
+    const rooms = [{ hidden: true }, { hidden: false }];
+    const snapshot = [...rooms];
+    filterHiddenRooms(rooms, false);
+    expect(rooms).toEqual(snapshot);
   });
 });
