@@ -54,26 +54,10 @@ export function toggleMember(set: ReadonlySet<string>, id: string): Set<string> 
   return next;
 }
 
-/**
- * 排序：**置顶优先**，同档内保持传入顺序（稳定排序）。
- *
- * 对齐 Hermes `sortRosterRows`：它按 `pinned` 分档、同档按 activity（最近活跃）。
- * ELEVE 的传入顺序 = 后端 `ORDER BY created_at ASC`（建房时间升序）——
- * 与「同栏会话行」的相对时间语义同向，故同档内**保持原序**即可，不另算 activity。
- */
-export function sortRoomsByPin<T extends { room_id: string }>(
-  rooms: readonly T[],
-  pinned: ReadonlySet<string>,
-): T[] {
-  return rooms
-    .map((room, i) => ({ room, i }))
-    .sort((a, b) => {
-      const pa = pinned.has(a.room.room_id) ? 1 : 0;
-      const pb = pinned.has(b.room.room_id) ? 1 : 0;
-      return pb - pa || a.i - b.i;
-    })
-    .map((x) => x.room);
-}
+// 🔴 round-108：原 `sortRoomsByPin`（只按置顶分档、同档保持传入序）已**删除**——
+// Hermes 的 `sortRosterRows` 是「置顶优先 **+ 活动度降序**」，只做前一半会与
+// roster 的"消息应用顺序"不一致。排序统一由 `lib/roster-filter.ts` 的
+// `sortByPinThenActivity(rows, isPinned, activityOf)` 提供（Agent 行与房间行同一份实现）。
 
 /**
  * 可见性过滤：隐藏项**只在** `showHidden` 打开时出现（对齐 Hermes

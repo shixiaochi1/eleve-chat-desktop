@@ -790,6 +790,10 @@ export interface BotRosterEntry {
   canonical_session_id?: string | null;
   /** 🔴 活动信号：canonical Bot Chat 最近活动（epoch 秒；对齐 Hermes RosterRow.last_active） */
   last_active?: number | null;
+  /** 🔴 round-108：创建时间（epoch 秒；对齐 Hermes `RosterRow.ui_meta.created`）。
+   *  花名册"活动度"取 `max(created, last_active)`——新建的 Agent 还没有消息，
+   *  只算 last_active 会让它沉到列表最底并被标"很久没活动"。 */
+  created_at?: number | null;
   /** 🔴 round-106：最新一条 **worker 来源**会话（kanban / tool）——对齐 Hermes
    *  `profiles.list` 的 `worker_session`。worker 会话被拒在会话列表之外，所以
    *  必须单独带一路出来，否则 bot 跑 kanban 任务时行上一直显示空闲

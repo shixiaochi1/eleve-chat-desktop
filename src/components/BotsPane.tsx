@@ -15,11 +15,30 @@
  */
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
-import { Copy, EyeOff, HelpCircle, Loader, Pin, Plus, Pencil, UsersRound, WifiOff, X } from 'lucide-react';
+import { Check, Copy, EyeOff, HelpCircle, Loader, Pin, Plus, Pencil, Search, SlidersHorizontal, UsersRound, WifiOff, X } from 'lucide-react';
 import { formatRowAge } from '../utils/time';
 import { memberAvailability, memberPickLabel, pickableMembers } from '../lib/bot-members';
 // 🔴 round-107：复制 Agent（对齐 Hermes profile-ops.ts:301 duplicateBot）
 import { duplicateAgent } from '../lib/bot-duplicate';
+// 🔴 round-108：花名册工具条（搜索 / 类型 / 活跃度 / 连接 过滤 + 活动度排序）
+// ——口径逐条对齐 Hermes roster-pane.tsx / row-helpers.ts / roster-sections.tsx
+import {
+  ROSTER_TOOLS_THRESHOLD,
+  activeFilterCount,
+  botActivityMs,
+  botMatchesQuery,
+  gatewayOptions,
+  kindAllowsBots,
+  kindAllowsRooms,
+  matchesActivityFilter,
+  roomActivityMs,
+  roomMatchesFilters,
+  sortByPinThenActivity,
+  type RosterActivityFilter,
+  type RosterKindFilter,
+  type RosterRowMeta,
+} from '../lib/roster-filter';
+import { ACTIVE_WINDOW_S, isBotActive, isBotWorkerActive } from '../lib/bot-activity';
 // 🔴 round-97：房间图（新建群聊 + 房间设置共用一份控件）
 import RoomImageControls from './RoomImageControls';
 // 🔴 round-104：roster 展示偏好（置顶 / 隐藏，对齐 Hermes hidden-bots.ts）
@@ -29,7 +48,6 @@ import {
   loadPinnedRooms,
   saveHiddenRooms,
   savePinnedRooms,
-  sortRoomsByPin,
   toggleMember,
 } from '../lib/roster-prefs';
 import {
@@ -212,6 +230,12 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   // 🔴 2026-09-07 round-75：rooms 改由 plugin store 单一权威提供（useRooms）
   // ——本地副本与 WS 订阅删除（三处 fetch 合并，见 plugins/bots/state.ts）。
   const rooms = useRooms();
+  // 🔴 round-108：花名册工具条状态（对齐 Hermes roster-pane:278-281 的四件套）
+  const [query, setQuery] = useState('');
+  const [kindFilter, setKindFilter] = useState<RosterKindFilter>('all');
+  const [activityFilter, setActivityFilter] = useState<RosterActivityFilter>('all');
+  const [gatewayFilter, setGatewayFilter] = useState('all');
+  const [showFilters, setShowFilters] = useState(false);
   // 🔴 round-104：roster 展示偏好——置顶（排序优先）/ 隐藏。
   // 隐藏**只影响展示**（Hermes 原文："a hidden bot keeps
   // working, remains mentionable, keeps group membership"）；
@@ -219,9 +243,80 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   const [pinnedRooms, setPinnedRooms] = useState<Set<string>>(() => loadPinnedRooms());
   const [hiddenRooms, setHiddenRooms] = useState<Set<string>>(() => loadHiddenRooms());
   const [showHidden, setShowHidden] = useState(false);
+  /** 房间行的过滤元数据：`active` = 最近消息落在 90s 窗内 **或** 任一成员正活跃
+   *  （对齐 Hermes groupRows 的 `active: 最近活跃 || 成员活跃`）。 */
+  const roomRowMeta = useCallback(
+    (room: BotRoom): RosterRowMeta => {
+      const activity = roomActivityMs(room);
+      const recentMsg = activity > 0 && Date.now() - activity <= ACTIVE_WINDOW_S * 1000;
+      const memberActive = room.members.some((m) => {
+        const row = bots.find(
+          (r) => r.entry.handle === m.handle || r.entry.profile === m.profile,
+        );
+        return row
+          ? isBotActive(row.entry.last_active) || isBotWorkerActive(row.entry.worker_session)
+          : false;
+      });
+      return { active: recentMsg || memberActive, activity };
+    },
+    [bots],
+  );
+
+  /** Agent 行的过滤元数据（`active` = chat 活跃或 worker 心跳；活动度 = max(created, last_active)）。 */
+  const botRowMeta = useCallback(
+    (row: (typeof bots)[number]): RosterRowMeta => ({
+      active:
+        isBotActive(row.entry.last_active) || isBotWorkerActive(row.entry.worker_session),
+      activity: botActivityMs(row.entry),
+    }),
+    [],
+  );
+
+  const gatewayChoices = useMemo(() => gatewayOptions(bots), [bots]);
+  const filterCount = activeFilterCount(kindFilter, activityFilter, gatewayFilter);
+  const hasConstraint = Boolean(query.trim()) || filterCount > 0;
+  // 单连接 + 条目少 + 无约束 → 工具条不占地方（对齐 Hermes `showRosterTools`）
+  const showRosterTools =
+    gatewayChoices.length > 1 ||
+    bots.length + rooms.length >= ROSTER_TOOLS_THRESHOLD ||
+    hasConstraint;
+
+  const resetFilters = () => {
+    setQuery('');
+    setKindFilter('all');
+    setActivityFilter('all');
+    setGatewayFilter('all');
+    setShowFilters(false);
+  };
+
+  /** 通过筛选的房间（置顶优先 + 活动度降序 → 搜索/连接 → 活跃度） */
+  const visibleRooms = useMemo(() => {
+    if (!kindAllowsRooms(kindFilter)) return [];
+    return sortByPinThenActivity(
+      rooms,
+      (r) => pinnedRooms.has(r.room_id),
+      roomActivityMs,
+    )
+      .filter((r) => roomMatchesFilters(r, bots, query, gatewayFilter))
+      .filter((r) => matchesActivityFilter(roomRowMeta(r), activityFilter));
+  }, [rooms, bots, query, gatewayFilter, activityFilter, kindFilter, pinnedRooms, roomRowMeta]);
+
+  /** 通过筛选的 Agent 行（同上；Agent 行暂无置顶/隐藏，见轮次文档） */
+  const visibleBots = useMemo(() => {
+    if (!kindAllowsBots(kindFilter)) return [];
+    return sortByPinThenActivity(
+      bots.filter((r) => botMatchesQuery(r.entry, r.connectionLabel, query)),
+      () => false,
+      (r) => botActivityMs(r.entry),
+    )
+      .filter((r) => gatewayFilter === 'all' || r.connectionId === gatewayFilter)
+      .filter((r) => matchesActivityFilter(botRowMeta(r), activityFilter));
+  }, [bots, query, gatewayFilter, activityFilter, kindFilter, botRowMeta]);
+
+  // 🔴 有约束时强制展开隐藏项（对齐 Hermes `showHiddenRows = hiddenExpanded || hasRosterConstraint`）
   const shownRooms = useMemo(
-    () => filterVisibleRooms(sortRoomsByPin(rooms, pinnedRooms), hiddenRooms, showHidden),
-    [rooms, pinnedRooms, hiddenRooms, showHidden],
+    () => filterVisibleRooms(visibleRooms, hiddenRooms, showHidden || hasConstraint),
+    [visibleRooms, hiddenRooms, showHidden, hasConstraint],
   );
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -307,6 +402,19 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
       window.removeEventListener('scroll', close, true);
     };
   }, [rowMenu]);
+
+  // 🔴 round-108：筛选面板的点击外部关闭（与 rowMenu 同款；打开它的那次点击在
+  // effect 挂载之前，不会自触发）
+  useEffect(() => {
+    if (!showFilters) return;
+    const close = () => setShowFilters(false);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [showFilters]);
 
   // 🔴 2026-09-07 round-70（对齐 Hermes create-dialog.tsx create() 语义）：
   // ①名字可空——空名兜底选中成员显示名拼接（Hermes placeholder 语义）；
@@ -487,6 +595,75 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
         </div>
       </div>
 
+      {/* ── 🔴 round-108：花名册工具条（搜索 + 过滤，对齐 Hermes roster-pane 的
+          `showRosterTools` 区）── */}
+      {showRosterTools && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-[var(--ui-stroke-tertiary)] shrink-0">
+          <div className="relative flex-1 min-w-0">
+            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={kindFilter === 'groups' ? '搜索群聊…' : '搜索 Agent 或群聊…'}
+              className="w-full h-[24px] pl-[22px] pr-2 rounded-md bg-accent/30 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              className={cn(
+                'inline-flex items-center gap-1 h-[24px] px-2 rounded-md text-[11px] transition-colors',
+                filterCount > 0 ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+              )}
+              title="筛选花名册"
+              onClick={(e) => { e.stopPropagation(); setShowFilters((v) => !v); }}
+            >
+              <SlidersHorizontal size={12} />
+              筛选
+              {filterCount > 0 && (
+                <span className="ml-0.5 rounded-full bg-primary/25 px-1 tabular-nums">{filterCount}</span>
+              )}
+            </button>
+            {showFilters && (
+              <div
+                className="absolute right-0 top-full mt-1 z-50 w-44 rounded-lg border border-[var(--ui-stroke-tertiary)] bg-popover text-popover-foreground py-1 shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <FilterGroup
+                  label="类型"
+                  options={[['all', '全部'], ['bots', '只看 Agent'], ['groups', '只看群聊']]}
+                  value={kindFilter}
+                  onSelect={(v) => setKindFilter(v as RosterKindFilter)}
+                />
+                <FilterGroup
+                  label="活跃度"
+                  options={[['all', '全部'], ['active', '活跃中'], ['recent', '最近 7 天'], ['older', '更早']]}
+                  value={activityFilter}
+                  onSelect={(v) => setActivityFilter(v as RosterActivityFilter)}
+                />
+                {gatewayChoices.length > 1 && (
+                  <FilterGroup
+                    label="连接"
+                    options={[['all', '全部连接'], ...gatewayChoices.map((g) => [g.id, g.label] as [string, string])]}
+                    value={gatewayFilter}
+                    onSelect={setGatewayFilter}
+                  />
+                )}
+                {hasConstraint && (
+                  <button
+                    type="button"
+                    className="w-full mt-0.5 border-t border-[var(--ui-stroke-tertiary)] px-3 py-1.5 text-[11px] text-muted-foreground hover:text-foreground text-left"
+                    onClick={resetFilters}
+                  >
+                    清除全部筛选
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="mx-3 mt-2 px-2.5 py-1.5 rounded-md bg-destructive/10 text-destructive text-xs shrink-0">
           {error}
@@ -536,7 +713,7 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
         )}
 
         {/* ── 群聊 section（点卡片 → 主区房间视图）── */}
-        {rooms.length > 0 && (
+        {kindAllowsRooms(kindFilter) && rooms.length > 0 && (
           <section>
             <div className="flex items-center justify-between mb-1.5 px-1">
               <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">群聊</div>
@@ -570,17 +747,24 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
                 />
               ))}
               {!shownRooms.length && (
-                <div className="text-[11px] text-muted-foreground/70 px-1 py-1">全部群聊已隐藏（点上方「已隐藏 N」可显示）</div>
+                <div className="text-[11px] text-muted-foreground/70 px-1 py-1">
+                  {hasConstraint
+                    ? (hiddenRooms.size > 0 && !showHidden
+                        ? '没有匹配的群聊（部分群聊已隐藏）'
+                        : '没有匹配的群聊')
+                    : '全部群聊已隐藏（点上方「已隐藏 N」可显示）'}
+                </div>
               )}
             </div>
           </section>
         )}
 
         {/* ── Bot 花名册 UNION（点行 → 主区 Bot Chat；右键编辑 Agent）── */}
+        {kindAllowsBots(kindFilter) && (
         <section>
           <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">Agent</div>
           <div className="space-y-1">
-            {bots.map((row) => (
+            {visibleBots.map((row) => (
               <BotRosterRow
                 key={`${row.connectionId}:${row.entry.profile}`}
                 row={row}
@@ -591,8 +775,12 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
             {!loading && bots.length === 0 && (
               <div className="text-xs text-muted-foreground px-2 py-1.5">暂无已注册 Agent</div>
             )}
+            {!loading && bots.length > 0 && visibleBots.length === 0 && (
+              <div className="text-xs text-muted-foreground/70 px-2 py-1.5">没有匹配的 Agent</div>
+            )}
           </div>
         </section>
+        )}
       </div>
 
       {/* ── 新建群聊弹层 ── */}
@@ -710,6 +898,36 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** 🔴 round-108：过滤面板里的一个分组（对齐 Hermes 的 DropdownMenu 分组 + 选中打勾）。 */
+function FilterGroup({
+  label,
+  options,
+  value,
+  onSelect,
+}: {
+  label: string;
+  options: [string, string][];
+  value: string;
+  onSelect: (v: string) => void;
+}) {
+  return (
+    <div className="py-1">
+      <div className="px-3 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground/70">{label}</div>
+      {options.map(([v, text]) => (
+        <button
+          key={`${label}:${v}`}
+          type="button"
+          className="w-full flex items-center gap-2 px-3 py-1 text-xs hover:bg-accent/50 text-left"
+          onClick={() => onSelect(v)}
+        >
+          <span className="min-w-0 flex-1 truncate">{text}</span>
+          {value === v && <Check size={12} className="shrink-0 text-primary" />}
+        </button>
+      ))}
     </div>
   );
 }
