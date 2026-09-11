@@ -13,7 +13,12 @@
 import { describe, it, expect } from 'vitest';
 import type { BotRosterEntry } from '../utils/api';
 import { LOCAL_CONNECTION_ID, type UnionRosterRow } from '../services/bot-relay';
-import { findRosterRowByKey, pickableMembers, rosterRowKey } from './bot-members';
+import {
+  findMemberRoutingRow,
+  findRosterRowByKey,
+  pickableMembers,
+  rosterRowKey,
+} from './bot-members';
 
 function entry(patch: Partial<BotRosterEntry> = {}): BotRosterEntry {
   return { profile: 'coder', handle: 'coder', display_name: 'Coder', ...patch } as BotRosterEntry;
@@ -68,6 +73,31 @@ describe('findRosterRowByKey — 按唯一键精确定位（不按 profile 猜�
   });
 });
 
+/**
+ * 🔴 round-111b：房间成员（profile 键，无 connectionId）→ 路由真值行。
+ * 真实路由是 `is_local(profile)` 分流 ⇒ 本机行才是真值；此前两处消费点靠
+ * "花名册本机行排在最前"的隐式顺序，顺序一变语义就静默反。
+ */
+describe('findMemberRoutingRow — 显式优先本机行（不依赖数组顺序）', () => {
+  it('本机 + 远端同名 → 取本机行（数组顺序无关）', () => {
+    const rows = twoConnections(); // [local, remote]
+    const m = { handle: 'coder', profile: 'coder' };
+    expect(findMemberRoutingRow(rows, m)).toBe(rows[0]);
+    expect(findMemberRoutingRow([rows[1], rows[0]], m)).toBe(rows[0]);
+  });
+
+  it('只有远端同名 → 取该远端行', () => {
+    const rows = [remote('homelab', { profile: 'coder' })];
+    expect(findMemberRoutingRow(rows, { handle: 'coder', profile: 'coder' })).toBe(rows[0]);
+  });
+
+  it('handle 不中则按 profile 回落；查无此人 → undefined', () => {
+    const rows = [local({ profile: 'p1', handle: 'h1' })];
+    expect(findMemberRoutingRow(rows, { handle: 'nope', profile: 'p1' })).toBe(rows[0]);
+    expect(findMemberRoutingRow(rows, { handle: 'nope', profile: 'nope' })).toBeUndefined();
+  });
+});
+
 describe('菜单动作的路由 —— 由解出的行派生，跨连接同名不串台', () => {
   /** 与 `BotsPane.setBotPrefs` / `runDuplicateAgent` 同式的 route 派生：
    *  远端行骑 owner 连接，本机行 route=null（走主连接）。 */
@@ -108,5 +138,47 @@ describe('pickableMembers — 与唯一键同源', () => {
     const picks = pickableMembers(rows);
     expect(picks.map((p) => p.key)).toEqual(rows.map(rosterRowKey));
     expect(new Set(picks.map((p) => p.key)).size).toBe(2);
+  });
+});
+
+/**
+ * 🔴 round-111b（自查修复）：路由冲突的行**不可选**。
+ *
+ * 房间成员身份是 profile 键的（`RoomMember{member_id,profile,handle}` 无
+ * connectionId；driver 按 `is_local(profile)` 分流），所以"选远端同名那个"
+ * 会静默投给**本机**同名者；全远端同名则 `resolve_remote_target` 判 Ambiguous、
+ * 每轮硬失败。原则同 round-111：不给必然选错人的入口，**但不误伤合法能力**。
+ */
+describe('pickableMembers — 跨连接同名的路由冲突', () => {
+  it('本机行保留可选，远端同名行被禁用并给出原因', () => {
+    const picks = pickableMembers(twoConnections());
+    const local = picks.find((p) => !p.isRemote)!;
+    const remote = picks.find((p) => p.isRemote)!;
+    expect(local.disabled).toBe(false);
+    expect(remote.disabled).toBe(true);
+    expect(remote.disabledReason).toContain('本机也有');
+    expect(remote.disabledReason).toContain('投给本机');
+  });
+
+  it('全远端同名（无本机）→ 两行都禁用（按 profile 解析必然歧义）', () => {
+    const picks = pickableMembers([remote('homelab', { profile: 'coder' }), remote('other', { profile: 'coder' })]);
+    expect(picks.every((p) => p.disabled)).toBe(true);
+    expect(picks[0].disabledReason).toContain('无法消歧');
+  });
+
+  it('唯一 profile 不受影响（本机独有 / 远端独有都可选）', () => {
+    const picks = pickableMembers([
+      local({ profile: 'local-only' }),
+      remote('homelab', { profile: 'remote-only' }),
+    ]);
+    expect(picks.every((p) => !p.disabled)).toBe(true);
+  });
+
+  it('不可达的远端行仍然被禁用（round-95 的原有语义不被覆盖）', () => {
+    const picks = pickableMembers([
+      { ...remote('homelab', { profile: 'solo' }), reachable: false },
+    ]);
+    expect(picks[0].disabled).toBe(true);
+    expect(picks[0].disabledReason).toContain('不可达');
   });
 });

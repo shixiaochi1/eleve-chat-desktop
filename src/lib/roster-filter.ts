@@ -17,6 +17,8 @@
  */
 
 import type { BotRoom, BotRosterEntry } from '../utils/api';
+// 🔴 round-111b：成员行的**路由真值解析**（显式优先本机行）——见该函数注释
+import { findMemberRoutingRow } from './bot-members';
 
 /** 最近活跃窗口 = 7 天（对齐 Hermes `RECENT_ACTIVITY_WINDOW_S`）。 */
 export const RECENT_ACTIVITY_WINDOW_S = 7 * 24 * 60 * 60;
@@ -137,14 +139,22 @@ export function filterByGateway<T extends { connectionId: string }>(
  */
 export function roomMatchesFilters(
   room: BotRoom,
-  roster: readonly { entry: BotRosterEntry; connectionId: string; connectionLabel: string }[],
+  roster: readonly {
+    entry: BotRosterEntry;
+    connectionId: string;
+    connectionLabel: string;
+    /** 🔴 round-111b：可缺省（测试夹具）；缺省按"本机"处理。见 `findMemberRoutingRow`。 */
+    isRemote?: boolean;
+  }[],
   query: string,
   gatewayFilter: string,
 ): boolean {
   // 房间成员 → 联合花名册行（成员可能是远端 profile；解析不到的行忽略，
   // 对齐 Hermes：`row.members` 就是成员行的 roster rows）
+  // 🔴 round-111b：解析走共享真值（**显式优先本机行**）——此前是本文件里
+  // `roster.find(handle||profile)` 的隐式顺序依赖。
   const memberRows = room.members
-    .map((m) => roster.find((r) => r.entry.handle === m.handle || r.entry.profile === m.profile))
+    .map((m) => findMemberRoutingRow(roster, m))
     .filter((r): r is (typeof roster)[number] => Boolean(r));
 
   // 🔴 连接过滤作用在**成员**上（不是全局花名册）：房间在那个连接上没有任何成员

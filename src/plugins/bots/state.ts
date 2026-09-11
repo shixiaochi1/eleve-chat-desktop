@@ -149,6 +149,12 @@ export function getRoomsWithPendingClarify(): ReadonlySet<string> {
   return pendingClarifyRooms;
 }
 
+/** 某房间的未决 request_id 集（只读；回灌的**替换语义**靠它可测——
+ *  "窗口内已 resolved 的条目不得残留"只在 id 粒度上看得出来）。 */
+export function getPendingClarifyIds(roomId: string): ReadonlySet<string> {
+  return pendingClarifyByRoom.get(roomId) ?? EMPTY_ROOM_SET;
+}
+
 /** 登记一条未决交互（`interaction.request` 广播）。 */
 export function noteRoomClarify(roomId: string, requestId: string): void {
   if (!roomId || !requestId) return;
@@ -172,6 +178,38 @@ export function clearRoomClarify(roomId: string, requestId: string): void {
   else next.delete(roomId);
   pendingClarifyByRoom = next;
   pendingClarifyRooms = new Set(next.keys());
+  emitClarify();
+}
+
+/**
+ * 🔴 round-111b（自查修复）：用**房间事件日志推导出的未决集**回灌该房间的槽位
+ * ——**整体替换**，不是合并。
+ *
+ * 为什么必须有它：WS 监听只承载"运行期间新到达"的事件，进程重启 / 桌面重连
+ * 期间错过的事件**永远不会补**。而房间内的响应卡是打开房间时**从事件日志重建**
+ * 的（`BotsView` 的 `pendingInteractions` 派生）——不回灌就会出现"卡在、徽标不亮"
+ * 的两处不一致（Hermes `ad08688bc6` 修的正是"徽标与事实不一致"这一类）。
+ *
+ * 为什么是替换而不是只增：调用方传进来的就是**卡片渲染所用的同一份 events**，
+ * 所以替换后"徽标存在性"与"卡片存在性"由构造保证一致（含"日志里已被 resolved
+ * 的请求不该再亮"）。只增会让窗口内已 resolved 的条目残留成假徽标。
+ *
+ * 与 [`noteRoomClarify`] / [`clearRoomClarify`] 的分工：那两个处理**实时**增量，
+ * 本函数处理**回灌**（幂等：同集合重复调用不产生新快照）。
+ */
+export function seedRoomClarify(roomId: string, requestIds: Iterable<string>): void {
+  if (!roomId) return;
+  const next = new Set([...requestIds].filter(Boolean));
+  // 幂等短路（含"房间本就不在表里 + 空集"）：本函数在房间事件流每次变化时都会
+  // 被调用（讨论中每个事件一次），无变化时必须不产生新快照——否则 useSyncExternalStore
+  // 会按 Object.is 判为变化，左栏每个事件都白重渲染一次。
+  const cur = pendingClarifyByRoom.get(roomId) ?? EMPTY_ROOM_SET;
+  if (cur.size === next.size && [...next].every((id) => cur.has(id))) return;
+  const map = new Map(pendingClarifyByRoom);
+  if (next.size) map.set(roomId, next);
+  else map.delete(roomId);
+  pendingClarifyByRoom = map;
+  pendingClarifyRooms = new Set(map.keys());
   emitClarify();
 }
 

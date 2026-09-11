@@ -21,7 +21,8 @@ import { formatRowAge } from '../utils/time';
 // ——跨连接同名（本机 coder + 远端 coder）时 `profile` 会撞，按 profile
 // `find()` 恒命中本机那条 → 置顶/隐藏/编辑/复制全作用到错误连接。
 import {
-  findRosterRowByKey, memberAvailability, memberPickLabel, pickableMembers, rosterRowKey,
+  findMemberRoutingRow, findRosterRowByKey, memberAvailability, memberPickLabel,
+  pickableMembers, rosterRowKey,
 } from '../lib/bot-members';
 // 🔴 round-111：房间手动顺序（对齐 Hermes group-order.ts）
 import { reorderRosterRooms, rosterOrderWrites, sortRosterRooms } from '../lib/group-order';
@@ -279,9 +280,9 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
       const activity = roomActivityMs(room);
       const recentMsg = activity > 0 && Date.now() - activity <= ACTIVE_WINDOW_S * 1000;
       const memberActive = room.members.some((m) => {
-        const row = bots.find(
-          (r) => r.entry.handle === m.handle || r.entry.profile === m.profile,
-        );
+        // 🔴 round-111b：走共享真值（显式优先本机行）——成员按 profile 归属，
+        // 真实路由是"本机有就跑本机"，活跃度探测也该看那一行。
+        const row = findMemberRoutingRow(bots, m);
         return row
           ? isBotActive(row.entry.last_active) || isBotWorkerActive(row.entry.worker_session)
           : false;

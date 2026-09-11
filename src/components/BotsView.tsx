@@ -38,7 +38,7 @@ import { getWsClient } from '../services/ws-client';
 import { formatMessageTime } from '../utils/time';
 import {
   clearRoomNeedsYou, closeRemoteChat, isUnionFresh, refreshRooms,
-  refreshUnionRoster, selectRoom, useRemoteChat, useRooms, useRoomsLoaded,
+  refreshUnionRoster, seedRoomClarify, selectRoom, useRemoteChat, useRooms, useRoomsLoaded,
   useSelectedRoomId, useUnionRoster,
   type UnionRosterRow,
 } from '../plugins/bots/state';
@@ -50,15 +50,6 @@ import { ingestBotRoster, markBotRead, unreadKey, useBotUnread } from '../hooks/
 // 🔴 round-104：行级 attention 徽标（对齐 Hermes `$botAttention`）——独立模块，
 // 避免 state.ts ↔ bot-relay.ts 成环（见 hooks/useBotAttention.ts 头注）
 import { attentionHint, attentionKey, useBotAttention } from '../hooks/useBotAttention';
-
-interface BotsViewProps {
-  /** 🔴 打开 bot 的 canonical chat（宿主层：宫格/Bots 视图先退 + forceProfile） */
-  onOpenBotChat?: (id: string) => void;
-  /** 🔴 2026-09-04 对齐 Hermes roster 右键 Edit Profile：编辑该 Agent（宿主层 EditAgentDialog） */
-  onEditAgent?: (profile: string) => void;
-  /** 面板切换（Agent 不足时引导跳转 Agent 页） */
-  onPanelChange?: (panel: string | null) => void;
-}
 
 /** 🔴 2026-09-05 stage-5：本机持有的房间副本元数据（bot.rooms.replicas.list）。
  *  🔴 2026-09-05 round-48：主区无 replica UI（接管面在 BotsPane 待接管区块）
@@ -337,6 +328,27 @@ function BotsRoomView({ room, roster, onBack }: {
   // resolved 事件到达后彻底退役；expired 同理由轮收口事件驱动）
   const [respondedInteractions, setRespondedInteractions] = useState<Set<string>>(new Set());
   useEffect(() => {
+    // 🔴 round-111b（自查修复）：把**本房间**从事件日志推导出的未决集回灌进
+    // 徽标 store —— 房间内的卡与左栏房间行的徽标从此同源。
+    //
+    // 没有这一步就丢了一项能力：WS 监听只覆盖"运行期间新到达"的事件，进程重启 /
+    // 桌面重连期间错过的 `interaction.request` 永不补 → 卡（打开房间时从日志重建）
+    // 在、徽标不亮，两处说法不一致（Hermes `ad08688bc6` 修的正是这一类）。
+    // 替换语义（非合并）：传进去的就是卡片渲染所用的同一份 events，故"卡在 = 徽标亮"
+    // 由构造保证（窗口内已 resolved 的不会残留成假徽标）。
+    const live = new Set<string>();
+    for (const ev of events) {
+      if (ev.kind === 'interaction.request') {
+        const rid = String(ev.payload.request_id || '');
+        if (rid) live.add(rid);
+      } else if (ev.kind === 'interaction.resolved') {
+        const rid = String(ev.payload.request_id || '');
+        if (rid) live.delete(rid);
+      }
+    }
+    for (const rid of respondedInteractions) live.delete(rid);
+    seedRoomClarify(room.room_id, live);
+
     // 🔴 round-78e：updater 必须纯函数——先纯收集 additions/resolutions，
     // 再分离提交两个 setState（此前在 updater 内嵌套 setRespondedInteractions，
     // React 严格模式双重执行会误清响应集）

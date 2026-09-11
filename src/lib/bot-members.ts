@@ -83,16 +83,63 @@ export function pickableMembers(roster: UnionRosterRow[]): MemberPickRow[] {
   const local: MemberPickRow[] = [];
   const remote: MemberPickRow[] = [];
 
+  // 🔴 round-111b（自查修复）：**路由冲突**的行不可选。
+  //
+  // 根因：房间成员身份是 **profile 键**的（`RoomMember { member_id, profile,
+  // handle }` 无 connectionId；driver 按 `transport.is_local(profile)` 分流，
+  // 远端再按 profile 去 remote roster 解析）。于是"同名 profile"在三处都会
+  // 静默指向另一个 bot：
+  //   - 本机有 `coder` + 远端也有 `coder` → 选远端那行，实际投给**本机**；
+  //   - 两台远端都有 `coder` → `resolve_remote_target` 判 Ambiguous，该成员
+  //     **每一轮都硬失败**（房间注定空转）。
+  // 这与 round-111 行菜单那个真 bug 同族——只是发生在"成员选择态"上。
+  //
+  // 处理原则同 round-111：**不提供一个必然选错人的入口**，但**不误伤合法能力**——
+  // 本机那行照旧可选（它就是路由真值），唯一远程 profile 也照旧可选。
+  //
+  // ⚠️ 与 Hermes 的差距（已知，非本处可修）：Hermes 的 renderer-owned 建房弹层用
+  // `botRosterKey(bot)` 做勾选键，并把每台机器的身份持久化进房间成员
+  // （`durableGroupChatMembers`，注释原话 *"cannot rely on the new gateway's
+  // name-keyed bot metadata to remain seated in this room"*）。ELEVE 的房间模型
+  // 缺这一层（成员不带连接身份）——要真正支持"同名跨机成员"得改成员身份模型 +
+  // `bot.rooms.create` 载荷 + driver 分流，属独立工作。
+  const byProfile = new Map<string, UnionRosterRow[]>();
+  for (const r of roster) {
+    const list = byProfile.get(r.entry.profile);
+    if (list) list.push(r);
+    else byProfile.set(r.entry.profile, [r]);
+  }
+  /** 该行的路由是否唯一；非空串 = 冲突原因（禁用 tooltip）。 */
+  const routingConflict = (r: UnionRosterRow): string => {
+    const peers = byProfile.get(r.entry.profile) ?? [];
+    if (peers.length <= 1) return '';
+    const hasLocal = peers.some((p) => !p.isRemote);
+    if (hasLocal) {
+      // 本机那行 = 路由真值，保留可选；远端同名行必然被投给本机。
+      return r.isRemote
+        ? `本机也有 profile「${r.entry.profile}」——成员按 profile 归属，这一行会投给本机那个`
+        : '';
+    }
+    // 全远端且不止一行：按 profile 解析必然 Ambiguous → 每轮硬失败。
+    return `多台远端机器都有「${r.entry.profile}」——成员按 profile 归属，无法消歧`;
+  };
+
   for (const r of roster) {
     const e = r.entry;
+    const conflict = routingConflict(r);
+    const unreachable = r.isRemote && !r.reachable;
     const row: MemberPickRow = {
       profile: e.profile,
       handle: e.handle,
       displayName: e.display_name || e.handle || e.profile,
       isRemote: r.isRemote,
       connectionLabel: r.isRemote ? r.connectionLabel : '',
-      disabled: r.isRemote && !r.reachable,
-      disabledReason: r.isRemote && !r.reachable ? `远端连接「${r.connectionLabel}」不可达` : '',
+      disabled: Boolean(conflict) || unreachable,
+      disabledReason: conflict
+        ? conflict
+        : unreachable
+          ? `远端连接「${r.connectionLabel}」不可达`
+          : '',
       // 🔴 round-111：改走唯一真值（此前是本文件里的同一公式的第二次手写）
       key: rosterRowKey(r),
     };
@@ -110,6 +157,26 @@ export function pickableMembers(roster: UnionRosterRow[]): MemberPickRow[] {
 /** 成员行的展示标签：`@handle`（远端追加连接名消歧）。 */
 export function memberPickLabel(row: MemberPickRow): string {
   return row.isRemote ? `@${row.handle} · ${row.connectionLabel}` : `@${row.handle}`;
+}
+
+/**
+ * 🔴 round-111b：把**房间成员**（`{handle, profile}` —— 身份是 profile 键，
+ * 没有 connectionId）解析成花名册里的**路由真值行**。
+ *
+ * 为什么必须显式优先本机行：真实路由是"本机有这个 profile 就跑本机"
+ * （`driver` 的 `transport.is_local(profile)` 分流），所以**本机行才是该成员的
+ * 路由真值**，远端同名行只是同一 profile 在另一台机器上的副本。此前两处消费点
+ * （`roster-filter::roomMatchesFilters` 的连接过滤、`BotsPane` 的房间活跃度探测）
+ * 都写的是 `roster.find(handle||profile)` ——**隐式依赖**花名册"本机行排在最前"
+ * 的数组顺序（`fetchUnionRoster` 的实现细节）。顺序一变，语义就静默反了。
+ *
+ * `undefined` = 花名册里查无此人（ghost/未同步）——调用方自行决定忽略还是降级。
+ */
+export function findMemberRoutingRow<
+  T extends { entry: { handle: string; profile: string }; isRemote?: boolean },
+>(roster: readonly T[], m: { handle: string; profile: string }): T | undefined {
+  const hit = roster.filter((r) => r.entry.handle === m.handle || r.entry.profile === m.profile);
+  return hit.find((r) => !r.isRemote) ?? hit[0];
 }
 
 /**

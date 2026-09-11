@@ -14,8 +14,10 @@ import { describe, it, expect } from 'vitest';
 import {
   clearRoomClarify,
   dropRoomClarify,
+  getPendingClarifyIds,
   getRoomsWithPendingClarify,
   noteRoomClarify,
+  seedRoomClarify,
 } from '../plugins/bots/state';
 
 // 模块级 store 无 reset API：每个用例用独立 roomId，避免用例间串味。
@@ -93,5 +95,52 @@ describe('roomsWithPendingClarify — 未决交互派生集合', () => {
     const after = getRoomsWithPendingClarify();
     expect(after).not.toBe(before);
     expect(before.has(r)).toBe(false); // 旧快照不被原地改写
+  });
+});
+
+/**
+ * 🔴 round-111b（自查修复）：`seedRoomClarify` = 用**房间事件日志推导出的未决集**
+ * 回灌槽位，修的是"进程重启/桌面重连期间错过的 interaction.request 永不补 →
+ * 房间内的卡在、左栏徽标不亮"这一能力遗失。
+ */
+describe('seedRoomClarify — 事件日志回灌（整体替换语义）', () => {
+  it('回灌置位：重启后仅凭日志也能点亮徽标', () => {
+    const r = room();
+    seedRoomClarify(r, ['q1']);
+    expect(getRoomsWithPendingClarify().has(r)).toBe(true);
+  });
+
+  it('替换语义：回灌集合变小 → 多余条目被撤掉（日志里已 resolved 的不得残留成假徽标）', () => {
+    const r = room();
+    noteRoomClarify(r, 'q1');
+    noteRoomClarify(r, 'q2');
+    // 日志显示：只剩 q2 未决（q1 已被 resolve）
+    seedRoomClarify(r, ['q2']);
+    expect([...getPendingClarifyIds(r)]).toEqual(['q2']);
+    // 只增不替的实现会在这里留下 q1 → 徽标亮着但房间里没有卡
+    expect(getPendingClarifyIds(r).has('q1')).toBe(false);
+    seedRoomClarify(r, []);
+    expect(getRoomsWithPendingClarify().has(r)).toBe(false);
+    expect(getPendingClarifyIds(r).size).toBe(0);
+  });
+
+  it('空集 = 熄灯；且幂等（同集合重复回灌不产生新快照）', () => {
+    const r = room();
+    seedRoomClarify(r, ['q1']);
+    const snap = getRoomsWithPendingClarify();
+    seedRoomClarify(r, ['q1']); // 同集合
+    expect(getRoomsWithPendingClarify()).toBe(snap);
+    seedRoomClarify(r, []);
+    expect(getRoomsWithPendingClarify().has(r)).toBe(false);
+  });
+
+  it('只影响自己的房间（别的房间的实时信号不被回灌抹掉）', () => {
+    const openRoom = room();
+    const otherRoom = room();
+    noteRoomClarify(otherRoom, 'q-other');
+    seedRoomClarify(openRoom, []); // 打开的房间回灌空集
+    const set = getRoomsWithPendingClarify();
+    expect(set.has(openRoom)).toBe(false);
+    expect(set.has(otherRoom)).toBe(true);
   });
 });
