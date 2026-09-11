@@ -18,6 +18,10 @@ import { requestForBot, listRemoteConnections } from './connections';
 import type { RemoteConnection } from './connections';
 import { getWsClient } from './ws-client';
 import { fetchBotsRoster, type BotRosterEntry } from '../utils/api';
+// 🔴 round-104：行级 attention 徽标（对齐 Hermes `$botAttention`）——
+// 独立模块：`plugins/bots/state.ts` 反向依赖本文件（fetchUnionRoster），
+// 两处不能共用同一个 store 文件（会成环）。
+import { attentionKey, clearBotAttention, noteBotAttention } from '../hooks/useBotAttention';
 
 // ── 节奏常量（对齐 relay.ts）──
 const RELAY_ROSTER_INTERVAL_MS = 60_000;
@@ -191,6 +195,12 @@ async function drainRelayOutboxes(): Promise<void> {
         const envelopeId = String(envelope?.id || '');
         if (!envelopeId) continue;
         const target = byId.get(String(envelope?.target_connection || ''));
+        // 🔴 round-104：attention 锚行 = `${connectionId}::${profile}`
+        // （对齐 Hermes `${target.id}::${target_profile}`）
+        const attentionTarget = attentionKey(
+          String(envelope?.target_connection || ''),
+          String(envelope?.target_profile || ''),
+        );
 
         const postReply = async (payload: { error?: string; reason?: string; reply?: string }) => {
           try {
@@ -216,12 +226,21 @@ async function drainRelayOutboxes(): Promise<void> {
             RELAY_DELIVER_TIMEOUT_MS,
           );
           await postReply({ reply: String(res?.reply || '') });
+          // 🔴 round-104：一次成功交互清除该行的 attention 徽标（对齐 Hermes）
+          clearBotAttention(attentionTarget);
         } catch (error) {
           // typed reason 编码在后端错误文本 `[reason=xxx]` 后缀里——解析出来
           // 转成结构化 reason（发送 agent 按类分支：auth/rate limit/offline）
           const msg = error instanceof Error ? error.message : String(error);
           const m = /\[reason=([a-z_]+)\]/.exec(msg);
-          await postReply({ error: msg, ...(m ? { reason: m[1] } : {}) });
+          const reason = m?.[1] || '';
+          await postReply({ error: msg, ...(m ? { reason } : {}) });
+          // 🔴 round-104：只对"需要用户介入"的类别置位行级告警
+          // （agent_blocked / provider_auth_or_access / provider_quota_limit /
+          //  missing_config）；transient（rate_limit / server_error /
+          //  delivery_timeout / runtime_offline）由 noteBotAttention 内部白名单
+          //  静默忽略——对齐 Hermes `BOT_ATTENTION_CLASSES`。
+          if (reason) noteBotAttention(attentionTarget, reason, msg);
         }
       }
     }

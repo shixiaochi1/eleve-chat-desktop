@@ -47,6 +47,9 @@ import RoomImageControls from './RoomImageControls';
 import MessageRow from './MessageRow';
 import ClarifyCard from './ClarifyCard';
 import { ingestBotRoster, markBotRead, unreadKey, useBotUnread } from '../hooks/useBotUnread';
+// 🔴 round-104：行级 attention 徽标（对齐 Hermes `$botAttention`）——独立模块，
+// 避免 state.ts ↔ bot-relay.ts 成环（见 hooks/useBotAttention.ts 头注）
+import { attentionHint, attentionKey, useBotAttention } from '../hooks/useBotAttention';
 
 interface BotsViewProps {
   /** 🔴 打开 bot 的 canonical chat（宿主层：宫格/Bots 视图先退 + forceProfile） */
@@ -185,6 +188,10 @@ export function BotRosterRow({ row, onOpen, onRowMenu, dimmed }: {
   // useBotUnread.ingest 同一公式）——union 远端行的同名 profile 不再与本地
   // 行共用水位线；preview identity = click identity（锚定的就是行点击打开的会话）。
   const unread = useBotUnread(unreadKey(bot));
+  // 🔴 round-104：该行是否需要用户介入（对齐 Hermes `$botAttention`）——
+  // 键 = `${connectionId}::${profile}`，与 `services/bot-relay.ts` 投递结果
+  // 写入口同源（远端行的同名 profile 不与本地行串味）。
+  const attention = useBotAttention(attentionKey(row.connectionId, bot.profile));
   // 🔴 round-105：活跃指示——`BotRosterEntry.last_active` 此前**零消费**
   // （字段已由后端透传）。
   // 🔴 round-106：补上 Hermes 的**第二路**输入 `workerActive`——worker 会话
@@ -242,6 +249,16 @@ export function BotRosterRow({ row, onOpen, onRowMenu, dimmed }: {
           {bot.description ? ` · ${bot.description}` : ''}
         </span>
       </span>
+      {attention && (
+        <span
+          className="inline-flex items-center justify-center size-4 rounded-full bg-amber-500 text-white shrink-0 text-[10px] font-bold"
+          role="status"
+          title={attentionHint(attention)}
+          aria-label={attentionHint(attention)}
+        >
+          !
+        </span>
+      )}
       {unread && (
         <span
           className="inline-block size-2 rounded-full bg-success shrink-0"
