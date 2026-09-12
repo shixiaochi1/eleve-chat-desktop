@@ -465,6 +465,60 @@ export function upsertToolPart(
 
 // ── toChatMessages — convert backend SessionMessage[] → ChatMessage[] ──
 
+/**
+ * Responses-API 轮次的**回复正文**（`codex_message_items` sidecar）—— 对齐 Hermes
+ * `apps/desktop/src/lib/chat-messages/hydration.ts::codexMessageItemText`（#68321 +
+ * `42f8389987`）。
+ *
+ * 为什么需要它：Responses-API（Codex）轮次落库时 `content` 可能为**空**，用户实际看到的回复
+ * 只存在于 `codex_message_items` sidecar。缺了这条提取，恢复历史时气泡是空白的。
+ *
+ * phase 语义：`commentary` / `analysis` 是**中途叙述**，后端已把它们路由到 reasoning 通道
+ * （`codex_responses_adapter._OutputScan._message`）——其余 phase 才是回复。
+ *
+ * 🔴 形状容错：**REST 下发的是 SQLite 里的 JSON 文本（string）**，RPC history 下发的是已解码
+ * 的列表（array）。两种都要吃下（Hermes 同款注释：*REST carries SQLite JSON text; RPC history
+ * carries the decoded list*）。
+ */
+function codexMessageItemText(message: SessionMessage): string {
+  let items = message.codex_message_items
+
+  if (typeof items === 'string') {
+    try {
+      items = JSON.parse(items)
+    } catch {
+      return ''
+    }
+  }
+
+  if (!Array.isArray(items)) {
+    return ''
+  }
+
+  const texts: string[] = []
+
+  for (const item of items) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+    const record = item as Record<string, unknown>
+
+    if (record.type !== 'message' || record.role !== 'assistant') continue
+    if (record.phase === 'commentary' || record.phase === 'analysis') continue
+
+    const content = record.content
+    if (!Array.isArray(content)) continue
+
+    for (const part of content) {
+      if (!part || typeof part !== 'object' || Array.isArray(part)) continue
+      const partRecord = part as Record<string, unknown>
+      if (partRecord.type !== 'output_text' && partRecord.type !== 'text') continue
+      const text = partRecord.text
+      if (typeof text === 'string' && text.length > 0) texts.push(text)
+    }
+  }
+
+  return texts.join('')
+}
+
 /** Backend SessionMessage shape (from /api/session-messages endpoint) */
 export interface SessionMessage {
   role: string
@@ -487,6 +541,11 @@ export interface SessionMessage {
   display_metadata?: unknown
   /** 🔴 2026-08-08 发送字节 sidecar（含多模态图片 wire parts）——历史恢复提取图片附件 */
   api_content?: unknown
+  /**
+   * 🔴 r133：Responses-API 的回复 sidecar —— `content` 落库为空时，用户看到的正文只在这里。
+   * REST 下发 SQLite JSON **文本**、RPC 下发已解码**列表**（两种都要处理）。
+   */
+  codex_message_items?: unknown
 }
 
 /** 从后端 content / api_content 提取图片 data URL / URL（对齐 Hermes history 消息的
@@ -883,6 +942,21 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
 
     if (displayContent) {
       parts.push(textPart(displayContent))
+    }
+
+    // 🔴 r133 对齐 Hermes `42f8389987`（#68321 的收口）：回复正文可能**只**存在于
+    // `codex_message_items` sidecar 里（该轮 `content` 落库为空）。
+    // 🔴 顺序与门控是要害（Hermes 修法）：必须在**推入 tool parts 之前**提取，且**不能**以
+    // "已经有 parts"为条件 —— 否则"有工具调用 + 正文在 sidecar"的轮次会丢掉回答
+    // （Hermes 原话：*Those parts are not a substitute for the answer; canonical content
+    // still wins*）。丢了它，恢复出来的气泡是空的，下一轮 reconcileResumeMessages 还会把
+    // 该序号上的缓存行整条剔除。hidden 行不参与（内容按约定丢弃）。
+    if (message.role === 'assistant' && message.display_kind !== 'hidden' && !displayContent) {
+      const codexText = codexMessageItemText(message)
+
+      if (codexText) {
+        parts.push(textPart(codexText))
+      }
     }
 
     if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
