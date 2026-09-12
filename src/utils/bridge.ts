@@ -108,6 +108,38 @@ export async function discoverPort(maxRetries = 50, delayMs = 200): Promise<bool
   return false;
 }
 
+/**
+ * 🔴 端口重发现（round-71 恢复链补全，2026-09-13）：eleved 崩溃被 Tauri 壳
+ * 自动拉起后端口变化（OS 动态分配，gateway_state.json 已更新），但 WS 重连
+ * 此前只重读 _httpBase 缓存 → 永远拨已死的旧端口（ERR_CONNECTION_REFUSED
+ * 死循环，2026-09-13 01:29 事故实测：新网关已在 57402 健康运行，前端仍对
+ * 62347 重连 15+ 次）。
+ *
+ * Tauri 侧 get_gateway_port 自带"缓存端口 TCP 健康检查 → 失效则重读
+ * gateway_state.json"，崩溃自动拉起时壳还会把端口缓存置 0，本函数只是把
+ * 这次调用接进 WS 重连路径。与 discoverPort 的区别：单次查询不重试
+ * （重连循环本身会按退避反复调用，不会漏）。
+ */
+export async function rediscoverGatewayPort(): Promise<boolean> {
+  if (!isDesktop()) return true;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const port = await invoke('get_gateway_port') as number;
+    if (port && typeof port === 'number' && port > 0) {
+      const next = `http://127.0.0.1:${port}`;
+      if (next !== _httpBase) {
+        console.log('[bridge] Gateway port re-discovered:', port, '(was', _httpBase + ')');
+      }
+      _httpBase = next;
+      _httpBaseSet = true;
+      return true;
+    }
+  } catch (err) {
+    console.warn('[bridge] rediscoverGatewayPort failed:', err);
+  }
+  return false;
+}
+
 // ====== 核心调用 ======
 
 /**

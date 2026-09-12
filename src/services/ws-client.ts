@@ -15,6 +15,7 @@
  */
 
 import { getApiBase } from '../utils/api';
+import { isDesktop, rediscoverGatewayPort } from '../utils/bridge';
 
 // ── JSON-RPC 类型 ──
 
@@ -192,7 +193,32 @@ export class GatewayWsClient {
     this.registerWakeSignals()  // 对齐 Hermes: online + visibilitychange 唤醒信号
   }
 
+  /** 🔴 round-71 恢复链补全在飞标志：合并同窗口内的多次重连触发，防重复发现 */
+  private rediscoverInFlight = false
+
   private doConnect(): void {
+    // 🔴 round-71 恢复链补全（2026-09-13 事故）：eleved 崩溃被壳自动拉起后端口
+    // 变化（OS 动态分配），重连必须重新 get_gateway_port（Tauri 侧带 TCP 健康
+    // 检查 + 重读 gateway_state.json）。此前这里"重连时重新获取 URL"实际只重读
+    // _httpBase 缓存 → 端口一变即永久 ERR_CONNECTION_REFUSED（实测：新网关已在
+    // 57402 健康运行，前端对死端口 62347 重连 15+ 次）。
+    // 首连（attempt=0）走启动时 discoverPort 的结果即可；remoteBase 是用户显式
+    // 远端连接，不归本机制管。
+    if (this.reconnectAttempts > 0 && !this.remoteBase && isDesktop()) {
+      if (this.rediscoverInFlight) return
+      this.rediscoverInFlight = true
+      void rediscoverGatewayPort()
+        .catch(() => false)
+        .then(() => {
+          this.rediscoverInFlight = false
+          this.doConnectNow()
+        })
+      return
+    }
+    this.doConnectNow()
+  }
+
+  private doConnectNow(): void {
     if (this.ws) {
       this.ws.onopen = null
       this.ws.onclose = null
