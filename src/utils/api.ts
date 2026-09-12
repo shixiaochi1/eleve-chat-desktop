@@ -939,9 +939,13 @@ export async function fetchBotRoomReplicas(): Promise<BotRoomReplica[]> {
   return Array.isArray(data?.replicas) ? data.replicas : [];
 }
 
-/** 接管副本房间（显式用户动作；epoch+1 + authority.claimed） */
+/** 接管副本房间（显式用户动作；epoch+1 + authority.claimed）
+ *
+ * 🔴 round-115b：`confirm: true` 与后端门**同批**落地（对齐 Hermes
+ * `groups.promote`）——后端已要求调用方断言"旧权威已无法提交"，这里不传会
+ * 直接 4118。UI 侧原本就是显式点击（待接管区块的接管按钮），语义一致。 */
 export async function promoteBotRoomReplica(roomId: string): Promise<number> {
-  const data = await call('bot_rooms_replica_promote', { room_id: roomId });
+  const data = await call('bot_rooms_replica_promote', { room_id: roomId, confirm: true });
   return data?.epoch ?? 0;
 }
 
