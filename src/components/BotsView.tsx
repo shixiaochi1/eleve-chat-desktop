@@ -771,8 +771,9 @@ function BotsRoomView({ room, roster, onBack }: {
 
   // 🔴 round-79f 跨进程 driver：未决任务簿记可见性（driver_tasks 首次出网关）。
   // roomBusy 期间每 10s 轻量查询一次——indeterminate（崩溃恢复/接管中）在
-  // 单进程下转瞬即逝，跨进程接管后停留可观察，提供显式重试（人工豁免
-  // 恢复层 60s 冷却窗，对齐 Hermes groups.retry 的 at-least-once 确认语义）。
+  // 单进程下转瞬即逝，跨进程接管后停留可观察，提供显式重试（对齐 Hermes
+  // groups.retry 的 at-least-once 确认语义；恢复层 60s 冷却窗已随
+  // round-81 indeterminate_at 列退役——session_info 精确判定取代时间窗）。
   const [pendingTask, setPendingTask] = useState<PendingRoomTask | null>(null);
   useEffect(() => {
     if (!inflightBusy) { setPendingTask(null); return; }
@@ -1355,7 +1356,7 @@ function BotsRoomView({ room, roster, onBack }: {
             {pendingTask?.status === 'indeterminate' ? (
               <>
                 {/* 🔴 round-79f 跨进程 driver：接管/恢复中 indeterminate 可观察 +
-                    显式重试（人工豁免 60s 冷却窗） */}
+                    显式重试（恢复层 60s 冷却窗已随 round-81 退役） */}
                 <span>轮结果确认中（跨进程接管）…</span>
                 <button
                   className="underline hover:text-foreground"
