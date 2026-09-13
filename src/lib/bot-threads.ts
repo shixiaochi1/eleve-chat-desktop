@@ -16,9 +16,9 @@
  * `ThreadSection` / 摘要辅助）一并退役。
  *
  * ELEVE 的线程身份契约（后端 round-97）：
- * - `message.user.payload.thread` = 线程身份（主输入框 = 本条消息自己的
+ * - `message.user.payload.thread_id` = 线程身份（主输入框 = 本条消息自己的
  *   `event_id`；线程内回复 = 被续接的原线程 id）
- * - `message.member.payload.thread` = 该发言所属线程（由 driver 从任务转发）
+ * - `message.member.payload.thread_id` = 该发言所属线程（由 driver 从任务转发）
  * - `room.activity.payload.thread_id` = 该轮收敛标记的线程身份
  * - 三者都没有（round-96 之前的日志）→ 回落到"最后一条 `message.user` 之后"的
  *   游标——与后端 policy 的 `thread_end = 下一条用户消息` 边界**同口径**，
@@ -52,13 +52,15 @@ export interface ThreadLayout {
   ends: Map<string, number>;
 }
 
-/** 事件显式声明的线程身份（`payload.thread` 优先，`thread_id` 兜底）。 */
+/** 事件显式声明的线程身份（🔴 r117 flip：`thread_id` 优先——Hermes 词表
+ * （`discussion.py` `_USER_PAYLOAD_FIELDS`/`_MEMBER_MESSAGE_FIELDS`）；
+ * `thread` 兜底（r116 正名前的旧日志）。 */
 function explicitThread(ev: BotRoomEvent): string | null {
   const p = ev.payload as Record<string, unknown> | undefined;
-  const t = p?.thread;
-  if (typeof t === 'string' && t) return t;
   const tid = p?.thread_id;
   if (typeof tid === 'string' && tid) return tid;
+  const t = p?.thread;
+  if (typeof t === 'string' && t) return t;
   return null;
 }
 
