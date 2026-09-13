@@ -20,8 +20,8 @@ import {
 } from '../utils/api';
 import { formatRowAge } from '../utils/time';
 import { findMemberRoster, memberAvailability, memberPickLabel, pickableMembers } from '../lib/bot-members';
-// 🔴 round-97：线程分组（唯一派生；见 lib/bot-threads.ts）
-import { groupEventsByThread, LEGACY_THREAD, threadReplyCount, threadSummaryLabel } from '../lib/bot-threads';
+// 🔴 round-120：线程**布局**（到达顺序 + 每线程收尾位置；见 lib/bot-threads.ts）
+import { LEGACY_THREAD, threadLayout } from '../lib/bot-threads';
 // 🔴 round-99：轮终态词表（唯一真值；档位对齐 Hermes groupActivityTone）
 import { isRoomBoundedActivity, turnStatusOf, turnToneClass, type TurnTone } from '../lib/bot-turn-status';
 // 🔴 round-105：bot roster 行的活跃判定（对齐 Hermes ACTIVE_WINDOW_S）
@@ -282,13 +282,11 @@ function BotsRoomView({ room, roster, onBack }: {
   const [threadDrafts, setThreadDrafts] = useState<Record<string, string>>(
     () => botRoomDraftSnapshot(room.room_id).replies,
   );
-  // 被用户显式展开的历史线程（最近活跃的那个恒展开，不在此集合里）
-  // 🔴 round-107：展开集也按房分桶。
-  // round-97 曾在此处用 useEffect 清空草稿/展开集——那正是"切房丢草稿"的根源
-  // （每次切房都把刚恢复的草稿又抹掉），现由"按 room_id 分桶"彻底取代。
-  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(
-    () => new Set(botRoomDraftSnapshot(room.room_id).expandedThreads),
-  );
+  // 🔴 round-120：**线程折叠已退役**——Hermes 明确"线程 id 只限定回复与 prompt 的
+  // 作用域，**不限定可见性**"（`group-chat-view.tsx:1044-1046`："a newer topic must
+  // never hide a member's completed answer or move it ahead of intervening messages"）。
+  // 消息区改为**到达顺序**渲染，线程 id 只用来决定线程尾"回复"入口插在哪
+  // （`threadLayout.ends`）。
   // 🔴 round-119：正在"回复中"的线程（**单值**，对齐 Hermes
   // `GroupComposerDraft.activeReplyThread`，`group-panes.ts:22`）。null = 各线程只
   // 显示"回复"链接；点链接才把该线程变成输入框，且全局同时只有一个。
@@ -761,8 +759,10 @@ function BotsRoomView({ room, roster, onBack }: {
     return rows;
   }, [events, room.members]);
 
-  // 🔴 round-97：线程分区（渲染窗口仍 ≤200 条——切片后再分组，总量不变）
-  const threadSections = useMemo(() => groupEventsByThread(events.slice(-200)), [events]);
+  // 🔴 round-120：渲染窗口 ≤200 条（对齐 Hermes GROUP_CHAT_HISTORY_LIMIT 的窗口化
+  // 思路）——**保持到达顺序**，只额外算出每个事件的线程归属与每线程的收尾索引。
+  const windowedEvents = useMemo(() => events.slice(-200), [events]);
+  const layout = useMemo(() => threadLayout(windowedEvents), [windowedEvents]);
 
   // 🔴 round-92：忙态兜底。上面的事件流配对是**快路径**，前提是"每个 started
   // 最终都有一条终态事件"。driver 在 started 与终态之间崩溃（进程被杀/跨进程
@@ -1023,32 +1023,21 @@ function BotsRoomView({ room, roster, onBack }: {
           <span>群聊已创建 · @提及成员、或直接发言（默认全员回应）</span>
         </div>
         {/* 🔴 2026-09-05 round-48：渲染窗口上限（对齐 Hermes GROUP_CHAT_HISTORY_LIMIT
-            的窗口化思路；长房间事件流不无限增长 DOM）——完整日志仍在后端 */}
-        {threadSections.map((sec, si) => {
-          const isLast = si === threadSections.length - 1;
-          // LEGACY 桶（首条用户消息之前的房间级事件）恒展开、无回复框
-          const expandable = sec.thread !== LEGACY_THREAD;
-          const open = !expandable || isLast || expandedThreads.has(sec.thread);
-          if (!open) {
-            return (
-              <ThreadSummaryRow
-                key={`sum-${sec.thread}`}
-                label={threadSummaryLabel(sec)}
-                replies={threadReplyCount(sec)}
-                at={sec.lastAt}
-                onExpand={() =>
-                  setExpandedThreads((cur) => {
-                    const next = new Set(cur).add(sec.thread);
-                    patchBotRoomDraft(room.room_id, { expandedThreads: [...next] });
-                    return next;
-                  })
-                }
-              />
-            );
-          }
+            的窗口化思路；长房间事件流不无限增长 DOM）——完整日志仍在后端。
+            🔴 round-120：**按到达顺序**渲染（不再按线程分组/排序/折叠）——对齐 Hermes
+            `group-chat-view.tsx:1044-1046`："one arrival-ordered conversation …
+            Thread ids scope replies and prompts, **not visibility**"。 */}
+        {windowedEvents.map((ev, i) => {
+          const thread = layout.threadOf[i];
+          // 线程尾"回复"入口插在该线程**最后一个事件**之后（对齐 Hermes `threadEnds`）
+          const isThreadEnd = layout.ends.get(thread) === i;
+          // LEGACY 桶（首条用户消息之前的房间级事件）不给回复入口：ELEVE 后端不认
+          // `'legacy'` 作为线程 id，回复不了它（Hermes 的 legacy 是可回复的合成 id，
+          // 这是两端此处唯一的有意差异）。
+          const expandable = thread !== LEGACY_THREAD;
           return (
-            <Fragment key={sec.thread}>
-              {sec.events.map((ev) => {
+            <Fragment key={ev.seq}>
+              {(() => {
                   if (ev.kind === KIND_USER) {
                     // 🔴 阶段1 统一（frontend-chat-unification-2026-09-09）：用户气泡
                     // 走 MessageRow（与单视图/宫格同一渲染原语）——附件缩略图经
@@ -1239,35 +1228,33 @@ function BotsRoomView({ room, roster, onBack }: {
                     );
                   }
                   return null; // turn.settled(实质发言)/room.created 不渲染（信息在气泡与状态行里）
-              })}
-              {/* 🔴 round-119：线程尾的"回复"入口——1:1 对齐 Hermes
-                  （`group-chat-view.tsx:1057-1100`：`replyThread === id ? <输入框>
-                  : <回复链接>`，而 `replyThread` 是**单值**）。默认只渲染一行
-                  "回复"链接，点它才把该线程变成输入框；全局同时只有一个。
-                  此前对**每个展开线程**都渲染输入框，加上"最近活跃线程"恒展开
-                  ⇒ 用户一说句话，消息区就冒出一个输入框。
-                  底部主输入框恒 = 开新线程，所以"收起回复框"不是必需操作
-                  （对齐 Hermes：主 composer 始终可直接开新线程）。 */}
-              {expandable &&
-                (activeReplyThread === sec.thread ? (
+              })()}
+              {/* 🔴 round-119/120：线程尾的"回复"入口——对齐 Hermes
+                  （`group-chat-view.tsx:1052-1100`：插在该线程**最后一个事件之后**，
+                  `replyThread === id ? <输入框> : <回复链接>`，`replyThread` 是**单值**）。
+                  默认只渲染一行"回复"链接，点它才把该线程变成输入框；全局同时只有一个。
+                  底部主输入框恒 = 开新线程，故"收起回复框"不是必需操作。 */}
+              {isThreadEnd &&
+                expandable &&
+                (activeReplyThread === thread ? (
                   <ThreadReplyBox
                     members={room.members}
-                    value={threadDrafts[sec.thread] ?? ''}
+                    value={threadDrafts[thread] ?? ''}
                     onChange={(v) =>
                       setThreadDrafts((cur) => {
-                        const next = { ...cur, [sec.thread]: v };
+                        const next = { ...cur, [thread]: v };
                         patchBotRoomDraft(room.room_id, { replies: next });
                         return next;
                       })
                     }
-                    onSubmit={() => void sendInThread(sec.thread)}
+                    onSubmit={() => void sendInThread(thread)}
                     busy={roomBusy || sending}
                   />
                 ) : (
                   <ThreadReplyLink
                     onClick={() => {
-                      setActiveReplyThread(sec.thread);
-                      patchBotRoomDraft(room.room_id, { activeReplyThread: sec.thread });
+                      setActiveReplyThread(thread);
+                      patchBotRoomDraft(room.room_id, { activeReplyThread: thread });
                     }}
                   />
                 ))}
@@ -1786,41 +1773,16 @@ function RoomEditDialog({
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// 🔴 round-97：线程形状（对齐 Hermes group-chat-view.tsx:1064-1069 的
-// Slack/Discord 模型）——最近活跃的线程展开，更早的折叠成摘要行；
-// 每个展开的线程有自己的回复框（继续该线程）；底部主输入框开新线程。
+// 🔴 round-120：线程形状（对齐 Hermes `group-chat-view.tsx:1044-1100`）。
+// Hermes 原文："The public room is one arrival-ordered conversation. Thread ids
+// scope replies and prompts, **not visibility**" ⇒ 消息按**到达顺序**渲染，
+// **不折叠、不重排**；每个线程只在它的**最后一个事件之后**插一个入口：
+// 默认是一行"回复"链接，点击后变成该线程的回复框（全局同时只有一个）。
+// 底部主输入框恒 = 开新线程。
+//
+// ⚠️ round-97 曾实现为"最近活跃的线程展开、更早的折叠成摘要行"并自称对齐
+// Hermes，那是**误引**——该形状与 `ThreadSummaryRow` 已于 round-120 退役。
 // ═════════════════════════════════════════════════════════════════════
-
-/** 折叠态的线程摘要行（Slack 风格：首条用户消息 + 回复数 + 时间）。 */
-function ThreadSummaryRow({
-  label,
-  replies,
-  at,
-  onExpand,
-}: {
-  label: string;
-  replies: number;
-  at: number;
-  onExpand: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onExpand}
-      className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded-md text-left hover:bg-accent/40 group"
-      title="展开该线程"
-    >
-      <ChevronRight size={12} className="shrink-0 text-muted-foreground group-hover:text-foreground" />
-      <span className="text-[11px] font-medium text-foreground shrink-0">
-        {replies > 0 ? `${replies} 条回复` : '无回复'}
-      </span>
-      <span className="text-[11px] text-muted-foreground truncate min-w-0 flex-1">{label}</span>
-      <span className="text-[10px] text-muted-foreground/70 shrink-0 tabular-nums">
-        {formatMessageTime(at)}
-      </span>
-    </button>
-  );
-}
 
 /** 线程尾的"回复"链接——点击后该线程占用回复框（对齐 Hermes
  *  `group-chat-view.tsx:1092-1100` 的 `variant="link"` 按钮）。默认态**不是

@@ -68,8 +68,15 @@ export default function RemoteBotChatView({
   const { messages, streamingText, error } = remoteState;
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
-  /** 已发送但服务器历史尚未出现的用户文本（optimistic；message.complete 后 load 清退） */
-  const pendingRef = useRef<string[]>([]);
+  /**
+   * 已发送但服务器历史尚未出现的用户消息（optimistic；服务器出现同文本后由 load 清退）。
+   *
+   * 🔴 round-120：存 `{id, text}` 而不是裸文本——`id` 要当 React key，必须**唯一**。
+   * 此前 id = `` `pending-${text}` ``：连发两条相同文本 → key 冲突（渲染错乱/丢项）。
+   */
+  const pendingRef = useRef<Array<{ id: string; text: string }>>([]);
+  /** 乐观条目 id 的单调序号（唯一性只在本视图内需要） */
+  const pendingSeqRef = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   /** 权威历史重拉（后端唯一事实源；与主区"始终 loadHistory"同一原则） */
@@ -87,9 +94,9 @@ export default function RemoteBotChatView({
       const serverUserTexts = new Set(
         server.filter((m) => m.role === 'user').map(partsText),
       );
-      pendingRef.current = pendingRef.current.filter((t) => !serverUserTexts.has(t));
+      pendingRef.current = pendingRef.current.filter((p) => !serverUserTexts.has(p.text));
       const optimistic = pendingRef.current.map(
-        (t) => ({ id: `pending-${t}`, role: 'user', parts: [{ type: 'text', text: t }] }) as RemoteChatMessage,
+        (p) => ({ id: p.id, role: 'user', parts: [{ type: 'text', text: p.text }] }) as RemoteChatMessage,
       );
       setRemoteChatError(owner, null);
       setRemoteChatMessages(owner, [...server, ...optimistic]);
@@ -162,10 +169,11 @@ export default function RemoteBotChatView({
     setSending(true);
     const owner = remoteChatOwner(chat.connId, chat.sessionId);
     setRemoteChatError(owner, null);
-    pendingRef.current = [...pendingRef.current, text];
+    const pendingId = `pending-${(pendingSeqRef.current += 1)}`;
+    pendingRef.current = [...pendingRef.current, { id: pendingId, text }];
     setDraft('');
     appendRemoteChatMessage(owner, {
-      id: `pending-${text}`,
+      id: pendingId,
       role: 'user',
       parts: [{ type: 'text', text }],
     });

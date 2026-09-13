@@ -25,7 +25,6 @@ describe('bot-room-drafts — 房间级草稿（切房/重挂不丢）', () => {
       main: '',
       replies: {},
       attachments: [],
-      expandedThreads: [],
       activeReplyThread: null,
       revision: 0,
     });
@@ -102,12 +101,11 @@ describe('bot-room-drafts — 房间级草稿（切房/重挂不丢）', () => {
     expect(botRoomDraftSnapshot(r).main).toBe('');
   });
 
-  it('附件与展开集也随房持久', () => {
+  it('附件也随房持久', () => {
     const r = rid();
-    patchBotRoomDraft(r, { attachments: [att('a1'), att('a2')], expandedThreads: ['user:1'] });
+    patchBotRoomDraft(r, { attachments: [att('a1'), att('a2')] });
     const d = botRoomDraftSnapshot(r);
     expect(d.attachments.map((a) => a.name)).toEqual(['a1', 'a2']);
-    expect(d.expandedThreads).toEqual(['user:1']);
   });
 
   it('🔴 round-119：activeReplyThread 是单值，且 null（收起）不被 ?? 吞掉', () => {
