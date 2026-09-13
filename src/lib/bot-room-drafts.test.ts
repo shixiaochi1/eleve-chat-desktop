@@ -21,7 +21,14 @@ describe('bot-room-drafts — 房间级草稿（切房/重挂不丢）', () => {
 
   it('未写过的房间 = 空草稿', () => {
     const d = botRoomDraftSnapshot(rid());
-    expect(d).toEqual({ main: '', replies: {}, attachments: [], expandedThreads: [], revision: 0 });
+    expect(d).toEqual({
+      main: '',
+      replies: {},
+      attachments: [],
+      expandedThreads: [],
+      activeReplyThread: null,
+      revision: 0,
+    });
   });
 
   it('patch 写回后能读到（切房回来草稿还在）', () => {
@@ -101,5 +108,23 @@ describe('bot-room-drafts — 房间级草稿（切房/重挂不丢）', () => {
     const d = botRoomDraftSnapshot(r);
     expect(d.attachments.map((a) => a.name)).toEqual(['a1', 'a2']);
     expect(d.expandedThreads).toEqual(['user:1']);
+  });
+
+  it('🔴 round-119：activeReplyThread 是单值，且 null（收起）不被 ?? 吞掉', () => {
+    const r = rid();
+    patchBotRoomDraft(r, { activeReplyThread: 'user:7' });
+    expect(botRoomDraftSnapshot(r).activeReplyThread).toBe('user:7');
+
+    // 未传该字段 → 保持（patch 是字段级替换）
+    patchBotRoomDraft(r, { main: 'x' });
+    expect(botRoomDraftSnapshot(r).activeReplyThread).toBe('user:7');
+
+    // 换到另一个线程 → 仍然只有一个值
+    patchBotRoomDraft(r, { activeReplyThread: 'user:9' });
+    expect(botRoomDraftSnapshot(r).activeReplyThread).toBe('user:9');
+
+    // 显式传 null → 清空（这一条必须成立，否则回复框收不起来）
+    patchBotRoomDraft(r, { activeReplyThread: null });
+    expect(botRoomDraftSnapshot(r).activeReplyThread).toBeNull();
   });
 });

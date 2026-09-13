@@ -289,6 +289,13 @@ function BotsRoomView({ room, roster, onBack }: {
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(
     () => new Set(botRoomDraftSnapshot(room.room_id).expandedThreads),
   );
+  // 🔴 round-119：正在"回复中"的线程（**单值**，对齐 Hermes
+  // `GroupComposerDraft.activeReplyThread`，`group-panes.ts:22`）。null = 各线程只
+  // 显示"回复"链接；点链接才把该线程变成输入框，且全局同时只有一个。
+  // 此前"每个展开线程各有一个输入框 + 最近活跃线程恒展开" ⇒ 一发消息就冒出输入框。
+  const [activeReplyThread, setActiveReplyThread] = useState<string | null>(
+    () => botRoomDraftSnapshot(room.room_id).activeReplyThread,
+  );
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -1233,24 +1240,37 @@ function BotsRoomView({ room, roster, onBack }: {
                   }
                   return null; // turn.settled(实质发言)/room.created 不渲染（信息在气泡与状态行里）
               })}
-              {/* 每个展开的线程都有自己的回复框（含最近活跃那个）——继续该线程；
-                  底部主输入框恒 = 开新线程（对齐 Hermes "Every open thread gets its
-                  own reply box"）。 */}
-              {expandable && (
-                <ThreadReplyBox
-                  members={room.members}
-                  value={threadDrafts[sec.thread] ?? ''}
-                  onChange={(v) =>
-                    setThreadDrafts((cur) => {
-                      const next = { ...cur, [sec.thread]: v };
-                      patchBotRoomDraft(room.room_id, { replies: next });
-                      return next;
-                    })
-                  }
-                  onSubmit={() => void sendInThread(sec.thread)}
-                  busy={roomBusy || sending}
-                />
-              )}
+              {/* 🔴 round-119：线程尾的"回复"入口——1:1 对齐 Hermes
+                  （`group-chat-view.tsx:1057-1100`：`replyThread === id ? <输入框>
+                  : <回复链接>`，而 `replyThread` 是**单值**）。默认只渲染一行
+                  "回复"链接，点它才把该线程变成输入框；全局同时只有一个。
+                  此前对**每个展开线程**都渲染输入框，加上"最近活跃线程"恒展开
+                  ⇒ 用户一说句话，消息区就冒出一个输入框。
+                  底部主输入框恒 = 开新线程，所以"收起回复框"不是必需操作
+                  （对齐 Hermes：主 composer 始终可直接开新线程）。 */}
+              {expandable &&
+                (activeReplyThread === sec.thread ? (
+                  <ThreadReplyBox
+                    members={room.members}
+                    value={threadDrafts[sec.thread] ?? ''}
+                    onChange={(v) =>
+                      setThreadDrafts((cur) => {
+                        const next = { ...cur, [sec.thread]: v };
+                        patchBotRoomDraft(room.room_id, { replies: next });
+                        return next;
+                      })
+                    }
+                    onSubmit={() => void sendInThread(sec.thread)}
+                    busy={roomBusy || sending}
+                  />
+                ) : (
+                  <ThreadReplyLink
+                    onClick={() => {
+                      setActiveReplyThread(sec.thread);
+                      patchBotRoomDraft(room.room_id, { activeReplyThread: sec.thread });
+                    }}
+                  />
+                ))}
             </Fragment>
           );
         })}
@@ -1802,7 +1822,25 @@ function ThreadSummaryRow({
   );
 }
 
-/** 展开态线程的回复框——**继续该线程**（对齐 Hermes `submitReply(thread)`）。 */
+/** 线程尾的"回复"链接——点击后该线程占用回复框（对齐 Hermes
+ *  `group-chat-view.tsx:1092-1100` 的 `variant="link"` 按钮）。默认态**不是
+ *  输入框**，这正是"消息区不该冒出输入框"的关键。 */
+function ThreadReplyLink({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-fit px-2 py-1 text-left text-[11px] text-primary/90 hover:text-primary hover:underline"
+      title="在该线程内回复"
+    >
+      回复此线程
+    </button>
+  );
+}
+
+/** 展开态线程的回复框——**继续该线程**（对齐 Hermes `submitReply(thread)`）。
+ *  🔴 round-119：只在 `activeReplyThread === 本线程` 时才渲染（对齐 Hermes 的
+ *  单值语义：全局同时最多一个回复框）。 */
 function ThreadReplyBox({
   members,
   value,

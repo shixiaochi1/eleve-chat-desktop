@@ -25,10 +25,22 @@ export interface BotRoomDraft {
   replies: Record<string, string>;
   /** 主输入框待发附件（对齐 Hermes `pendingAttachments`） */
   attachments: RoomAttachmentDraft[];
-  /** 用户显式展开的历史线程（最近活跃那个恒展开，不入此集）
-   *  —— 对应 Hermes `GroupComposerDraft.activeReplyThread` 的"哪个线程占着
-   *  输入区"那一位，ELEVE 允许多个同时展开故用数组。 */
+  /** 用户显式展开的历史线程（最近活跃那个恒展开，不入此集）。
+   *
+   *  ⚠️ 修正（round-119）：本字段**不是** Hermes `activeReplyThread` 的等价物——
+   *  它只管"线程折叠成摘要行、还是展开显示消息"，与"谁占着输入框"无关。
+   *  输入框归属见下面的 `activeReplyThread`。 */
   expandedThreads: string[];
+  /**
+   * 正在"回复中"的线程 = 该线程显示回复输入框（`null` = 各线程只显示"回复"链接）。
+   *
+   * 🔴 round-119：1:1 对齐 Hermes `GroupComposerDraft.activeReplyThread`
+   * （**单值**，`group-panes.ts:22`）。Hermes 每个线程尾默认只渲染一行"回复"链接，
+   * 点它才 `setReplyThread(id)` 变成输入框（`group-chat-view.tsx:1057-1100`：
+   * `replyThread === id ? <输入框> : <回复链接>`），且全局同时只有一个。
+   * 此前 ELEVE 对**每个展开线程**都渲染输入框、而"最近活跃线程"恒展开 ⇒
+   * 用户一说句话，消息区就冒出一个输入框。 */
+  activeReplyThread: string | null;
   /** 乐观恢复用的版本号（对齐 Hermes `revision`） */
   revision: number;
 }
@@ -36,7 +48,14 @@ export interface BotRoomDraft {
 const drafts = new Map<string, BotRoomDraft>();
 
 function emptyDraft(): BotRoomDraft {
-  return { main: '', replies: {}, attachments: [], expandedThreads: [], revision: 0 };
+  return {
+    main: '',
+    replies: {},
+    attachments: [],
+    expandedThreads: [],
+    activeReplyThread: null,
+    revision: 0,
+  };
 }
 
 /** 深拷贝一份（防止调用方原地改到库里的对象）。 */
@@ -46,6 +65,7 @@ function cloneDraft(d: BotRoomDraft): BotRoomDraft {
     replies: { ...(d.replies || {}) },
     attachments: [...(d.attachments || [])],
     expandedThreads: [...(d.expandedThreads || [])],
+    activeReplyThread: d.activeReplyThread ?? null,
     revision: d.revision,
   };
 }
@@ -71,6 +91,12 @@ export function patchBotRoomDraft(
     replies: { ...(patch.replies ?? current.replies) },
     attachments: [...(patch.attachments ?? current.attachments)],
     expandedThreads: [...(patch.expandedThreads ?? current.expandedThreads)],
+    // 🔴 round-119：`null` 是**合法值**（= 收起回复框），故不能用 `??`
+    // （它会把显式清空吞成"保持原值"）——必须按 `undefined` 区分"未传"与"传 null"。
+    activeReplyThread:
+      patch.activeReplyThread !== undefined
+        ? patch.activeReplyThread
+        : current.activeReplyThread,
     revision: current.revision + 1,
   };
   drafts.set(roomId, next);
