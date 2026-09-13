@@ -100,6 +100,27 @@ describe('threadLayout — 到达顺序 + 每线程收尾位置（对齐 Hermes 
     expect(threadOf).toEqual([LEGACY_THREAD]);
   });
 
+  it('🔴 LEGACY 段只出现在首条用户消息之前（首个用户消息后就归它的线程）', () => {
+    const events = [
+      ev('room.created', {}, 'room:created:1'),
+      ev('room.members_changed', {}, undefined),
+      ev('message.user', { text: '第一条' }, 'user:a'),
+      // 用户消息之后的房间级事件（改名）→ 归当前游标（user:a），**不再**是 legacy
+      ev('room.renamed', { new_name: 'x' }, undefined),
+      ev('message.member', { text: '回', thread: 'user:a' }),
+    ];
+    const { threadOf, ends } = threadLayout(events);
+    expect(threadOf).toEqual([
+      LEGACY_THREAD,
+      LEGACY_THREAD,
+      'user:a',
+      'user:a',
+      'user:a',
+    ]);
+    // legacy 段的收尾在索引 1；它的回复入口因此插在那里（而 UI 对它不给入口）
+    expect(ends.get(LEGACY_THREAD)).toBe(1);
+  });
+
   it('空日志 → 空布局（不造幽灵线程）', () => {
     const { threadOf, ends } = threadLayout([]);
     expect(threadOf).toEqual([]);

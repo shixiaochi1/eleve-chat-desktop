@@ -1031,9 +1031,23 @@ function BotsRoomView({ room, roster, onBack }: {
           const thread = layout.threadOf[i];
           // 线程尾"回复"入口插在该线程**最后一个事件**之后（对齐 Hermes `threadEnds`）
           const isThreadEnd = layout.ends.get(thread) === i;
-          // LEGACY 桶（首条用户消息之前的房间级事件）不给回复入口：ELEVE 后端不认
-          // `'legacy'` 作为线程 id，回复不了它（Hermes 的 legacy 是可回复的合成 id，
-          // 这是两端此处唯一的有意差异）。
+          // LEGACY 桶（**首条用户消息之前**的房间级事件：room.created / renamed /
+          // members_changed / authority.*）不给回复入口——它没有可续的对话。
+          //
+          // 🔴 round-121 更正：此前的注释写"ELEVE 后端不认 `'legacy'` 作为线程 id"，
+          // **不实**——后端 `bot_rooms_send` 对 thread **零校验**（`rpc_bots.rs:1115`
+          // 只是 `params.get("thread")` 透传），policy 对**无 thread 字段**的事件也
+          // `map_or(true, …)` 放行（`policy.rs:874/913`）。
+          //
+          // 真实理由有两条：
+          // ① 这些是**房间级元事件**，不是可续的对话（回复它们没有语义）；
+          // ② Hermes 的对应物 `assignLegacyThreads` 合成的是**位置派生 id**
+          //    （`legacy-N`），其源码注释明确警示 "not stable across a gateway
+          //    round-trip"（`group-chat.ts:315-321`）——把这种不稳定 id 当回复目标
+          //    会制造跨端不一致，ELEVE 不复制这个脆弱点。
+          //
+          // ⚠️ 老日志里的**用户消息**（无 thread 字段）不受此特例影响：threadLayout
+          // 用其 `event_id` 作线程锚，它们**可以正常回复**。
           const expandable = thread !== LEGACY_THREAD;
           return (
             <Fragment key={ev.seq}>

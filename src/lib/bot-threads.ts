@@ -27,7 +27,22 @@
 
 import type { BotRoomEvent } from '../utils/api';
 
-/** 无线程上下文的房间级事件桶（对齐 Hermes `groupThreadOf` 的 `'legacy'` 哨兵）。 */
+/**
+ * 无线程上下文的**房间级事件**桶——只出现在首条 `message.user` 之前
+ * （`room.created` / `room.renamed` / `room.members_changed` / `authority.*`）。
+ *
+ * ⚠️ round-121 更正：它与 Hermes 的 `legacy-N` **不等价**，也不是"后端不认"的产物
+ * （后端对 thread 零校验、policy 对无 thread 事件一律放行）。真实关系是：
+ * - Hermes 的 `assignLegacyThreads`（`group-chat.ts:1583-1605`）给无 thread 条目合成
+ *   `legacy-N`，但那是**位置派生** id——同文件 `:315-321` 注释原文警示
+ *   "not stable across a gateway round-trip"，并在同步合并时把整个 `legacy-\d+`
+ *   家族**折叠回一个桶**；
+ * - ELEVE 直接用单一常量承载同一批事件，且**不给它回复入口**（房间级元事件没有
+ *   可续的对话）。这是有意选择，不是能力缺失。
+ *
+ * 老日志里的**用户消息**不受影响：`threadLayout` 用其 `event_id` 作线程锚，
+ * 所以 round-96 之前的房间，用户消息仍然各自可回复。
+ */
 export const LEGACY_THREAD = 'legacy';
 
 export interface ThreadLayout {
