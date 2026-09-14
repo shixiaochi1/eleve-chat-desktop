@@ -322,7 +322,21 @@ export interface CronJob {
   id: string
   last_error?: null | string
   last_run_at?: null | string
-  /** 上次执行状态（后端写 "ok"/"error"，对齐 Hermes Job.last_status） */
+  /**
+   * 上次**投递**失败原因（run 本体成功但结果没送到用户）
+   * ——与 `last_status === 'delivery_failed'` 配对（对齐 Hermes Job.last_delivery_error）
+   */
+  last_delivery_error?: null | string
+  /**
+   * 被适配器 ack 但**缺送达证据**（无 message_id）的目标 —— 不算失败，单独记账
+   * （对齐 Hermes Job.last_delivery_unverified）
+   */
+  last_delivery_unverified?: null | string[]
+  /**
+   * 上次执行状态（对齐 Hermes Job.last_status）：
+   * `ok` / `error`（run 本体失败）/ `delivery_queued`（已入队、完成未证实）/
+   * `delivery_failed`（agent 成功但结果没到用户手上 —— **不是成功**）
+   */
   last_status?: null | string
   name?: null | string
   next_run_at?: null | string

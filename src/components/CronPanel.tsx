@@ -15,6 +15,9 @@ import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
 import { getWsClient } from '../services/ws-client';
 import type { CronJob } from '@/types/eleve';
+// 🔴 2026-09-15（对齐 Hermes cron 呈现面）：上次运行状态与投递告警的呈现判据单点
+// （`delivery_queued` / `delivery_failed` / 未证实目标——此前前端只认 'error'）
+import { cronJobWarnings, cronStatusDisplay } from '../lib/cron-status';
 // 🔴 2026-09-01 收敛：格式化实现统一到 utils/time（本处保留 null/NaN 业务兜底）
 import { formatShortDateTime } from '../utils/time';
 import {
@@ -451,6 +454,8 @@ export default function CronPanel() {
             const expr = scheduleExpr(job);
             const summary = jobScheduleText(job);
             const st = STATE_MAP[job.state || ''] || { label: job.state || '—', chip: 'text-muted-foreground/70 bg-muted/40 border-[var(--ui-stroke-tertiary)]', dot: 'bg-muted-foreground/50' };
+            const runStatus = cronStatusDisplay(job);
+            const warnings = cronJobWarnings(job);
             return (
               <div key={job.id}
                 className="group relative rounded-lg border border-[var(--ui-stroke-tertiary)] bg-card/40 p-2.5 transition-all duration-200 hover:border-primary/40 hover:bg-accent/25 hover:shadow-md hover:-translate-y-px">
@@ -461,11 +466,33 @@ export default function CronPanel() {
                     {job.name || (job.id || '').slice(0, 8)}
                   </span>
                   <span className={cn('px-1.5 py-0.5 text-[9px] font-medium rounded-full border leading-none', st.chip)}>{st.label}</span>
-                  {job.last_status === 'error' && (
-                    <span className="px-1.5 py-0.5 text-[9px] font-medium rounded-full border border-danger/25 text-danger bg-danger/10 leading-none"
-                      title={job.last_error || undefined}>上次失败</span>
+                  {/* 🔴 2026-09-15：上次运行状态四档（对齐 Hermes `_last_run_display`）——
+                      投递失败/入队此前**什么都不显示**，用户会把"结果没送到"读成正常 */}
+                  {runStatus && (
+                    <span
+                      className={cn(
+                        'px-1.5 py-0.5 text-[9px] font-medium rounded-full border leading-none',
+                        runStatus.tone === 'ok' && 'border-success/25 text-success bg-success/10',
+                        runStatus.tone === 'warn' && 'border-warning/25 text-warning bg-warning/10',
+                        runStatus.tone === 'danger' && 'border-danger/25 text-danger bg-danger/10',
+                      )}
+                      title={runStatus.detail || undefined}
+                    >
+                      {runStatus.label}
+                    </span>
                   )}
                 </div>
+
+                {/* 投递面告警（对齐 Hermes `_job_warnings`）：投递失败 + 已接受但未证实 */}
+                {warnings.length > 0 && (
+                  <div className="mb-1 space-y-0.5">
+                    {warnings.map((line) => (
+                      <div key={line} className="text-[10px] text-warning/90 leading-snug break-all">
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* 调度 + 发送到 */}
                 <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-[10px] text-muted-foreground/70">
