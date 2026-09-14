@@ -14,6 +14,8 @@ import { describe, it, expect } from 'vitest';
 import type { BotRosterEntry } from '../utils/api';
 import { LOCAL_CONNECTION_ID, type UnionRosterRow } from '../services/bot-relay';
 import {
+  ROOM_MEMBER_MAX,
+  ROOM_MEMBER_MIN,
   findMemberRoutingRow,
   findRosterRowByKey,
   pickableMembers,
@@ -180,5 +182,21 @@ describe('pickableMembers — 跨连接同名的路由冲突', () => {
     ]);
     expect(picks[0].disabled).toBe(true);
     expect(picks[0].disabledReason).toContain('不可达');
+  });
+});
+
+/**
+ * 🔴 2026-09-15（前端审查 F4）：成员数边界是**跨语言同值常量**——前端 UI 的
+ * 创建/编辑闸门与提示文案必须与后端硬约束一致，否则后端改上限时 UI 会静默说谎。
+ *
+ * 后端同值来源：`crates/eleve-app/src/hosted_room/policy.rs`
+ * `MIN_DISCUSSION_MEMBERS = 2` / `MAX_DISCUSSION_MEMBERS = 6`；
+ * Hermes：`GROUP_CHAT_MAX_MEMBERS = 6`（`group-chat.ts:1216`）。
+ * 锁值用例 = 改任一侧时的报警器（同 `bot-relay-timeouts.test.ts` 的做法）。
+ */
+describe('ROOM_MEMBER_MIN / ROOM_MEMBER_MAX — 与后端 policy 同值', () => {
+  it('下限 2 / 上限 6（改这里必须同步改 policy.rs 的 MIN/MAX_DISCUSSION_MEMBERS）', () => {
+    expect(ROOM_MEMBER_MIN).toBe(2);
+    expect(ROOM_MEMBER_MAX).toBe(6);
   });
 });

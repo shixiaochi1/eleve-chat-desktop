@@ -21,6 +21,7 @@ import { formatRowAge } from '../utils/time';
 // ——跨连接同名（本机 coder + 远端 coder）时 `profile` 会撞，按 profile
 // `find()` 恒命中本机那条 → 置顶/隐藏/编辑/复制全作用到错误连接。
 import {
+  ROOM_MEMBER_MAX, ROOM_MEMBER_MIN,
   findMemberRoutingRow, findRosterRowByKey, memberAvailability, memberPickLabel,
   pickableMembers, rosterRowKey,
 } from '../lib/bot-members';
@@ -484,7 +485,8 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
   // ④创建成功自动进入新房间（对齐 roster-pane onCreated → openGroupChat）；
   // ⑤成功 notice 反馈（对齐 host.notify "created with N bots"）。
   const submitCreate = async () => {
-    if (newMembers.length < 2 || newMembers.length > 6) return;
+    // 🔴 2026-09-15（F4）：成员数边界走 `lib/bot-members.ts` 的常量（此前内联 2/6）
+    if (newMembers.length < ROOM_MEMBER_MIN || newMembers.length > ROOM_MEMBER_MAX) return;
     const fallback = pickedNames.join('、');
     const base = (newName.trim() || fallback).trim().slice(0, 60);
     if (!base) return;
@@ -996,12 +998,12 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
               })}
             </div>
             <div className="flex items-center justify-between">
-              <span className={cn('text-xs', newMembers.length >= 2 && newMembers.length <= 6 ? 'text-muted-foreground' : 'text-destructive')}>
-                已选 {newMembers.length}/2-6
+              <span className={cn('text-xs', newMembers.length >= ROOM_MEMBER_MIN && newMembers.length <= ROOM_MEMBER_MAX ? 'text-muted-foreground' : 'text-destructive')}>
+                已选 {newMembers.length}/{ROOM_MEMBER_MIN}-{ROOM_MEMBER_MAX}
               </span>
               <button
                 className="px-3 py-1.5 rounded-md bg-accent text-accent-foreground text-sm font-medium disabled:opacity-40"
-                disabled={newMembers.length < 2 || newMembers.length > 6 || creating}
+                disabled={newMembers.length < ROOM_MEMBER_MIN || newMembers.length > ROOM_MEMBER_MAX || creating}
                 onClick={submitCreate}
               >
                 {creating ? <Loader size={14} className="animate-spin" /> : '创建'}

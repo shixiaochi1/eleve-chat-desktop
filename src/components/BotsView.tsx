@@ -19,7 +19,10 @@ import {
   type BotRoom, type BotRoomEvent, type PendingRoomTask, type RoomAttachmentDraft,
 } from '../utils/api';
 import { formatRowAge } from '../utils/time';
-import { findMemberRoster, memberAvailability, memberPickLabel, pickableMembers } from '../lib/bot-members';
+import {
+  ROOM_MEMBER_MAX, ROOM_MEMBER_MIN,
+  findMemberRoster, memberAvailability, memberPickLabel, pickableMembers,
+} from '../lib/bot-members';
 // 🔴 round-120：线程**布局**（到达顺序 + 每线程收尾位置；见 lib/bot-threads.ts）
 import { LEGACY_THREAD, threadLayout } from '../lib/bot-threads';
 // 🔴 round-99：轮终态词表（唯一真值；档位对齐 Hermes groupActivityTone）
@@ -40,6 +43,14 @@ import {
   patchBotRoomDraft,
   restoreBotRoomDraft,
 } from '../lib/bot-room-drafts';
+// 🔴 2026-09-15：消息区**渲染窗口**与**粘底**判据的唯一真值（此前两条内联在本文件，
+// 且各有真实缺陷：窗口恒切尾部 ⇒ "加载更早消息"永不渲染；滚底无粘底判定 ⇒ 上翻读历史
+// 被新事件拽回底部。见 lib/bot-message-window.ts 头注与 Hermes group-chat-view.tsx:525-559）
+import {
+  MESSAGE_WINDOW_PAGE,
+  isNearBottom,
+  renderWindow,
+} from '../lib/bot-message-window';
 // 🔴 round-97：图片工具上提到 lib（房间图/附件缩略图/头像共用一份 canvas 实现）
 import { makeImageThumb, readImageFile } from '../lib/image-file';
 import { getWsClient } from '../services/ws-client';
@@ -313,6 +324,10 @@ function BotsRoomView({ room, roster, onBack }: {
   const [error, setError] = useState<string | null>(null);
   const latestSeq = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
+  /** 🔴 2026-09-15：滚动容器（粘底判定读它）+ 是否"粘在底部"（对齐 Hermes
+   *  `group-chat-view.tsx:529-530` 的 `bottomSentinelRef` / `stickToBottomRef`）。 */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
   const roomRef = useRef(room);
   roomRef.current = room;
   // 🔴 2026-09-08 round-76：向上分页状态（tail 首屏之后是否还有更早历史）
@@ -320,6 +335,11 @@ function BotsRoomView({ room, roster, onBack }: {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const loadingOlderRef = useRef(false);
   const oldestSeq = useRef<number | null>(null);
+  /** 🔴 2026-09-15：是否**已展开历史**（用户点过"加载更早消息"）。
+   *  默认只渲染最新一页（长房间 DOM 有界，round-48/120 的意图）；一旦用户显式
+   *  要历史，就渲染**全部已载入**——此前渲染恒为 `events.slice(-200)`，而分页只往
+   *  `events` 里并更早事件 ⇒ 窗口从尾部算，**加载到的历史永远不渲染**。 */
+  const [historyExpanded, setHistoryExpanded] = useState(false);
 
   const memberByHandle = useMemo(() => {
     const map: Record<string, string> = {};
@@ -517,11 +537,15 @@ function BotsRoomView({ room, roster, onBack }: {
     try {
       const { events: page, has_more } = await fetchBotRoomEvents(roomRef.current.room_id, {
         beforeSeq: oldestSeq.current,
-        limit: 200,
+        limit: MESSAGE_WINDOW_PAGE,
       });
       if (page.length) {
         mergeEvents(page); // mergeEvents 按 seq 去重 + 排序，prepend 结果一致
         oldestSeq.current = page[0].seq;
+        // 🔴 2026-09-15：展开历史渲染——否则新并进来的更早事件落在
+        // `events.slice(-200)` 之外，用户点了"加载更早消息"却什么都看不到
+        // （旧实现的固定 200 窗口正是如此）。DOM 仍只增长用户**显式**加载的量。
+        setHistoryExpanded(true);
       }
       setHasOlder(has_more && page.length > 0);
     } catch { /* 静默（下次点击重试） */ } finally {
@@ -536,6 +560,12 @@ function BotsRoomView({ room, roster, onBack }: {
     // 换房间 = 分页状态整体复位（否则上一房间的最早游标/还有更早标志会串味）
     oldestSeq.current = null;
     setHasOlder(false);
+    // 🔴 2026-09-15：历史展开态一并复位（否则在长房间里展开过历史后切到新房间，
+    // 新房间会直接无窗口渲染）
+    setHistoryExpanded(false);
+    // 🔴 2026-09-15：新房间重新粘底（对齐 Hermes `group-chat-view.tsx:525-528`
+    // "rooms used to open at scroll position 0 and stay there"）
+    stickToBottomRef.current = true;
     setEvents([]);
     refresh();
 
@@ -563,8 +593,21 @@ function BotsRoomView({ room, roster, onBack }: {
     return () => { unsubscribe(); unsubState(); };
   }, [room.room_id, refresh, mergeEvents]);
 
-  // 自动滚底
+  // 🔴 2026-09-15：**粘底**判定——滚动时记录"用户是否已接近底部"（判据单点 =
+  // `lib/bot-message-window.ts::isNearBottom`，阈值 80px 与 Hermes 同值）。
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottomRef.current = isNearBottom(el);
+  }, []);
+
+  // 自动滚底——**只在用户已粘底时**（对齐 Hermes #89835：*"Scroll the bottom
+  // sentinel into view on mount and whenever the log grows — but only when the
+  // user is already near the bottom, so reading history is never yanked away."*）。
+  // 此前无条件滚底 ⇒ 用户上翻读历史时每个新事件都把他拽回底部；顺带也修掉
+  // "加载更早消息"把 scroll 拉到底（加载会改变 events.length 触发本效果）。
   useEffect(() => {
+    if (!stickToBottomRef.current) return;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [events.length]);
 
@@ -609,13 +652,18 @@ function BotsRoomView({ room, roster, onBack }: {
   const send = async () => {
     const text = draft.trim();
     if ((!text && !attachments.length) || sending) return;
-    // 🔴 2026-09-08 round-76：讨论进行中不得插入新发言（此前 Enter 直调 send，
-    // 可以绕过已切成停止态的发送键，消息被塞进在飞讨论）。必须给出可见反馈——
-    // 静默 return 就是用户报的"按回车没反应"。
-    if (roomBusy) {
-      setError('成员正在讨论中——请等本轮结束，或点停止后再发言。');
-      return;
-    }
+    // 🔴 2026-09-15（前端审查 F3）：**允许在轮进行中发言**（插话）——对齐 Hermes
+    // 两侧引擎：桌面（renderer-owned）主输入框**没有**忙态闸，新发送只 bump epoch，
+    // 旧轮记 `cancelled` 退出（`group-rounds.ts:427/452-460`，测试
+    // "新发送中断旧 run 并在当前 epoch 记 cancelled"）；process-owned 的
+    // `HostedRoomService.send`（`tui_gateway/hosted_room_service.py:446-458`）同样
+    // **零忙态闸**：validate → append `message.user` → `prepare_room` → `wakeup`。
+    // 在飞轮的陈旧回信由「同线程有更新用户事件」判据丢弃（ELEVE 后端
+    // `driver.rs::superseded_by_newer_user_event`，与 Hermes `plan_publication` /
+    // 桌面 #93127 `shouldCommitMemberTurn` 同款），所以"消息被塞进在飞讨论"这一
+    // round-76 的顾虑在后端语义下已不成立（新消息开新锚，旧回复作废而非混入）。
+    // 停止仍是**独立控件**（房间头 `Square`，忙态才可点）——与 Hermes 把 stop 放在
+    // 活动条（`group-chat-view.tsx:747/774`）而非发送键同构。
     setSending(true);
     const snapshotAtts = attachments;
     // 🔴 round-76：幂等键（后端 event_id = "user:sha256(room:client_event_id)"）。
@@ -654,10 +702,9 @@ function BotsRoomView({ room, roster, onBack }: {
   const sendInThread = async (thread: string) => {
     const text = (threadDrafts[thread] ?? '').trim();
     if (!text || sending) return;
-    if (roomBusy) {
-      setError('成员正在讨论中——请等本轮结束，或点停止后再发言。');
-      return;
-    }
+    // 🔴 2026-09-15（前端审查 F3）：与主 send 同款——线程内回复同样允许插话
+    // （Hermes 主/线程两个 composer 都没有忙态闸）。同线程插话正是后端 superseded
+    // 判据的主场景：在飞轮按"同线程出现更新用户事件"作废，新消息重新驱动本轮。
     setSending(true);
     const clientEventId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const beforeThread = botRoomDraftSnapshot(room.room_id);
@@ -761,9 +808,14 @@ function BotsRoomView({ room, roster, onBack }: {
     return rows;
   }, [events, room.members]);
 
-  // 🔴 round-120：渲染窗口 ≤200 条（对齐 Hermes GROUP_CHAT_HISTORY_LIMIT 的窗口化
-  // 思路）——**保持到达顺序**，只额外算出每个事件的线程归属与每线程的收尾索引。
-  const windowedEvents = useMemo(() => events.slice(-200), [events]);
+  // 🔴 round-120：渲染窗口（对齐 Hermes GROUP_CHAT_HISTORY_LIMIT 的窗口化思路）——
+  // **保持到达顺序**，只额外算出每个事件的线程归属与每线程的收尾索引。
+  // 🔴 2026-09-15：取窗走 `renderWindow`（默认最新一页；点过"加载更早消息"后 =
+  // 全部已载入），不再硬编码 `slice(-200)`。
+  const windowedEvents = useMemo(
+    () => renderWindow(events, historyExpanded),
+    [events, historyExpanded],
+  );
   const layout = useMemo(() => threadLayout(windowedEvents), [windowedEvents]);
 
   // 🔴 round-92：忙态兜底。上面的事件流配对是**快路径**，前提是"每个 started
@@ -1007,7 +1059,11 @@ function BotsRoomView({ room, roster, onBack }: {
       </div>
 
       {/* 事件流 */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-2">
+      <div
+        className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-2"
+        ref={scrollRef}
+        onScroll={handleScroll}
+      >
         {/* 🔴 round-76：向上分页入口（tail 首屏只取最新一页，更早历史按需拉取） */}
         {hasOlder && (
           <div className="flex justify-center">
@@ -1252,6 +1308,8 @@ function BotsRoomView({ room, roster, onBack }: {
                   `replyThread === id ? <输入框> : <回复链接>`，`replyThread` 是**单值**）。
                   默认只渲染一行"回复"链接，点它才把该线程变成输入框；全局同时只有一个。
                   底部主输入框恒 = 开新线程，故"收起回复框"不是必需操作。 */}
+              {/* 🔴 2026-09-15（F3）：`busy` 只表示"本次发送在飞"——轮进行中同样可
+                  回复（对齐 Hermes：线程回复框无忙态闸） */}
               {isThreadEnd &&
                 expandable &&
                 (activeReplyThread === thread ? (
@@ -1266,7 +1324,7 @@ function BotsRoomView({ room, roster, onBack }: {
                       })
                     }
                     onSubmit={() => void sendInThread(thread)}
-                    busy={roomBusy || sending}
+                    busy={sending}
                   />
                 ) : (
                   <ThreadReplyLink
@@ -1477,12 +1535,15 @@ function BotsRoomView({ room, roster, onBack }: {
                 className="inline-flex size-(--composer-control-size) shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground"
                 onClick={() => fileInputRef.current?.click()}
                 title="添加附件（≤15MB，最多 4 个）"
-                disabled={sending || roomBusy}
+                disabled={sending}
               >
                 <Paperclip size={16} />
               </button>
-              {/* 发送/停止双态键（1:1 对齐主输入区：黑底白箭头/白底黑箭头，
-                  停止态小方块接房间级 stopBotRoom） */}
+              {/* 🔴 2026-09-15（前端审查 F3）：发送键**恒为发送**——不再随忙态切成
+                  停止键。对齐 Hermes：发送键只管发送（发送即：新消息开新锚 + 旧轮作废），
+                  停止是**独立控件**（房间头 `Square`，忙态才可点；Hermes 同款放在活动条
+                  `group-chat-view.tsx:747/774`）。此前"Doing 忙态 ⇒ 只能先停再发"
+                  在两套 Hermes 引擎里都不存在（见 `send` 处注释的取证）。 */}
               <div className="ml-auto flex items-center gap-(--composer-control-gap)">
                 <button
                   className={cn(
@@ -1490,16 +1551,12 @@ function BotsRoomView({ room, roster, onBack }: {
                     'bg-foreground text-background hover:bg-foreground/90 active:scale-90',
                     'disabled:cursor-not-allowed disabled:bg-foreground/30 disabled:opacity-100 disabled:active:scale-100',
                   )}
-                  disabled={roomBusy ? busy : (!draft.trim() && !attachments.length) || sending}
-                  onClick={roomBusy ? stopRoom : send}
-                  title={roomBusy ? '停止当前讨论' : '发送'}
-                  aria-label={roomBusy ? 'Stop discussion' : 'Send message'}
+                  disabled={(!draft.trim() && !attachments.length) || sending}
+                  onClick={send}
+                  title="发送"
+                  aria-label="Send message"
                 >
-                  {roomBusy ? (
-                    <span className="block size-2.5 rounded-[0.1875rem] bg-current" />
-                  ) : (
-                    <Send size={16} />
-                  )}
+                  <Send size={16} />
                 </button>
               </div>
             </div>
@@ -1692,7 +1749,9 @@ function RoomEditDialog({
   const nextCount = room.members.length - pendingRemove.length + pendingAdd.length;
   // 🔴 2026-09-05 round-48：与创建场景统一为 2-6（后端 MIN/MAX_DISCUSSION_MEMBERS
   // 硬约束——此前编辑允许删到 1 人，存盘后房间无法驱动）
-  const canSave = nextCount >= 2 && nextCount <= 6;
+  // 🔴 2026-09-15（F4）：边界改走 lib/bot-members.ts 唯一常量（此前与创建弹层
+  // 各自内联 2/6）
+  const canSave = nextCount >= ROOM_MEMBER_MIN && nextCount <= ROOM_MEMBER_MAX;
 
   // 🔴 round-95：与创建弹层共用同一份派生（含远端 + 不可达禁用 + 跨连接消歧）
   const addable = pickableMembers(roster).filter(
@@ -1775,7 +1834,7 @@ function RoomEditDialog({
 
         <div className="flex items-center justify-between">
           <span className={cn('text-xs', canSave ? 'text-muted-foreground' : 'text-destructive')}>
-            成员 {nextCount}/2-6
+            成员 {nextCount}/{ROOM_MEMBER_MIN}-{ROOM_MEMBER_MAX}
           </span>
           <button
             className="px-3 py-1.5 rounded-md bg-accent text-accent-foreground text-sm font-medium disabled:opacity-40"
@@ -1854,7 +1913,7 @@ function ThreadReplyBox({
           )}
           disabled={busy || !value.trim()}
           onClick={onSubmit}
-          title={busy ? '成员正在讨论中' : '回复此线程'}
+          title={busy ? '发送中…' : '回复此线程'}
           aria-label="Reply in thread"
         >
           <Send size={15} />

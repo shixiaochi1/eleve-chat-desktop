@@ -225,3 +225,18 @@ export function memberAvailability(
   }
   return { known: true, available, total };
 }
+
+/**
+ * 房间成员数下限 / 上限的**前端唯一真值**。
+ *
+ * 🔴 2026-09-15（前端审查 F4）：此前创建弹层（BotsPane）与房间设置（BotsView）
+ * 各自内联 `2` / `6` 共 5 处（校验 + 提示文案），改后端上限时 UI 会静默说谎。
+ *
+ * 同值来源（改任何一侧必须同步；`lib/bot-members.test.ts` 锁值）：
+ * - 后端硬约束：`crates/eleve-app/src/hosted_room/policy.rs` 的
+ *   `MIN_DISCUSSION_MEMBERS = 2` / `MAX_DISCUSSION_MEMBERS = 6`
+ *   （另见 `service.rs` 的 2..6 校验）；
+ * - Hermes：`GROUP_CHAT_MAX_MEMBERS = 6`（renderer-owned `group-chat.ts:1216`）。
+ */
+export const ROOM_MEMBER_MIN = 2;
+export const ROOM_MEMBER_MAX = 6;
