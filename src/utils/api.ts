@@ -1030,6 +1030,20 @@ export interface RoomAttachmentDraft {
   data: string;
 }
 
+/**
+ * `bot.rooms.send` 的回执 = **完整事件行**（`BotRoomEvent` 全字段 + 两个跨线附加键）。
+ *
+ * 🔴 2026-09-15（前端审查 D2）：后端从 2026-09-14 起就回完整事件行
+ * （`rpc_bots.rs::send_event_wire`：RoomEvent 序列化 + `room_id` + `idempotent`），
+ * 其注释原话是"此前只回 `{seq, event_id}` ⇒ 客户端既无法判别幂等重放，**也无法把
+ * 回执直接并入本地日志**"。前端此前只 `await refresh()` 再拉一次，白等一个往返。
+ */
+export type BotRoomSendReceipt = BotRoomEvent & {
+  room_id?: string;
+  /** true = 后端幂等重放（同 `client_event_id` 已落库过，没有新事件产生） */
+  idempotent?: boolean;
+};
+
 /** 群聊发言（触发后台多 bot 讨论；可携带附件） */
 export async function sendBotRoomMessage(
   roomId: string,
@@ -1039,7 +1053,7 @@ export async function sendBotRoomMessage(
   /** 🔴 round-97：线程内回复框传该线程 id（继续该线程）；主输入框不传 =
    *  开新线程（对齐 Hermes `sendToGroupChat(group, members, text, thread, images)`）。 */
   thread?: string,
-): Promise<{ seq: number; event_id: string }> {
+): Promise<BotRoomSendReceipt> {
   return call('bot_rooms_send', {
     room_id: roomId,
     text,

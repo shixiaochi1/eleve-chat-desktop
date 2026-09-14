@@ -51,6 +51,9 @@ import {
   isNearBottom,
   renderWindow,
 } from '../lib/bot-message-window';
+// 🔴 2026-09-15：事件集维护（合并去重/排序 + 有界保留）的唯一真值——见头注，
+// 对齐 Hermes 的"有界本地记录"哲学（`trimGroupChatLog`，`group-chat.ts:1259-1284`）
+import { RETAINED_EVENTS, mergeRoomEvents, retainLoadedEvents } from '../lib/bot-room-events';
 // 🔴 round-97：图片工具上提到 lib（房间图/附件缩略图/头像共用一份 canvas 实现）
 import { makeImageThumb, readImageFile } from '../lib/image-file';
 import { getWsClient } from '../services/ws-client';
@@ -340,6 +343,18 @@ function BotsRoomView({ room, roster, onBack }: {
    *  要历史，就渲染**全部已载入**——此前渲染恒为 `events.slice(-200)`，而分页只往
    *  `events` 里并更早事件 ⇒ 窗口从尾部算，**加载到的历史永远不渲染**。 */
   const [historyExpanded, setHistoryExpanded] = useState(false);
+  /** 上面两个 state 的 ref 镜像：`mergeEvents` 在 setState updater 内读它们，
+   *  若放进 deps 则身份随翻转变化（房间 effect 依赖 `mergeEvents` ⇒ 整房重载）。 */
+  const historyExpandedRef = useRef(false);
+  const hasOlderRef = useRef(false);
+  useEffect(() => { historyExpandedRef.current = historyExpanded; }, [historyExpanded]);
+  useEffect(() => { hasOlderRef.current = hasOlder; }, [hasOlder]);
+  /** 最早已载入事件的 seq = **唯一派生点**：合并、前向裁剪、加载更早页都会改变它，
+   *  而 `loadOlder` 用它做 `before_seq` ⇒ 裁剪后必须同步，否则会从"已被裁掉的
+   *  位置"之前拉页（拉到空页 → `hasOlder` 变假 → 历史再也翻不回去）。 */
+  useEffect(() => {
+    oldestSeq.current = events.length ? events[0].seq : null;
+  }, [events]);
 
   const memberByHandle = useMemo(() => {
     const map: Record<string, string> = {};
@@ -481,14 +496,24 @@ function BotsRoomView({ room, roster, onBack }: {
   // 不再复制进 `$groupNeedsYou`）。本组件的 `pendingInteractions`
   // 只负责**渲染房间内的响应卡**，不再兼职徽标。
 
-  // 增量合并：去重（seq 单调）
+  // 增量合并：去重（seq 单调）+ 有界保留（两条判据都在 lib/bot-room-events.ts）
   const mergeEvents = useCallback((incoming: BotRoomEvent[]) => {
     if (!incoming.length) return;
     setEvents((cur) => {
-      const seen = new Set(cur.map((e) => e.seq));
-      const fresh = incoming.filter((e) => !seen.has(e.seq));
-      if (!fresh.length) return cur;
-      return [...cur, ...fresh].sort((a, b) => a.seq - b.seq);
+      const merged = mergeRoomEvents(cur, incoming);
+      if (merged === cur) return cur;
+      // 🔴 2026-09-15（D3）：`events` 是"**已载入集**"，此前只增不减——
+      // 长时间开着的房间每次都要在 `runActivity` / `inflightTurnsOf` 上重扫全量。
+      // 裁剪的三道门（缺一不可）：
+      //  ① 用户**没展开历史**——展开态渲染"全部已载入"，裁了就是 F1 那个 bug 的反面；
+      //  ② 当前**不在加载更早页**——否则刚拉回来（并已并入）的那页会被立刻丢掉；
+      //  ③ 服务端**还有更早历史**——`hasOlder` 为假 = 已全量载入，裁掉就再也拿不回来。
+      // 在飞轮的开轮事件由 `retainLoadedEvents` 内部锚定，裁不到它（r115f 的教训：
+      // 忙态配对丢开边 = 发送键永久停在停止态）。
+      if (historyExpandedRef.current || loadingOlderRef.current || !hasOlderRef.current) {
+        return merged;
+      }
+      return retainLoadedEvents(merged, RETAINED_EVENTS).events;
     });
   }, []);
 
@@ -505,8 +530,9 @@ function BotsRoomView({ room, roster, onBack }: {
           { beforeSeq: 0, limit: PAGE },
         );
         if (page.length) {
+          // 🔴 2026-09-15：`oldestSeq` 由 `events[0].seq` 统一派生（见上方 effect），
+          // 这里不再各自写一次（裁剪/合并路径也都要同步它，只有一个写者才不漂移）
           mergeEvents(page);
-          oldestSeq.current = page[0].seq;
         }
         // tail 页本身即最新一页 → 游标直接对齐全局 latest，**无缺口**
         latestSeq.current = Math.max(latestSeq.current, latest_seq);
@@ -541,7 +567,6 @@ function BotsRoomView({ room, roster, onBack }: {
       });
       if (page.length) {
         mergeEvents(page); // mergeEvents 按 seq 去重 + 排序，prepend 结果一致
-        oldestSeq.current = page[0].seq;
         // 🔴 2026-09-15：展开历史渲染——否则新并进来的更早事件落在
         // `events.slice(-200)` 之外，用户点了"加载更早消息"却什么都看不到
         // （旧实现的固定 200 窗口正是如此）。DOM 仍只增长用户**显式**加载的量。
@@ -675,7 +700,24 @@ function BotsRoomView({ room, roster, onBack }: {
     setDraft('');
     setAttachments([]);
     try {
-      await sendBotRoomMessage(room.room_id, text || '（附件）', clientEventId, snapshotAtts);
+      const receipt = await sendBotRoomMessage(
+        room.room_id,
+        text || '（附件）',
+        clientEventId,
+        snapshotAtts,
+      );
+      // 🔴 2026-09-15（前端审查 D2）：**即时回显**——`bot.rooms.send` 的回执是
+      // **完整事件行**（`rpc_bots.rs::send_event_wire`：RoomEvent 全字段 + `room_id`
+      // + `idempotent`，其注释本就写着"客户端…无法把回执直接并入本地日志"），
+      // 直接并入即可：用户的消息**立刻**出现，不再白等 `refresh()` 的第二个往返。
+      // 紧随的 refresh 只做对账；重复由 `mergeRoomEvents` 按 `seq` 幂等吸收
+      // （WS 推送同一条事件也不会渲染两次）。
+      //
+      // 与 Hermes 的形态差异：桌面侧是**本地 append**（`appendGroupChatEntry`，
+      // `group-chat.ts:1423`，故它需要 `isDuplicateGroupAppend` 给双 append 兜底）。
+      // ELEVE 并入的是**服务端已落库的事实**（幂等重放时 `idempotent:true`，同样
+      // 由 seq 去重吸收），比乐观猜测更强，不需要临时 id。
+      mergeEvents([receipt]);
       // 用户已回应 → needs-you 撤标（Hermes：用户发言清除 $groupNeedsYou）
       clearRoomNeedsYou(room.room_id);
       setError(null); // 清掉"讨论进行中"等一次性提示
@@ -713,7 +755,9 @@ function BotsRoomView({ room, roster, onBack }: {
     });
     setThreadDrafts((cur) => ({ ...cur, [thread]: '' }));
     try {
-      await sendBotRoomMessage(room.room_id, text, clientEventId, undefined, thread);
+      const receipt = await sendBotRoomMessage(room.room_id, text, clientEventId, undefined, thread);
+      // 🔴 2026-09-15（D2）：与主 send 同款——回执（完整事件行）直接并入事件流做即时回显
+      mergeEvents([receipt]);
       clearRoomNeedsYou(room.room_id);
       setError(null);
       await refresh();
