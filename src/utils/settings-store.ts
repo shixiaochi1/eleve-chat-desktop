@@ -82,10 +82,14 @@ export const PROVIDER_REGISTRY: ProviderEntry[] = [
     ],
   },
   // 🔴 Hermes 对齐：DeepSeek 官方（api.deepseek.com，OpenAI 兼容）
+  // 🔴 模型名单对齐 Hermes plugins/model-providers/deepseek/__init__.py:57
+  //    fallback_models=("deepseek-v4-pro", "deepseek-flash")——2026-09 Flash refresh
+  //    后服务端现役 id 只有这两个（deepseek-chat/reasoner 已于 2026-07-24 退役 400；
+  //    deepseek-v4-flash / deepseek-v4.1-flash 实测同样 400，勿再列为可选项）。
   { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', keyEnv: 'DEEPSEEK_API_KEY',
     models: [
+    { name: 'deepseek-flash', context_length: 0, max_output: 16384 },
     { name: 'deepseek-v4-pro', context_length: 0, max_output: 16384 },
-    { name: 'deepseek-v4-flash', context_length: 0, max_output: 16384 },
     ],
   },
   // 本地模型：默认端点 + 无 key（Credential::None，本地服务免凭证）
