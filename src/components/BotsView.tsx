@@ -23,7 +23,15 @@ import { findMemberRoster, memberAvailability, memberPickLabel, pickableMembers 
 // 🔴 round-120：线程**布局**（到达顺序 + 每线程收尾位置；见 lib/bot-threads.ts）
 import { LEGACY_THREAD, threadLayout } from '../lib/bot-threads';
 // 🔴 round-99：轮终态词表（唯一真值；档位对齐 Hermes groupActivityTone）
-import { isRoomBoundedActivity, turnStatusOf, turnToneClass, type TurnTone } from '../lib/bot-turn-status';
+// 🔴 2026-09-14：另引 `turnIdOf`——轮事件 id 形态的唯一解析点（审查 F1/F2）
+import {
+  inflightTurnsOf,
+  isRoomBoundedActivity,
+  turnIdOf,
+  turnStatusOf,
+  turnToneClass,
+  type TurnTone,
+} from '../lib/bot-turn-status';
 // 🔴 round-105：bot roster 行的活跃判定（对齐 Hermes ACTIVE_WINDOW_S）
 import { isBotActive, isBotWorkerActive } from '../lib/bot-activity';
 // 🔴 round-107：房间级草稿（模块级 Map——切房重挂不丢草稿，对齐 Hermes group-panes.ts）
@@ -692,17 +700,11 @@ function BotsRoomView({ room, roster, onBack }: {
     // 此前只有 bool，"成员讨论中…" 无归属；用户看不出在等谁、也看不出
     // 是不是卡在某个成员上。成员 id 取自 turn.started 的 payload
     // （事件日志自带，无需后端加字段）。
-    const inflight = new Map<string, string>(); // turnId → memberId
-    for (const e of events) {
-      const m = /^turn:(.+):(started|settled|failed|cancelled|deferred|held)$/.exec(
-        String(e.event_id ?? ''),
-      );
-      if (!m) continue;
-      const [, turnId, kind] = m;
-      if (kind === 'started') inflight.set(turnId, String(e.payload?.member_id ?? ''));
-      else inflight.delete(turnId);
-    }
-    return inflight;
+    // 🔴 2026-09-14（F1）：配对走 `lib/bot-turn-status.ts::inflightTurnsOf` 单点。
+    // 此前内联正则只认 `:settled|:failed|:cancelled`，而后端 r115f 起终态 id 是
+    // `:terminal`、deferred 带 `:g{gen}` ⇒ 收边**永不命中** ⇒ `inflight` 只增不减
+    // ⇒ `busyStuck` 置位后长期不复位（停止键与插话拦截双双失效）。
+    return inflightTurnsOf(events);
   }, [events]);
   const inflightBusy = inflightTurns.size > 0;
   /** 当前正在发言的成员（按房间名册顺序稳定输出） */
@@ -1183,8 +1185,10 @@ function BotsRoomView({ room, roster, onBack }: {
                     const mid = String(ev.payload?.member_id || '');
                     const byId = (Array.isArray(room.members) ? room.members : []).find(m => m.member_id === mid);
                     const who = byId ? `@${byId.handle}` : `@${String(ev.actor.handle || ev.actor.id || mid)}`;
-                    const turnId =
-                      /^turn:(.+):(settled|failed|cancelled|deferred|held)$/.exec(String(ev.event_id ?? ''))?.[1] ?? null;
+                    // 🔴 2026-09-14（F2）：同走 `turnIdOf`。此前内联正则不认
+                    // `:deferred:g{gen}` ⇒ deferred 行恒拿不到 turnId ⇒
+                    // 「重试」按钮不渲染（后端 r115m 的按代次 retry 在 UI 层不可达）。
+                    const turnId = turnIdOf(ev.event_id);
                     return (
                       <div key={ev.seq} className={cn('text-center text-[11px] py-0.5', turnToneClass(st.tone))}>
                         — {who} {st.label} —

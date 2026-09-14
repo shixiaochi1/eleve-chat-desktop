@@ -125,3 +125,63 @@ export function turnStatusOf(
 export function isRoomBoundedActivity(kind: string, payload?: Record<string, unknown> | null): boolean {
   return kind === 'room.activity' && payload?.status === 'bounded';
 }
+
+/**
+ * 从**轮事件 id** 解析 `turn_id` —— 轮 id 形态的**唯一解析点**。
+ *
+ * 🔴 2026-09-14（审查 F1/F2 修复）：后端 r115f 起终态 id 收敛为
+ * `turn:{tid}:terminal`（settled/failed/cancelled **共用**，`policy.rs::terminal_event_id`）、
+ * deferred 带代次 `turn:{tid}:deferred:g{gen}`（`policy.rs::deferred_event_id`），
+ * 但前端有两处**各自内联**的正则只认旧形态 `:settled|:failed|:cancelled`：
+ * ① `BotsView.tsx` 的忙态配对（`turn.started` 加入 / 终态移除）⇒ 只增不减、
+ * 忙态永不复位（输入框长期卡在「停止」、发消息被拦）；② 终态行取 `turnId`
+ * 供 deferred「重试」⇒ 恒为 null ⇒ 重试按钮消失。两处改走本函数。
+ *
+ * 认得的形态（全部由后端 `policy::{terminal_event_id, deferred_event_id}` 生产）：
+ * - `turn:{tid}:started` —— 开轮（忙态配对的"加入"边）
+ * - `turn:{tid}:terminal` —— settled / failed / cancelled 共用（"移除"边）
+ * - `turn:{tid}:deferred:g{gen}` —— 缺席（带代次，同一 turn 可多次）
+ * - `turn:{tid}:settled` / `:failed` / `:cancelled` / `:held` —— 历史日志旧形态
+ *
+ * 其余一律 null：`:msg`（成员发言，轮内中间产物）与 `:late`（迟到补投）都**不是**
+ * 轮的生命周期边，不能拿来开/收忙态；非 `turn:` 前缀同理。
+ */
+export function turnIdOf(eventId: unknown): string | null {
+  const id = typeof eventId === 'string' ? eventId : '';
+  if (!id.startsWith('turn:')) return null;
+  const rest = id.slice('turn:'.length);
+  const turnId = rest.endsWith(':terminal')
+    ? rest.slice(0, -':terminal'.length)
+    : (rest.match(/^(.*):deferred:g\d+$/)?.[1] ??
+      rest.match(/^(.*):(?:started|settled|failed|cancelled|held)$/)?.[1] ??
+      null);
+  return turnId ? turnId : null;
+}
+
+/**
+ * 忙态配对：`turn_id → member_id`（开轮加入、收口移除）——**唯一实现**。
+ *
+ * 🔴 2026-09-14：此前这段配对逻辑内联在 `BotsView.tsx` 的 `useMemo` 里，
+ * 于是"id 形态"的知识在组件里存在了第二份（见 [`turnIdOf`] 的教训）。
+ * 抽成纯函数后：① 形态回归可以纯函数测；② 组件只剩渲染。
+ *
+ * 移动端/其他视图若要"谁在发言"，一律走这里，不要再各自扫事件。
+ */
+export function inflightTurnsOf(
+  events: readonly {
+    kind: string;
+    event_id?: unknown;
+    payload?: Record<string, unknown> | null;
+  }[],
+): Map<string, string> {
+  const inflight = new Map<string, string>();
+  for (const e of events) {
+    const turnId = turnIdOf(e.event_id);
+    if (!turnId) continue;
+    // 开/收边判 **事件 kind**（id 只负责取 turn_id）——kind 才是权威语义，
+    // 避免"id 后缀表"与后端形态再次漂移。
+    if (e.kind === 'turn.started') inflight.set(turnId, String(e.payload?.member_id ?? ''));
+    else inflight.delete(turnId);
+  }
+  return inflight;
+}

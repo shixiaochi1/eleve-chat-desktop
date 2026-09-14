@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   REASON_DEADLINE,
+  inflightTurnsOf,
   isDeadlineReason,
   isRoomBoundedActivity,
+  turnIdOf,
   turnStatusOf,
   turnToneClass,
 } from './bot-turn-status';
@@ -101,5 +103,99 @@ describe('turnStatusOf — 不渲染的 kind', () => {
   it('payload 缺失不抛', () => {
     expect(turnStatusOf('turn.failed', null)?.tone).toBe('destructive');
     expect(turnStatusOf('room.activity', undefined)).toBeNull();
+  });
+});
+
+/**
+ * 🔴 2026-09-14 审查 F1/F2 的回归护栏：
+ * 后端 r115f 把终态 id 收敛为 `turn:{tid}:terminal`、deferred 带 `:g{gen}` 后，
+ * 前端两处内联正则（忙态配对 / retry 取 turnId）同时失效。这组用例把
+ * **后端真实 id 形态**逐条钉死——形态再变必须先改 `turnIdOf` 并让用例红。
+ */
+describe('turnIdOf — 轮事件 id 形态的唯一解析点', () => {
+  const TID = 'd1.r0.p0.s1.m1';
+
+  it('新形态：terminal（settled/failed/cancelled 共用同一 id）', () => {
+    expect(turnIdOf(`turn:${TID}:terminal`)).toBe(TID);
+  });
+
+  it('新形态：deferred 带执行代次（同一 turn 可多次缺席）', () => {
+    expect(turnIdOf(`turn:${TID}:deferred:g1`)).toBe(TID);
+    expect(turnIdOf(`turn:${TID}:deferred:g12`)).toBe(TID);
+  });
+
+  it('开轮 / 扣留 / 历史旧形态都要认（旧日志回看不能瞎）', () => {
+    expect(turnIdOf(`turn:${TID}:started`)).toBe(TID);
+    expect(turnIdOf(`turn:${TID}:held`)).toBe(TID);
+    expect(turnIdOf(`turn:${TID}:settled`)).toBe(TID);
+    expect(turnIdOf(`turn:${TID}:failed`)).toBe(TID);
+    expect(turnIdOf(`turn:${TID}:cancelled`)).toBe(TID);
+  });
+
+  it('轮内中间产物不是生命周期边 → null', () => {
+    // 成员发言（中间产物，先落 msg 再落终态）与迟到补投都不参与开/收边
+    expect(turnIdOf(`turn:${TID}:msg`)).toBeNull();
+    expect(turnIdOf(`turn:${TID}:late`)).toBeNull();
+  });
+
+  it('非轮事件 / 脏输入 → null（不抛）', () => {
+    expect(turnIdOf('room:activity:user:1:settled')).toBeNull();
+    expect(turnIdOf('turn:')).toBeNull();
+    expect(turnIdOf('turn::terminal')).toBeNull();
+    expect(turnIdOf('')).toBeNull();
+    expect(turnIdOf(undefined)).toBeNull();
+    expect(turnIdOf(null)).toBeNull();
+    expect(turnIdOf(42)).toBeNull();
+  });
+});
+
+describe('inflightTurnsOf — 忙态配对（"只增不减"回归）', () => {
+  const TID = 'd1.r0.p0.s1.m1';
+  const started = (tid = TID, mid = 'm1') => ({
+    kind: 'turn.started',
+    event_id: `turn:${tid}:started`,
+    payload: { member_id: mid },
+  });
+
+  it('开轮加入、terminal 收口移除（后端 r115f 形态）', () => {
+    expect(inflightTurnsOf([started()]).get(TID)).toBe('m1');
+    expect(
+      inflightTurnsOf([started(), { kind: 'turn.settled', event_id: `turn:${TID}:terminal` }]).size,
+    ).toBe(0);
+  });
+
+  it('failed / cancelled 与 settled 共用同一 id，同样能收口', () => {
+    for (const kind of ['turn.settled', 'turn.failed', 'turn.cancelled']) {
+      const m = inflightTurnsOf([started(), { kind, event_id: `turn:${TID}:terminal` }]);
+      expect(m.size, `${kind} 必须收口`).toBe(0);
+    }
+  });
+
+  it('deferred（带代次）必须收口——否则超时轮会把忙态永久锁死', () => {
+    const m = inflightTurnsOf([
+      started(),
+      { kind: 'turn.deferred', event_id: `turn:${TID}:deferred:g1` },
+    ]);
+    expect(m.size).toBe(0);
+  });
+
+  it('历史旧形态 settled 也能收口（旧房间回看）', () => {
+    expect(inflightTurnsOf([started(), { kind: 'turn.settled', event_id: `turn:${TID}:settled` }]).size).toBe(0);
+  });
+
+  it('成员发言（:msg）与迟到补投（:late）不参与配对', () => {
+    expect(inflightTurnsOf([started(), { kind: 'message.member', event_id: `turn:${TID}:msg` }]).size).toBe(1);
+    expect(inflightTurnsOf([started(), { kind: 'message.member', event_id: `turn:${TID}:late` }]).size).toBe(1);
+  });
+
+  it('多轮交错：各自独立开收，互不误伤', () => {
+    const T2 = 'd1.r0.p1.s1.m2';
+    const m = inflightTurnsOf([
+      started(TID, 'm1'),
+      started(T2, 'm2'),
+      { kind: 'turn.settled', event_id: `turn:${TID}:terminal` },
+    ]);
+    expect([...m.keys()]).toEqual([T2]);
+    expect(m.get(T2)).toBe('m2');
   });
 });
