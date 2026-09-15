@@ -333,6 +333,20 @@ export interface CronJob {
    */
   last_delivery_unverified?: null | string[]
   /**
+   * 监测源（脚本 / URL）——见 `lib/cron-status.ts::cronMonitorDisplay`
+   * （对齐 Hermes Job.monitor_script / monitor_url；两者互斥）
+   */
+  monitor_script?: null | string
+  /**
+   * 监测状态：上次**触发 agent** 的输出哈希 + 变化时间
+   * （对齐 Hermes Job.monitor_state；"检测即状态边界"）
+   */
+  monitor_state?: null | {
+    last_changed_at?: null | string
+    last_output_hash?: null | string
+  }
+  monitor_url?: null | string
+  /**
    * 上次执行状态（对齐 Hermes Job.last_status）：
    * `ok` / `error`（run 本体失败）/ `delivery_queued`（已入队、完成未证实）/
    * `delivery_failed`（agent 成功但结果没到用户手上 —— **不是成功**）

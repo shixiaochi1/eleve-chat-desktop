@@ -1,6 +1,44 @@
 import { describe, expect, it } from 'vitest'
 
-import { cronFailureStreakLabel, cronJobWarnings, cronStatusDisplay } from './cron-status'
+import {
+  cronFailureStreakLabel,
+  cronJobWarnings,
+  cronMonitorDisplay,
+  cronStatusDisplay,
+} from './cron-status'
+
+describe('cronMonitorDisplay', () => {
+  it('无监测源 ⇒ 不占位', () => {
+    expect(cronMonitorDisplay({})).toBeNull()
+    expect(cronMonitorDisplay({ monitor_script: '' })).toBeNull()
+    expect(cronMonitorDisplay({ monitor_url: '' })).toBeNull()
+  })
+
+  it('脚本源 ⇒ 显示脚本类型，详情说明"未变则整轮跳过"（含首次基线文案）', () => {
+    const d = cronMonitorDisplay({ monitor_script: 'watch.sh' })
+    expect(d?.kind).toBe('script')
+    expect(d?.label).toBe('监测中')
+    expect(d?.detail).toContain('watch.sh')
+    expect(d?.detail).toContain('不消耗模型')
+    expect(d?.detail).toContain('尚未检测到变化')
+  })
+
+  it('URL 源 + 有变化时间 ⇒ 显示 URL 类型与上次变化时间', () => {
+    const d = cronMonitorDisplay({
+      monitor_url: 'https://example.com/x',
+      monitor_state: { last_changed_at: '2026-09-15T10:00:00Z' },
+    })
+    expect(d?.kind).toBe('url')
+    expect(d?.detail).toContain('https://example.com/x')
+    expect(d?.detail).toContain('2026-09-15T10:00:00Z')
+  })
+
+  it('两源同时存在（异常数据）⇒ 脚本优先（与后端 monitor_script 优先一致）', () => {
+    expect(cronMonitorDisplay({ monitor_script: 'a.sh', monitor_url: 'https://x' })?.kind).toBe(
+      'script',
+    )
+  })
+})
 
 describe('cronStatusDisplay', () => {
   it('从未运行（无 last_status）不显示徽章', () => {

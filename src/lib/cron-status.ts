@@ -84,6 +84,53 @@ export function cronFailureStreakLabel(job: CronStatusJob): null | string {
   return `连续失败 ${streak} 次`
 }
 
+/** 监测模式的呈现所需字段（结构化子集，便于单测） */
+export interface CronMonitorJob {
+  monitor_script?: null | string
+  monitor_state?: null | {
+    last_changed_at?: null | string
+    last_output_hash?: null | string
+  }
+  monitor_url?: null | string
+}
+
+export interface CronMonitorDisplay {
+  /** 悬停详情（源 + 语义 + 上次变化时间） */
+  detail: string
+  /** 'script' | 'url' */
+  kind: 'script' | 'url'
+  /** 行内文案 */
+  label: string
+  /** 监测源（脚本路径或 URL） */
+  source: string
+}
+
+/**
+ * 监测模式的徽章（对齐 Hermes `hermes_cli/cron.py:192-200 / 546-558`）：
+ * `Monitor: {源} (agent runs only on output change)` + `Changed: {上次变化}`。
+ *
+ * 为什么要显示：挂了监测源的任务**不是每拍都跑 agent**——输出未变时整轮被抑制
+ * （零 LLM、零投递）。若面板只说"每小时跑"，用户会以为模型每拍都在烧钱，
+ * 或者反过来在"任务没动"时以为是坏了。无监测源 ⇒ null（不占位）。
+ */
+export function cronMonitorDisplay(job: CronMonitorJob): CronMonitorDisplay | null {
+  const script = job.monitor_script || ''
+  const url = job.monitor_url || ''
+  const source = script || url
+  if (!source) return null
+  const kind: 'script' | 'url' = script ? 'script' : 'url'
+  const changedAt = job.monitor_state?.last_changed_at || ''
+  return {
+    kind,
+    source,
+    label: '监测中',
+    detail:
+      `监测源：${source}\n` +
+      '仅当输出变化时才唤起 Agent（未变则整轮跳过：不消耗模型、不投递）' +
+      (changedAt ? `\n上次变化：${changedAt}` : '\n尚未检测到变化（等待首次基线）'),
+  }
+}
+
 /** 告警行（对齐 Hermes `_job_warnings`）：投递失败 + 未证实目标。 */
 export function cronJobWarnings(job: CronStatusJob): string[] {
   const lines: string[] = []

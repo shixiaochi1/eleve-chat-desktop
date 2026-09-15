@@ -17,7 +17,7 @@ import { getWsClient } from '../services/ws-client';
 import type { CronJob } from '@/types/eleve';
 // 🔴 2026-09-15（对齐 Hermes cron 呈现面）：上次运行状态与投递告警的呈现判据单点
 // （`delivery_queued` / `delivery_failed` / 未证实目标——此前前端只认 'error'）
-import { cronFailureStreakLabel, cronJobWarnings, cronStatusDisplay } from '../lib/cron-status';
+import { cronFailureStreakLabel, cronJobWarnings, cronMonitorDisplay, cronStatusDisplay } from '../lib/cron-status';
 // 🔴 2026-09-15（对齐 Hermes 桌面 `app/cron/cron-job-model.ts`）：编辑器判据单点——必填校验的
 // 三种错误、script-only 的例外、以及 payload 组装（含 model/provider 两轴与"重置即清 pin"）
 import {
@@ -532,6 +532,7 @@ export default function CronPanel() {
             const runStatus = cronStatusDisplay(job);
             const streakLabel = cronFailureStreakLabel(job);
             const warnings = cronJobWarnings(job);
+            const monitor = cronMonitorDisplay(job);
             return (
               <div key={job.id}
                 className="group relative rounded-lg border border-[var(--ui-stroke-tertiary)] bg-card/40 p-2.5 transition-all duration-200 hover:border-primary/40 hover:bg-accent/25 hover:shadow-md hover:-translate-y-px">
@@ -565,6 +566,17 @@ export default function CronPanel() {
                       title={runStatus.detail || undefined}
                     >
                       {runStatus.label}
+                    </span>
+                  )}
+                  {/* 🔴 2026-09-15（对齐 Hermes `hermes_cli/cron.py:192-200`）：监测模式徽章——
+                      挂了监测源的任务**不是每拍都跑 agent**（输出未变则整轮跳过）；
+                      不显示的话，用户会误以为模型每拍都在消耗。 */}
+                  {monitor && (
+                    <span
+                      className="px-1.5 py-0.5 text-[9px] font-medium rounded-full border border-[var(--ui-stroke-tertiary)] text-muted-foreground bg-muted/30 leading-none"
+                      title={monitor.detail}
+                    >
+                      {monitor.kind === 'url' ? '监测·URL' : '监测·脚本'}
                     </span>
                   )}
                 </div>
