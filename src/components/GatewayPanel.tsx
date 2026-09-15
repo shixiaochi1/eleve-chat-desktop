@@ -10,6 +10,11 @@ import {
   Wifi, WifiOff, TestTube, Save, Logs, AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  isSessionStoreDegraded,
+  sessionStoreDegradedLabel,
+  sessionStoreHealth,
+} from '../lib/gateway-health';
 
 /**
  * 格式化运行时长
@@ -32,6 +37,10 @@ interface GatewayStatusData {
   port?: number;
   provider?: string;
   model?: string;
+  /** 🔴 2026-09-16（对齐 Hermes `session_db_recovery` 的聚合消费面）：
+   *  会话库打开健康 `{ status: 'ok'|'retrying'|'unavailable', degraded_paths }`。
+   *  后端 `write_runtime_status` 写、`gateway.status` RPC 透出（rpc 挑选列表已含它）。 */
+  session_store?: { status?: string; degraded_paths?: number } | null;
 }
 
 interface GatewayPanelProps {
@@ -323,6 +332,24 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
           </button>
         </div>
       )}
+
+      {/* ── 会话存储健康（🔴 2026-09-16，对齐 Hermes `session_db_recovery` 的消费面）──
+          后端 `session_store.status` 此前只写进 runtime status、**无人读**；
+          这里补上消费端：降级时红框告警（Hermes #88235：
+          *"messages may flow but **nothing is persisted**"* —— 用户必须知道）。 */}
+      {(() => {
+        // `status` 在首次拉取完成前为 null（本块在 `status && …` 保护之外）
+        const health = sessionStoreHealth(status?.session_store);
+        if (!health || !isSessionStoreDegraded(health)) return null;
+        return (
+          <div className="shrink-0 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-2">
+            <div className="text-[10px] uppercase tracking-wider text-destructive mb-0.5">会话存储</div>
+            <div className="text-xs text-destructive leading-relaxed">
+              {sessionStoreDegradedLabel(health)}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── 平台连接（徽章行，点击复制） ── */}
       {platformEntries && (
