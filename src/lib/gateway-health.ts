@@ -19,6 +19,7 @@
 export interface SessionStoreStatusRaw {
   status?: unknown;
   degraded_paths?: unknown;
+  failure_kind?: unknown;
 }
 
 /** 归一化后的健康形态。 */
@@ -27,11 +28,16 @@ export interface SessionStoreHealth {
   status: string;
   /** 处于降级（失败/退避/单飞）的库数 */
   degradedPaths: number;
+  /** `'corrupt' | 'locked' | 'disk' | 'other'`；缺省 / 未知 ⇒ `''`
+   *  （后端 `db_open_gate::StoreFailureKind::as_str`，**隐私安全**的四个词）。
+   *
+   *  声明为可选：直接构造健康对象的地方（测试 / 旧调用）不必填。 */
+  failureKind?: string;
 }
 
 /**
  * 归一化后端 `session_store` 段：无 / 无 `status` / 非字符串 ⇒ `null`。
- * `degraded_paths` 非有限值或 ≤ 0 ⇒ 0。
+ * `degraded_paths` 非有限值或 ≤ 0 ⇒ 0；`failure_kind` 非字符串 ⇒ `''`。
  */
 export function sessionStoreHealth(
   raw?: SessionStoreStatusRaw | null,
@@ -43,6 +49,7 @@ export function sessionStoreHealth(
   return {
     status,
     degradedPaths: Number.isFinite(degraded) && degraded > 0 ? Math.floor(degraded) : 0,
+    failureKind: typeof raw.failure_kind === 'string' ? raw.failure_kind : '',
   };
 }
 
@@ -62,6 +69,12 @@ export function sessionStoreDegradedLabel(health: SessionStoreHealth): string {
   const count = health.degradedPaths > 0 ? `（${health.degradedPaths} 个库）` : '';
   // ⚠️ 纯文本渲染（Notification / 面板）——**不要**写 markdown 星号，
   // 否则界面上会原样显示 `**`（本轮踩过）。
+  //
+  // 🔴 损坏与"锁/磁盘"必须分开说（对齐 Hermes `classify_persistence_error`）：
+  // **损坏不会自愈**，让用户等自动重试是错的引导。
+  if (health.failureKind === 'corrupt') {
+    return `会话库疑似损坏${count}：消息能收发，但这段时间的对话不会被保存；损坏不会自愈，请运行 eleve doctor 查看诊断，先备份再处理`;
+  }
   return health.status === 'unavailable'
     ? `会话存储不可用${count}：消息能收发，但这段时间的对话不会被保存；系统正按 1s→60s 自动退避重试`
     : `会话存储重试中${count}：最近打开失败，正在退避重试，恢复后自动继续`;

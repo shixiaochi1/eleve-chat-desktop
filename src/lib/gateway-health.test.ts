@@ -64,3 +64,41 @@ describe('sessionStoreDegradedLabel — 说清「还能用 / 不会被保存 / �
     expect(sessionStoreDegradedLabel({ status: 'retrying', degradedPaths: 0 })).not.toContain('个库');
   });
 });
+
+/**
+ * 🔴 失败分类的消费（对齐 Hermes `classify_persistence_error`）：
+ * **损坏不会自愈**，让它等自动重试是错误引导；锁 / 磁盘则相反。
+ */
+describe('sessionStoreDegradedLabel — 损坏与「锁/磁盘」必须分开说', () => {
+  it('failure_kind=corrupt ⇒ 明确"不会自愈"并给真实入口', () => {
+    const label = sessionStoreDegradedLabel({
+      status: 'unavailable',
+      degradedPaths: 1,
+      failureKind: 'corrupt',
+    });
+    expect(label).toContain('损坏');
+    expect(label).toContain('不会自愈');
+    expect(label).toContain('eleve doctor');
+    expect(label).toContain('备份');
+    expect(label).not.toContain('**');
+  });
+
+  it('locked / disk / other / 缺省 ⇒ 仍是"自动重试"口径（不得出现"不会自愈"）', () => {
+    for (const failureKind of ['locked', 'disk', 'other', '']) {
+      const label = sessionStoreDegradedLabel({
+        status: 'unavailable',
+        degradedPaths: 1,
+        failureKind,
+      });
+      expect(label).not.toContain('不会自愈');
+    }
+  });
+
+  it('归一化：failure_kind 非字符串 / 缺省 ⇒ 空串（旧后端兼容）', () => {
+    expect(sessionStoreHealth({ status: 'unavailable' })?.failureKind).toBe('');
+    expect(sessionStoreHealth({ status: 'unavailable', failure_kind: 7 })?.failureKind).toBe('');
+    expect(sessionStoreHealth({ status: 'unavailable', failure_kind: 'corrupt' })?.failureKind).toBe(
+      'corrupt',
+    );
+  });
+});
