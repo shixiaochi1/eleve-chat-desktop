@@ -30,6 +30,8 @@ export interface CronStatusJob {
   last_error?: null | string
   last_delivery_error?: null | string
   last_delivery_unverified?: null | string[]
+  /** 连续 run 本体失败次数（投递失败不计入；后端 `mark_job_run` 维护） */
+  failure_streak?: null | number
 }
 
 export type CronStatusTone = 'danger' | 'ok' | 'warn'
@@ -69,6 +71,17 @@ export function cronStatusDisplay(job: CronStatusJob): CronStatusDisplay | null 
     label: '上次失败',
     detail: job.last_error || undefined,
   }
+}
+
+/**
+ * 连续失败提示（对齐 Hermes `hermes_cli/cron.py:176-180` 的 `streak >= 2`）：
+ * 只有**连续**失败才提示——偶发一次失败不值得打扰，连续 2 次起说明任务真的坏了
+ * （Hermes 同时还有 `cron.failure_nudge_threshold`（默认 3）的复查 nudge，见后端）。
+ */
+export function cronFailureStreakLabel(job: CronStatusJob): null | string {
+  const streak = Number(job.failure_streak ?? 0)
+  if (!Number.isFinite(streak) || streak < 2) return null
+  return `连续失败 ${streak} 次`
 }
 
 /** 告警行（对齐 Hermes `_job_warnings`）：投递失败 + 未证实目标。 */

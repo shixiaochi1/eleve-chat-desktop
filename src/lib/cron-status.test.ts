@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { cronJobWarnings, cronStatusDisplay } from './cron-status'
+import { cronFailureStreakLabel, cronJobWarnings, cronStatusDisplay } from './cron-status'
 
 describe('cronStatusDisplay', () => {
   it('从未运行（无 last_status）不显示徽章', () => {
@@ -40,6 +40,21 @@ describe('cronStatusDisplay', () => {
     })
     // 未知状态同样按失败呈现（不静默成成功）
     expect(cronStatusDisplay({ last_status: 'blocked_config' })?.tone).toBe('danger')
+  })
+})
+
+describe('cronFailureStreakLabel', () => {
+  it('连续失败 ≥2 才提示（偶发一次不打扰）', () => {
+    expect(cronFailureStreakLabel({})).toBeNull()
+    expect(cronFailureStreakLabel({ failure_streak: 1 })).toBeNull()
+    expect(cronFailureStreakLabel({ failure_streak: 2 })).toBe('连续失败 2 次')
+    expect(cronFailureStreakLabel({ failure_streak: 7 })).toBe('连续失败 7 次')
+  })
+
+  it('脏数据不崩（null / NaN / 负值）', () => {
+    expect(cronFailureStreakLabel({ failure_streak: null })).toBeNull()
+    expect(cronFailureStreakLabel({ failure_streak: Number.NaN })).toBeNull()
+    expect(cronFailureStreakLabel({ failure_streak: -3 })).toBeNull()
   })
 })
 

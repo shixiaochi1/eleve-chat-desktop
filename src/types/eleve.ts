@@ -338,6 +338,11 @@ export interface CronJob {
    * `delivery_failed`（agent 成功但结果没到用户手上 —— **不是成功**）
    */
   last_status?: null | string
+  /**
+   * 连续 **run 本体** 失败次数（投递失败不计入；≥2 时呈现"连续失败 N 次"）
+   * —— 对齐 Hermes `job["failure_streak"]`（`cron/jobs.py:2222-2228`）
+   */
+  failure_streak?: null | number
   name?: null | string
   next_run_at?: null | string
   prompt?: null | string

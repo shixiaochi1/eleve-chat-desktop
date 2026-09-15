@@ -17,7 +17,7 @@ import { getWsClient } from '../services/ws-client';
 import type { CronJob } from '@/types/eleve';
 // 🔴 2026-09-15（对齐 Hermes cron 呈现面）：上次运行状态与投递告警的呈现判据单点
 // （`delivery_queued` / `delivery_failed` / 未证实目标——此前前端只认 'error'）
-import { cronJobWarnings, cronStatusDisplay } from '../lib/cron-status';
+import { cronFailureStreakLabel, cronJobWarnings, cronStatusDisplay } from '../lib/cron-status';
 // 🔴 2026-09-01 收敛：格式化实现统一到 utils/time（本处保留 null/NaN 业务兜底）
 import { formatShortDateTime } from '../utils/time';
 import {
@@ -455,6 +455,7 @@ export default function CronPanel() {
             const summary = jobScheduleText(job);
             const st = STATE_MAP[job.state || ''] || { label: job.state || '—', chip: 'text-muted-foreground/70 bg-muted/40 border-[var(--ui-stroke-tertiary)]', dot: 'bg-muted-foreground/50' };
             const runStatus = cronStatusDisplay(job);
+            const streakLabel = cronFailureStreakLabel(job);
             const warnings = cronJobWarnings(job);
             return (
               <div key={job.id}
@@ -483,9 +484,15 @@ export default function CronPanel() {
                   )}
                 </div>
 
-                {/* 投递面告警（对齐 Hermes `_job_warnings`）：投递失败 + 已接受但未证实 */}
-                {warnings.length > 0 && (
+                {/* 投递面告警（对齐 Hermes `_job_warnings`）：投递失败 + 已接受但未证实；
+                    连续失败行对齐 `_last_run_display` 的 `(N failures in a row)`（阈值 ≥2） */}
+                {(streakLabel || warnings.length > 0) && (
                   <div className="mb-1 space-y-0.5">
+                    {streakLabel && (
+                      <div className="text-[10px] font-medium text-danger/90 leading-snug">
+                        {streakLabel}
+                      </div>
+                    )}
                     {warnings.map((line) => (
                       <div key={line} className="text-[10px] text-warning/90 leading-snug break-all">
                         {line}
