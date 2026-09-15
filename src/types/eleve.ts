@@ -346,6 +346,12 @@ export interface CronJob {
   name?: null | string
   next_run_at?: null | string
   prompt?: null | string
+  /** 每任务的模型覆盖（null/'' = 开火时跟随全局默认）—— 对齐 Hermes 编辑器字段 */
+  model?: null | string
+  /** 模型覆盖的 provider（与 `model` 成对） */
+  provider?: null | string
+  /** 无 Agent 模式：到点直接跑 `script`，LLM 完全跳过（对齐 Hermes `no_agent`） */
+  no_agent?: null | boolean
   schedule?: CronJobSchedule
   schedule_display?: null | string
   script?: null | string
@@ -371,6 +377,9 @@ export interface CronJobUpdates {
   name?: string
   prompt?: string
   schedule?: string
+  /** 模型覆盖；**显式 `null` = 清掉此前的绑定**（后端把 null/'' 归一为"无覆盖"） */
+  model?: null | string
+  provider?: null | string
 }
 
 // ── Skill ──

@@ -18,6 +18,14 @@ import type { CronJob } from '@/types/eleve';
 // 🔴 2026-09-15（对齐 Hermes cron 呈现面）：上次运行状态与投递告警的呈现判据单点
 // （`delivery_queued` / `delivery_failed` / 未证实目标——此前前端只认 'error'）
 import { cronFailureStreakLabel, cronJobWarnings, cronStatusDisplay } from '../lib/cron-status';
+// 🔴 2026-09-15（对齐 Hermes 桌面 `app/cron/cron-job-model.ts`）：编辑器判据单点——必填校验的
+// 三种错误、script-only 的例外、以及 payload 组装（含 model/provider 两轴与"重置即清 pin"）
+import {
+  cronEditorUpdates,
+  cronEditorValidationMessage,
+  jobIsScriptOnly,
+  validateCronEditor,
+} from '../lib/cron-editor';
 // 🔴 2026-09-01 收敛：格式化实现统一到 utils/time（本处保留 null/NaN 业务兜底）
 import { formatShortDateTime } from '../utils/time';
 import {
@@ -31,9 +39,15 @@ interface CronForm {
   schedule: string;
   prompt: string;
   deliver: string;
+  /** 模型覆盖（'' = 跟随全局默认；对齐 Hermes 编辑器的 model） */
+  model: string;
+  /** 模型覆盖的 provider（'' = 不指定；与 model 成对） */
+  provider: string;
 }
 
-const EMPTY_FORM: CronForm = { name: '', schedule: '0 9 * * *', prompt: '', deliver: 'local' };
+const EMPTY_FORM: CronForm = {
+  name: '', schedule: '0 9 * * *', prompt: '', deliver: 'local', model: '', provider: '',
+};
 
 // Job.state（对齐 Hermes JobState）：scheduled / paused / completed
 const STATE_MAP: Record<string, { label: string; chip: string; dot: string; pulse?: boolean }> = {
@@ -228,16 +242,24 @@ export default function CronPanel() {
   }, [schedulePreset]);
 
   const handleSave = useCallback(async () => {
-    if (!form.name.trim() || !form.schedule.trim() || !form.prompt.trim()) return;
+    // 🔴 2026-09-15（对齐 Hermes `validateCronEditor`）：三种必填错误给出**可见文案**——
+    // 此前 prompt 为空时**静默 return**（用户点保存毫无反应）；且 script-only 任务
+    // （`no_agent` + `script`，本来就没有 prompt）从此可以正常保存。
+    const editingJob = editingId ? jobs.find((j) => j.id === editingId) : undefined;
+    const scriptOnlyJob = editingJob ? jobIsScriptOnly(editingJob) : false;
+    const invalid = validateCronEditor({
+      prompt: form.prompt,
+      schedule: form.schedule,
+      scriptOnlyJob,
+    });
+    if (invalid) {
+      setError(cronEditorValidationMessage(invalid));
+      return;
+    }
     const key = editingId ? `update-${editingId}` : 'create';
     setActionLoading((prev) => ({ ...prev, [key]: true }));
     try {
-      const payload = {
-        name: form.name.trim(),
-        schedule: form.schedule.trim(),
-        prompt: form.prompt.trim(),
-        deliver: form.deliver || 'local',
-      };
+      const payload = cronEditorUpdates({ ...form }, { scriptOnlyJob });
       if (editingId) {
         await call('update_job', { id: editingId, ...payload });
       } else {
@@ -249,7 +271,7 @@ export default function CronPanel() {
       fetchJobs();
     } catch (err: unknown) { setError((err as Error).message); }
     finally { setActionLoading((prev) => ({ ...prev, [key]: false })); }
-  }, [form, editingId, fetchJobs]);
+  }, [form, editingId, jobs, fetchJobs]);
 
   const handleDelete = useCallback(async (id: string) => {
     const key = `delete-${id}`;
@@ -292,6 +314,9 @@ export default function CronPanel() {
       schedule: expr,
       prompt: job.prompt || '',
       deliver: job.deliver || 'local',
+      // 🔴 2026-09-15（对齐 Hermes 编辑器）：编辑时回填模型覆盖（'' = 跟随默认）
+      model: job.model || '',
+      provider: job.provider || '',
     });
     setSchedulePreset(parsed.preset);
     setTimeValue(parsed.time);
@@ -300,6 +325,11 @@ export default function CronPanel() {
   }, []);
 
   const isCustom = schedulePreset === 'custom';
+  // 🔴 2026-09-15（对齐 Hermes `cronEditorUpdates` 的 `scriptOnlyJob`）：编辑的是脚本任务时，
+  // 空提示词**合法**（它是 `no_agent` + `script`，本来就不跑 Agent）
+  const editingScriptOnly = editingId
+    ? jobIsScriptOnly(jobs.find((j) => j.id === editingId) ?? {})
+    : false;
   const needsTime = TIME_PRESETS.has(schedulePreset);
   const liveSummary = isCustom ? '' : scheduleSummary(schedulePreset, form.schedule);
   const visibleJobs = jobs.filter((j) => matchesQuery(j, query.trim()));
@@ -396,6 +426,21 @@ export default function CronPanel() {
             <p className="text-[10px] text-muted-foreground/50 m-0">到达执行时间后，会自动开启一个独立会话来运行这段提示词</p>
           </div>
 
+          {/* 模型覆盖（对齐 Hermes 编辑器的 model / provider；留空 = 跟随全局默认） */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <label className={labelCls}>模型</label>
+              <input className={inputCls} type="text" placeholder="跟随默认"
+                value={form.model} onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <label className={labelCls}>Provider</label>
+              <input className={inputCls} type="text" placeholder="跟随默认"
+                value={form.provider} onChange={(e) => setForm((f) => ({ ...f, provider: e.target.value }))} />
+            </div>
+          </div>
+          <p className="text-[10px] text-muted-foreground/50 m-0 -mt-1">留空表示开火时跟随全局默认；重置为默认会清掉此前的绑定，脚本任务（不跑 Agent）忽略模型覆盖</p>
+
           {/* 发送到 */}
           <div className="space-y-1">
             <label className={labelCls}>发送到</label>
@@ -414,7 +459,8 @@ export default function CronPanel() {
           <button
             className="w-full px-3 py-2 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none shadow-sm"
             onClick={handleSave}
-            disabled={!form.name.trim() || !form.schedule.trim() || !form.prompt.trim()
+            disabled={!form.name.trim() || !form.schedule.trim()
+              || (!editingScriptOnly && !form.prompt.trim())
               || actionLoading[editingId ? `update-${editingId}` : 'create']}>
             {editingId ? '保存修改' : '创建任务'}
           </button>
@@ -469,6 +515,16 @@ export default function CronPanel() {
                   <span className={cn('px-1.5 py-0.5 text-[9px] font-medium rounded-full border leading-none', st.chip)}>{st.label}</span>
                   {/* 🔴 2026-09-15：上次运行状态四档（对齐 Hermes `_last_run_display`）——
                       投递失败/入队此前**什么都不显示**，用户会把"结果没送到"读成正常 */}
+                  {/* 🔴 2026-09-15（对齐 Hermes `jobIsScriptOnly`）：脚本任务到点直接跑脚本、
+                      不启动 Agent——用户需要一眼看出这类任务的 prompt 是空的（不是漏填） */}
+                  {jobIsScriptOnly(job) && (
+                    <span
+                      className="px-1.5 py-0.5 text-[9px] font-medium rounded-full border border-muted-foreground/25 text-muted-foreground bg-muted/30 leading-none"
+                      title="脚本任务：到点直接运行脚本，不启动 Agent（prompt 可为空）"
+                    >
+                      脚本
+                    </span>
+                  )}
                   {runStatus && (
                     <span
                       className={cn(
