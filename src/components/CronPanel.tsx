@@ -26,6 +26,13 @@ import {
   jobIsScriptOnly,
   validateCronEditor,
 } from '../lib/cron-editor';
+// 🔴 2026-09-15（对齐 Hermes `parseCronDeliveryTargets`/`toggleCronDeliveryTarget`）：
+// `deliver` 是逗号组合的多目标——"发送到"从单选改多选
+import {
+  describeCronDeliveryTargets,
+  parseCronDeliveryTargets,
+  toggleCronDeliveryTarget,
+} from '../lib/cron-deliver';
 // 🔴 2026-09-01 收敛：格式化实现统一到 utils/time（本处保留 null/NaN 业务兜底）
 import { formatShortDateTime } from '../utils/time';
 import {
@@ -88,8 +95,11 @@ const DELIVER_OPTIONS = [
   { value: 'feishu', label: '飞书' },
   { value: 'weixin', label: '微信' },
 ];
+const deliverLabelOf = (v: string) => DELIVER_OPTIONS.find((o) => o.value === v)?.label || v;
+/** 🔴 2026-09-15：`deliver` 是**逗号组合**（对齐 Hermes 后端 `_resolve_delivery_targets`）⇒
+ *  摘要要能显示多目标（"Telegram + Discord"），不能再按单值查表。 */
 const deliverLabel = (v: string | null | undefined) =>
-  DELIVER_OPTIONS.find((o) => o.value === v)?.label || v || '此桌面';
+  v ? describeCronDeliveryTargets(v, deliverLabelOf) : '此桌面';
 
 // ── cron 表达式工具 ──────────────────────────────────────────────────────────
 function cronParts(expr: string): string[] | null {
@@ -441,19 +451,38 @@ export default function CronPanel() {
           </div>
           <p className="text-[10px] text-muted-foreground/50 m-0 -mt-1">留空表示开火时跟随全局默认；重置为默认会清掉此前的绑定，脚本任务（不跑 Agent）忽略模型覆盖</p>
 
-          {/* 发送到 */}
+          {/* 发送到（多选；对齐 Hermes 的 deliver-checkboxes：`role="group"` +
+              `aria-labelledby`——label 只关联 labelable 元素，div[role=group] 必须显式指认） */}
           <div className="space-y-1">
-            <label className={labelCls}>发送到</label>
-            <div className="relative">
-              <SendIcon size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 pointer-events-none" />
-              <select className={cn(inputCls, 'pl-7')} value={form.deliver}
-                onChange={(e) => setForm((f) => ({ ...f, deliver: e.target.value }))}>
-                {DELIVER_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+            <label className={labelCls} id="cron-deliver-label">发送到</label>
+            <div role="group" aria-labelledby="cron-deliver-label" className="flex flex-wrap gap-1.5">
+              {DELIVER_OPTIONS.map((o) => {
+                const on = parseCronDeliveryTargets(form.deliver).includes(o.value);
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    aria-pressed={on}
+                    title={o.value === 'local' ? '只保存，不投递' : `发送到 ${o.label} 的已配置频道`}
+                    className={cn(
+                      'px-2 py-1 text-[10px] rounded-full border transition-colors',
+                      on
+                        ? 'bg-primary/12 text-primary border-primary/35'
+                        : 'bg-muted/30 text-muted-foreground/70 border-[var(--ui-stroke-tertiary)] hover:bg-accent/40',
+                    )}
+                    onClick={() => setForm((f) => ({
+                      ...f,
+                      deliver: toggleCronDeliveryTarget(f.deliver, o.value, !on),
+                    }))}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
             </div>
-            <p className="text-[10px] text-muted-foreground/50 m-0">任务结果将发送到所选目的地；未配置的平台可能无法送达</p>
+            <p className="text-[10px] text-muted-foreground/50 m-0">
+              可多选：结果会逐个投递（某个目标失败时整次投递记为失败）；"此桌面"表示只保存不投递
+            </p>
           </div>
 
           <button
