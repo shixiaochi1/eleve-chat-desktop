@@ -50,7 +50,7 @@ import {
   type RosterKindFilter,
   type RosterRowMeta,
 } from '../lib/roster-filter';
-import { ACTIVE_WINDOW_S, isBotActive, isBotWorkerActive } from '../lib/bot-activity';
+import { ACTIVE_WINDOW_S, isBotActive, isBotWorkerActive, isGatewayBusy } from '../lib/bot-activity';
 // 🔴 round-97：房间图（新建群聊 + 房间设置共用一份控件）
 import RoomImageControls from './RoomImageControls';
 import {
@@ -285,7 +285,9 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
         // 真实路由是"本机有就跑本机"，活跃度探测也该看那一行。
         const row = findMemberRoutingRow(bots, m);
         return row
-          ? isBotActive(row.entry.last_active) || isBotWorkerActive(row.entry.worker_session)
+          ? isBotActive(row.entry.last_active) ||
+              isBotWorkerActive(row.entry.worker_session) ||
+              isGatewayBusy(row.entry.busy)
           : false;
       });
       return { active: recentMsg || memberActive, activity };
@@ -293,11 +295,13 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
     [bots],
   );
 
-  /** Agent 行的过滤元数据（`active` = chat 活跃或 worker 心跳；活动度 = max(created, last_active)）。 */
+  /** Agent 行的过滤元数据（`active` = chat 活跃 / worker 心跳 / 本机 gateway 在跑；活动度 = max(created, last_active)）。 */
   const botRowMeta = useCallback(
     (row: (typeof bots)[number]): RosterRowMeta => ({
       active:
-        isBotActive(row.entry.last_active) || isBotWorkerActive(row.entry.worker_session),
+        isBotActive(row.entry.last_active) ||
+        isBotWorkerActive(row.entry.worker_session) ||
+        isGatewayBusy(row.entry.busy),
       activity: botActivityMs(row.entry),
     }),
     [],

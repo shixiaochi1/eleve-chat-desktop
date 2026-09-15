@@ -790,6 +790,14 @@ export interface BotRosterEntry {
   canonical_session_id?: string | null;
   /** 🔴 活动信号：canonical Bot Chat 最近活动（epoch 秒；对齐 Hermes RosterRow.last_active） */
   last_active?: number | null;
+  /** 🔴 2026-09-15（对齐 Hermes roster `botMood = workerActive || (本机 && gateway busy)`）：
+   *  该 profile 本机**是否有会话正在跑一轮**。数据源 = gateway `snapshot_running_agents`
+   *  （session key `agent:<profile>:…` 归属 profile）。缺省/旧后端 = undefined/false。 */
+  busy?: boolean | null;
+  /** 🔴 2026-09-15（对齐 Hermes `gateway/session_stall.py`）：该 profile 有会话**卡死**时的
+   *  最大空闲秒数（有排队用户消息 + 距上次进展超 `agent.session_stall_timeout_secs`）。
+   *  **判据在后端** stall watcher，前端只呈现。null/缺省 = 未卡死。 */
+  stalled_secs?: number | null;
   /** 🔴 round-109：花名册展示偏好——**置顶**（服务端持久化于 profile.yaml，
    *  跨 Desktop 共享；对齐 Hermes `BotMeta.pinned`）。 */
   pinned?: boolean;

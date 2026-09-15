@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   ACTIVE_WINDOW_S,
   WORKER_ACTIVE_WINDOW_S,
+  botStalledSecs,
   isBotActive,
   isBotWorkerActive,
+  isGatewayBusy,
 } from './bot-activity';
 
 /** `last_active` 是 epoch **秒**，入口是 `nowMs`（毫秒）——换算必须在实现内。 */
@@ -70,5 +72,41 @@ describe('isBotWorkerActive — 150s worker 心跳窗口（对齐 Hermes WORKER_
     expect(isBotWorkerActive({}, nowMs)).toBe(false);
     expect(isBotWorkerActive(row(null), nowMs)).toBe(false);
     expect(isBotWorkerActive(row(0), nowMs)).toBe(false);
+  });
+});
+
+/**
+ * 🔴 2026-09-15（对齐 Hermes roster `botMood = workerActive || (本机 && gateway busy)`
+ * + `gateway/session_stall.py`）：本机 gateway 的运行态两路。
+ *
+ * 这两路此前**不可得**（见 `bot-activity.ts` 文件头记录：*"gateway busy ❌ 仍不可得"*），
+ * 现由后端 `bots.roster` 的 `busy` / `stalled_secs` 透传。
+ */
+describe('isGatewayBusy — 本机会话正在跑一轮（botMood 的 gateway busy 一路）', () => {
+  it('true ⇒ 忙碌', () => {
+    expect(isGatewayBusy(true)).toBe(true);
+  });
+
+  it('false / null / undefined（旧后端、远端行）⇒ false —— 未知不得当忙碌', () => {
+    expect(isGatewayBusy(false)).toBe(false);
+    expect(isGatewayBusy(null)).toBe(false);
+    expect(isGatewayBusy(undefined)).toBe(false);
+  });
+});
+
+describe('botStalledSecs — 会话卡死空闲秒数（判据在**后端**，前端只呈现）', () => {
+  it('正秒数 ⇒ 向下取整返回', () => {
+    expect(botStalledSecs(301.9)).toBe(301);
+    expect(botStalledSecs(1)).toBe(1);
+    expect(botStalledSecs(600)).toBe(600);
+  });
+
+  it('0 / 负数 / 缺失 / 非有限值 ⇒ null —— 未知不得当卡死', () => {
+    expect(botStalledSecs(0)).toBeNull();
+    expect(botStalledSecs(-5)).toBeNull();
+    expect(botStalledSecs(null)).toBeNull();
+    expect(botStalledSecs(undefined)).toBeNull();
+    expect(botStalledSecs(Number.NaN)).toBeNull();
+    expect(botStalledSecs(Number.POSITIVE_INFINITY)).toBeNull();
   });
 });

@@ -36,7 +36,7 @@ import {
   type TurnTone,
 } from '../lib/bot-turn-status';
 // 🔴 round-105：bot roster 行的活跃判定（对齐 Hermes ACTIVE_WINDOW_S）
-import { isBotActive, isBotWorkerActive } from '../lib/bot-activity';
+import { botStalledSecs, isBotActive, isBotWorkerActive, isGatewayBusy } from '../lib/bot-activity';
 // 🔴 round-107：房间级草稿（模块级 Map——切房重挂不丢草稿，对齐 Hermes group-panes.ts）
 import {
   botRoomDraftSnapshot,
@@ -209,8 +209,14 @@ export function BotRosterRow({ row, onOpen, onRowMenu, dimmed }: {
   // （字段已由后端透传）。
   // 🔴 round-106：补上 Hermes 的**第二路**输入 `workerActive`——worker 会话
   // 不进会话列表，缺了这一路时跑 kanban 任务的 bot 会被显示成空闲（#90268）。
+  // 🔴 2026-09-15（对齐 Hermes roster `botMood = workerActive || (本机 && gateway busy)`）：
+  // gateway-busy 这一路此前**不可得**（见 `lib/bot-activity.ts` 文件头记录），现由后端
+  // `bots.roster` 的 `busy`/`stalled_secs` 补上。stall 的**判据在后端** stall watcher
+  // （`agent.session_stall_timeout_secs`），前端只呈现结果——不重复实现阈值。
   const workerActive = isBotWorkerActive(bot.worker_session);
-  const botActive = isBotActive(bot.last_active) || workerActive;
+  const gatewayBusy = isGatewayBusy(bot.busy);
+  const stalledSecs = botStalledSecs(bot.stalled_secs);
+  const botActive = isBotActive(bot.last_active) || workerActive || gatewayBusy;
   return (
     <button
       className={cn(
@@ -242,9 +248,29 @@ export function BotRosterRow({ row, onOpen, onRowMenu, dimmed }: {
             一路）——此时语义是「正在干活」而非「刚刚聊过」。 */}
         {botActive && (
           <span
-            className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full bg-success ring-2 ring-card animate-pulse"
-            title={workerActive ? '正在执行任务' : '刚刚有活动'}
-            aria-label={workerActive ? '正在执行任务' : '活跃'}
+            className={cn(
+              'absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-2 ring-card',
+              // 卡死 ⇒ 红点且**不脉冲**（"动"是假象，正是要打破的错觉）
+              stalledSecs !== null ? 'bg-destructive' : 'bg-success animate-pulse',
+            )}
+            title={
+              stalledSecs !== null
+                ? `会话可能卡住：${stalledSecs} 秒无进展（有排队消息未处理）`
+                : workerActive
+                  ? '正在执行任务'
+                  : gatewayBusy
+                    ? '正在运行一轮'
+                    : '刚刚有活动'
+            }
+            aria-label={
+              stalledSecs !== null
+                ? '卡住'
+                : workerActive
+                  ? '正在执行任务'
+                  : gatewayBusy
+                    ? '正在运行'
+                    : '活跃'
+            }
           />
         )}
       </span>
