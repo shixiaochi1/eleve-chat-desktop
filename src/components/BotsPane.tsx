@@ -95,7 +95,7 @@ interface ReplicaMetaRow {
 /** 🔴 round-95 G4+G6：房间行的两个派生读数（对齐 Hermes bot-row.tsx GroupRow）。
  *
  * 纯函数——房间行、未来的房间头部、@提及面板都读同一份答案，不做第二套推导。 */
-function roomRowReads(room: BotRoom, roster: UnionRosterRow[]) {
+export function roomRowReads(room: BotRoom, roster: UnionRosterRow[]) {
   // G4 可达性——派生走共享实现（房间头与房间行必须是同一个答案）
   const { known, available } = memberAvailability(room.members, roster);
 
@@ -113,7 +113,7 @@ function roomRowReads(room: BotRoom, roster: UnionRosterRow[]) {
  *  （ProjectTreeItems）同构：rounded-lg 卡片底 + 主题色 30% 描边 + 选中发光竖条
  *  /光环投影/扫光（card-selected-sweep）。结构 = 名称行（色块图标 + 房间名 +
  *  成员数徽标）+ 成员 @handle 副行。 */
-function RoomCard({ room, active, needsYou, roster, pinned, hidden, canMoveUp, canMoveDown, onTogglePin, onToggleHide, onMoveUp, onMoveDown, onOpen }: {
+export function RoomCard({ room, active, needsYou, roster, pinned, hidden, canMoveUp, canMoveDown, onTogglePin, onToggleHide, onMoveUp, onMoveDown, onOpen }: {
   room: BotRoom; active: boolean; needsYou: boolean; roster: UnionRosterRow[];
   pinned: boolean; hidden: boolean;
   /** 🔴 round-111：能否在**同一 pin band 的可见邻居**间移动（对齐 Hermes
