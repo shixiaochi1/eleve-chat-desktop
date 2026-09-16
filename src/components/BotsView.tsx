@@ -35,8 +35,6 @@ import {
   turnToneClass,
   type TurnTone,
 } from '../lib/bot-turn-status';
-// 🔴 round-105：bot roster 行的活跃判定（对齐 Hermes ACTIVE_WINDOW_S）
-import { botStalledSecs, isBotActive, isBotWorkerActive, isGatewayBusy } from '../lib/bot-activity';
 // 🔴 round-107：房间级草稿（模块级 Map——切房重挂不丢草稿，对齐 Hermes group-panes.ts）
 import {
   botRoomDraftSnapshot,
@@ -68,10 +66,6 @@ import RemoteBotChatView from './RemoteBotChatView';
 import RoomImageControls from './RoomImageControls';
 import MessageRow from './MessageRow';
 import ClarifyCard from './ClarifyCard';
-import { ingestBotRoster, markBotRead, unreadKey, useBotUnread } from '../hooks/useBotUnread';
-// 🔴 round-104：行级 attention 徽标（对齐 Hermes `$botAttention`）——独立模块，
-// 避免 state.ts ↔ bot-relay.ts 成环（见 hooks/useBotAttention.ts 头注）
-import { attentionHint, attentionKey, useBotAttention } from '../hooks/useBotAttention';
 
 /** 🔴 2026-09-05 stage-5：本机持有的房间副本元数据（bot.rooms.replicas.list）。
  *  🔴 2026-09-05 round-48：主区无 replica UI（接管面在 BotsPane 待接管区块）
@@ -372,24 +366,6 @@ function BotsRoomView({ room, roster, onBack }: {
       return next;
     });
   }, []);
-
-  // 🔴 round-92：回应是成员轮解锁的**唯一通道**。此前"先清卡再发 RPC"把失败
-  // 变成静默断点——卡片消失、responded 集合已记账，用户以为回答过了，成员轮
-  // 却永远等不到回执（房间卡在这一轮，直到轮预算耗尽）。且 `ok:false`（后端
-  // 拒绝/请求已过期）也未曾校验，只判了"有没有抛异常"。
-  // 对齐语义：**确认成功才退役卡片**；失败原样保留 + 错误可见 → 可重试。
-  const answerInteraction = useCallback(async (requestId: string, answer: string) => {
-    try {
-      const ok = await respondBotRoomInteraction(requestId, answer);
-      if (!ok) {
-        setError('回应未被后端接受（请求可能已过期），请重试');
-        return; // 卡片保留：等 approval/clarify 事件或用户再次提交
-      }
-      settleInteraction(requestId);
-    } catch (e) {
-      setError(`回应失败：${e instanceof Error ? e.message : String(e)}`);
-    }
-  }, [settleInteraction]);
 
   // 🔴 round-111：**此处的 needs-you 写路径已删除**（原 round-94 G1 的
   // `pendingInteractions.size > 0 ? mark : clear`）。它把 clarify/approval

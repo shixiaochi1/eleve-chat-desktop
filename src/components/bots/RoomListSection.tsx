@@ -133,8 +133,9 @@ export default function RoomListSection({
         </button>
       </div>
 
+      {/* ⚠️ 滚动职责在**父容器**（Agent 面板第③段的滚动区）——分组自身不做 overflow */}
       {!collapsed && (
-      <div className="flex-1 min-h-0 overflow-y-auto px-1 space-y-1.5">
+      <div className="min-h-0 px-1 space-y-1.5">
         {/* 待接管房间（副本权威失联时的入口；无候选时不占位） */}
         {takeableReplicas.length > 0 && (
           <div className="space-y-1 pb-1">

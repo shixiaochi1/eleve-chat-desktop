@@ -157,7 +157,9 @@ export function usePrivateChatRows(opts: AgentPanelFilterState): PrivateChatRows
   };
 }
 
-/** 私聊分组的筛选态容器（三个面板共用一套默认值；父组件持有 state）。 */
+/** Agent 面板的筛选态容器（私聊 + 群聊**共用一套**；父组件持有 state）。
+ *  🔴 返回值用 useMemo 固定引用——消费者（如面板的 `filtersPatch`）依赖它做 memo，
+ *  每次渲染新建对象会让那些 memo 全部失效。 */
 export function useAgentPanelFilters() {
   const [query, setQuery] = useState('');
   const [kindFilter, setKindFilter] = useState<RosterKindFilter>('all');
@@ -172,15 +174,28 @@ export function useAgentPanelFilters() {
     setGatewayFilter('all');
   }, []);
 
-  return {
-    state: { query, kindFilter, activityFilter, gatewayFilter, showHidden } as AgentPanelFilterState,
-    setQuery,
-    setKindFilter,
-    setActivityFilter,
-    setGatewayFilter,
-    setShowHidden,
-    reset,
-  };
+  /** 收敛补丁入口：面板只需一个稳定函数把 patch 打到对应 setter（避免回调里重复分派） */
+  const patch = useCallback((p: Partial<AgentPanelFilterState>) => {
+    if (p.query !== undefined) setQuery(p.query);
+    if (p.kindFilter !== undefined) setKindFilter(p.kindFilter);
+    if (p.activityFilter !== undefined) setActivityFilter(p.activityFilter);
+    if (p.gatewayFilter !== undefined) setGatewayFilter(p.gatewayFilter);
+    if (p.showHidden !== undefined) setShowHidden(p.showHidden);
+  }, []);
+
+  return useMemo(
+    () => ({
+      state: { query, kindFilter, activityFilter, gatewayFilter, showHidden } as AgentPanelFilterState,
+      patch,
+      reset,
+      setQuery,
+      setKindFilter,
+      setActivityFilter,
+      setGatewayFilter,
+      setShowHidden,
+    }),
+    [query, kindFilter, activityFilter, gatewayFilter, showHidden, patch, reset],
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════

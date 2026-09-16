@@ -144,17 +144,6 @@ export default function AgentsPanel(props: AgentsPanelProps) {
     getPluginHost()?.openView('bots');
   }, []);
 
-  const filtersPatch = useMemo(
-    () => (patch: Partial<AgentPanelFilterState>) => {
-      if (patch.query !== undefined) filtersApi.setQuery(patch.query);
-      if (patch.kindFilter !== undefined) filtersApi.setKindFilter(patch.kindFilter);
-      if (patch.activityFilter !== undefined) filtersApi.setActivityFilter(patch.activityFilter);
-      if (patch.gatewayFilter !== undefined) filtersApi.setGatewayFilter(patch.gatewayFilter);
-      if (patch.showHidden !== undefined) filtersApi.setShowHidden(patch.showHidden);
-    },
-    [filtersApi],
-  );
-
   return (
     <div className="relative flex flex-col h-full min-h-0">
       {/* ── ① Agent 卡片区（自然高度；max-h-[38%] 仅极端保护，超限内部滚动） ── */}
@@ -173,7 +162,7 @@ export default function AgentsPanel(props: AgentsPanelProps) {
           filters={filters}
           gatewayChoices={gatewayChoices}
           itemCount={itemCount}
-          onPatch={filtersPatch}
+          onPatch={filtersApi.patch}
           onReset={filtersApi.reset}
         />
 

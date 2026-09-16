@@ -89,9 +89,11 @@ export default function PrivateChatSection({
         )}
       </div>
 
-      {/* 行列表（折叠时整体不渲染，只留标题行） */}
+      {/* 行列表（折叠时整体不渲染，只留标题行）。
+          ⚠️ 滚动职责在**父容器**（Agent 面板第③段的滚动区）——分组自身不做 overflow，
+          否则会出现"内层永不生效的滚动容器"（职责重叠）。 */}
       {!collapsed && (
-        <div className="flex-1 min-h-0 overflow-y-auto px-1 space-y-1">
+        <div className="min-h-0 px-1 space-y-1">
           {rows.map((row) => (
             <PrivateChatRow
               // 🔴 round-111：键 = 连接作用域（跨连接同名 profile 不共用槽位/未读水位）
