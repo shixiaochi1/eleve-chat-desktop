@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, RotateCw, ChevronDown, ChevronRight } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import { RoomCard } from '../BotsPane';
+import { RoomCard } from './RoomCard';
 import { useRoomRows, type AgentPanelFilterState } from '../../hooks/useAgentPanelData';
 import { reorderRosterRooms } from '../../lib/group-order';
 import { moveRoom, openRoom, promoteReplica, setRoomPrefs } from '../../lib/room-row-actions';
@@ -60,7 +60,7 @@ export default function RoomListSection({
   onToggleCollapsed,
   className,
 }: RoomListSectionProps) {
-  const { rows, ordered, visibleIds, loaded, hiddenCount } = useRoomRows(filters);
+  const { rows, ordered, visibleIds, loaded, hiddenCount, hasConstraint } = useRoomRows(filters);
   const roster = useUnionRoster();
 
   const selectedRoomId = useSelectedRoomId();
@@ -77,20 +77,21 @@ export default function RoomListSection({
     }
   }, []);
   useEffect(() => {
+    // 只在挂载时拉一次；后续由「刷新」按钮显式重拉（此前依赖 rows.length，
+    // 任何筛选变化都会打一次 replicas RPC —— 无谓请求）
     void loadReplicas();
-  }, [loadReplicas, rows.length]);
+  }, [loadReplicas]);
   const takeableReplicas = useMemo(
     () => replicas.filter((r) => r.state === 'replica'),
     [replicas],
   );
 
-  const hiddenExpanded = filters.showHidden || Boolean(filters.query.trim());
-
+  // 空态判定与编排**同一份**判据（`hasConstraint` = 搜索 ∨ 类型/活跃度/连接筛选）
   const emptyText = useMemo(() => {
     if (!loaded) return '加载中…';
-    if (filters.query.trim()) return '没有匹配的群聊';
-    return hiddenCount > 0 && !hiddenExpanded ? '没有匹配的群聊（部分已隐藏）' : '还没有群聊';
-  }, [loaded, filters.query, hiddenCount, hiddenExpanded]);
+    if (hasConstraint) return '没有匹配的群聊';
+    return hiddenCount > 0 ? '全部群聊已隐藏' : '还没有群聊';
+  }, [loaded, hasConstraint, hiddenCount]);
 
   return (
     <section className={cn('flex flex-col min-h-0', className)} aria-label="群聊">

@@ -12,8 +12,9 @@ import { useState } from 'react';
 import { Search, SlidersHorizontal } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import { FilterGroup } from '../BotsPane';
+import { FilterGroup } from './FilterGroup';
 import {
+  ROSTER_TOOLS_THRESHOLD,
   activeFilterCount,
   type RosterActivityFilter,
   type RosterKindFilter,
@@ -25,6 +26,7 @@ export interface AgentPanelToolbarProps {
   gatewayChoices: Array<{ id: string; label: string }>;
   /** 条目总数（用于"是否值得显示工具栏"的阈值判定，对齐 Hermes `showRosterTools`） */
   itemCount: number;
+  /** 显示阈值（默认取 lib 常量，勿在此重定义） */
   thresholds?: number;
   onPatch: (patch: Partial<AgentPanelFilterState>) => void;
   onReset: () => void;
@@ -34,7 +36,7 @@ export default function AgentPanelToolbar({
   filters,
   gatewayChoices,
   itemCount,
-  thresholds = 8,
+  thresholds = ROSTER_TOOLS_THRESHOLD,
   onPatch,
   onReset,
 }: AgentPanelToolbarProps) {

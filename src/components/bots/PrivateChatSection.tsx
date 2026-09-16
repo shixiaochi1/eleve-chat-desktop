@@ -23,22 +23,20 @@ import { cn } from '@/lib/utils';
 import { PrivateChatRow } from './PrivateChatRow';
 import {
   usePrivateChatRows,
-  type PrivateChatFilterState,
+  type AgentPanelFilterState,
 } from '../../hooks/useAgentPanelData';
 import { rosterRowKey } from '../../lib/bot-members';
 import type { UnionRosterRow } from '../../plugins/bots/state';
 
 export interface PrivateChatSectionProps {
   /** 筛选态（父组件持有；工具栏作用于两个分组） */
-  filters: PrivateChatFilterState;
+  filters: AgentPanelFilterState;
   /** 本机 Agent：打开它的常驻私聊（App.handleOpenBotChat） */
   onOpenBotChat: (profile: string) => void;
   /** 远端 Agent：就绪远端 Bot Chat（骑 owner 连接）+ 主区导航 */
   onOpenRemoteChat: (row: UnionRosterRow) => void;
   /** 右键菜单锚点（菜单由父组件渲染，含 编辑/复制/置顶/隐藏） */
   onRowMenu?: (row: UnionRosterRow, x: number, y: number) => void;
-  /** 分组标题右侧的"显示已隐藏"开关（父组件统一持有 showHidden） */
-  onToggleShowHidden?: () => void;
   /** 折叠态（父组件持有 + 持久化；260px 栏内三段共存需要能腾空间） */
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
@@ -51,22 +49,22 @@ export default function PrivateChatSection({
   onOpenBotChat,
   onOpenRemoteChat,
   onRowMenu,
-  onToggleShowHidden,
   collapsed = false,
   onToggleCollapsed,
   className,
 }: PrivateChatSectionProps) {
-  const { rows, all, loading, hiddenCount } = usePrivateChatRows(filters);
+  const { rows, all, loading, hiddenCount, hasConstraint } = usePrivateChatRows(filters);
 
-  // 隐藏项：有筛选约束时强制展开（`usePrivateChatRows` 已按同一判据产出 rows），
-  // 这里只判断"是否处于强制展开"，用于标题右侧提示（与旧面板文案一致）
-  const hiddenExpanded = filters.showHidden || Boolean(filters.query.trim());
+  // 🔴 隐藏项淡化判据必须与**编排同一份**（`hasConstraint` = 搜索 ∨ 类型/活跃度/连接筛选）。
+  // 此前只按 query 判断 → 用类型/活跃度/连接筛选时，隐藏行会被展开却不淡化（与旧面板不一致）。
+  const hiddenExpanded = filters.showHidden || hasConstraint;
 
   const emptyText = useMemo(() => {
     if (loading) return '加载中…';
     if (all.length === 0) return '暂无已注册 Agent';
-    return filters.query.trim() ? '没有匹配的私聊' : '全部 Agent 已隐藏';
-  }, [loading, all.length, filters.query]);
+    if (hasConstraint) return '没有匹配的私聊';
+    return hiddenCount > 0 ? '全部 Agent 已隐藏' : '暂无已注册 Agent';
+  }, [loading, all.length, hasConstraint, hiddenCount]);
 
   return (
     <section className={cn('flex flex-col min-h-0', className)} aria-label="私聊">
@@ -88,16 +86,6 @@ export default function PrivateChatSection({
         </span>
         {!loading && rows.length > 0 && (
           <span className="text-[10px] tabular-nums text-muted-foreground/50">{rows.length}</span>
-        )}
-        {hiddenCount > 0 && onToggleShowHidden && (
-          <button
-            type="button"
-            onClick={onToggleShowHidden}
-            className="ml-auto text-[10px] text-muted-foreground/70 hover:text-foreground transition-colors"
-            title={`已隐藏 ${hiddenCount} 个 Agent`}
-          >
-            {filters.showHidden ? '收起隐藏项' : `已隐藏 ${hiddenCount}`}
-          </button>
         )}
       </div>
 

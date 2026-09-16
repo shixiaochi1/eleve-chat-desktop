@@ -15,7 +15,7 @@ import {
   derivePrivateChatRows,
   deriveRoomRows,
   roomRowMetaFor,
-  type PrivateChatFilterState,
+  type AgentPanelFilterState,
 } from './useAgentPanelData';
 
 function entry(patch: Partial<BotRosterEntry> = {}): BotRosterEntry {
@@ -42,7 +42,7 @@ function remote(profile: string, connectionId: string, label: string): UnionRost
   };
 }
 
-const ALL: PrivateChatFilterState = {
+const ALL: AgentPanelFilterState = {
   query: '',
   kindFilter: 'all',
   activityFilter: 'all',

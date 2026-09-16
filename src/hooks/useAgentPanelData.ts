@@ -54,7 +54,7 @@ import {
 import type { BotRoom } from '../utils/api';
 
 /** 私聊分组的筛选态（与 BotsPane 的工具条四件套同名同义）。 */
-export interface PrivateChatFilterState {
+export interface AgentPanelFilterState {
   query: string;
   kindFilter: RosterKindFilter;
   activityFilter: RosterActivityFilter;
@@ -98,7 +98,7 @@ export function botRowMeta(row: UnionRosterRow): RosterRowMeta {
  */
 export function derivePrivateChatRows(
   bots: UnionRosterRow[],
-  opts: PrivateChatFilterState,
+  opts: AgentPanelFilterState,
 ): { rows: UnionRosterRow[]; hasConstraint: boolean; hiddenCount: number } {
   const { query, kindFilter, activityFilter, gatewayFilter, showHidden } = opts;
 
@@ -127,7 +127,7 @@ export function derivePrivateChatRows(
 }
 
 /** 私聊分组的 hook 包装（订阅 union roster store；roster 是单一权威，组件不再各自拉取）。 */
-export function usePrivateChatRows(opts: PrivateChatFilterState): PrivateChatRows {
+export function usePrivateChatRows(opts: AgentPanelFilterState): PrivateChatRows {
   const bots = useUnionRoster();
 
   // 首帧与"真的没有 Agent"要区分：store 有过内容即视为已就绪（不清空，单调）
@@ -158,7 +158,7 @@ export function usePrivateChatRows(opts: PrivateChatFilterState): PrivateChatRow
 }
 
 /** 私聊分组的筛选态容器（三个面板共用一套默认值；父组件持有 state）。 */
-export function usePrivateChatFilters() {
+export function useAgentPanelFilters() {
   const [query, setQuery] = useState('');
   const [kindFilter, setKindFilter] = useState<RosterKindFilter>('all');
   const [activityFilter, setActivityFilter] = useState<RosterActivityFilter>('all');
@@ -173,7 +173,7 @@ export function usePrivateChatFilters() {
   }, []);
 
   return {
-    state: { query, kindFilter, activityFilter, gatewayFilter, showHidden } as PrivateChatFilterState,
+    state: { query, kindFilter, activityFilter, gatewayFilter, showHidden } as AgentPanelFilterState,
     setQuery,
     setKindFilter,
     setActivityFilter,
@@ -187,8 +187,6 @@ export function usePrivateChatFilters() {
 // 群聊分组（Agent 面板第③段的另一半）
 // ══════════════════════════════════════════════════════════════════════
 
-/** 群聊分组与私聊分组**共用同一套筛选 state**（工具栏只有一条）。 */
-export type AgentPanelFilterState = PrivateChatFilterState;
 
 export interface RoomRows {
   /** 展示序（pin band → roster_order → 活动度）——**未过滤**，供上/下移的邻居判定 */

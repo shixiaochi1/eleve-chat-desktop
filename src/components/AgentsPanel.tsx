@@ -20,6 +20,7 @@
  * 透传 App 下发的 props；本组件只增加第③段的编排与回调。
  */
 import { useCallback, useMemo, useState } from 'react';
+import { EyeOff } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import ProfilePanel from './ProfilePanel';
@@ -31,14 +32,15 @@ import RoomListSection from './bots/RoomListSection';
 import RosterRowMenu from './bots/RosterRowMenu';
 import { getPluginHost } from '../contrib/host';
 import type { AgentEditTarget } from '../contrib/host';
-import {
-  usePrivateChatFilters,
-  usePrivateChatRows,
-  useRoomRows,
-  type AgentPanelFilterState,
-} from '../hooks/useAgentPanelData';
+import { useAgentPanelFilters, type AgentPanelFilterState } from '../hooks/useAgentPanelData';
 import { openLocalBotChat, openRemoteBotChat } from '../lib/bot-open';
-import { selectRoom, type UnionRosterRow } from '../plugins/bots/state';
+import { gatewayOptions } from '../lib/roster-filter';
+import {
+  selectRoom,
+  useRooms,
+  useUnionRoster,
+  type UnionRosterRow,
+} from '../plugins/bots/state';
 
 interface AgentsPanelProps {
   currentProfile?: string;
@@ -76,13 +78,20 @@ export default function AgentsPanel(props: AgentsPanelProps) {
   const { onOpenBotChat, onEditAgentTarget, ...rest } = props;
 
   // 筛选态：私聊 + 群聊**共用一套**（工具栏只有一条）⇒ 在面板层持有
-  const filtersApi = usePrivateChatFilters();
+  const filtersApi = useAgentPanelFilters();
   const filters: AgentPanelFilterState = filtersApi.state;
 
-  // 工具栏判定用的轻量读数（与各分组内部订阅同一 store；useSyncExternalStore 无副作用）
-  const { gatewayChoices, all: allBots } = usePrivateChatRows(filters);
-  const { rows: roomRows } = useRoomRows(filters);
-  const itemCount = allBots.length + roomRows.length;
+  // 工具栏读数：**直接从两个 store 取，不跑编排**——编排归各分组内部
+  // （避免同一份编排算两遍，也避免"面板的 rows"与"分组的 rows"落在不同帧）
+  const allBots = useUnionRoster();
+  const allRooms = useRooms();
+  const gatewayChoices = useMemo(() => gatewayOptions(allBots), [allBots]);
+  const itemCount = allBots.length + allRooms.length;
+  /** 已隐藏总数（Agent + 群聊；服务端偏好字段）——统一开关只此一处（旧面板同款语义） */
+  const hiddenCount = useMemo(
+    () => allBots.filter((r) => r.entry.hidden).length + allRooms.filter((r) => r.hidden).length,
+    [allBots, allRooms],
+  );
 
   const [collapsed, setCollapsed] = useState<CollapseState>(loadCollapse);
   const toggleCollapse = useCallback((key: keyof CollapseState) => {
@@ -104,13 +113,16 @@ export default function AgentsPanel(props: AgentsPanelProps) {
   const onError = useCallback((text: string) => setBanner({ kind: 'error', text }), []);
   const onNotice = useCallback((text: string) => setBanner({ kind: 'notice', text }), []);
 
-  /** 本机私聊：ensure canonical → 交给 App 的 handleOpenBotChat（兜底走 host.openSession） */
+  /** 本机私聊：ensure canonical → 交给 App 的 handleOpenBotChat
+   *  （**不设兜底链**：另建一条 getPluginHost().openSession 会绕过 App 的 bot 域登记
+   *   `registerBotChatSession` + `setWorkspaceOwner`，同一语义两份实现必分叉） */
   const handleOpenLocalChat = useCallback(
     (profile: string) => {
-      void openLocalBotChat(profile, {
-        onOpenBotChat: onOpenBotChat ?? ((sid) => getPluginHost()?.openSession(sid)),
-        onError,
-      });
+      if (!onOpenBotChat) {
+        console.warn('[AgentsPanel] onOpenBotChat 未注入——无法打开本机私聊');
+        return;
+      }
+      void openLocalBotChat(profile, { onOpenBotChat, onError });
     },
     [onOpenBotChat, onError],
   );
@@ -196,11 +208,24 @@ export default function AgentsPanel(props: AgentsPanelProps) {
             onOpenBotChat={handleOpenLocalChat}
             onOpenRemoteChat={handleOpenRemoteChat}
             onRowMenu={(row, x, y) => setMenu({ row, x, y })}
-            onToggleShowHidden={() => filtersApi.setShowHidden(!filters.showHidden)}
             collapsed={collapsed.chats}
             onToggleCollapsed={() => toggleCollapse('chats')}
           />
         </div>
+
+        {/* 「已隐藏 N」统一入口——**一处覆盖 Agent + 群聊两组**（与旧面板同语义；
+            隐藏只影响展示：隐藏的 Agent / 群聊照常工作、照常可被 @） */}
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => filtersApi.setShowHidden(!filters.showHidden)}
+            className="shrink-0 w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors border-t border-[var(--ui-stroke-tertiary)]"
+            title={`已隐藏 ${hiddenCount} 项（Agent + 群聊）`}
+          >
+            <EyeOff size={11} />
+            {filters.showHidden ? '收起隐藏项' : `已隐藏 ${hiddenCount}`}
+          </button>
+        )}
       </div>
 
       {/* 新建群聊弹层 */}
@@ -225,13 +250,7 @@ export default function AgentsPanel(props: AgentsPanelProps) {
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          onEditAgent={
-            onEditAgentTarget ??
-            ((target) => {
-              // 兜底：本机 Agent 走旧入口（只传名字）
-              if (!target.connectionId) props.onEditAgent?.(target.profile);
-            })
-          }
+          onEditAgent={onEditAgentTarget}
           onError={onError}
           onNotice={onNotice}
         />
