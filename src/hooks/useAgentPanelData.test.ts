@@ -8,11 +8,13 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import type { BotRosterEntry } from '../utils/api';
+import type { BotRosterEntry, BotRoom } from '../utils/api';
 import { LOCAL_CONNECTION_ID, type UnionRosterRow } from '../services/bot-relay';
 import {
   botRowMeta,
   derivePrivateChatRows,
+  deriveRoomRows,
+  roomRowMetaFor,
   type PrivateChatFilterState,
 } from './useAgentPanelData';
 
@@ -141,5 +143,59 @@ describe('botRowMeta — 活跃三路信号', () => {
     const meta = botRowMeta(local({ last_active: nowSec() - 9999, created_at: nowSec() - 100 }));
     expect(meta.active).toBe(false);
     expect(meta.activity).toBe((nowSec() - 100) * 1000);
+  });
+});
+
+// ── 群聊分组（同一套编排纪律） ──────────────────────────────────────────────
+
+function room(patch: Partial<BotRoom> = {}): BotRoom {
+  return {
+    room_id: 'r1',
+    name: '房间一',
+    members: [{ member_id: 'm1', profile: 'coder', handle: 'coder', display_name: 'Coder' }],
+    next_seq: 1,
+    created_at: nowSec() - 1000,
+    ...patch,
+  } as BotRoom;
+}
+
+describe('deriveRoomRows — 编排与可见性', () => {
+  it('「只看 Agent」时群聊分组为空（隐藏计数仍如实给出）', () => {
+    const rooms = [room({ room_id: 'r1' }), room({ room_id: 'r2', hidden: true })];
+    const res = deriveRoomRows(rooms, [], { ...ALL, kindFilter: 'bots' });
+    expect(res.rows).toEqual([]);
+    expect(res.hiddenCount).toBe(1);
+  });
+
+  it('展示序：置顶 band 在前，同 band 内按 roster_order 落到队尾规则（ordered 不过滤）', () => {
+    const rooms = [
+      room({ room_id: 'a', pinned: true }),
+      room({ room_id: 'b', pinned: false }),
+      room({ room_id: 'c', pinned: false, hidden: true }),
+    ];
+    const res = deriveRoomRows(rooms, [], ALL);
+    // ordered 含隐藏项（保留槽位），pinned 在前
+    expect(res.ordered[0].room_id).toBe('a');
+    expect(res.ordered.map((r) => r.room_id)).toContain('c');
+    // rows 不含隐藏项
+    expect(res.rows.map((r) => r.room_id)).not.toContain('c');
+  });
+
+  it('有筛选约束时强制展开隐藏房间（与私聊分组同一判据）', () => {
+    const rooms = [room({ room_id: 'a' }), room({ room_id: 'b', name: '隐藏房', hidden: true })];
+    const res = deriveRoomRows(rooms, [], { ...ALL, query: '隐藏' });
+    expect(res.rows.map((r) => r.room_id)).toEqual(['b']);
+  });
+});
+
+describe('roomRowMetaFor — 房间活跃两路信号', () => {
+  it('成员活跃（本机 presence 行）⇒ 房间 active', () => {
+    const bots = [local({ profile: 'coder', last_active: nowSec() - 5 })];
+    expect(roomRowMetaFor(room(), bots).active).toBe(true);
+  });
+
+  it('无活跃成员且无消息 ⇒ idle', () => {
+    const bots = [local({ profile: 'coder', last_active: nowSec() - 99999 })];
+    expect(roomRowMetaFor(room(), bots).active).toBe(false);
   });
 });

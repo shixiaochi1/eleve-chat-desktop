@@ -28,17 +28,30 @@ import {
   botActivityMs,
   botMatchesQuery,
   filterHiddenBots,
+  filterHiddenRooms,
   gatewayOptions,
   isBotPinned,
   kindAllowsBots,
+  kindAllowsRooms,
   matchesActivityFilter,
+  roomActivityMs,
+  roomMatchesFilters,
   sortByPinThenActivity,
   type RosterActivityFilter,
   type RosterKindFilter,
   type RosterRowMeta,
 } from '../lib/roster-filter';
-import { isBotActive, isBotWorkerActive, isGatewayBusy } from '../lib/bot-activity';
-import { getUnionRoster, useUnionRoster, type UnionRosterRow } from '../plugins/bots/state';
+import { ACTIVE_WINDOW_S, isBotActive, isBotWorkerActive, isGatewayBusy } from '../lib/bot-activity';
+import { findMemberRoutingRow } from '../lib/bot-members';
+import { sortRosterRooms } from '../lib/group-order';
+import {
+  getUnionRoster,
+  isRoomsLoaded,
+  useRooms,
+  useUnionRoster,
+  type UnionRosterRow,
+} from '../plugins/bots/state';
+import type { BotRoom } from '../utils/api';
 
 /** 私聊分组的筛选态（与 BotsPane 的工具条四件套同名同义）。 */
 export interface PrivateChatFilterState {
@@ -167,5 +180,94 @@ export function usePrivateChatFilters() {
     setGatewayFilter,
     setShowHidden,
     reset,
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// 群聊分组（Agent 面板第③段的另一半）
+// ══════════════════════════════════════════════════════════════════════
+
+/** 群聊分组与私聊分组**共用同一套筛选 state**（工具栏只有一条）。 */
+export type AgentPanelFilterState = PrivateChatFilterState;
+
+export interface RoomRows {
+  /** 展示序（pin band → roster_order → 活动度）——**未过滤**，供上/下移的邻居判定 */
+  ordered: BotRoom[];
+  /** 已过滤 + 隐藏展开后的可见行 */
+  rows: BotRoom[];
+  /** 可见行 id（上/下移的"邻居范围"，对齐 Hermes `reorderGroupRows(..., visible)`） */
+  visibleIds: string[];
+  hasConstraint: boolean;
+  hiddenCount: number;
+  /** 房间列表是否完成首拉（rooms store 的 loaded 标志） */
+  loaded: boolean;
+}
+
+/** 房间行的过滤元数据：`active` = 最近消息落在 90s 窗内 **或** 任一成员正活跃
+ *  （对齐 Hermes groupRows；成员活跃走共享真值 `findMemberRoutingRow`——显式优先本机行）。 */
+export function roomRowMetaFor(room: BotRoom, bots: readonly UnionRosterRow[]): RosterRowMeta {
+  const activity = roomActivityMs(room);
+  const recentMsg = activity > 0 && Date.now() - activity <= ACTIVE_WINDOW_S * 1000;
+  const memberActive = room.members.some((m) => {
+    const row = findMemberRoutingRow(bots, m);
+    return row
+      ? isBotActive(row.entry.last_active) ||
+          isBotWorkerActive(row.entry.worker_session) ||
+          isGatewayBusy(row.entry.busy)
+      : false;
+  });
+  return { active: recentMsg || memberActive, activity };
+}
+
+/** 群聊分组的纯编排（无 hook，可单测）。顺序与旧 BotsPane:336-369 逐字一致：
+ *  展示序 → 搜索/连接 → 活跃度 → 隐藏展开（`showHidden || hasConstraint`）。 */
+export function deriveRoomRows(
+  rooms: BotRoom[],
+  bots: readonly UnionRosterRow[],
+  opts: AgentPanelFilterState,
+): { rows: BotRoom[]; ordered: BotRoom[]; visibleIds: string[]; hasConstraint: boolean; hiddenCount: number } {
+  const { query, kindFilter, activityFilter, gatewayFilter, showHidden } = opts;
+
+  const hasConstraint =
+    Boolean(query.trim()) || activeFilterCount(kindFilter, activityFilter, gatewayFilter) > 0;
+  const hiddenCount = rooms.filter((r) => r.hidden).length;
+
+  // 🔴 展示序基于**全部**房间（不过滤）——隐藏/被筛掉的房间保留槽位，
+  //    这是"上/下移时邻居判定"能成立的前提（对齐 round-111）。
+  const ordered = sortRosterRooms(rooms, roomActivityMs);
+
+  const visible = kindAllowsRooms(kindFilter)
+    ? ordered
+        .filter((r) => roomMatchesFilters(r, bots, query, gatewayFilter))
+        .filter((r) => matchesActivityFilter(roomRowMetaFor(r, bots), activityFilter))
+    : [];
+
+  const rows = filterHiddenRooms(visible, showHidden || hasConstraint);
+
+  return { rows, ordered, visibleIds: rows.map((r) => r.room_id), hasConstraint, hiddenCount };
+}
+
+/** 群聊分组 hook（订阅 rooms store；房间数据归插件域单一权威）。 */
+export function useRoomRows(opts: AgentPanelFilterState): RoomRows {
+  const rooms = useRooms();
+  const bots = useUnionRoster();
+
+  const derived = useMemo(() => deriveRoomRows(rooms, bots, opts), [
+    rooms,
+    bots,
+    opts.query,
+    opts.kindFilter,
+    opts.activityFilter,
+    opts.gatewayFilter,
+    opts.showHidden,
+  ]);
+
+  return {
+    ordered: derived.ordered,
+    rows: derived.rows,
+    visibleIds: derived.visibleIds,
+    hasConstraint: derived.hasConstraint,
+    hiddenCount: derived.hiddenCount,
+    loaded: isRoomsLoaded(),
   };
 }
