@@ -183,9 +183,10 @@ export default function BotsRoomMainView() {
   );
 }
 
-// 🔴 round-116 P4.5：BotRosterRow 的定义已实体化到 ./bots/PrivateChatRow
-// （新面板不再依赖本文件）；此处原样再导出，旧调用点（BotsPane）零改动。
-export { BotRosterRow } from './bots/PrivateChatRow';
+// ── 花名册单行已迁移 ──
+// 🔴 round-116 P5：`BotRosterRow` 定义实体化在 `./bots/PrivateChatRow`（Agent 面板
+// 私聊分组使用）；旧左栏面板（BotsPane）已删除，本文件只保留主区房间视图。
+// 此处不再对外再导出该行组件。
 
 // ══════════════════════════════════════════════════════════════════
 // 房间视图 — 事件流 + 发言 + 停止/解散

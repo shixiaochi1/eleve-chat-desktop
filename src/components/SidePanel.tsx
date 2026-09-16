@@ -27,7 +27,9 @@ import { useContributions } from '@/contrib/registry';
 import type { Contribution } from '@/contrib/registry';
 
 /** 🔴 2026-09-05 round-42：插件贡献的左栏 pane（sidePanel.pane area——
- * 对齐 Hermes hermes-bots 的 panes 贡献形态：Bots pane 进左栏 tab strip） */
+ *  对齐 Hermes 的 panes 贡献形态）。
+ *  🔴 round-116 P5：Bot Mode 的 Bots pane 已退役（群聊 + 私聊并入 Agent 面板），
+ *  当前**无插件贡献左栏 pane**；本回退保留给未来插件使用。 */
 interface PluginPaneContribution {
   component: React.ComponentType<any>;
 }
@@ -113,8 +115,8 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
 
   const cfg = panels[activePanel];
   if (!cfg) {
-    // 🔴 2026-09-05 round-42：插件贡献 pane 回退（sidePanel.pane area）——
-    // 静态 panels 表未命中时查插件贡献（bots pane 等），props 全量透传
+    // 🔴 round-116 P5：Bot Mode 已并入 Agent 面板，此处当前无命中贡献；
+    // 静态 panels 表未命中时查插件贡献（sidePanel.pane area），props 全量透传
     // （贡献组件经 shim 桥 host 门回调，与 App 直传等价）。
     return <PluginPaneSlot panelId={activePanel} panelProps={props} />;
   }

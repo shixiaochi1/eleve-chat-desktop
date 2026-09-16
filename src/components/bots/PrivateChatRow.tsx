@@ -144,5 +144,4 @@ export function PrivateChatRow({ row, onOpen, onRowMenu, dimmed }: {
   );
 }
 
-/** 旧名（BotsView 的再导出与 BotsPane 调用点仍在用；迁移完成后可删） */
-export { PrivateChatRow as BotRosterRow };
+/** 别名已退役（round-116 P5）：旧左栏面板删除后无消费者，行组件只以 PrivateChatRow 对外。 */

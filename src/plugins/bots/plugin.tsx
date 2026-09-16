@@ -1,85 +1,39 @@
 /**
- * Bot Mode bundled plugin（stage-4——Bot Mode 前端从主代码迁 bundled 插件）。
+ * Bot Mode bundled plugin。
  *
- * 🔴 2026-09-05 round-42：布局 1:1 对齐 Hermes Desktop hermes-bots（取证
- * roster-pane.tsx / canonical-chat.ts）——
- * - Bots 不是主区 tab，而是**左栏 pane**（Hermes: placement 'left' 260px，
- *   dock 进 sessions pane 的 zone → "SESSIONS | BOTS tab strip"；点击后
- *   主区不换内容）。ELEVE 映射 = SidePanel 的 'bots' panel（activePanel
- *   互斥切换为 tab strip 等价语义）
- * - 点 bot 行 → 主区打开 canonical Bot Chat（openSession in-place）
- * - 点群聊行 → 主区打开房间视图（mainView 'bots' 贡献）
- * 贡献面：
- * - sidePanel.pane：BotsPane（左栏花名册/群聊列表）
- * - mainView（viewId='bots'）：BotsRoomMainView（主区房间容器）
- * - iconBar.action：左栏入口（activate → setPanel('bots')）
- * - relay 两循环生命周期归插件（禁用插件 = relay 停）
+ * 🔴 2026-09-17 round-116 P5（Agent 面板整合收尾）：**群聊 + 私聊已并入 Agent 侧边页**
+ * （`components/AgentsPanel.tsx` 第③段），故左侧工具栏的「群聊」入口与左栏 Bots pane
+ * **一并退役**——旧面板（`components/BotsPane.tsx`）已删除。
+ *
+ * 本插件现存贡献面（仅此两项）：
+ * - **mainView（viewId='bots'）**：主区房间视图容器（点群聊行后承载）+ 远端私聊视图
+ * - **relay 两循环生命周期**：bot 间私信投递/回信收割（禁用插件 = relay 停；重载 = 重启）
+ *
+ * 已移除：
+ * - `sidePanel.pane`（旧左栏 Bots pane）—— 职责已由 Agent 面板第③段承担
+ *   （群聊分组 = RoomListSection；私聊分组 = PrivateChatSection）
+ * - `iconBar.action`（左侧工具栏「群聊」按钮）—— 老大 2026-09-16 定案取消；
+ *   进房间视图的入口 = Agent 面板里的群聊行（选中房间 + openView('bots')）
+ *
+ * 对齐 Hermes 的形态差异（刻意）：Hermes 的 Bots 是左栏 tab strip 的一个 pane；
+ * ELEVE 收敛为"Agent 面板一个面包含三段"（卡片 / 项目 / 群聊+私聊），
+ * 因为 ELEVE 的 Agent 卡片本身就是 Hermes rail 的等价物（点卡片切身份），
+ * 把 Bot Mode 的两个面并进同一个侧边页才不产生"两处 agent 列表"。
  */
-import { MessagesSquare } from 'lucide-react';
-
 import BotsRoomMainView from '../../components/BotsView';
-import BotsPane from '../../components/BotsPane';
-import { getPluginHost } from '../../contrib/host';
 import type { ElevePlugin, PluginContext } from '../../contrib/plugin';
 import { startBotRelay, stopBotRelay } from '../../services/bot-relay';
-
-/** 左栏 pane 桥接：host 门能力 → BotsPane 回调 props（插件不碰 App 内部模块）。 */
-function BotsPaneShim() {
-  return (
-    <BotsPane
-      onOpenBotChat={(id) => getPluginHost()?.openSession(id)}
-      onOpenBotRoom={() => getPluginHost()?.openView('bots')}
-      onEditAgent={(target) => getPluginHost()?.openAgentEditor(target)}
-      onRemoteChatOpened={() => getPluginHost()?.openView('bots')}
-    />
-  );
-}
 
 const botsPlugin: ElevePlugin = {
   id: 'bots',
   name: 'Bot Mode',
-  description: 'Bots 左栏面板（花名册/群聊）+ 主区群聊房间视图 + 跨网关 DM relay 循环',
+  description: '主区群聊房间视图（Agent 面板的群聊行承载入口）+ 跨网关 DM relay 循环',
   register(ctx: PluginContext) {
-    // 左栏 pane 贡献（SidePanel 按 activePanel='bots' 消费渲染）。
-    // localId='bots'——registry 命名空间化后全 id='bots:bots'，
-    // PluginPaneSlot 以 endsWith(':bots') 匹配 activePanel。
-    ctx.register('sidePanel.pane', {
-      id: 'bots',
-      title: 'Bots',
-      data: { component: BotsPaneShim },
-    });
-
-    // 主区视图贡献（点群聊行后承载房间视图）
+    // 主区视图贡献（点群聊行后承载房间视图；远端私聊视图也挂在这个视图容器下）
     ctx.register('mainView', {
       id: 'bots-view',
       title: 'Bots',
       data: { viewId: 'bots', label: 'Bots', component: BotsRoomMainView },
-    });
-
-    // IconBar 入口：打开左栏 Bots 面板。
-    // 🔴 2026-09-06 round-68（用户反馈联动断节）：此前 activate 只开左栏
-    // （Hermes tab strip 语义"主区不动"）——用户实测点群聊按钮主区仍停留
-    // 原内容，须再点 RoomCard 才切群聊视图。图标按钮 = **完整进入群聊
-    // 界面**：左栏 + 主区（bots 视图，未选中房间时主区自动选最近活跃
-    // 房间）一体联动。
-    // 🔴 round-53：图标定稿 MessagesSquare（多路消息气泡——群聊=多成员多路
-    // 对话；UsersRound 与 AgentIcon(Users) 撞型，用户指示更换）
-    ctx.register('iconBar.action', {
-      id: 'open-bots',
-      title: '群聊',
-      data: {
-        icon: MessagesSquare,
-        label: '群聊',
-        order: 25,
-        // 🔴 2026-09-06 round-68b：激活面板键（高亮判定）——贡献 id
-        // 'open-bots' ≠ setPanel('bots') 设的键，缺此字段按钮永不高亮
-        activePanelId: 'bots',
-        activate: () => {
-          const host = getPluginHost();
-          host?.setPanel('bots');
-          host?.openView('bots');
-        },
-      },
     });
 
     // relay 两循环生命周期归插件（禁用 = 停；重载 = 重启）
