@@ -17,6 +17,7 @@
  * 本组件只管渲染与回调透出——筛选 state 由父组件持有（工具栏作用于群聊 + 私聊两组）。
  */
 import { useMemo } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { PrivateChatRow } from './PrivateChatRow';
@@ -38,6 +39,9 @@ export interface PrivateChatSectionProps {
   onRowMenu?: (row: UnionRosterRow, x: number, y: number) => void;
   /** 分组标题右侧的"显示已隐藏"开关（父组件统一持有 showHidden） */
   onToggleShowHidden?: () => void;
+  /** 折叠态（父组件持有 + 持久化；260px 栏内三段共存需要能腾空间） */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
   /** 分区容器类（父组件控制高度/滚动） */
   className?: string;
 }
@@ -48,6 +52,8 @@ export default function PrivateChatSection({
   onOpenRemoteChat,
   onRowMenu,
   onToggleShowHidden,
+  collapsed = false,
+  onToggleCollapsed,
   className,
 }: PrivateChatSectionProps) {
   const { rows, all, loading, hiddenCount } = usePrivateChatRows(filters);
@@ -64,8 +70,19 @@ export default function PrivateChatSection({
 
   return (
     <section className={cn('flex flex-col min-h-0', className)} aria-label="私聊">
-      {/* 分组头：标题 + 计数 + 隐藏项开关（对齐旧面板的 section 头 + round-109 的"已隐藏"入口） */}
+      {/* 分组头：折叠开关 + 标题 + 计数 + 隐藏项开关 */}
       <div className="flex items-center gap-1.5 px-1 mb-1.5 shrink-0">
+        {onToggleCollapsed && (
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            className="text-muted-foreground/60 hover:text-foreground transition-colors"
+            title={collapsed ? '展开私聊' : '收起私聊'}
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+          </button>
+        )}
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
           私聊
         </span>
@@ -84,24 +101,26 @@ export default function PrivateChatSection({
         )}
       </div>
 
-      {/* 行列表 */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-1 space-y-1">
-        {rows.map((row) => (
-          <PrivateChatRow
-            // 🔴 round-111：键 = 连接作用域（跨连接同名 profile 不共用槽位/未读水位）
-            key={rosterRowKey(row)}
-            row={row}
-            // 已隐藏但在"显示已隐藏"下露出的行 → 淡化（与旧面板同款）
-            dimmed={Boolean(row.entry.hidden) && hiddenExpanded}
-            onOpen={() => (row.isRemote ? onOpenRemoteChat(row) : onOpenBotChat(row.entry.profile))}
-            onRowMenu={(x, y) => onRowMenu?.(row, x, y)}
-          />
-        ))}
+      {/* 行列表（折叠时整体不渲染，只留标题行） */}
+      {!collapsed && (
+        <div className="flex-1 min-h-0 overflow-y-auto px-1 space-y-1">
+          {rows.map((row) => (
+            <PrivateChatRow
+              // 🔴 round-111：键 = 连接作用域（跨连接同名 profile 不共用槽位/未读水位）
+              key={rosterRowKey(row)}
+              row={row}
+              // 已隐藏但在"显示已隐藏"下露出的行 → 淡化（与旧面板同款）
+              dimmed={Boolean(row.entry.hidden) && hiddenExpanded}
+              onOpen={() => (row.isRemote ? onOpenRemoteChat(row) : onOpenBotChat(row.entry.profile))}
+              onRowMenu={(x, y) => onRowMenu?.(row, x, y)}
+            />
+          ))}
 
-        {rows.length === 0 && (
-          <div className="text-xs text-muted-foreground/70 px-2 py-1.5">{emptyText}</div>
-        )}
-      </div>
+          {rows.length === 0 && (
+            <div className="text-xs text-muted-foreground/70 px-2 py-1.5">{emptyText}</div>
+          )}
+        </div>
+      )}
     </section>
   );
 }

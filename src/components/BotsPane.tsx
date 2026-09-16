@@ -1080,7 +1080,7 @@ export default function BotsPane({ onOpenBotChat, onOpenBotRoom, onEditAgent, on
 }
 
 /** 🔴 round-108：过滤面板里的一个分组（对齐 Hermes 的 DropdownMenu 分组 + 选中打勾）。 */
-function FilterGroup({
+export function FilterGroup({
   label,
   options,
   value,

@@ -5,6 +5,7 @@
  */
 import { cn } from '@/lib/utils';
 import type { Session } from '@/types';
+import type { AgentEditTarget } from '../contrib/host';
 import AgentsPanel from './AgentsPanel';
 import CronPanel from './CronPanel';
 import DebugPanel from './DebugPanel';
@@ -39,8 +40,10 @@ interface SidePanelProps {
   gatewayChecking?: boolean;
   /** 网关重连（GatewayPanel 透传，pool/port 重新探测） */
   onGatewayRetry?: () => void;
-  /** 🔴 2026-08-13 v8：Agent 数量（App agentCount 唯一持有者，ProfilePanel onProfilesChange 上抛）
-   *  —— AgentsPanel 高度对齐的唯一触发器（老大逻辑：数量不变 → 项目区完全不动） */
+  /** 🔴 2026-08-13 v8：Agent 数量（App agentCount 唯一持有者，ProfilePanel onProfilesChange 上抛）。
+   *  🔴 round-116 更新：AgentsPanel 已改用**固定三段骨架**（卡片 max-h-38% / 项目 flex-1 /
+   *  群聊+私聊区 max-h-45% + 分组折叠），agentCount **不再是高度对齐触发器**；
+   *  现存消费点 = ContextBar 的宫格按钮门控（agentCount < 2 时禁用）。 */
   agentCount?: number;
   // ── Agent / Profile ──
   currentProfile?: string;
@@ -58,6 +61,9 @@ interface SidePanelProps {
   refreshSignal?: number;
   /** 双击 Agent 卡片 → 打开编辑面板（App 层渲染 EditAgentDialog） */
   onEditAgent?: (name: string) => void;
+  /** 🔴 round-116：编辑 Agent 的**完整目标**（含远端 connectionId + 展示读数种子）
+   *  —— Agent 面板第③段「私聊分组」的行菜单用（远端行也能编辑，骑 owner 连接）。 */
+  onEditAgentTarget?: (target: AgentEditTarget) => void;
   onOpenSettings?: () => void;
   onRestart?: () => void;
   /** 🔴 2026-08-13 问题2：会话行点击 → 项目域 scope 同步（透传 ProjectTreePanel） */

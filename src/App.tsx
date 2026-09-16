@@ -1668,6 +1668,8 @@ export default function App() {
                   refreshSignal={profileRefreshSignal}
                   // 🔴 round-112：左栏 Agent 卡片 = 本机 profile → 只需名字
                   onEditAgent={(name) => setEditTarget({ profile: name })}
+                  // 🔴 round-116：私聊分组的行菜单收完整目标（远端行带 connectionId）
+                  onEditAgentTarget={(target) => setEditTarget(target)}
                   onOpenSettings={handleOpenSettings}
                   onRestart={handleRestartService}
                   sessionId={viewMode === 'grid' ? (focusedGridSessionId ?? sess.sessionId) : sess.sessionId}

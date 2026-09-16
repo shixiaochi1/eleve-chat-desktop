@@ -14,7 +14,7 @@
  * `bot.rooms.list` 不按 profile 过滤）⇒ 只能是独立分组，不能挂到某个 Agent 之下。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, RotateCw } from 'lucide-react';
+import { Plus, RotateCw, ChevronDown, ChevronRight } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { RoomCard } from '../BotsPane';
@@ -44,6 +44,9 @@ export interface RoomListSectionProps {
   onCreateRoom: () => void;
   onError?: (message: string) => void;
   onNotice?: (message: string) => void;
+  /** 折叠态（父组件持有 + 持久化） */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
   className?: string;
 }
 
@@ -53,6 +56,8 @@ export default function RoomListSection({
   onCreateRoom,
   onError,
   onNotice,
+  collapsed = false,
+  onToggleCollapsed,
   className,
 }: RoomListSectionProps) {
   const { rows, ordered, visibleIds, loaded, hiddenCount } = useRoomRows(filters);
@@ -89,8 +94,19 @@ export default function RoomListSection({
 
   return (
     <section className={cn('flex flex-col min-h-0', className)} aria-label="群聊">
-      {/* 分组头：标题 + 计数 + 新建（承接旧面板的 Header 新建按钮） */}
+      {/* 分组头：折叠开关 + 标题 + 计数 + 新建 */}
       <div className="flex items-center gap-1.5 px-1 mb-1.5 shrink-0">
+        {onToggleCollapsed && (
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            className="text-muted-foreground/60 hover:text-foreground transition-colors"
+            title={collapsed ? '展开群聊' : '收起群聊'}
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+          </button>
+        )}
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
           群聊
         </span>
@@ -116,6 +132,7 @@ export default function RoomListSection({
         </button>
       </div>
 
+      {!collapsed && (
       <div className="flex-1 min-h-0 overflow-y-auto px-1 space-y-1.5">
         {/* 待接管房间（副本权威失联时的入口；无候选时不占位） */}
         {takeableReplicas.length > 0 && (
@@ -187,6 +204,7 @@ export default function RoomListSection({
           <div className="text-[11px] text-muted-foreground/70 px-2 py-1.5">{emptyText}</div>
         )}
       </div>
+      )}
     </section>
   );
 }
