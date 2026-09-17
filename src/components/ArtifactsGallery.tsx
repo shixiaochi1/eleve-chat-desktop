@@ -94,7 +94,6 @@ interface ArtifactsGalleryProps {
   artifacts: GalleryArtifact[] | null;
   /** 搜索词（由外层持有，搜索框渲染在「产物库」栏） */
   query: string;
-  onQueryChange: (q: string) => void;
   refreshing: boolean;
   onRefresh: () => void;
   /** 打开会话（Hermes openChat 语义） */
@@ -102,7 +101,7 @@ interface ArtifactsGalleryProps {
 }
 
 export default function ArtifactsGallery({
-  artifacts, query, onQueryChange, refreshing, onRefresh, onSwitchSession,
+  artifacts, query, refreshing, onRefresh, onSwitchSession,
 }: ArtifactsGalleryProps) {
   const [kindFilter, setKindFilter] = useState<ArtifactFilter>('all');
   const [failedImageIds, setFailedImageIds] = useState<Set<string>>(() => new Set());

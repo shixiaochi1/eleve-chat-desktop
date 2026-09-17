@@ -183,7 +183,7 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
           !open && 'cursor-pointer',
           !open && 'reasoning-preview'
         )}
-        onClick={(e) => {
+        onClick={() => {
           if (open) return;
           // 选择文本时不触发（复制/划词场景）
           const sel = window.getSelection();

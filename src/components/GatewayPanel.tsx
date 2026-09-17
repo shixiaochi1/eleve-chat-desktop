@@ -226,7 +226,7 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
     setLogsVisible(true);
   };
 
-  const platformLabel = (name: string, state: unknown): string => {
+  const platformLabel = (state: unknown): string => {
     const stateObj = typeof state === 'object' && state ? state as Record<string, unknown> : null;
     if (stateObj?.state === 'connected') return '已连接';
     return stateObj?.state ? String(stateObj.state) : String(state);
@@ -377,12 +377,12 @@ export default function GatewayPanel({ gatewayOnline, gatewayChecking, onGateway
                       ? 'bg-success/10 border-success/25 text-success hover:bg-success/20'
                       : 'bg-destructive/10 border-destructive/25 text-destructive hover:bg-destructive/20'
                   )}
-                  onClick={() => copy(`${name}: ${platformLabel(name, state)}`, '平台状态')}
+                  onClick={() => copy(`${name}: ${platformLabel(state)}`, '平台状态')}
                   title={`复制 ${name} 连接状态`}
                 >
                   <Server size={9} strokeWidth={1.5} />
                   <span className="max-w-28 truncate">{name}</span>
-                  <span className="opacity-70">{platformLabel(name, state)}</span>
+                  <span className="opacity-70">{platformLabel(state)}</span>
                 </button>
               );
             })}

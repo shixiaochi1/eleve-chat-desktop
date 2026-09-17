@@ -365,7 +365,6 @@ export default function FileBrowserPanel({
     collapseAll,
     rootPath,
     loadedDirs,
-    loadingDirs,
     dirErrors,
   } = useFileTree();
 

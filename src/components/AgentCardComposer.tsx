@@ -54,7 +54,6 @@ interface AgentCardComposerProps {
   fileAttaching?: number;
   fileError?: string | null;
   onRemoveFile?: (id: string) => void;
-  onClearFileError?: () => void;
   /** 队列编辑状态（对齐 Hermes stepQueuedEdit / exitQueuedEdit） */
   queueEditingId?: number | null;
   onQueueStep?: (direction: -1 | 1) => { text: string; done: boolean } | null;
@@ -88,7 +87,6 @@ const AgentCardComposer = forwardRef<AgentCardComposerHandle, AgentCardComposerP
   fileAttaching,
   fileError,
   onRemoveFile,
-  onClearFileError,
   queueEditingId,
   onQueueStep,
   onQueueExit,

@@ -253,7 +253,6 @@ const ArtifactPanel = memo(function ArtifactPanel({
         <ArtifactsGallery
           artifacts={gallery.artifacts}
           query={gallery.query}
-          onQueryChange={gallery.setQuery}
           refreshing={gallery.refreshing}
           onRefresh={() => void gallery.refresh()}
           onSwitchSession={onSwitchSession}
@@ -265,7 +264,6 @@ const ArtifactPanel = memo(function ArtifactPanel({
       <ArtifactsGallery
         artifacts={sessionExtracted}
         query={gallery.query}
-        onQueryChange={gallery.setQuery}
         refreshing={false}
         onRefresh={() => {}}
       />

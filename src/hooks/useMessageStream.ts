@@ -696,7 +696,7 @@ export function useMessageStream({
       appendIndependentMessage({ id: genId(), role: 'system' as const, parts: [textPart(`▶ 委托子 Agent: ${goal || taskId}`)], timestamp: Date.now() });
     },
 
-    onDelegateEnd: ({ taskId, status, summary, model, tokensInput, tokensOutput, duration, sessionId }: { taskId: string; status?: string; summary?: string; model?: string; tokensInput?: number; tokensOutput?: number; duration?: number; sessionId?: string }) => {
+    onDelegateEnd: ({ taskId, status, summary, tokensInput, tokensOutput, duration, sessionId }: { taskId: string; status?: string; summary?: string; model?: string; tokensInput?: number; tokensOutput?: number; duration?: number; sessionId?: string }) => {
       const sid = sessionId ?? sess.sessionId ?? undefined;
       setMonitorState((prev) => {
         const next = { ...((prev.delegateTasks as Record<string, unknown>) || {}) };

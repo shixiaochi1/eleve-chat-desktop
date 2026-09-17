@@ -55,7 +55,7 @@ const TIMEZONE_OPTIONS: { value: string; label: string }[] = [
   { value: 'Pacific/Auckland', label: '(UTC+12) 奥克兰 · 惠灵顿' },
 ];
 
-export default function ChatSettings({ onSaved }: { onSaved?: () => void }) {
+export default function ChatSettings() {
   const toolViewMode = useToolViewMode();
   const [config, setConfig] = useState({
     personality: '',

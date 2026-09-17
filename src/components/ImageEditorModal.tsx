@@ -363,7 +363,7 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
         c.strokeRect(x, y, w, h)
       }
     }
-    const handleUp = (e: PointerEvent) => {
+    const handleUp = () => {
       if (!drawingRef.current) return
       const canvas = maskCanvasRef.current
       const c = ctx()
@@ -489,7 +489,7 @@ export function ImageEditorModal({ src, name, onConfirm, onCancel }: ImageEditor
 
   // 🔴 2026-08-31：tEXt 标记嵌入抽到 lib/pngAnnotated.ts（与 attach 缩放兜底共用）
 
-  const btn = (t: ToolMode, label: string, title: string, active: boolean, onClick: () => void) => (
+  const btn = (_t: ToolMode, label: string, title: string, active: boolean, onClick: () => void) => (
     <button
       onClick={onClick}
       title={title}

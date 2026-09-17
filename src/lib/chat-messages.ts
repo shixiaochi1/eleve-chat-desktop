@@ -318,7 +318,7 @@ function toolArgs(
 
 function toolResult(
   payload: GatewayEventPayload | undefined,
-  prevResult?: unknown,
+  _prevResult?: unknown,
   _prevArgs?: unknown,
 ): Record<string, unknown> {
   const parsedResult = parseMaybeJsonObject(payload?.result)

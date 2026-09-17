@@ -837,7 +837,7 @@ export default function ModelSettings({
           ) : !imageGen || !imageGen.has_models ? (
             <p className="text-xs text-muted-foreground/60">该工具集暂无可用模型目录。</p>
           ) : (
-            ['图片', '视频', '音乐'].map((cat, catIdx) => {
+            ['图片', '视频', '音乐'].map((cat) => {
               const catModels = (imageGen.models as ToolsetModelEntry[]).filter((m) => m.category === cat);
               if (catModels.length === 0) return null;
               const groups = Array.from(new Set(catModels.map((m) => m.group || ''))).filter(Boolean);

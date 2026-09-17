@@ -774,7 +774,7 @@ export function useGridChat(
             // 🔴 释放发送锁（后端 reset 会中断当前流，message.complete 可能不到达）
             sendingRef.current[profile] = false;
             if (newSid) {
-              patch(profile, (s) => ({
+              patch(profile, () => ({
                 ...emptyState(),
                 sessionId: newSid,
                 lastActivity: Date.now(),
@@ -830,7 +830,6 @@ export function useGridChat(
         case 'delegate.progress': {
           const dpEventType = payload.event_type as string | undefined;
           const dpSummary = (payload.progress_summary as string) || (payload.summary as string) || '';
-          const dpGoal = payload.goal as string | undefined;
           const dpTool = payload.tool_name as string | undefined;
           // 🔴 2026-08-16 流程审查修复（R2）：subagent.complete 不再生成系统气泡——
           // 同一委托完成时后端同时发 delegate.end（delegate.rs:461）与

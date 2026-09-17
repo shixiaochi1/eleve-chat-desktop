@@ -146,7 +146,7 @@ function StatusDot({ status, size = 8 }: { status: string; size?: number }) {
 }
 
 // ── 添加依赖表单 ──
-function AddLinkForm({ taskId, direction, onSubmit }: { taskId: string; direction: 'parent' | 'child'; onSubmit: (id: string) => Promise<void> }) {
+function AddLinkForm({ direction, onSubmit }: { direction: 'parent' | 'child'; onSubmit: (id: string) => Promise<void> }) {
   const [otherId, setOtherId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const label = direction === 'parent' ? '添加上游' : '添加下游';
@@ -1034,8 +1034,8 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
                 </div>
                 {/* 添加依赖 */}
                 <div className="border-t border-[var(--ui-stroke-tertiary)] pt-2.5">
-                  <AddLinkForm taskId={task.id} direction="parent" onSubmit={async (otherId: string) => { await createKanbanLink(otherId, task.id, board); onRefresh(); }} />
-                  <AddLinkForm taskId={task.id} direction="child" onSubmit={async (otherId: string) => { await createKanbanLink(task.id, otherId, board); onRefresh(); }} />
+                  <AddLinkForm direction="parent" onSubmit={async (otherId: string) => { await createKanbanLink(otherId, task.id, board); onRefresh(); }} />
+                  <AddLinkForm direction="child" onSubmit={async (otherId: string) => { await createKanbanLink(task.id, otherId, board); onRefresh(); }} />
                 </div>
               </div>
             )}

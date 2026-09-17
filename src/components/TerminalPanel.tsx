@@ -86,12 +86,11 @@ async function getSerializeAddon(term: object): Promise<{ serialize: (opts?: { s
 }
 
 interface TerminalPanelProps {
-  sessionId?: string;
   /** 当前会话工作目录 — 新建终端 tab 的初始 cwd（对齐 Hermes createTerminal($currentCwd)） */
   cwd?: string;
 }
 
-export default function TerminalPanel({ sessionId, cwd }: TerminalPanelProps) {
+export default function TerminalPanel({ cwd }: TerminalPanelProps) {
   const tabs = useSyncExternalStore(subscribeTerminals, getTerminalsSnapshot);
   const activeId = useSyncExternalStore(subscribeTerminals, getActiveTerminalIdSnapshot);
 

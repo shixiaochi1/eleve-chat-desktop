@@ -687,7 +687,7 @@ export function useSSE(
     // 🔴 阶段2 地基：payload 归一化收敛到 lib/ws-event-router（与宫格同一份）
     const norm = normalizeWsEvent(data);
     if (!norm) return;
-    const { raw, chunk } = norm;
+    const { chunk } = norm;
 
     // 🔴 2026-08-17 阶段4（per-session 并发轮配套）：交互类事件**先于**会话
     // 过滤——并发轮架构下后台会话的轮可能发起审批/澄清/凭据请求，被过滤

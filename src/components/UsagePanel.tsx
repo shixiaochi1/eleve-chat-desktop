@@ -432,8 +432,6 @@ export default function UsagePanel({
                 </tr>
               ) : (
                 filteredTree.map((row) => {
-                  const isParent = row.kind === 'main';
-                  const hasChildren = isParent && row.children.length > 0;
                   const isOpen = expanded.has(row.sessionId);
                   return (
                     <SessionRowGroup

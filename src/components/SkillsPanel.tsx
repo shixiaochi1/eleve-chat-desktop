@@ -166,7 +166,7 @@ export default function SkillsPanel({ currentProfile }: { currentProfile?: strin
     setSearching(false);
   }, [query]);
 
-  const doInstall = useCallback(async (identifier: string, name: string) => {
+  const doInstall = useCallback(async (identifier: string) => {
     setInstalling((prev) => ({ ...prev, [identifier]: true }));
     setInstallMsg((prev) => ({ ...prev, [identifier]: '' }));
     try {
@@ -345,7 +345,7 @@ export default function SkillsPanel({ currentProfile }: { currentProfile?: strin
                       installing={installing}
                       installMsg={installMsg}
                       installed={isInstalled(r)}
-                      onInstall={(id) => void doInstall(id, r.name || '')}
+                      onInstall={(id) => void doInstall(id)}
                     />
                   ))}
                 </div>
@@ -366,7 +366,7 @@ export default function SkillsPanel({ currentProfile }: { currentProfile?: strin
                       installing={installing}
                       installMsg={installMsg}
                       installed={isInstalled(r)}
-                      onInstall={(id) => void doInstall(id, r.name || '')}
+                      onInstall={(id) => void doInstall(id)}
                     />
                   ))}
                 </div>

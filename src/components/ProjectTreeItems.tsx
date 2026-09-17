@@ -563,7 +563,7 @@ function projectMenuSpecs(project: ProjectNode, h: {
   ];
 }
 
-export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowActivate, onDrill, onActivate, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop, sessionActions, isDragging, isDragOver, onRowDragStart, onRowDragOver, onRowDrop, onRowDragEnd }: {
+export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowActivate, onDrill, onActivate, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop, sessionActions, isDragging, isDragOver }: {
   project: ProjectNode;
   sessionId?: string;
   onSwitchSession?: (id: string) => void;
@@ -584,10 +584,6 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
   // ── 拖拽排序（对齐 Hermes reorderable overview-row）──
   isDragging?: boolean;
   isDragOver?: boolean;
-  onRowDragStart?: (id: string) => void;
-  onRowDragOver?: (id: string) => void;
-  onRowDrop?: (id: string) => void;
-  onRowDragEnd?: () => void;
   /** 🔴 2026-08-13 问题2：会话行点击 → 所属项目域激活 */
   onSessionRowActivate?: (project: ProjectNode) => void;
 }) {

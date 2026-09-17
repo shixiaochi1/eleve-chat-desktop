@@ -279,7 +279,6 @@ export const AgentChatCard = memo(function AgentChatCard({
     attachPaths,
     removeFile: removeFileAttachment,
     clearFiles: clearFileAttachments,
-    clearError: clearFileError,
   } = useFileAttachments({ getSessionId: () => stateRef.current.sessionId });
 
   // ── 消息虚拟化（对齐单视图 MessageContainer natural-flow 模式）──
@@ -727,7 +726,6 @@ export const AgentChatCard = memo(function AgentChatCard({
         fileAttaching={fileAttaching}
         fileError={fileError}
         onRemoveFile={removeFileAttachment}
-        onClearFileError={clearFileError}
         queueEditingId={queueEdit?.entryIndex ?? null}
         onQueueStep={(dir) => stepQueueEdit(dir, composerRef.current?.getValue() ?? '')}
         onQueueExit={(action) => exitQueueEdit(action, composerRef.current?.getValue() ?? '')}

@@ -830,7 +830,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       case 'memory':
         return <MemorySettings onSaved={() => {}} currentProfile={currentProfile} />;
       case 'chat':
-        return <ChatSettings onSaved={() => {}} />;
+        return <ChatSettings />;
       case 'safety':
         return <SafetySettings onSaved={() => {}} />;
       case 'voice':

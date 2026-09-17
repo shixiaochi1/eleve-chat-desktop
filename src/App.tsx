@@ -2139,7 +2139,7 @@ export default function App() {
                 {/* fallback=null：外层容器已具备真实尺寸（terminalMounted 门控保证），
                     xterm open 依赖非零尺寸；lazy chunk 本地加载极快，无需占位符 */}
                 <Suspense fallback={null}>
-                  <TerminalPanel cwd={sessionCwd} sessionId={sess.sessionId ?? undefined} />
+                  <TerminalPanel cwd={sessionCwd} />
                 </Suspense>
               </div>
             )}
