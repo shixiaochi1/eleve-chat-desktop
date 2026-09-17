@@ -1,0 +1,181 @@
+分类	来源	文件	行号	错误码	符号	源码片段
+I-import成员	local	src/App.tsx	32	TS6133	isDesktop	import { call, isDesktop, discoverPort, getHttpBase } from './utils/bridge';
+I-import成员	local	src/App.tsx	32	TS6133	getHttpBase	import { call, isDesktop, discoverPort, getHttpBase } from './utils/bridge';
+I-import成员	local	src/App.tsx	38	TS6133	notifyInfo	import { notifyError, notifyInfo } from './utils/notifications';
+I-import成员	local	src/App.tsx	66	TS6133	PaneCollapseBtn	import PaneShell, { Pane, PaneMain, PaneCollapseBtn } from './components/PaneShell';
+X-需人工:depsReady,	local	src/App.tsx	285	TS6133	depsReady	depsReady,
+V-局部变量	local	src/App.tsx	509	TS6133	handleOpenModelPicker	const handleOpenModelPicker = useCallback(() => setShowModelPicker(true), []);
+V-局部变量	local	src/App.tsx	1303	TS6133	wasBusy	const wasBusy = isSendingRef.current;
+P-参数	param	src/components/AgentCardComposer.tsx	91	TS6133	onClearFileError	onClearFileError,
+I-import成员	local	src/components/AgentChatCard.tsx	44	TS6133	applyQueueEditToBubbles	import { applyQueueEditToBubbles, applyQueueRemoveToBubbles, type QueueBubbleSyncOp } from '@/lib/queue-bubble
+I-import成员	local	src/components/AgentChatCard.tsx	44	TS6133	applyQueueRemoveToBubbles	import { applyQueueEditToBubbles, applyQueueRemoveToBubbles, type QueueBubbleSyncOp } from '@/lib/queue-bubble
+V-局部变量	local	src/components/AgentChatCard.tsx	331	TS6133	wasBusy	const wasBusy = state.status === 'streaming';
+I-import成员	local	src/components/ArtifactPanel.tsx	11	TS6133	openArtifact	openArtifact,
+V-局部变量	local	src/components/ArtifactPanel.tsx	42	TS6133	KIND_LABEL	const KIND_LABEL = {
+F-局部函数	local	src/components/ArtifactPanel.tsx	411	TS6133	ArtifactListItem	function ArtifactListItem({
+P-参数	param	src/components/ArtifactsGallery.tsx	105	TS6133	onQueryChange	artifacts, query, onQueryChange, refreshing, onRefresh, onSwitchSession,
+I-import成员	local	src/components/ChannelsPanel.tsx	17	TS6133	Circle	Circle,
+I-import成员	local	src/components/CommandCenter.tsx	13	TS6133	Navigation	Navigation,
+I-import成员	local	src/components/CommandCenter.tsx	19	TS6133	FileText	FileText,
+I-import成员	local	src/components/CommandMenu.tsx	2	TS6133	cn	import { cn } from '@/lib/utils';
+I-import成员	local	src/components/ContextBar.tsx	1	TS6133	useCallback	import { memo, useEffect, useRef, useCallback } from 'react';
+I-import成员	local	src/components/ContextBar.tsx	3	TS6133	cn	import { cn } from '@/lib/utils';
+I-import成员	local	src/components/CronPanel.tsx	13	TS6133	MessageSquareText	import { CalendarClock, MessageSquareText, SearchIcon, SendIcon, RefreshCwIcon } from 'lucide-react';
+I-import成员	local	src/components/EditAgentDialog.tsx	12	TS6133	Trash2	import { Loader, Palette, Save, Sparkles, X, BookOpen, User, Camera, Trash2 } from 'lucide-react';
+I-import成员	local	src/components/EditAgentDialog.tsx	15	TS6133	notifySuccess	import { notifySuccess, notifyError } from '../utils/notifications';
+I-import成员	local	src/components/EditAgentDialog.tsx	17	TS6133	getAgentAvatarDef	import { AGENT_AVATARS, AgentAvatarSvg, getAgentAvatarDef } from '../lib/agent-avatars';
+X-需人工:loadingDirs,	local	src/components/FileBrowserPanel.tsx	368	TS6133	loadingDirs	loadingDirs,
+I-import成员	local	src/components/GatewayPanel.tsx	10	TS6133	Wifi	Wifi, WifiOff, TestTube, Save, Logs, AlertTriangle,
+I-import成员	local	src/components/GatewayPanel.tsx	10	TS6133	WifiOff	Wifi, WifiOff, TestTube, Save, Logs, AlertTriangle,
+D-解构	local	src/components/GatewayPanel.tsx	76	TS6133	config	const [config, setConfig] = useState<any>(null);
+P-参数	param	src/components/GatewayPanel.tsx	219	TS6133	name	const platformLabel = (name: string, state: unknown): string => {
+I-import成员	local	src/components/HoistedTodoPanel.tsx	1	TS6133	useMemo	import { useMemo } from 'react';
+I-import成员	local	src/components/IconBar.tsx	7	TS6133	ChatIcon	ChatIcon, CronIcon,
+V-局部变量	local	src/components/Icons.tsx	72	TS6133	ICON_SIZE_XL	const ICON_SIZE_XL = 28;
+P-参数	param	src/components/ImageEditorModal.tsx	366	TS6133	e	const handleUp = (e: PointerEvent) => {
+P-参数	param	src/components/ImageEditorModal.tsx	492	TS6133	t	const btn = (t: ToolMode, label: string, title: string, active: boolean, onClick: () => void) => (
+I-import成员	local	src/components/KanbanPanel.tsx	16	TS6133	React	import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+I-import成员	local	src/components/KanbanPanel.tsx	16	TS6133	useRef	import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+I-import成员	local	src/components/KanbanPanel.tsx	22	TS6133	Play	Play,
+I-import成员	local	src/components/KanbanPanel.tsx	23	TS6133	Ban	Ban,
+I-import成员	local	src/components/KanbanPanel.tsx	26	TS6133	ArrowLeftFromLine	ArrowLeftFromLine,
+I-import成员	local	src/components/KanbanPanel.tsx	27	TS6133	CheckCircle2	CheckCircle2,
+I-import成员	local	src/components/KanbanPanel.tsx	30	TS6133	Send	Send,
+I-import成员	local	src/components/KanbanPanel.tsx	31	TS6133	Paperclip	Paperclip,
+I-import成员	local	src/components/KanbanPanel.tsx	33	TS6133	Save	Save,
+I-import成员	local	src/components/KanbanPanel.tsx	35	TS6133	GitBranch	GitBranch,
+I-import成员	local	src/components/KanbanPanel.tsx	36	TS6133	Wrench	Wrench,
+I-import成员	local	src/components/KanbanPanel.tsx	38	TS6133	Radio	Radio,
+I-import成员	local	src/components/KanbanPanel.tsx	39	TS6133	Bell	Bell,
+I-import成员	local	src/components/KanbanPanel.tsx	40	TS6133	BellOff	BellOff,
+I-import成员	local	src/components/KanbanPanel.tsx	41	TS6133	FileText	FileText,
+I-import成员	local	src/components/KanbanPanel.tsx	44	TS6133	Download	Download,
+I-import成员	local	src/components/KanbanPanel.tsx	45	TS6133	Users	Users,
+I-import成员	local	src/components/KanbanPanel.tsx	49	TS6133	Clock	Clock,
+I-import成员	local	src/components/KanbanPanel.tsx	50	TS6133	Eye	Eye,
+I-整条import	local	src/components/KanbanPanel.tsx	53	TS6192		import { readFileAsDataURL, base64FromDataURL } from '@/utils/file';
+I-import成员	local	src/components/KanbanPanel.tsx	54	TS6133	getWsActiveProfile	import { getWsActiveProfile } from '@/services/ws-client';
+I-import成员	local	src/components/KanbanPanel.tsx	57	TS6133	getKanbanBoard	getKanbanBoard,
+I-import成员	local	src/components/KanbanPanel.tsx	58	TS6133	getKanbanTask	getKanbanTask,
+I-import成员	local	src/components/KanbanPanel.tsx	59	TS6133	createKanbanTask	createKanbanTask,
+I-import成员	local	src/components/KanbanPanel.tsx	60	TS6133	updateKanbanTask	updateKanbanTask,
+I-import成员	local	src/components/KanbanPanel.tsx	61	TS6133	deleteKanbanTask	deleteKanbanTask,
+I-import成员	local	src/components/KanbanPanel.tsx	62	TS6133	reclaimKanbanTask	reclaimKanbanTask,
+I-import成员	local	src/components/KanbanPanel.tsx	63	TS6133	addKanbanComment	addKanbanComment,
+I-import成员	local	src/components/KanbanPanel.tsx	64	TS6133	getKanbanAttachments	getKanbanAttachments,
+I-import成员	local	src/components/KanbanPanel.tsx	65	TS6133	uploadKanbanAttachment	uploadKanbanAttachment,
+I-import成员	local	src/components/KanbanPanel.tsx	66	TS6133	deleteKanbanAttachment	deleteKanbanAttachment,
+I-import成员	local	src/components/KanbanPanel.tsx	67	TS6133	getKanbanRun	getKanbanRun,
+I-import成员	local	src/components/KanbanPanel.tsx	68	TS6133	bulkUpdateKanbanTasks	bulkUpdateKanbanTasks,
+I-import成员	local	src/components/KanbanPanel.tsx	69	TS6133	pollKanbanEvents	pollKanbanEvents,
+I-import成员	local	src/components/KanbanPanel.tsx	70	TS6133	getApiBase	getApiBase,
+I-import成员	local	src/components/KanbanPanel.tsx	72	TS6133	getKanbanBoards	getKanbanBoards,
+I-import成员	local	src/components/KanbanPanel.tsx	73	TS6133	deleteKanbanBoard	deleteKanbanBoard,
+I-import成员	local	src/components/KanbanPanel.tsx	74	TS6133	updateKanbanBoard	updateKanbanBoard,
+I-import成员	local	src/components/KanbanPanel.tsx	75	TS6133	getKanbanStats	getKanbanStats,
+I-import成员	local	src/components/KanbanPanel.tsx	76	TS6133	getKanbanAssignees	getKanbanAssignees,
+I-import成员	local	src/components/KanbanPanel.tsx	77	TS6133	createKanbanLink	createKanbanLink,
+I-import成员	local	src/components/KanbanPanel.tsx	78	TS6133	deleteKanbanLink	deleteKanbanLink,
+I-import成员	local	src/components/KanbanPanel.tsx	79	TS6133	reassignKanbanTask	reassignKanbanTask,
+I-import成员	local	src/components/KanbanPanel.tsx	80	TS6133	switchKanbanBoard	switchKanbanBoard,
+I-import成员	local	src/components/KanbanPanel.tsx	81	TS6133	decomposeKanbanTask	decomposeKanbanTask,
+I-import成员	local	src/components/KanbanPanel.tsx	82	TS6133	specifyKanbanTask	specifyKanbanTask,
+I-import成员	local	src/components/KanbanPanel.tsx	83	TS6133	getKanbanDiagnostics	getKanbanDiagnostics,
+I-import成员	local	src/components/KanbanPanel.tsx	84	TS6133	getKanbanActiveWorkers	getKanbanActiveWorkers,
+I-import成员	local	src/components/KanbanPanel.tsx	85	TS6133	terminateKanbanRun	terminateKanbanRun,
+I-import成员	local	src/components/KanbanPanel.tsx	86	TS6133	getKanbanHomeChannels	getKanbanHomeChannels,
+I-import成员	local	src/components/KanbanPanel.tsx	87	TS6133	subscribeKanbanHome	subscribeKanbanHome,
+I-import成员	local	src/components/KanbanPanel.tsx	88	TS6133	unsubscribeKanbanHome	unsubscribeKanbanHome,
+I-import成员	local	src/components/KanbanPanel.tsx	89	TS6133	getKanbanConfig	getKanbanConfig,
+I-import成员	local	src/components/KanbanPanel.tsx	90	TS6133	getKanbanOrchestration	getKanbanOrchestration,
+I-import成员	local	src/components/KanbanPanel.tsx	101	TS6133	COLUMN_STATUS	import { COLUMNS, COLUMN_STATUS, LOCKED_DROP_COLUMNS, updateStaleConfig } from './kanban/constants';
+I-import成员	local	src/components/KanbanPanel.tsx	101	TS6133	updateStaleConfig	import { COLUMNS, COLUMN_STATUS, LOCKED_DROP_COLUMNS, updateStaleConfig } from './kanban/constants';
+I-整条import	local	src/components/KanbanPanel.tsx	102	TS6192		import { taskColumn, normalizeBoardData } from './kanban/helpers';
+I-import成员	local	src/components/KanbanPanel.tsx	110	TS6133	useKanbanSSE	import { useKanbanSSE } from './kanban/useKanbanSSE';
+X-需人工:apiTasks,	local	src/components/KanbanPanel.tsx	207	TS6133	apiTasks	apiTasks,
+X-需人工:setApiTasks,	local	src/components/KanbanPanel.tsx	208	TS6133	setApiTasks	setApiTasks,
+X-需人工:setLoading,	local	src/components/KanbanPanel.tsx	210	TS6133	setLoading	setLoading,
+X-需人工:setError,	local	src/components/KanbanPanel.tsx	212	TS6133	setError	setError,
+X-需人工:setLoadingId,	local	src/components/KanbanPanel.tsx	214	TS6133	setLoadingId	setLoadingId,
+X-需人工:setCurrentBoard,	local	src/components/KanbanPanel.tsx	257	TS6133	setCurrentBoard	setCurrentBoard,
+X-需人工:setBoards,	local	src/components/KanbanPanel.tsx	259	TS6133	setBoards	setBoards,
+X-需人工:setDiagnostics,	local	src/components/KanbanPanel.tsx	263	TS6133	setDiagnostics	setDiagnostics,
+X-需人工:setActiveWorkers,	local	src/components/KanbanPanel.tsx	265	TS6133	setActiveWorkers	setActiveWorkers,
+X-需人工:setHomeChannels,	local	src/components/KanbanPanel.tsx	267	TS6133	setHomeChannels	setHomeChannels,
+X-需人工:setCreatingBoard,	local	src/components/KanbanPanel.tsx	287	TS6133	setCreatingBoard	setCreatingBoard,
+X-需人工:setSavingBoard,	local	src/components/KanbanPanel.tsx	304	TS6133	setSavingBoard	setSavingBoard,
+X-需人工:setBoardStats,	local	src/components/KanbanPanel.tsx	308	TS6133	setBoardStats	setBoardStats,
+X-需人工:setAssigneeList,	local	src/components/KanbanPanel.tsx	312	TS6133	setAssigneeList	setAssigneeList,
+X-需人工:setReassigning,	local	src/components/KanbanPanel.tsx	330	TS6133	setReassigning	setReassigning,
+X-需人工:setJustCreatedIds,	local	src/components/KanbanPanel.tsx	332	TS6133	setJustCreatedIds	setJustCreatedIds,
+D-解构	local	src/components/MessageBubble.tsx	181	TS6133	zoomedName	const [zoomedName, setZoomedName] = useState<string | undefined>(undefined);
+I-import成员	local	src/components/MessageContainer.tsx	9	TS6133	VirtualItem	import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual'
+V-局部变量	local	src/components/PaneShell.tsx	444	TS6133	onToggle	const onToggle = side === 'left' ? onLeftToggle : onRightToggle;
+I-import成员	local	src/components/PasswordDialog.tsx	2	TS6133	cn	import { cn } from '@/lib/utils';
+V-局部变量	local	src/components/ProcessPanel.tsx	75	TS6133	exited	const exited = processes.filter(p => p.status === 'exited');
+I-import成员	local	src/components/ProjectDialogs.tsx	8	TS6133	Home	import { Home, RefreshCw, FolderGit } from 'lucide-react';
+P-参数	param	src/components/ProjectTreeItems.tsx	566	TS6133	onRowDragStart	export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowActiva
+P-参数	param	src/components/ProjectTreeItems.tsx	566	TS6133	onRowDragOver	export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowActiva
+P-参数	param	src/components/ProjectTreeItems.tsx	566	TS6133	onRowDrop	export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowActiva
+P-参数	param	src/components/ProjectTreeItems.tsx	566	TS6133	onRowDragEnd	export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowActiva
+I-import成员	local	src/components/ProjectTreePanel.tsx	15	TS6133	Home	import { Home, Plus, RefreshCw, FolderGit, ChevronRight } from 'lucide-react';
+I-import成员	local	src/components/ProjectTreePanel.tsx	35	TS6133	writeProjectIdea	loadPinnedIds, savePinnedIds, writeProjectIdea, RepoNodeItem, ProjectItem,
+I-import成员	local	src/components/ProjectTreePanel.tsx	36	TS6133	RepoNode	type SessionPreview, type LaneGroup, type RepoNode, type ProjectNode, type TreeResult,
+P-参数	param	src/components/ReasoningBlock.tsx	186	TS6133	e	onClick={(e) => {
+I-import成员	local	src/components/SessionsPanel.tsx	36	TS6133	DeleteIcon	import { DeleteIcon } from './Icons';
+P-参数	param	src/components/SessionsPanel.tsx	217	TS6133	isStreaming	isStreaming,
+I-import成员	local	src/components/SettingsPanel.tsx	4	TS6196	PoolProvider	import type { ProviderEntry, ProviderModel, AuxTaskEntry, PoolProvider } from '../utils/settings-store';
+D-解构	local	src/components/SettingsPanel.tsx	124	TS6133	gatewayOnline	const [gatewayOnline, setGatewayOnline] = useState(false);
+P-参数	param	src/components/SettingsPanel.tsx	326	TS6133	providerId	const requestUnlock = (providerId: string) => {
+V-局部变量	local	src/components/SettingsPanel.tsx	476	TS6133	newDelProvider	const newDelProvider = delProvider === providerId ? '' : delProvider;
+V-局部变量	local	src/components/SettingsPanel.tsx	477	TS6133	newDelModel	const newDelModel = delProvider === providerId ? '' : delModel;
+I-import成员	local	src/components/SidePanel.tsx	6	TS6133	cn	import { cn } from '@/lib/utils';
+I-import成员	local	src/components/SidePanel.tsx	25	TS6133	BotIcon	import { Radio, Activity, GitCommit, BookOpen, Bot as BotIcon } from 'lucide-react';
+P-参数	param	src/components/SkillsPanel.tsx	169	TS6133	name	const doInstall = useCallback(async (identifier: string, name: string) => {
+P-参数	param	src/components/StatusBar.tsx	25	TS6133	onOpenSettings	onOpenSettings,
+I-import成员	local	src/components/TerminalPanel.tsx	15	TS6133	useMemo	import { useEffect, useRef, useCallback, useState, useMemo, useSyncExternalStore } from 'react';
+P-参数	param	src/components/TerminalPanel.tsx	94	TS6133	sessionId	export default function TerminalPanel({ sessionId, cwd }: TerminalPanelProps) {
+V-局部变量	local	src/components/UsagePanel.tsx	436	TS6133	hasChildren	const hasChildren = isParent && row.children.length > 0;
+D-解构	local	src/components/kanban/KanbanColumn.tsx	30	TS6133	hovered	const [hovered, setHovered] = useState(false);
+I-import成员	local	src/components/kanban/TaskDrawer.tsx	23	TS6133	isBlocked	import { isBlocked, isDone, fmtAge, fmtDuration } from './helpers';
+I-import成员	local	src/components/kanban/TaskDrawer.tsx	23	TS6133	isDone	import { isBlocked, isDone, fmtAge, fmtDuration } from './helpers';
+P-参数	param	src/components/kanban/TaskDrawer.tsx	149	TS6133	taskId	function AddLinkForm({ taskId, direction, onSubmit }: { taskId: string; direction: 'parent' | 'child'; onSubmi
+V-局部变量	local	src/components/kanban/TaskDrawer.tsx	497	TS6133	handleSaveAssignee	const handleSaveAssignee = async () => {
+I-import成员	local	src/components/kanban/useKanban.ts	11	TS6133	getKanbanTask	getKanbanTask,
+I-import成员	local	src/components/kanban/useKanban.ts	16	TS6133	addKanbanComment	addKanbanComment,
+I-import成员	local	src/components/kanban/useKanban.ts	17	TS6133	getKanbanAttachments	getKanbanAttachments,
+I-import成员	local	src/components/kanban/useKanban.ts	18	TS6133	uploadKanbanAttachment	uploadKanbanAttachment,
+I-import成员	local	src/components/kanban/useKanban.ts	19	TS6133	deleteKanbanAttachment	deleteKanbanAttachment,
+I-import成员	local	src/components/kanban/useKanban.ts	20	TS6133	getKanbanRun	getKanbanRun,
+I-import成员	local	src/components/kanban/useKanban.ts	22	TS6133	pollKanbanEvents	pollKanbanEvents,
+I-import成员	local	src/components/kanban/useKanban.ts	23	TS6133	getApiBase	getApiBase,
+I-import成员	local	src/components/kanban/useKanban.ts	34	TS6133	createKanbanLink	createKanbanLink,
+I-import成员	local	src/components/kanban/useKanban.ts	35	TS6133	deleteKanbanLink	deleteKanbanLink,
+I-import成员	local	src/components/kanban/useKanban.ts	48	TS6133	setKanbanOrchestration	setKanbanOrchestration,
+I-import成员	local	src/components/preview/PreviewConsolePanel.tsx	24	TS6133	isNearConsoleBottom	isNearConsoleBottom,
+P-参数	param	src/components/settings/ChatSettings.tsx	58	TS6133	onSaved	export default function ChatSettings({ onSaved }: { onSaved?: () => void }) {
+D-解构	local	src/components/settings/MediaProviderSection.tsx	83	TS6133	settingsLoaded	const [settingsLoaded, setSettingsLoaded] = useState(false);
+P-参数	param	src/components/settings/ModelSettings.tsx	840	TS6133	catIdx	['图片', '视频', '音乐'].map((cat, catIdx) => {
+P-参数	param	src/components/settings/SecuritySettings.tsx	12	TS6133	keyUnlocked	keyUnlocked,
+V-局部变量	local	src/hooks/useBootstrap.ts	119	TS6133	portPromise	const portPromise = discoverPort();
+I-import成员	local	src/hooks/useGridChat.ts	60	TS6133	getSessionStatus	import { getSessionStatus } from '@/store/session-status';
+P-参数	param	src/hooks/useGridChat.ts	778	TS6133	s	patch(profile, (s) => ({
+V-局部变量	local	src/hooks/useGridChat.ts	834	TS6133	dpGoal	const dpGoal = payload.goal as string | undefined;
+I-import成员	local	src/hooks/useMessageStream.ts	6	TS6133	storage	import * as storage from '../utils/storage';
+I-import成员	local	src/hooks/useMessageStream.ts	7	TS6133	profileFromSessionId	import { profileFromSessionId, persistSessionPointer } from '../utils/session';
+I-import成员	local	src/hooks/useMessageStream.ts	31	TS6133	Session	import type { Session } from '@/types';
+P-参数	param	src/hooks/useMessageStream.ts	701	TS6133	model	onDelegateEnd: ({ taskId, status, summary, model, tokensInput, tokensOutput, duration, sessionId }: { taskId: 
+I-import成员	local	src/hooks/usePromptActions.ts	4	TS6133	getMessages	import { setMessages as storeSetMessages, getMessages, getIsStreaming } from '../store/messages';
+V-局部变量	local	src/hooks/usePromptActions.ts	98	TS6133	compacting	const compacting = useSessionStatus(sess.sessionId ?? '').compacting;
+T-类型	local	src/hooks/useSSE.ts	180	TS6196	RunCompleteChunk	interface RunCompleteChunk {
+D-解构	local	src/hooks/useSSE.ts	701	TS6133	raw	const { raw, chunk } = norm;
+I-import成员	local	src/hooks/useSessions.ts	4	TS6133	call	import { call } from '../utils/bridge';
+I-import成员	local	src/hooks/useTerminal.ts	18	TS6133	setActiveTerminalId	import { registerTerminalReader, makeTerminalReader, setActiveTerminalId } from '@/store/terminal-buffer';
+P-参数	param	src/lib/chat-messages.ts	321	TS6133	prevResult	prevResult?: unknown,
+I-import成员	local	src/lib/preview-events.ts	21	TS6133	beginPreviewRestart	beginPreviewRestart,
+I-import成员	local	src/lib/sidebar-node-open.ts	8	TS6133	useState	import { useCallback, useState, useSyncExternalStore } from 'react';
+T-类型	local	src/services/ws-client.ts	29	TS6196	JsonRpcResponse	interface JsonRpcResponse {
+F-局部函数	local	src/themes/context.tsx	53	TS6133	isDarkColor	function isDarkColor(hex: string): boolean {
+P-参数	param	src/themes/derive.ts	177	TS6133	isDark	export function deriveTerminalTheme(colors: DerivedColors, isDark: boolean) {
+I-import成员	local	src/utils/api.ts	17	TS6133	discoverPort	import { call, discoverPort, setHttpBase, getHttpBase } from './bridge';
+I-import成员	local	src/utils/api.ts	17	TS6133	setHttpBase	import { call, discoverPort, setHttpBase, getHttpBase } from './bridge';
