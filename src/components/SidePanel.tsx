@@ -3,7 +3,6 @@
  * 根据 activePanel 渲染不同内容
  * 包含顶部标题 + 内容区
  */
-import { cn } from '@/lib/utils';
 import type { Session } from '@/types';
 import type { AgentEditTarget } from '../contrib/host';
 import AgentsPanel from './AgentsPanel';
@@ -22,7 +21,7 @@ import {
   DebugIcon, ToolIcon,
   UsageIcon, ChannelsIcon, AgentIcon, KanbanIcon,
 } from './Icons';
-import { Radio, Activity, GitCommit, BookOpen, Bot as BotIcon } from 'lucide-react';
+import { Radio, Activity, GitCommit, BookOpen } from 'lucide-react';
 import { useContributions } from '@/contrib/registry';
 import type { Contribution } from '@/contrib/registry';
 

@@ -4,10 +4,16 @@
  */
 import { cn } from '@/lib/utils';
 import {
-  ChatIcon, CronIcon,
-  DebugIcon, SettingsIcon, AboutIcon,
-  PaletteIcon, ToolIcon,
-  UsageIcon, ChannelsIcon, KanbanIcon, AgentIcon,
+  CronIcon,
+  DebugIcon,
+  SettingsIcon,
+  AboutIcon,
+  PaletteIcon,
+  ToolIcon,
+  UsageIcon,
+  ChannelsIcon,
+  KanbanIcon,
+  AgentIcon,
 } from './Icons';
 import { FolderGit, BookOpen } from 'lucide-react';
 // 🔴 2026-08-16（平台受限项 d1 P0-5 闭合）：看板在飞计数（对齐 Hermes

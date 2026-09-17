@@ -42,21 +42,6 @@ const FONT_SCALE_KEY = 'eleve-font-scale'
 
 import { emit } from '@tauri-apps/api/event';
 
-// ─── 工具函数 ───────────────────────────────────────────────────────────────
-
-function hexToRgb(hex: string): [number, number, number] | null {
-  const clean = hex.trim().replace(/^#/, '')
-  if (!/^[0-9a-f]{6}$/i.test(clean)) return null
-  return [0, 2, 4].map(i => parseInt(clean.slice(i, i + 2), 16)) as [number, number, number]
-}
-
-function isDarkColor(hex: string): boolean {
-  const rgb = hexToRgb(hex)
-  if (!rgb) return false
-  const [r, g, b] = rgb.map(v => v / 255)
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b <= 0.5
-}
-
 // ─── 持久化 ─────────────────────────────────────────────────────────────────
 
 function loadAccent(): string {

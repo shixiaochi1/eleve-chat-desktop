@@ -10,7 +10,7 @@
  * 不直接暴露裸 cron；发送到对齐 Hermes deliver（此桌面/Telegram/Discord/Slack/飞书/微信）。
  */
 import { useState, useEffect, useCallback } from 'react';
-import { CalendarClock, MessageSquareText, SearchIcon, SendIcon, RefreshCwIcon } from 'lucide-react';
+import { CalendarClock, SearchIcon, SendIcon, RefreshCwIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';
 import { getWsClient } from '../services/ws-client';

@@ -15,7 +15,7 @@
  */
 import { useEffect, useRef, useCallback, useMemo } from 'react';
 import type { CSSProperties } from 'react';
-import { registerTerminalReader, makeTerminalReader, setActiveTerminalId } from '@/store/terminal-buffer';
+import { registerTerminalReader, makeTerminalReader } from '@/store/terminal-buffer';
 import {
   terminalLinkHandler,
   terminalWebLinksAddon,

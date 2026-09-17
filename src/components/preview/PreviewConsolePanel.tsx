@@ -21,11 +21,10 @@ import { notifySuccess } from '@/utils/notifications'
 import { cn } from '@/lib/utils'
 import {
   DEFAULT_CONSOLE_HEIGHT,
-  isNearConsoleBottom,
   useConsoleStore,
   type ConsoleEntry,
   type PreviewConsoleState,
-} from '@/store/preview-console'
+} from '@/store/preview-console';
 
 const consoleLevelLabel: Record<number, string> = {
   0: 'log',

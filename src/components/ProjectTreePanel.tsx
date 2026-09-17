@@ -12,7 +12,7 @@
  *   projects.create/update/add_folder/set_primary/archive CRUD（对齐 Hermes 桌面端项目管理）。
  */
 import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
-import { Home, Plus, RefreshCw, FolderGit, ChevronRight } from 'lucide-react';
+import { Plus, RefreshCw, FolderGit, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isTauri } from '@tauri-apps/api/core';
 import { call } from '../utils/bridge';
@@ -32,9 +32,16 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from './ui/dialog';
 import {
-  loadPinnedIds, savePinnedIds, writeProjectIdea, RepoNodeItem, ProjectItem,
-  type SessionPreview, type LaneGroup, type RepoNode, type ProjectNode, type TreeResult,
-  type SessionRowActions, type ProjectTreePanelProps,
+  loadPinnedIds,
+  savePinnedIds,
+  RepoNodeItem,
+  ProjectItem,
+  type SessionPreview,
+  type LaneGroup,
+  type ProjectNode,
+  type TreeResult,
+  type SessionRowActions,
+  type ProjectTreePanelProps,
 } from './ProjectTreeItems';
 import { ProjectDialog, SessionRenameDialog } from './ProjectDialogs';
 

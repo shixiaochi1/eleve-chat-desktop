@@ -1,6 +1,5 @@
-import { memo, useEffect, useRef, useCallback } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { Plus } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import ModeSwitchButton from './ModeSwitchButton';
 import MoaToggleButton from './MoaToggleButton';
 import { useSessionContext } from '../hooks/useSessionContext';

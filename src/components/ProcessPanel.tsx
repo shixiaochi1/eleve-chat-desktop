@@ -72,7 +72,6 @@ export default function ProcessPanel({ sessionId }: ProcessPanelProps) {
   }, [refresh]);
 
   const running = processes.filter(p => p.status === 'running');
-  const exited = processes.filter(p => p.status === 'exited');
 
   return (
     <div className="flex flex-col h-full p-3 gap-2">

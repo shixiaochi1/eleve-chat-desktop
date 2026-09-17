@@ -177,17 +177,6 @@ export interface SSECallbacks {
 
 // ── Chunk types (from Rust StreamChunk / api_server) ──
 
-interface RunCompleteChunk {
-  session_id?: string
-  completed?: boolean
-  interrupted?: boolean
-  usage?: {
-    input_tokens: number
-    output_tokens: number
-    cache_read_tokens?: number
-    cache_write_tokens?: number
-  }
-}
 
 // ── 统一事件路由函数 ──
 // SSE 和 WS 共用，事件名已统一为 Eleve 标准

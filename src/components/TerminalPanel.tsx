@@ -12,7 +12,7 @@
  * 渲染策略：所有 tab 常驻挂载（非活跃 CSS hidden）— 切 tab 不销毁 xterm/PTY，
  * 激活时 re-fit（对齐 Hermes PersistentTerminal "shell 存活于隐藏" 语义）。
  */
-import { useEffect, useRef, useCallback, useState, useMemo, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useCallback, useState, useSyncExternalStore } from 'react';
 import type { CSSProperties } from 'react';
 import { Terminal as TerminalIcon, X, Plus } from 'lucide-react';
 import { dragHasPaths, collectDroppedPaths } from '@/lib/paths-dnd';

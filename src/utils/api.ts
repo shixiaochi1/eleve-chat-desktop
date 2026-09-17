@@ -14,7 +14,7 @@
  *   消灭命令字符串散落（此前 invoke/call 散落 14+ 文件的教训）
  * - 纯传输/无领域语义的调用（如 ping）可直接用 bridge.call
  */
-import { call, discoverPort, setHttpBase, getHttpBase } from './bridge';
+import { call, getHttpBase } from './bridge';
 import { requestForBot, type BotRoute } from '../services/connections';
 
 // ====== 会话 ======

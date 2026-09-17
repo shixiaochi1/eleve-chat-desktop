@@ -1,7 +1,7 @@
 import { useRef, useCallback, type MutableRefObject } from 'react';
 import * as storage from '../utils/storage';
 import { persistSessionPointer } from '../utils/session';
-import { setMessages as storeSetMessages, getMessages, getIsStreaming } from '../store/messages';
+import { setMessages as storeSetMessages, getIsStreaming } from '../store/messages';
 import { useSessionStatus } from '../store/session-status';
 import { setMonitor } from '../store/debug';
 import { textPart } from '@/lib/chat-messages'

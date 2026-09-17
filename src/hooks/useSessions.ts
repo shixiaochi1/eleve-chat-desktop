@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ChatMessage, Session } from '@/types';
 import * as api from '../utils/api';
-import { call } from '../utils/bridge';
 import * as storage from '../utils/storage';
 import { persistSessionPointer, clearSessionPointer, profileFromSessionId } from '../utils/session';
 import { toChatMessages, type SessionMessage } from '@/lib/chat-messages';

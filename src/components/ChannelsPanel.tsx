@@ -14,7 +14,6 @@ import {
   Plus,
   RefreshCw,
   Loader,
-  Circle,
 } from 'lucide-react';
 import { useChannels } from '../hooks/useChannels';
 

@@ -33,7 +33,6 @@ import {
   Archive, ArchiveRestore, Edit3, Copy, MoreHorizontal,
   List, Undo2, Minimize2, GitBranch, BarChart3, Search, X
 } from 'lucide-react';
-import { DeleteIcon } from './Icons';
 import OutlinePanel from './OutlinePanel';
 // 🔴 P2-8: 使用共享 Session 类型（= SessionInfo，单一来源 eleve.ts）
 

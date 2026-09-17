@@ -5,7 +5,7 @@
  *   从 ProjectTreePanel.tsx 纯移动抽取（diff 无逻辑变更）。
  */
 import { useState, useEffect, useCallback } from 'react';
-import { Home, RefreshCw, FolderGit } from 'lucide-react';
+import { RefreshCw, FolderGit } from 'lucide-react';
 import { isTauri } from '@tauri-apps/api/core';
 import { cn } from '@/lib/utils';
 import { call } from '../utils/bridge';

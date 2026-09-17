@@ -41,7 +41,7 @@ import { useFileAttachments } from '@/hooks/useFileAttachments';
 import { collectDroppedPaths, dragHasPaths } from '@/lib/paths-dnd';
 
 import { useBackendQueue, type QueueEntry } from '@/hooks/useBackendQueue';
-import { applyQueueEditToBubbles, applyQueueRemoveToBubbles, type QueueBubbleSyncOp } from '@/lib/queue-bubble-sync';
+import { type QueueBubbleSyncOp } from '@/lib/queue-bubble-sync';
 import type { AgentChatState } from '../hooks/useGridChat';
 
 // 消息虚拟化估算高度/过扫（宫格卡片窄小，估算低于单视图 MessageContainer 的 220）

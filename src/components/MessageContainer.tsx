@@ -6,7 +6,7 @@
  * Everything else is verbatim Eleve code.
  */
 
-import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual'
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, memo } from 'react'
 
 import { cn } from '@/lib/utils'

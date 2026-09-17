@@ -18,14 +18,13 @@ import { buildPreviewActJs } from '@/lib/preview-act-engine'
 import { getPreviewStoreState } from '@/store/preview'
 import { notifyWorkspaceChanged, toolMayMutateFiles, toolChangedPath } from '@/lib/workspace-events'
 import {
-  beginPreviewRestart,
   closeAllTabs,
   closePreviewMatching,
   completePreviewRestart,
   openPreview,
   progressPreviewRestart,
   requestPreviewReload,
-} from '@/store/preview'
+} from '@/store/preview';
 
 export interface PreviewEventsOptions {
   /** 当前聚焦会话 ID（preview.open 过滤：后台 turn 不劫持，对齐 Hermes $focusedRuntimeId） */

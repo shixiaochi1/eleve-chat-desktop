@@ -20,7 +20,7 @@ import {
 } from '@/utils/api';
 import { formatFileSize } from '@/utils/format';
 import type { KanbanTask, CommentRecord, AttachmentRecord, RunRecord, KanbanEvent } from './types';
-import { isBlocked, isDone, fmtAge, fmtDuration } from './helpers';
+import { fmtAge, fmtDuration } from './helpers';
 import { COLUMNS, LOCKED_DROP_COLUMNS } from './constants';
 import { ModelCatalogMenuField } from './ModelCatalogMenu';
 import { notify } from '../../utils/notifications';
@@ -493,10 +493,6 @@ export function TaskDrawer({ task, onClose, onAction, loadingId, onRefresh, home
     } catch (err) {
       console.error('[KanbanPanel] Save assignee failed:', err);
     }
-  };
-  const handleSaveAssignee = async () => {
-    setEditingAssignee(false);
-    await saveAssigneeTo(assigneeDraft);
   };
 
   // 保存模型覆盖三元组（对齐 Hermes ModelOverrideField：model/provider/effort；

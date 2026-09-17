@@ -57,7 +57,6 @@ import { writeAgentTerminalChunk } from '@/lib/agent-terminal-stream';
 import { burstVibeHearts } from '@/lib/vibe-hearts';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
 
-import { getSessionStatus } from '@/store/session-status';
 import type { ChatMessage } from '@/types';
 import { WINDOW_MAX, PAGE_SIZE, emptyState, gridMsgId, type AgentStatus, type AgentChatState } from './gridChatTypes';
 

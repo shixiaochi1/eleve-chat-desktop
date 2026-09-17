@@ -5,7 +5,7 @@
  * absent → 跟随调用方 defaultOpen。不存 XOR（Hermes 踩过坑：默认值翻转时
  * XOR 会反转用户意图——如空 worktree lane 默认折叠、有会话后默认展开）。
  */
-import { useCallback, useState, useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 const KEY = 'eleve.sidebarWorkspaceNodeOpen.v1';
 

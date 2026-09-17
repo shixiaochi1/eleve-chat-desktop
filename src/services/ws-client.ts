@@ -26,12 +26,6 @@ interface JsonRpcRequest {
   params?: Record<string, unknown>
 }
 
-interface JsonRpcResponse {
-  jsonrpc: '2.0'
-  id: number
-  result?: unknown
-  error?: { code: number; message: string; data?: unknown }
-}
 
 /** Phase 1: 统一 RPC 错误格式，对齐 HTTP 错误语义 */
 export class RpcError extends Error {

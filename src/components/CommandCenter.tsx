@@ -10,13 +10,11 @@ import {
   Search,
   MessageCircle,
   Terminal,
-  Navigation,
   Settings,
   Info,
   Hash,
   ArrowRight,
   Plus,
-  FileText,
 } from 'lucide-react';
 
 /**

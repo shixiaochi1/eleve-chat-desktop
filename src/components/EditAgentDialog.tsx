@@ -9,12 +9,12 @@
  *   - USER.md：用户对 Agent 的指示/用户档案（profiles.get_user / set_user）
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader, Palette, Save, Sparkles, X, BookOpen, User, Camera, Trash2 } from 'lucide-react';
+import { Loader, Palette, Save, Sparkles, X, BookOpen, User, Camera } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getProfileSoul, getProfileMemory, getProfileUser, setProfileColor, setDisplayName, setProfileSoul, setProfileMemory, setProfileUser, setProfileAvatar, getProfileAvatar, setProfileAvatarKey } from '../utils/api';
-import { notifySuccess, notifyError } from '../utils/notifications';
+import { notifyError } from '../utils/notifications';
 import { AGENT_PALETTE } from '../lib/agent-palette';
-import { AGENT_AVATARS, AgentAvatarSvg, getAgentAvatarDef } from '../lib/agent-avatars';
+import { AGENT_AVATARS, AgentAvatarSvg } from '../lib/agent-avatars';
 
 type EditTab = 'appearance' | 'soul' | 'memory' | 'user';
 

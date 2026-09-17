@@ -6,8 +6,18 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import LogsPanel from './LogsPanel';
 import {
-  RefreshCw, RotateCcw, PlugZap, Server, Cpu, Radio, Cloud, Users,
-  Wifi, WifiOff, TestTube, Save, Logs, AlertTriangle,
+  RefreshCw,
+  RotateCcw,
+  PlugZap,
+  Server,
+  Cpu,
+  Radio,
+  Cloud,
+  Users,
+  TestTube,
+  Save,
+  Logs,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {

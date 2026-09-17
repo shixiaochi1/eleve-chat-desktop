@@ -1,14 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Copy, Check, ExternalLink, Download, Eye, Loader2, Maximize2, Minimize2, RefreshCw, Search } from 'lucide-react';
-import { ContextFileIcon, WebWindowIcon, ImageIcon } from './Icons';
-import { cn } from '@/lib/utils';
 import { openPreview } from '@/store/preview';
 import { composeArtifactHtml } from '@/lib/artifact-render';
 import {
   useArtifacts,
   useOpenArtifact,
-  openArtifact,
   closeArtifact,
   selectArtifactVersion,
   findArtifactVersion,
@@ -32,18 +29,6 @@ import { collectArtifactsForSession, type GalleryArtifact } from '@/lib/artifact
 import { useRefreshHotkey } from '@/hooks/use-refresh-hotkey';
 import { call } from '@/utils/bridge';
 import DOMPurify from 'dompurify';
-
-const KIND_ICON = {
-  code: ContextFileIcon,
-  html: WebWindowIcon,
-  svg: ImageIcon,
-} as const;
-
-const KIND_LABEL = {
-  code: '代码',
-  html: 'HTML',
-  svg: 'SVG',
-} as const;
 
 /** 预览视图模式（对齐 Hermes ArtifactPreview：html/svg = rendered/source，code = 仅 source） */
 type ArtifactViewMode = 'rendered' | 'source';
@@ -408,36 +393,6 @@ const ArtifactPanel = memo(function ArtifactPanel({
 
 export default ArtifactPanel;
 
-function ArtifactListItem({
-  record,
-  active,
-  onSelect,
-}: {
-  record: ArtifactRecord;
-  active: boolean;
-  onSelect: () => void;
-}) {
-  const Icon = KIND_ICON[record.kind];
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={cn(
-        'flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-left transition-colors',
-        active
-          ? 'border-accent-cyan/50 bg-accent/10 text-foreground'
-          : 'border-[var(--ui-stroke-tertiary)] bg-card text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground',
-      )}
-      title={record.title}
-    >
-      <Icon size={13} className="shrink-0" />
-      <span className="max-w-[9rem] truncate text-xs font-medium">{record.title}</span>
-      {record.versions.length > 1 && (
-        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">v{record.versions.length}</span>
-      )}
-    </button>
-  );
-}
 
 /** 版本步进器（ArtifactPanel / ArtifactPreviewPane 共用，不重复造轮子） */
 export function VersionStepper({

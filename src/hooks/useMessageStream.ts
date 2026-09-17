@@ -3,8 +3,7 @@ import { useSSE, type SSECallbacks } from './useSSE';
 // 🔴 2026-09-01 收敛：SessionManagerHandle 单一权威源 = useSessions（ReturnType 推导），
 // 删除本文件原有的平行 interface 定义（已漂移：create 缺 cwd、缺 sessionReady）
 import type { SessionManagerHandle } from './useSessions';
-import * as storage from '../utils/storage';
-import { profileFromSessionId, persistSessionPointer } from '../utils/session';
+import { persistSessionPointer } from '../utils/session';
 import { handleGlobalEvent } from '@/lib/global-events';
 import { burstVibeHearts } from '@/lib/vibe-hearts';
 import { writeAgentTerminalChunk } from '@/lib/agent-terminal-stream';
@@ -28,7 +27,6 @@ import {
 import { extractPendingInteractions } from '@/lib/ws-event-processor';
 import { completionErrorText } from '@/lib/completion-error';
 import type { ChatMessage } from '@/types';
-import type { Session } from '@/types';
 
 // ── 调试侧边栏刷屏修复（2026-08-15）──────────────────────────────
 // 子 Agent 每个文本 delta 都是一条 delegate.progress WS 帧；调试面板按帧

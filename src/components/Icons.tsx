@@ -69,7 +69,6 @@ import {
 const ICON_SIZE_SM = 14;
 const ICON_SIZE_MD = 18;
 const ICON_SIZE_LG = 22;
-const ICON_SIZE_XL = 28;
 
 /** 通用 stroke 属性 — 统一细线条风格 */
 const strokeProps = {
