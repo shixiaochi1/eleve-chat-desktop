@@ -13,7 +13,7 @@
 | 维度 | 手段 | 规模 | tsc 能看到吗 |
 |---|---|---|---|
 | **A 符号级** | `tsc --noUnusedLocals --noUnusedParameters` | 180 条 | ✅ 能 |
-| **B 文件级** | 全仓零消费者扫描（自建） | **19 个文件 / ≈3935 行** | ❌ **完全看不到** |
+| **B 文件级** | 零消费者扫描 + **可达性分析**（自建） | **22 个文件 / ≈4889 行** | ❌ **完全看不到** |
 
 **核心结论：180 条告警里，不能直接删的至少有 6 条**——它们是「接了一半的线」或「从未接线的功能」，删掉就是真丢功能。另外发现 **2 个高危孤儿组件**（KanbanPanel 1190 行、SessionsPanel 763 行），它们已被替代但仍在被误维护。
 
@@ -194,19 +194,44 @@ const compacting = useSessionStatus(sess.sessionId ?? '').compacting;   ← 读�
 
 **不删**——1189 行的完整实现可能是「主看板」形态的保留版，删除前需能力对比，属功能决策。
 
-### 丁-2 `components/SessionsPanel.tsx`（763 行）⚠️
+### 丁-2 `components/SessionsPanel.tsx`（762 行）⚠️
 
-同款结构：零 import；职责已迁到 `ProjectTreePanel` / `ProjectTreeItems`（后者注释多处写「对齐 SessionsPanel」）；`SidePanel.tsx` 的 panels 表中**无 sessions 项**。
+**它是什么**：一个**完整的会话列表面板**（自述"Apple 风格会话列表"）——
+虚拟滚动（`@tanstack/react-virtual`）+ 搜索（`lib/session-search`）+ 右键菜单（重命名/置顶/归档/导出/复制 ID/删除）
++ 批量删除（应用内确认浮层）+ 会话操作（`undo / compress / branch / usage`）+ 未读标记（`markSessionRead`）
++ 状态点（`SessionStatusDot`）+ 分页；**且是双 Tab**：会话 / 大纲（`:710 <OutlinePanel embedded />`）。
 
-### 丁-3 `components/ui/*`（13 个文件 / 1959 行）—— 不算异常，但需知情
+**为什么是孤儿**：`88a0fcc refactor(sidebar): Agent+会话合并统一侧栏 — 上部 Agent 卡片(42% 上限)/下部当前 Agent 会话列表，**删独立会话按钮**`
+—— 那次把"独立会话面板"并入 Agent 面板 ⇒ **它失去入口**；此后 `App.tsx` / `SidePanel.tsx` 再无引用。
+⚠️ 但它**一直被人维护到最后**（`e597ff2` round-106、`7e00e94` round-95、`c880ced` round-42/43…）⇒ 又一起「给孤儿打补丁」。
 
-`alert / badge / card / checkbox / collapsible / disclosure-caret / fade-text / kbd / loader / scroll-area / select / sidebar / tabs`
+**职责被谁继承**：`ProjectTreePanel` / `ProjectTreeItems`（后者注释多处写「对齐 SessionsPanel」：
+撤销/压缩/分支/用量、pin 共用同一 localStorage、归档切换、右键菜单全功能）；`CommandCenter` 也对齐它的 `HIDDEN_SOURCES`。
 
-- 双证据零引用（入度扫描 0 + `grep -rl "ui/<c>'"` 0）
-- 性质：**shadcn 风格设计系统组件，从未被使用**（含 `sidebar.tsx` 736 行、`loader.tsx` 557 行）
+### 丁-4 级联孤儿 —— 零入度扫描的盲区（2026-09-17 补）
+
+**盲区**：原先的「零消费者扫描」只统计**直接入度**，看不到「引用者自身已不可达」的级联。
+补做**可达性分析**（从 `src/main.tsx` 出发 BFS，沿 import / re-export / 动态 import 建图）后，真孤儿 **19 → 22 个**，多抓出：
+
+| 文件 | 行数 | 上游（死因） |
+|---|---|---|
+| `components/kanban/KanbanColumn.tsx` | **461** | 唯一消费者是孤儿 `KanbanPanel`；**活的侧栏看板 `SidebarKanbanBoard` 自己渲染列，不用它** |
+| `components/OutlinePanel.tsx` | **341** | 唯一消费者是孤儿 `SessionsPanel`（`<OutlinePanel embedded />`） |
+| `lib/session-search.ts` | 58 | 唯一消费者是孤儿 `SessionsPanel` |
+| `ui/sheet.tsx` · `ui/separator.tsx` · `hooks/use-mobile.ts` | 140+32+4 | `ui/sidebar.tsx`（孤儿）的依赖链 |
+| `hooks/use-resize-observer.ts` | 32 | 同为组件库依赖链 |
+
+### 丁-3 `components/ui/*`（15 个文件 / ≈2041 行）—— 不算异常，但需知情
+
+`alert / badge / card / checkbox / collapsible / disclosure-caret / fade-text / kbd / loader / scroll-area / select / separator / sheet / sidebar / tabs`
+
+- shadcn 风格设计系统组件，**整体从未被使用**（含 `sidebar.tsx` 736 行、`loader.tsx` 557 行）
+- 其中 `separator` / `sheet` / `use-mobile` 属**级联**（被孤儿 `ui/sidebar` 拉进来）
 - 建议：**不删**。它们是通用 UI 库（无副作用、不影响功能），删除收益低、且可能是有意保留的设计系统基础。列为「知情项」。
 
-其余 3 个孤儿是类型声明文件，**正常**（`vite-env.d.ts` / `global.d.ts` / `unicode-animations.d.ts`）。
+**可达性口径合计：22 个文件 / ≈ 4889 行不可达**。
+其余 3 个是类型声明文件，**正常**（`vite-env.d.ts` / `global.d.ts` / `unicode-animations.d.ts`）。
+
 
 ---
 
