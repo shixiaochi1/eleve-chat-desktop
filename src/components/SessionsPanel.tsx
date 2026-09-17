@@ -1,4 +1,23 @@
 /**
+ * 🔴 @deprecated 未挂载（unreachable）
+ *
+ * SessionsPanel — 独立会话列表面板（虚拟滚动 / 搜索 / 右键菜单 / 批量删除 /
+ *                会话操作（撤销·压缩·分支·用量）+ 会话·大纲双 Tab），762 行。
+ *
+ * 死因：88a0fcc「Agent+会话合并统一侧栏 — 删独立会话按钮」⇒ 失去入口；
+ *       此后仍被维护到 round-106（e597ff2 等）—— 典型的「给孤儿打补丁」。
+ *
+ * 最后核实：2026-09-17（从 src/main.tsx 出发的 BFS 可达性分析；
+ *          复核方式：node scripts/deadcode-check.mjs）
+ * 性质：功能孤儿（级联链头）
+ * 消费者：无（全仓零 import）
+ * 继承者：components/ProjectTreePanel.tsx / ProjectTreeItems.tsx
+ *
+ * ⚠️ 请勿在此处修补 bug 或新增功能 —— 本文件无消费者，改动对运行时零影响
+ *    （历史上已多次出现「给孤儿打补丁」）。要复活请先接回入口；确认废弃则
+ *    连同其下游一起删，勿只删链头。
+ */
+/**
  * 会话面板 — Apple 风格会话列表
  *
  * 对齐 Eleve session-actions-menu.tsx:

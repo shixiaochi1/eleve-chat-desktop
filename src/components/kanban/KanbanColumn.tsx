@@ -1,4 +1,21 @@
 /**
+ * 🔴 @deprecated 未挂载（unreachable）
+ *
+ * KanbanColumn — 看板列 + 任务卡片（Tier 3 · 6-2 从 KanbanPanel 拆分），461 行。
+ *
+ * 背景：随链头 KanbanPanel 一起失去可达性。
+ *
+ * 最后核实：2026-09-17（从 src/main.tsx 出发的 BFS 可达性分析；
+ *          复核方式：node scripts/deadcode-check.mjs）
+ * 性质：功能孤儿（级联）
+ * 消费者：仅 components/KanbanPanel.tsx（其自身不可达）
+ * 继承者：无 —— 活的侧栏看板 SidebarKanbanBoard 自己渲染列，不使用本组件
+ *
+ * ⚠️ 请勿在此处修补 bug 或新增功能 —— 本文件无消费者，改动对运行时零影响
+ *    （历史上已多次出现「给孤儿打补丁」）。要复活请先接回入口；确认废弃则
+ *    连同其下游一起删，勿只删链头。
+ */
+/**
  * 看板列 + 任务卡片 — 从 KanbanPanel.tsx 拆分（Tier 3 · 6-2）
  */
 import { memo, useEffect, useState } from 'react';

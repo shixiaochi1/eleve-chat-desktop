@@ -1,4 +1,21 @@
 /**
+ * 🔴 @deprecated 未挂载（unreachable）
+ *
+ * session-search.ts — 会话搜索匹配（对齐 Hermes lib/session-search.ts），58 行。
+ *
+ * ⚠️ 若将来需要会话搜索，应复用本文件的匹配语义而非另写一份，避免第二份判据。
+ *
+ * 最后核实：2026-09-17（从 src/main.tsx 出发的 BFS 可达性分析；
+ *          复核方式：node scripts/deadcode-check.mjs）
+ * 性质：功能孤儿（级联）
+ * 消费者：仅 components/SessionsPanel.tsx（其自身不可达）
+ * 继承者：无（会话搜索现由使用方各自实现）
+ *
+ * ⚠️ 请勿在此处修补 bug 或新增功能 —— 本文件无消费者，改动对运行时零影响
+ *    （历史上已多次出现「给孤儿打补丁」）。要复活请先接回入口；确认废弃则
+ *    连同其下游一起删，勿只删链头。
+ */
+/**
  * session-search.ts — 会话搜索匹配（对齐 Hermes apps/desktop/src/lib/session-search.ts）
  *
  * Hermes 匹配字段：id / _lineage_root_id / title / preview / cwd / git_branch / source terms。
