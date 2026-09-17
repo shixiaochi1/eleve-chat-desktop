@@ -1,9 +1,11 @@
+import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSearch,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
@@ -49,6 +51,24 @@ export default function ModelPill(props: ModelPillProps) {
   const onRefresh = props.onRefresh ?? ctx.onRefresh;
   const groups = Object.values(grouped);
   const hasModels = groups.length > 0;
+
+  // 🔴 搜索过滤（对齐 Hermes app/shell/model-catalog-menu + 仓内 kanban/ModelCatalogMenu）：
+  // 命中 model id 或 provider 名子串即保留；provider 命中 ⇒ 该组整组保留
+  // （每行都满足 provider 条件，语义与范例的扁平行过滤一致）。
+  const [query, setQuery] = useState('');
+  const filteredGroups = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const all = Object.values(grouped);
+    if (!q) return all;
+    return all
+      .map((g) => ({
+        ...g,
+        models: g.models.filter(
+          (m) => m.id.toLowerCase().includes(q) || (g.providerName || '').toLowerCase().includes(q),
+        ),
+      }))
+      .filter((g) => g.models.length > 0);
+  }, [grouped, query]);
   // P3：友好显示名 — "provider/model" ref 只显示模型名（完整 ref 在 title/下拉项里）
   const shortModel = model ? (model.includes('/') ? model.slice(model.indexOf('/') + 1) : model) : '';
   const displayName = shortModel || (loading ? '模型加载中' : hasModels ? '选择模型' : '无模型');
@@ -78,6 +98,11 @@ export default function ModelPill(props: ModelPillProps) {
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" className="w-64">
+        {/* 🔴 搜索框常驻（对齐 Hermes：搜索做在下拉内，不开全屏面板）——
+            仅在确有模型可筛时显示，避免空态/错误态多一个无用的输入框 */}
+        {!loading && !error && hasModels && (
+          <DropdownMenuSearch placeholder="搜索模型 / Provider…" onValueChange={setQuery} />
+        )}
         {loading && <DropdownMenuLabel>模型列表加载中…</DropdownMenuLabel>}
         {!loading && error === 'empty' && !hasModels && (
           <DropdownMenuLabel className="flex flex-col gap-1.5">
@@ -96,7 +121,10 @@ export default function ModelPill(props: ModelPillProps) {
           <DropdownMenuLabel className="text-destructive">连接失败：{error}</DropdownMenuLabel>
         )}
         {!loading && !error && !hasModels && <DropdownMenuLabel>无可用模型</DropdownMenuLabel>}
-        {groups.map((group, gi) => (
+        {!loading && !error && hasModels && filteredGroups.length === 0 && (
+          <DropdownMenuLabel>无匹配模型</DropdownMenuLabel>
+        )}
+        {filteredGroups.map((group, gi) => (
           <div key={group.providerId}>
             {gi > 0 && <DropdownMenuSeparator />}
             <DropdownMenuLabel className="text-[0.625rem] uppercase tracking-wide">

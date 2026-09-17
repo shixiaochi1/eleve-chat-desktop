@@ -52,7 +52,6 @@ import { useOpenArtifact, clearArtifactRegistry } from './store/artifacts';
 import ThemePanel from './components/ThemePanel';
 import SettingsPanel from './components/SettingsPanel';
 import AboutPanel from './components/AboutPanel';
-import ModelPickerPanel from './components/ModelPickerPanel';
 import ToolStatusBar from './components/ToolStatusBar'
 import MessageContainer from './components/MessageContainer';
 import InputArea from './components/InputArea';
@@ -504,11 +503,6 @@ export default function App() {
     setSessionListVersion(v => v + 1);
   }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── model picker state ──
-  const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
-  const handleOpenModelPicker = useCallback(() => setShowModelPicker(true), []);
-  const handleCloseModelPicker = useCallback(() => setShowModelPicker(false), []);
-
   const nextId = useRef<number>(0);
   const genId = useCallback(() => `m${++nextId.current}`, []);
 
@@ -522,12 +516,9 @@ export default function App() {
     modelDiscovery.selectModel(modelId, profile, sid ?? undefined);
   }, [modelDiscovery.selectModel]);
 
-  // 🔴 打开模型选择器时自动 refresh（修复：启动重试窗口过期后池才有数据 → 永远空列表）
-  useEffect(() => {
-    if (showModelPicker) {
-      modelDiscovery.refresh();
-    }
-  }, [showModelPicker]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 🔴 原「打开模型选择器时自动 refresh」effect 已随 ModelPickerPanel overlay 退役（r118）：
+  // 该需求（启动重试窗口过期后池才就绪 → 首次打开空列表）已由 ModelPill 的
+  // onOpenChange → onRefresh（展开即刷新）承接。
 
   // ── gateway health monitoring ──
   const gatewayHealth = useGatewayHealth({
@@ -2172,23 +2163,6 @@ export default function App() {
           </ErrorBoundary>
         )}
 
-        {/* Model Picker Overlay */}
-        {showModelPicker && (
-          <ErrorBoundary>
-            <OverlayView onClose={handleCloseModelPicker} title="选择模型">
-              <ModelPickerPanel
-                models={modelDiscovery.models}
-                grouped={modelDiscovery.grouped}
-                loading={modelDiscovery.loading}
-                error={modelDiscovery.error}
-                selectedModel={(modelDiscovery.selectedModel || modelName) ?? undefined}
-                onSelect={modelDiscovery.selectModel}
-                onRefresh={modelDiscovery.refresh}
-                onClose={handleCloseModelPicker}
-              />
-            </OverlayView>
-          </ErrorBoundary>
-        )}
       </AppShell>
 
       <ErrorBoundary>
