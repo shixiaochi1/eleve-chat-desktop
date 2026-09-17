@@ -328,7 +328,6 @@ export const AgentChatCard = memo(function AgentChatCard({
   // ── 发送（贴底跟随 + 路由到本 Agent + 🔴 附件归属处理）──
   const handleSend = useCallback(async (text: string) => {
     stickBottomRef.current = true;
-    const wasBusy = state.status === 'streaming';
     const images = [...attachedImages];
 
     // 🔴 新会话图片附件 submit 时序（对齐 Hermes submit.ts，与主视图 App.handleSend 同构）：

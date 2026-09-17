@@ -178,7 +178,6 @@ function MediaAudio({ path, name }: { path: string; name: string }) {
 export default function MessageBubble({ type, content, streaming, messageId, onDelete, sessionId }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [zoomedSrc, setZoomedSrc] = useState<string | null>(null);
-  const [zoomedName, setZoomedName] = useState<string | undefined>(undefined);
   const textRef = useRef<HTMLDivElement | null>(null);
   // 🔴 2026-08-31 生成结果图再编辑入口（打通"灯箱 → 编辑器 → 新附件 → 再生图"循环）：
   // zoomedSrc 可能是 data URL（本地路径经 resolveMediaSrc）或 gateway http URL
@@ -304,7 +303,7 @@ export default function MessageBubble({ type, content, streaming, messageId, onD
               if (kind === 'audio') {
                 return <MediaAudio key={`${ref.path}-${i}`} path={ref.path} name={ref.name} />;
               }
-              return <MediaImage key={`${ref.path}-${i}`} path={ref.path} name={ref.name} onZoom={(src) => { setZoomedSrc(src); setZoomedName(ref.name) }} />;
+              return <MediaImage key={`${ref.path}-${i}`} path={ref.path} name={ref.name} onZoom={(src) => setZoomedSrc(src)} />;
             })}
           </div>
         )}

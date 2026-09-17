@@ -2,7 +2,6 @@ import { useRef, useCallback, type MutableRefObject } from 'react';
 import * as storage from '../utils/storage';
 import { persistSessionPointer } from '../utils/session';
 import { setMessages as storeSetMessages, getIsStreaming } from '../store/messages';
-import { useSessionStatus } from '../store/session-status';
 import { setMonitor } from '../store/debug';
 import { textPart } from '@/lib/chat-messages'
 import { getWsClient } from '../services/ws-client';
@@ -92,10 +91,6 @@ export function usePromptActions({
 } {
   const isSendingRef = useRef(false);
   const drainQueueRef = useRef<(() => void) | null>(null);
-  // 压缩中状态（对齐 Hermes composer compacting：压缩中 busy 输入排队不打断，
-  // canSteer=false → busyAction=queue）。store/session-status 是既有权威源，
-  // 不新建平行状态。
-  const compacting = useSessionStatus(sess.sessionId ?? '').compacting;
 
   // ── 释放发送锁回调（原 drainQueue，2026-08-16 方案A：localStorage 前端队列退役，
   // 队列显示/续轮由后端 queue.* RPC 权威驱动，前端只剩"轮末释放发送锁"职责；

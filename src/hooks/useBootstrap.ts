@@ -116,8 +116,6 @@ export function useBootstrap({ sess }: { sess: ReturnType<typeof useSessions> })
         applyConnection(conn);
         setPortReady(true);
       } else {
-        const portPromise = discoverPort();
-
       // 🔴 P0-1: 只预加载 cache/titles，不设 sessionId、不加载消息
       // 冷启动时 WS 未连，init() 会失败（不置 _initialized），WS onOpen 后重试
       storage.init().then(async () => {

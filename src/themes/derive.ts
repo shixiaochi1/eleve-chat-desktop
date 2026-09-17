@@ -174,7 +174,7 @@ export function mixHex(a: string, b: string, t: number): string {
  *  - 8 语义色（red/green/yellow/blue/magenta/cyan）= 主题语义色（Light/Dark 独立）
  *  - 灰阶（black/brightBlack/white/brightWhite）= 前景↔背板混合（中性灰阶基底）
  *  - bright* = 语义色向白混合 35%（标准「亮色 = 同色相更亮」约定） */
-export function deriveTerminalTheme(colors: DerivedColors, isDark: boolean) {
+export function deriveTerminalTheme(colors: DerivedColors) {
   const brighten = (c: string) => mixHex(c, '#ffffff', 0.35)
   return {
     background: colors.card,

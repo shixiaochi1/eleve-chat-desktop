@@ -1300,7 +1300,6 @@ export default function App() {
     // 🔴 2026-08-28 对齐 Hermes use-prompt-actions：发送新消息清空当前会话的
     // 可预览目标状态行 feed
     if (sess.sessionId) clearPreviewArtifacts(sess.sessionId);
-    const wasBusy = isSendingRef.current;
     const images = [...attachedImages];
 
     // 🔴 2026-08-22 移除会话就绪门禁（严重消息流转 BUG 修复）：

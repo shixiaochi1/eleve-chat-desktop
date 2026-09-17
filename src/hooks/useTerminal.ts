@@ -61,8 +61,8 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
 
   // 🔴 2026-08-18 终端色板主题化：消费主题派生色（浅色模式获得浅底终端，
   // 深色/玻璃模式自动跟随；主题色/外观切换即时热更）
-  const { colors, isDark } = useTheme();
-  const termTheme = useMemo(() => deriveTerminalTheme(colors, isDark), [colors, isDark]);
+  const { colors } = useTheme();
+  const termTheme = useMemo(() => deriveTerminalTheme(colors), [colors]);
   const termThemeRef = useRef(termTheme);
   termThemeRef.current = termTheme;
 
@@ -149,7 +149,7 @@ export default function useTerminal({ lazy = false, id, onSelectionChange }: Use
           // 默认 window.open 被 Tauri 拒绝 + raw confirm() 死胡同）
           linkHandler: terminalLinkHandler,
           // 🔴 2026-08-18 主题化：原硬编码 macOS 深色板（#1c1c1e/#e5e5e7/#0a84ff…）
-          // → deriveTerminalTheme(colors, isDark)——16 色 ANSI 全量跟随主题
+          // → deriveTerminalTheme(colors)——16 色 ANSI 全量跟随主题
           theme: termThemeRef.current,
         });
 

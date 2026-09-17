@@ -473,8 +473,6 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
         newAux[key] = { providerId: 'auto', model: '', timeout: AUX_TASKS.find((t: AuxTaskEntry) => t.key === key)?.defaultTimeout || 120 };
       }
     }
-    const newDelProvider = delProvider === providerId ? '' : delProvider;
-    const newDelModel = delProvider === providerId ? '' : delModel;
 
     // ── 更新内存 state（🔴 2026-08-10：级联变更即时保存）──
     setProviders(newProviders);
