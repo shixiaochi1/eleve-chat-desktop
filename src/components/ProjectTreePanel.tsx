@@ -15,7 +15,8 @@ import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } fr
 import { Plus, RefreshCw, FolderGit, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isTauri } from '@tauri-apps/api/core';
-import { call } from '../utils/bridge';
+import { call, isDesktop } from '../utils/bridge';
+import { openSessionWindow } from '../lib/session-window';
 import { getWsClient } from '../services/ws-client';
 import { getDismissedAutoProjectIds, dismissAutoProject } from '../lib/dismissed-projects';
 import { mergeWorktreeLanes } from '../lib/worktree-lanes';
@@ -263,6 +264,10 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   // 🔴 2026-08-12 对齐 SessionsPanel 右键菜单全功能：undo/compress/branch/usage
   const sessionActions = useMemo<SessionRowActions>(() => ({
     profile: currentProfile,
+    // 🔴 会话独立窗口（对齐 Hermes session-actions 的 newWindow 项）：
+    // 能力门控在 Panel 层判定一次，ProjectTreeItems 保持纯 props 驱动。
+    canOpenInWindow: isDesktop(),
+    onOpenInWindow: (s) => { void openSessionWindow(s.id, currentProfile); },
     onRenameRequest: setRenameTarget,
     onDeleted: handleDeleteSession,
     isPinned: (s) => pinnedIds.has(s.id),

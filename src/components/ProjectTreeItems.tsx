@@ -6,7 +6,7 @@
  *   行组件全部 props 驱动，无平行状态源。
  */
 import { memo, useState, Fragment } from 'react';
-import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, MoreVertical, Pencil, FolderPlus, Copy, Trash2, Home, Pin, Download, Archive, Undo2, Minimize2, BarChart3 } from 'lucide-react';
+import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, MoreVertical, Pencil, FolderPlus, Copy, Trash2, Home, Pin, Download, Archive, Undo2, Minimize2, BarChart3, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { projectIconFor } from '../lib/project-icons';
 import { useWorkspaceNodeOpen } from '../lib/sidebar-node-open';
@@ -150,6 +150,13 @@ function TreeToggle({ expanded, onClick }: { expanded: boolean; onClick: () => v
 // 🔴 2026-08-12 对齐 SessionsPanel：补 撤销上一轮/压缩上下文/分支会话/用量详情（undo/compress/branch/usage）
 export interface SessionRowActions {
   profile?: string;
+  /** 🔴 会话独立窗口能力门控（仅桌面端为 true）——由 Panel 层判定，
+   *  本文件保持「行组件全部 props 驱动，无平行状态源」的定位，不引业务依赖。
+   *  （对齐 Hermes session-actions 的 canOpenSessionWindow() 条件渲染） */
+  canOpenInWindow?: boolean;
+  /** 在独立窗口打开该会话（对齐 Hermes session-actions 的 newWindow 项 →
+   *  openSession(sessionId, _, 'window')）。失败静默：由实现方 toast。 */
+  onOpenInWindow?: (s: SessionPreview) => void;
   onRenameRequest: (s: SessionPreview) => void;
   onDeleted: (s: SessionPreview) => void;
   isPinned: (s: SessionPreview) => boolean;
@@ -246,6 +253,14 @@ const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, r
           <Copy size={12} className="shrink-0" />
           <span className="flex-1">复制会话 ID</span>
         </DropdownMenuItem>
+        {/* 🔴 会话独立窗口（对齐 Hermes session-actions 的 newWindow 项）——
+            仅桌面端渲染（canOpenInWindow 由 Panel 层判定，本文件保持纯 props 驱动） */}
+        {actions.canOpenInWindow && actions.onOpenInWindow && (
+          <DropdownMenuItem disabled={!s.id} onSelect={() => actions.onOpenInWindow?.(s)}>
+            <ExternalLink size={12} className="shrink-0" />
+            <span className="flex-1">在独立窗口打开</span>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem className="text-destructive focus:text-destructive" disabled={!s.id} onSelect={() => actions.onDeleted(s)}>
           <Trash2 size={12} className="shrink-0" />
@@ -320,6 +335,14 @@ const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, r
           <Copy size={12} className="shrink-0" />
           <span className="flex-1">复制会话 ID</span>
         </ContextMenuItem>
+        {/* 🔴 会话独立窗口（对齐 Hermes session-actions 的 newWindow 项）——
+            右键菜单与 kebab 菜单同构，能力门控同源 */}
+        {actions.canOpenInWindow && actions.onOpenInWindow && (
+          <ContextMenuItem disabled={!s.id} onSelect={() => actions.onOpenInWindow?.(s)}>
+            <ExternalLink size={12} className="shrink-0" />
+            <span className="flex-1">在独立窗口打开</span>
+          </ContextMenuItem>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem className="text-destructive focus:text-destructive" disabled={!s.id} onSelect={() => actions.onDeleted(s)}>
           <Trash2 size={12} className="shrink-0" />

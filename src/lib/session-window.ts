@@ -8,6 +8,8 @@
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
+import { isDesktop } from '../utils/bridge';
+
 const SESSION_WINDOW_PREFIX = 'session-window:';
 const DEFAULT_WIDTH = 900;
 const DEFAULT_HEIGHT = 680;
@@ -16,7 +18,9 @@ const DEFAULT_HEIGHT = 680;
  * 打开会话独立窗口；同一会话已存在窗口 → 聚焦
  */
 export async function openSessionWindow(sessionId: string, profile?: string): Promise<void> {
-  if (!sessionId) return;
+  // 🔴 门控（对齐 Hermes canOpenSessionWindow）：仅桌面端可创建窗口。
+  // 浏览器/dev 模式没有 Tauri API，直接返回而不是抛错。
+  if (!isDesktop() || !sessionId) return;
   const label = `${SESSION_WINDOW_PREFIX}${sessionId}`;
 
   // 已存在 → 聚焦并激活（对齐 kanban 模式：重复点击只聚焦，不重复创建）

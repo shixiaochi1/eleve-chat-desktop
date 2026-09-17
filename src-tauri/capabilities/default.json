@@ -3,11 +3,13 @@
   "description": "Capability for the main window",
   "windows": [
     "main",
-    "kanban"
+    "kanban",
+    "session-window:*"
   ],
   "webviews": [
     "main",
-    "kanban"
+    "kanban",
+    "session-window:*"
   ],
   "permissions": [
     "core:default",
