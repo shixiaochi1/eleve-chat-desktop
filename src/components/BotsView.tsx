@@ -472,14 +472,96 @@ function BotsRoomView({ room, roster, onBack }: {
     // "rooms used to open at scroll position 0 and stay there"）
     stickToBottomRef.current = true;
     setEvents([]);
+    // 🔴 r119/r120：换房间清活动投影 + 坐标锚（上房间的"第 N 步"/sid 不属于新房）
+    setMemberActivity({});
+    activitySidRef.current = {};
     refresh();
 
     const ws = getWsClient();
     const unsubscribe = ws.addEventListener((eventName, data) => {
+      if (eventName === 'bot.room.member_activity') {
+        // 🔴 r119（P2-1）/r120：成员轮活动帧（runtime-only 旁路，不落库）
+        const p = data as {
+          room_id?: string; member_id?: string; sid?: string; kind?: string;
+          iteration?: number; tools?: string[];
+        };
+        if (p?.room_id !== roomRef.current.room_id || !p.member_id) return;
+        const mid = p.member_id;
+        // 🔴 r120：坐标锚——sid → member 映射（delta 裸帧的归属键）
+        if (p.sid) {
+          activitySidRef.current[p.sid] = mid;
+          if (p.kind !== 'turn.begun') {
+            // Step 帧也带 sid，补一次（幂等）
+            const next = { ...activitySidRef.current };
+            activitySidRef.current = next;
+          }
+        }
+        const iteration = typeof p.iteration === 'number' ? p.iteration : 0;
+        const tools = Array.isArray(p.tools) ? p.tools.filter(t => typeof t === 'string') : [];
+        setMemberActivity(prev => (
+          prev[mid]?.iteration === iteration && prev[mid]?.tools.join() === tools.join()
+            ? prev
+            : { ...prev, [mid]: { iteration, tools } }
+        ));
+        return;
+      }
+      // 🔴 r120：成员轮 delta 裸帧——只带 sid（`build_ws_event` 把 session_id
+      // 注入 params 顶层），靠 activitySidRef 的坐标锚归属到房间成员。
+      // 对齐 Hermes KIND_BY_FRAME_TYPE 的 message.delta / reasoning.delta
+      // 投影（thinking.delta = Hermes thinking_callback 的 ELEVE 对应物）。
+      if (
+        eventName === 'message.delta' || eventName === 'reasoning.delta'
+        || eventName === 'thinking.delta'
+      ) {
+        const p = data as {
+          session_id?: string; payload?: { delta?: string; text?: string };
+        };
+        const sid = String(p?.session_id || '');
+        if (!sid) return;
+        const mid = activitySidRef.current[sid];
+        if (!mid) return; // 非本房间成员会话（如 1:1 聊天）→ 不归房间
+        const payload = p.payload || {};
+        const text = String(
+          eventName === 'message.delta' ? (payload.delta ?? '') : (payload.text ?? ''),
+        );
+        setMemberActivity(prev => {
+          const base = prev[mid] || { iteration: 0, tools: [] };
+          if (eventName === 'message.delta') {
+            // 尾句窗口（覆盖式，≤48 字）——呈现"正在说"，落库文本由终态发言承担
+            const merged = (base.speaking || '') + text;
+            const tail = merged.length > 48 ? merged.slice(-48) : merged;
+            return { ...prev, [mid]: { ...base, speaking: tail, thinking: false } };
+          }
+          return { ...prev, [mid]: { ...base, thinking: true } };
+        });
+        return;
+      }
       if (eventName !== 'bot.room.event') return;
       const payload = data as { room_id?: string; event?: BotRoomEvent };
       if (payload?.room_id !== roomRef.current.room_id || !payload.event) return;
       const ev = payload.event;
+      // 🔴 r119（P2-1）：成员轮终态 → 清该成员的活动状态（覆盖式呈现的
+      // 自然生命周期终点；不清则"第 N 步"悬挂在已收口的成员名下）。
+      if (
+        ev.kind === 'turn.settled' || ev.kind === 'turn.failed'
+        || ev.kind === 'turn.cancelled' || ev.kind === 'turn.deferred'
+        || ev.kind === 'turn.held'
+      ) {
+        const mid = ev.payload?.member_id;
+        if (typeof mid === 'string') {
+          // 🔴 r120：连坐标锚一起清——映射表随轮增长，残留 sid 会让**下一轮**
+          // 的 delta 短暂归属到已收口的成员（轮切换瞬间的重叠窗口）。
+          activitySidRef.current = Object.fromEntries(
+            Object.entries(activitySidRef.current).filter(([, v]) => v !== mid),
+          );
+          setMemberActivity(prev => {
+            if (!(mid in prev)) return prev;
+            const next = { ...prev };
+            delete next[mid];
+            return next;
+          });
+        }
+      }
       // 🔴 2026-09-08 round-76：WS 推送**不推进游标**。推送到的永远是最新事件，
       // 若在分页补齐途中把游标顶到该 seq，中间段就被永久跳过——与"首屏把游标
       // 推到全局 MAX"是同一个病根。游标只由 refresh 的分页补齐单调推进，
@@ -753,6 +835,21 @@ function BotsRoomView({ room, roster, onBack }: {
   const [busyStuck, setBusyStuck] = useState(false);
   useEffect(() => { if (!inflightBusy) setBusyStuck(false); }, [inflightBusy]);
   const roomBusy = inflightBusy && !busyStuck;
+
+  // 🔴 r119（botmode 审查 P2-1）：成员轮活动投影（对齐 Hermes
+  // `on_room_member_activity` hook）——`turn.started`→终态之间房间原本只有
+  // 忙态灯；本状态把「@成员 第 N 步 · 刚用过 X / 正在说…」呈现出来。
+  // **覆盖式**（每成员只保留最新一拍）+ **runtime-only**（后端明确不落 room
+  // log——Hermes 预算红线：deltas 进 log 会几分钟耗尽房间字节预算），
+  // 终态事件到达即清（见 ws 监听分支）。
+  // 🔴 r120：`sid → member_id` 坐标表——delta 裸帧（message.delta /
+  // reasoning.delta / thinking.delta，由 gateway runner 桥广播，只带 sid）
+  // 靠它归属到成员；锚帧 = 后端 `turn.begun` 活动帧（Hermes 侧等价机制是
+  // 「帧 → sessions[sid]._hosted_room_task 查回坐标」，此处用显式锚帧替代）。
+  const [memberActivity, setMemberActivity] = useState<
+    Record<string, { iteration: number; tools: string[]; speaking?: string; thinking?: boolean }>
+  >({});
+  const activitySidRef = useRef<Record<string, string>>({});
 
   // 🔴 round-79f 跨进程 driver：未决任务簿记可见性（driver_tasks 首次出网关）。
   // roomBusy 期间每 10s 轻量查询一次——indeterminate（崩溃恢复/接管中）在
@@ -1360,6 +1457,27 @@ function BotsRoomView({ room, roster, onBack }: {
         {roomBusy && (
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground py-0.5">
             <Loader size={11} className="animate-spin opacity-60" />
+            {/* 🔴 r119/r120：成员轮活动投影——覆盖式状态行（runtime-only，
+                不落房间日志）。@成员 第 N 步 + 刚用过的工具；r120 起补
+                delta 流式态（"正在说：尾句" / "正在思考"）——对应 Hermes
+                KIND_BY_FRAME_TYPE 的 message.delta / reasoning.delta 投影
+                （data 已在 WS，缺口只是房间坐标归属，见 turn.begun 锚帧）。 */}
+            {Object.keys(memberActivity).length > 0 && (
+              <span className="truncate">
+                {Object.entries(memberActivity).map(([mid, a]) => {
+                  const m = room.members.find(x => x.member_id === mid);
+                  const who = m ? `@${m.handle}` : mid.slice(0, 8);
+                  const step = a.iteration > 0 ? `第 ${a.iteration + 1} 步` : '刚开始';
+                  const tools = a.tools.length ? ` · 用过 ${a.tools.join('、')}` : '';
+                  const live = a.speaking
+                    ? `正在说：${a.speaking}`
+                    : a.thinking
+                      ? '正在思考…'
+                      : `${step}${tools}`;
+                  return `${who} ${live}`;
+                }).join('；')}
+              </span>
+            )}
             {pendingTask?.status === 'indeterminate' ? (
               <>
                 {/* 🔴 round-79f 跨进程 driver：接管/恢复中 indeterminate 可观察 +

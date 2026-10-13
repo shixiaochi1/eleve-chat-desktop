@@ -28,20 +28,28 @@ const RELAY_ROSTER_INTERVAL_MS = 60_000;
 /** backstop 节奏：push 信号（bot_relay.outbox.pending，v2）承载信封延迟，
  *  30s 轮询兜旧后端/丢事件（对齐 #93594 注释） */
 const RELAY_DRAIN_INTERVAL_MS = 30_000;
-/** deliver 客户端预算：目标网关单轮 `TURN_ATTEMPT_TIMEOUT_SECONDS`（900s）
- *  × 最多 `TURN_MAX_ATTEMPTS`（2 次：首次 + 一次策略性重试）+ 结算余量 60s。
+/** deliver 客户端预算：`TURN_WAIT_SECONDS`（lock wait 120s，ELEVE 无锁=
+ *  跨厂商兼容余量）+ 单轮 `TURN_ATTEMPT_TIMEOUT_SECONDS`（600s）× 最多
+ *  `TURN_MAX_ATTEMPTS`（2 次：首次 + 一次策略性重试）+ 结算余量 180s。
  *
  *  🔴 round-111：此前写死 1_500_000ms（1500s），**小于后端最坏 1800s** ——
  *  于是在"首次 attempt 超时 → 自动重试"的那条路径上，Desktop 会在目标仍在
  *  跑的轮上先放弃、写回一条"投递失败"；几秒后真实回信写好却已无收件人
  *  （发送侧 waiter 的超时回执也已发出）。数字必须与 `eleve_core::bot` 的
- *  `DELIVER_WORST_CASE_SECONDS = 900 × 2 + 60 = 1860s` 同源。
+ *  `DELIVER_WORST_CASE_SECONDS` 同源。
+ *
+ *  🔴 r119（botmode 审查 P1-2）：预算口径与 Hermes `tools/bot_relay.py:44-61`
+ *  逐值对齐——120 + 600×2 + 180 = **1500s**（与 Hermes 前端的
+ *  `relay-budget.ts RELAY_DELIVER_TIMEOUT_MS` 同值）。此前 ELEVE 取
+ *  900×2+60 = 1860s，与 Hermes 的 1500s 分叉：Hermes Desktop 调 ELEVE
+ *  gateway 时会在 1500s 先放弃而 ELEVE handler 还在跑。混搭组网下两端
+ *  必须同预算，这是本轮回填的主要动因。
  *
  *  🔴 round-111b（自查修复）：**导出 + 由测试钉住具体数值**（`bot-relay-timeouts.test.ts`）
  *  ——此前它是模块内字面量，后端改 `TURN_MAX_ATTEMPTS`/单轮预算时前端会**静默**
  *  不同步（无编译期、无测试信号）。现在漂移会响亮失败，与后端
- *  `assert_eq!(TURN_ATTEMPT_TIMEOUT_SECONDS, 900)` 同一手法。 */
-export const RELAY_DELIVER_TIMEOUT_MS = (900 * 2 + 60) * 1000;
+ *  `assert_eq!(TURN_ATTEMPT_TIMEOUT_SECONDS, 600)` 同一手法。 */
+export const RELAY_DELIVER_TIMEOUT_MS = (120 + 600 * 2 + 180) * 1000;
 
 /** 本地（主）连接的稳定 id */
 export const LOCAL_CONNECTION_ID = 'local';
@@ -316,12 +324,19 @@ interface PeerTurnStatus {
 /** 在飞轮询防重入（dispatchId → true） */
 const dispatchPollers = new Map<string, boolean>();
 export const PEER_POLL_INTERVAL_MS = 5_000;
-/** 180 × 5s = 900s = 后端 **`TURN_ATTEMPT_TIMEOUT_SECONDS`**（单轮成员轮预算）。
+/** 366 × 5s = 1830s = 后端 **`ROOM_TURN_TIMEOUT_SECONDS`**（hosted room
+ *  单成员轮预算，对齐 Hermes `hosted_room_driver.py:107 turn_timeout_seconds`）。
+ *
+ *  🔴 r119（botmode 审查 P1-2）：此前这里跟的是 relay 的
+ *  `TURN_ATTEMPT_TIMEOUT_SECONDS`（900s）——两个预算被混用一个常量。Hermes
+ *  侧群成员轮（1830s）本来就比 relay attempt（600s）宽：成员轮跑隐藏 room
+ *  session、可含工具多轮、超时走 deferred 不中断。后端拆常量后这里跟
+ *  `ROOM_TURN_TIMEOUT_SECONDS`。
  *
  *  🔴 round-111b（自查修复）：原注释写"与后端 REPLY_WAIT_SECONDS 对齐"——
- *  round-111 之后 `REPLY_WAIT_SECONDS` 已是**发送侧 relay waiter** 预算（1920s），
- *  不再是单轮值。若有人照那条注释把 ticks 提到 384"对齐"，peer 轮询会多等一倍。 */
-export const PEER_POLL_MAX_TICKS = 180;
+ *  round-111 之后 `REPLY_WAIT_SECONDS` 已是**发送侧 relay waiter** 预算，
+ *  不再是单轮值。若有人照那条注释把 ticks 提到"对齐"，peer 轮询会多等一倍。 */
+export const PEER_POLL_MAX_TICKS = 366;
 /** 轮询总预算（ms）——数值由测试钉住（见 `bot-relay-timeouts.test.ts`）。 */
 export const PEER_POLL_BUDGET_MS = PEER_POLL_INTERVAL_MS * PEER_POLL_MAX_TICKS;
 
