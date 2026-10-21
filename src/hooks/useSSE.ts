@@ -1,3 +1,4 @@
+import { WsEvent } from '@/types/ws-contract.generated';
 import { useRef, useCallback, useEffect } from 'react';
 import { useIsStreaming, setIsStreaming as storeSetIsStreaming, getIsStreaming } from '@/store/messages';
 import { getWsClient } from '@/services/ws-client';
@@ -191,7 +192,7 @@ function processEvent(
   switch (eventName) {
     // ── 文本 delta（对齐 Eleve: message.delta）──
     // 🔴 累加器走共享处理器（与宫格 useGridChat 同一权威路径）
-    case 'message.delta': {
+    case WsEvent.MESSAGE_DELTA: {
       const delta = (chunk.delta as string) || '';
       processAccumulatorEvent(acc, eventName, chunk);
       cbs.onText?.(delta);
@@ -199,14 +200,14 @@ function processEvent(
     }
 
     // ── 推理 ──
-    case 'reasoning.delta': {
+    case WsEvent.REASONING_DELTA: {
       const delta = (chunk.text as string) || '';
       processAccumulatorEvent(acc, eventName, chunk);
       cbs.onReasoning?.(delta);
       break;
     }
 
-    case 'reasoning.available':
+    case WsEvent.REASONING_AVAILABLE:
       // 🔴 2026-08-08 对齐 Hermes：available = 推理块完成后的摘要（后端带 text），
       // replace 语义（对齐 Hermes appendReasoningDelta(text, true)）。
       processAccumulatorEvent(acc, eventName, chunk);
@@ -217,13 +218,13 @@ function processEvent(
     // 块冻结由 reasoning.available 完成态 replace 承担）
 
     // ── Agent 思考状态（对齐 Eleve thinking_callback → thinking.delta）──
-    case 'thinking.delta':
+    case WsEvent.THINKING_DELTA:
       cbs.onThinking?.((chunk.text as string) || '');
       break;
 
     // ── 工具（对齐 Eleve 通道 A: tool.start / tool.complete）──
     // 🔴 累加器走共享处理器（upsertToolPart），回调保留（useMessageStream 消费）
-    case 'tool.start':
+    case WsEvent.TOOL_START:
       processAccumulatorEvent(acc, eventName, chunk);
       cbs.onToolStart?.({ id: (chunk.toolCallId as string) || null, name: chunk.tool as string, preview: chunk.preview as string | undefined });
       break;
@@ -232,17 +233,17 @@ function processEvent(
     // 🔴 2026-08-11 对齐 Hermes gateway-event.ts:830：generating 是状态不是工具行——
     // 不进累加器（否则残留无参数幽灵卡，与 tool.start 双卡并存 = 重复调用显示层根因），
     // 只走 onToolGenerating 回调（statusText 状态提示）。
-    case 'tool.generating':
+    case WsEvent.TOOL_GENERATING:
       cbs.onToolGenerating?.((chunk.name as string) || '');
       break;
 
-    case 'tool.complete':
+    case WsEvent.TOOL_COMPLETE:
       processAccumulatorEvent(acc, eventName, chunk);
       cbs.onToolEnd?.({ id: (chunk.toolCallId as string) || null, name: chunk.tool as string, duration: chunk.duration as number | undefined, error: chunk.error as boolean | undefined });
       break;
 
     // P1: 工具进度（对齐 Hermes tool_progress_command → StreamChunk::ToolProgress）
-    case 'tool.progress':
+    case WsEvent.TOOL_PROGRESS:
       cbs.onToolProgress?.({
         eventType: (chunk.event_type as string) || '',
         toolName: (chunk.tool as string) || (chunk.tool_name as string) || '',
@@ -255,7 +256,7 @@ function processEvent(
       break;
 
     // P1: Fallback 已激活（对齐 Hermes fallback 通知）
-    case 'fallback.activated':
+    case WsEvent.FALLBACK_ACTIVATED:
       cbs.onFallbackActivated?.({
         model: (chunk.model as string) || '',
         provider: (chunk.provider as string) || '',
@@ -263,13 +264,13 @@ function processEvent(
       break;
 
     // P1: 文本段结束（对齐 Hermes stream_delta_callback(None)，关闭当前流式显示框）
-    case 'assistant.section_end':
+    case WsEvent.ASSISTANT_SECTION_END:
       cbs.onSectionEnd?.();
       break;
 
     // P1: 步骤完成（对齐 Hermes step_callback）
     // 🔴 Phase 1: 步骤级重置（保留 sawStepComplete 标记 — 禁用整轮终稿兜底，防 P1-8 文本重复）
-    case 'step.complete':
+    case WsEvent.STEP_COMPLETE:
       resetAccumulatorForStep(acc);
       cbs.onStepComplete?.({
         stepNumber: (chunk.step_number as number) || 0,
@@ -281,7 +282,7 @@ function processEvent(
       break;
 
     // P1: 中间助手消息（对齐 Hermes _emit_interim_assistant_message）
-    case 'message.interim':
+    case WsEvent.MESSAGE_INTERIM:
       cbs.onInterimMessage?.({
         content: (chunk.content as string) || '',
         alreadyStreamed: (chunk.already_streamed as boolean) || false,
@@ -289,7 +290,7 @@ function processEvent(
       break;
 
     // ── E-3: MoA 参考模型输出（对齐 Hermes moa.reference，累加器已处理）──
-    case 'moa.reference':
+    case WsEvent.MOA_REFERENCE:
       processAccumulatorEvent(acc, eventName, chunk);
       cbs.onMoaReference?.({
         index: typeof chunk.index === 'number' ? chunk.index : undefined,
@@ -300,7 +301,7 @@ function processEvent(
       break;
 
     // ── E-3: MoA 聚合开始（对齐 Hermes moa.phase aggregator，累加器已处理）──
-    case 'moa.aggregating':
+    case WsEvent.MOA_AGGREGATING:
       processAccumulatorEvent(acc, eventName, chunk);
       cbs.onMoaAggregating?.({
         aggregator: (chunk.aggregator as string) || undefined,
@@ -309,18 +310,18 @@ function processEvent(
       break;
 
     // P1: 后台 Review 结果（对齐 Hermes background_review_callback）
-    case 'background.review':
+    case WsEvent.BACKGROUND_REVIEW:
       cbs.onBackgroundReview?.({
         summary: (chunk.summary as string) || '',
       });
       break;
 
     // ── 委托 ──
-    case 'delegate.start':
+    case WsEvent.DELEGATE_START:
       cbs.onDelegateStart?.({ taskId: chunk.task_id as string, goal: chunk.goal as string | undefined, model: chunk.model as string | undefined, sessionId: chunk.session_id as string | undefined });
       break;
 
-    case 'delegate.end':
+    case WsEvent.DELEGATE_END:
       cbs.onDelegateEnd?.({
         taskId: chunk.task_id as string,
         status: chunk.status as string | undefined,
@@ -333,7 +334,7 @@ function processEvent(
       });
       break;
 
-    case 'delegate.progress':
+    case WsEvent.DELEGATE_PROGRESS:
       cbs.onDelegateProgress?.({
         subagentId: chunk.subagent_id as string | undefined,
         eventType: chunk.event_type as string | undefined,
@@ -370,22 +371,22 @@ function processEvent(
       break;
 
     // ── 模型 / 系统 ──
-    case 'model.name': {
+    case WsEvent.MODEL_NAME: {
       const name = typeof chunk.name === 'string' ? chunk.name : (typeof chunk === 'object' && chunk !== null && chunk.name ? String(chunk.name) : String(chunk));
       cbs.onModelName?.(name);
       break;
     }
 
-    case 'notification.show':
+    case WsEvent.NOTIFICATION_SHOW:
       cbs.onSystemNotice?.({ text: chunk.text as string, level: chunk.level as string | undefined, kind: chunk.kind as string | undefined, ttl_ms: chunk.ttl_ms as number | undefined, key: chunk.key as string | undefined, id: chunk.id as string | undefined });
       break;
 
-    case 'notification.clear':
+    case WsEvent.NOTIFICATION_CLEAR:
       cbs.onNoticeClear?.({ key: chunk.key as string });
       break;
 
     // Phase 6: 浏览器连接进度（对齐 Hermes browser.progress）
-    case 'browser.progress':
+    case WsEvent.BROWSER_PROGRESS:
       cbs.onBrowserProgress?.({ message: chunk.message as string, level: chunk.level as string });
       break;
 
@@ -395,24 +396,24 @@ function processEvent(
     // （死分支），契约错位——改用后端真实事件名。前端主题由 ThemeProvider
     // 本地管理（localStorage + bridge），此处仅防御性消费（debug 日志），
     // 不驱动 UI；未来主题集中管理时在此接线。
-    case 'skin.changed':
+    case WsEvent.SKIN_CHANGED:
       console.debug('[useSSE] skin.changed', chunk.skin);
       break;
 
     // Phase 6: 终端关闭（对齐 Hermes terminal.close）
-    case 'terminal.close':
+    case WsEvent.TERMINAL_CLOSE:
       cbs.onTerminalClose?.({ process_id: chunk.process_id as string });
       break;
 
     // reaction — 用户 affection（ily / <3 / good bot / 心形 emoji）→ 爱心彩蛋
     // 对齐 Hermes: server.py _emit("reaction", sid, {"kind": kind}) → burstVibeHearts()
-    case 'reaction':
+    case WsEvent.REACTION:
       cbs.onReaction?.({ kind: (chunk.kind as string) || 'vibe' });
       break;
 
     // wake.detected — 唤醒词命中（对齐 Hermes wake.detected → 提示音 + 开新会话）
     // 单视图路径：委托共享处理器（与宫格 useGridChat !profile 分支同一权威源）
-    case 'wake.detected':
+    case WsEvent.WAKE_DETECTED:
       cbs.onWakeDetected?.({
         // 🔴 2026-08-10：兜底默认值去 Hermes 化（后端默认唤醒词为 "小莉"）
         phrase: (chunk.phrase as string) || '小莉',
@@ -421,21 +422,21 @@ function processEvent(
       break;
 
     // voice.interrupted — full-duplex barge-in 打断（后端已切 TTS + 中断 turn）
-    case 'voice.interrupted':
+    case WsEvent.VOICE_INTERRUPTED:
       cbs.onVoiceInterrupted?.(chunk as Record<string, unknown>);
       break;
 
     // Agent 后台进程输出流（对齐 Hermes agent.terminal.output）
-    case 'agent.terminal.output':
+    case WsEvent.AGENT_TERMINAL_OUTPUT:
       cbs.onAgentTerminalOutput?.({ process_id: chunk.process_id as string, chunk: chunk.chunk as string });
       break;
 
     // 🔴 3.4: 统一走 global-events（消灭内联 IIFE 重复）
-    case 'terminal.read.request':
-      handleGlobalEvent('terminal.read.request', chunk as Record<string, unknown>);
+    case WsEvent.TERMINAL_READ_REQUEST:
+      handleGlobalEvent(WsEvent.TERMINAL_READ_REQUEST, chunk as Record<string, unknown>);
       break;
 
-    case 'status.update': {
+    case WsEvent.STATUS_UPDATE: {
       // 合并两个重复case — 通用 status.update + lifecycle reset 分发
       const kind = chunk.kind as string;
       cbs.onStatusUpdate?.({ kind, text: chunk.text as string });
@@ -451,12 +452,12 @@ function processEvent(
     }
 
     // ── 交互 ──
-    case 'clarify.request':
+    case WsEvent.CLARIFY_REQUEST:
       cbs.onClarify?.({ session_id: chunk.session_id as string | undefined, clarify_id: chunk.clarify_id as string, question: chunk.question as string, choices: chunk.choices as string[] | undefined, multi_select: chunk.multi_select as boolean | undefined });
       break;
 
     // 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch）
-    case 'clarify.batch.request':
+    case WsEvent.CLARIFY_BATCH_REQUEST:
       cbs.onClarifyBatch?.({
         session_id: chunk.session_id as string | undefined,
         clarify_id: chunk.clarify_id as string,
@@ -465,24 +466,24 @@ function processEvent(
       });
       break;
 
-    case 'approval.request':
+    case WsEvent.APPROVAL_REQUEST:
       cbs.onApproval?.(chunk);
       break;
 
-    case 'approval.responded':
+    case WsEvent.APPROVAL_RESPONDED:
       cbs.onApprovalResponded?.(chunk as any);
       break;
 
-    case 'sudo.request':
+    case WsEvent.SUDO_REQUEST:
       cbs.onSudo?.({ session_id: chunk.session_id as string | undefined, request_id: chunk.request_id as string, prompt: chunk.prompt as string | undefined });
       break;
 
-    case 'secret.request':
+    case WsEvent.SECRET_REQUEST:
       cbs.onSecret?.({ session_id: chunk.session_id as string | undefined, request_id: chunk.request_id as string, prompt: chunk.prompt as string, env_var: chunk.env_var as string, metadata: chunk.metadata as Record<string, unknown> | undefined });
       break;
 
     // ── 会话 ──
-    case 'session.info':
+    case WsEvent.SESSION_INFO:
       cbs.onSessionInfo?.({
         session_id: (chunk.session_id as string) || '',
         run_id: (chunk.run_id as string) || '',
@@ -520,7 +521,7 @@ function processEvent(
       break;
 
     // 对齐 Hermes pending_title: 后端应用 title 后推送此事件
-    case 'session.title':
+    case WsEvent.SESSION_TITLE:
       cbs.onSessionTitle?.({
         session_id: (chunk.session_id as string) || '',
         title: (chunk.title as string) || '',
@@ -532,23 +533,23 @@ function processEvent(
     // 而该回调只存在于单视图 useMessageStream（宫格下 enabled:false）→ 宫格
     // 项目树永不刷新。改走共享处理器后单视图/宫格同一路径（订阅方只需在 App
     // 注册一次 onProjectsChanged）。
-    case 'projects.changed':
-      handleGlobalEvent('projects.changed', chunk as Record<string, unknown>);
+    case WsEvent.PROJECTS_CHANGED:
+      handleGlobalEvent(WsEvent.PROJECTS_CHANGED, chunk as Record<string, unknown>);
       break;
 
     // ── 流生命周期 ──
     // 对齐 Hermes: message.start → onRunStart（分配streamId）
-    case 'message.start':
-    case 'run.started':
+    case WsEvent.MESSAGE_START:
+    case WsEvent.RUN_STARTED:
       cbs.onRunStart?.(chunk.session_id as string);
       break;
 
-    case 'keepalive':
+    case WsEvent.KEEPALIVE:
       // 🔴 2026-08-08：WS 保活帧（对齐 Hermes SSE `: keepalive` 的 WS 等价物）—
       // 显式忽略，避免每 30s 走 default 刷 console.warn。
       break;
 
-    case 'workspace.changed':
+    case WsEvent.WORKSPACE_CHANGED:
       // 外部文件变更（后端 notify 目录监控，单一权威源）→ workspace-events 合并
       // 与 tool.complete 同源去抖合并；消费端 useWorkspaceTick 零改动
       notifyExternalChange({
@@ -558,11 +559,11 @@ function processEvent(
       });
       break;
 
-    case 'error':
+    case WsEvent.ERROR:
       cbs.onError?.((chunk.message as string) || 'Unknown error');
       return 'error';
 
-    case 'message.complete':
+    case WsEvent.MESSAGE_COMPLETE:
       // message.complete 替代 done + run.completed（对齐 Phase 4）
       // 🔴 Phase 4b #5: 记录后端权威终稿（finalizeAccumulator 累加为空时兜底）
       acc.serverContent = (chunk.content as string) || '';
@@ -609,7 +610,7 @@ function processEvent(
       cbs.onDone?.(newSid ?? null, failure);
       return 'done';
 
-    case 'gateway.ready':
+    case WsEvent.GATEWAY_READY:
       // 🔴 2026-08-20 静默：gateway 启动就绪信号（网关端口已由 bridge 发现，
       // 无业务处理）——此前落 default 每次启动刷一条 "Unknown event" 告警。
       return 'ignored';
@@ -634,16 +635,18 @@ function processEvent(
 // 父会话 sid，切到别的会话查看时若被过滤丢弃，切回后监控卡片永久停在
 // running（无补发）；存储按 sid 分桶，监控面板按当前会话渲染（见
 // SubagentMonitor useSubagentTasks 的 sessionId 过滤）。
-const INTERACTION_EVENT_NAMES = new Set([
-  'approval.request',
-  'approval.responded',
-  'clarify.request',
-  'clarify.batch.request',
-  'sudo.request',
-  'secret.request',
-  'delegate.start',
-  'delegate.end',
-  'delegate.progress',
+// 显式 Set<string>：成员是契约常量（字面量联合），但查询方 eventName 是 string——
+// 不加类型参数会被 TS2345 拦（契约常量收窄了集合元素类型，这是预期的编译期收紧）。
+const INTERACTION_EVENT_NAMES = new Set<string>([
+  WsEvent.APPROVAL_REQUEST,
+  WsEvent.APPROVAL_RESPONDED,
+  WsEvent.CLARIFY_REQUEST,
+  WsEvent.CLARIFY_BATCH_REQUEST,
+  WsEvent.SUDO_REQUEST,
+  WsEvent.SECRET_REQUEST,
+  WsEvent.DELEGATE_START,
+  WsEvent.DELEGATE_END,
+  WsEvent.DELEGATE_PROGRESS,
 ])
 
 export function useSSE(
@@ -652,7 +655,8 @@ export function useSSE(
   enabled: boolean = true,
 ): {
   isStreaming: boolean
-  send: (text: string, sessionId?: string | null) => Promise<void>
+  /** D1：返回是否提交成功（false = 调用方可回滚乐观上屏） */
+  send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string; queued?: boolean }) => Promise<boolean>
   abort: () => Promise<void>
   resetStream: () => void
   drainFinalParts: () => ChatMessagePart[]
@@ -761,7 +765,10 @@ export function useSSE(
     };
   }, [routeWsEvent, enabled]);
 
-  const send = useCallback(async (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string; queued?: boolean }): Promise<void> => {
+  // 🔴 D1（2026-10-21 对齐 Hermes 发送可观测性）：返回提交是否成功。
+  // 旧实现 catch 后静默 return，调用方无法区分「已提交」与「提交失败」——
+  // 乐观上屏的用户气泡在失败后永久残留（幽灵消息）。现在由调用方决定回滚。
+  const send = useCallback(async (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string; queued?: boolean }): Promise<boolean> => {
     // 🔴 2026-08-27 纯图片消息放行（对齐 Hermes："图片可独立提交"）——
     // 图片经 image.attach_bytes 预挂到 session，空文本也要发给后端裁决
     // （后端 prompt.submit：空文本 + attached_images 非空 → 放行，
@@ -836,7 +843,7 @@ export function useSSE(
         pendingSendRef.current = false;
         pendingBufferRef.current = null;
       }
-      return; // WS 发送成功，事件通过 routeWsEvent 回调
+      return true; // WS 发送成功，事件通过 routeWsEvent 回调
     } catch (wsErr) {
       console.error('[useSSE] WS prompt.submit failed:', wsErr);
       // 🔴 Phase 2: wasBusy 直发失败不动流式态 —— 归属 live turn（其 complete 负责终止）
@@ -849,7 +856,7 @@ export function useSSE(
       if (cbs?.onError) {
         cbs.onError(`发送失败: ${(wsErr as Error).message}`);
       }
-      return;
+      return false;
     }
   }, [flushPendingBuffer]);
 

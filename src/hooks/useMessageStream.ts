@@ -192,7 +192,7 @@ export function useMessageStream({
   enabled = true,
 }: UseMessageStreamProps): {
   isStreaming: boolean
-  send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string }) => Promise<void>
+  send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string; queued?: boolean }) => Promise<boolean>
   abort: () => Promise<void>
   resetStream: (nextSessionId?: string | null) => void
   /** 🔴 当前显示 session 的同步权威 ref（resetStream 同步锁定）——loadHistory 过期响应守卫必须比它，不能比异步 sess.sessionId */

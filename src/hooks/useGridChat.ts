@@ -42,6 +42,7 @@
  *   每 Agent 最多 WINDOW_MAX 条消息，超出从头部 evict。
  *   流式 delta 只写 ref 累加器，33ms flush 到状态（不触发消息列表重渲染）。
  */
+import { WsEvent } from '@/types/ws-contract.generated';
 import { useEffect, useMemo, useRef, useCallback } from 'react';
 import { getWsClient } from '@/services/ws-client';
 import { call } from '../utils/bridge';
@@ -132,13 +133,14 @@ export type { AgentStatus, AgentChatState } from './gridChatTypes';
 // 🔴 差异注记：刻意不含 delegate.*（单视图 useSSE 的 INTERACTION_EVENT_NAMES
 // 含——子代理监控跨会话放行）；宫格 delegate.* 走 profile 路由进 slot switch。
 // 非重复待合并，是刻意差异（2b 路由器合并时保留两端集合）。
-const GRID_INTERACTION_EVENTS = new Set([
-  'approval.request',
-  'approval.responded',
-  'clarify.request',
-  'clarify.batch.request',
-  'sudo.request',
-  'secret.request',
+// 同 useSSE 的 INTERACTION_EVENT_NAMES：成员是契约常量，查询方是 string。
+const GRID_INTERACTION_EVENTS = new Set<string>([
+  WsEvent.APPROVAL_REQUEST,
+  WsEvent.APPROVAL_RESPONDED,
+  WsEvent.CLARIFY_REQUEST,
+  WsEvent.CLARIFY_BATCH_REQUEST,
+  WsEvent.SUDO_REQUEST,
+  WsEvent.SECRET_REQUEST,
 ])
 
 export function useGridChat(
@@ -192,6 +194,11 @@ export function useGridChat(
   const sendingRef = useRef<Record<string, boolean>>({});
   // 注：2026-08-16 方案A 队列退役——本地队列已删除，sendingRef 保留为 per-agent 发送锁
   // 锁由 message.complete 单一权威释放（Phase B），见 abortAgent/complete 分支
+  // 🔴 D1（2026-10-21）：per-agent 提交中闸门（与 sendingRef 语义不同）——
+  // sendingRef 的持有期 = 整个 live turn（由 complete 释放），无法用于"同一 tick
+  // 双击"判重；本闸只覆盖 ensureConnected + prompt.submit 的提交窗口，
+  // 成功/失败即释放，因此 busy 直发（steer/queue）也必须受它保护。
+  const submitInFlightRef = useRef<Record<string, boolean>>({});
 
   // 单 Agent 状态更新（不可变 patch；AtomStore.set 同引用短路 = 免费去抖；
   // 真实变更 bump 聚合版本 → GridModeView 级 states 快照重建）
@@ -304,6 +311,15 @@ export function useGridChat(
     // 仅看 sendingRef 会把后端 drain turn 误判为 idle，走直发路径重置累加器抹掉终稿。
     const wasBusy = sendingRef.current[profile] || (statesRef.current[profile]?.status ?? 'idle') !== 'idle';
 
+    // 🔴 D1（2026-10-21）：提交中闸门（busy 路径同样需要）。
+    // 旧实现 busy 分支刻意不加锁且无判重 → 双击 = 两次 prompt.submit +
+    // 两条用户气泡（后端只能靠 steer/queue 去重，前端已经脏了）。
+    if (submitInFlightRef.current[profile]) {
+      console.warn('[useGridChat] sendTo guard: already submitting for', profile);
+      return;
+    }
+    submitInFlightRef.current[profile] = true;
+
     const s = statesRef.current[profile];
     // 🔴 串台防御：sessionId 的 profile 前缀必须匹配目标 profile，否则丢弃（让后端新建）
     // 🔴 explicitSessionId 优先：新会话图片附件场景，AgentChatCard 已 session.create 并上传图片，
@@ -374,7 +390,16 @@ export function useGridChat(
         patch(profile, (st) => ({ ...st, status: 'idle' }));
       }
       console.error('[useGridChat] sendTo failed:', profile, e);
+      // 🔴 D1（2026-10-21）：提交失败 → 回滚乐观气泡（错误 toast 已给出），
+      // 避免留下永远没有回复的孤儿用户消息。
+      patch(profile, (st) => ({
+        ...st,
+        messages: st.messages.filter((m) => m.id !== userMsg.id),
+      }));
       import('../utils/notifications').then(({ notifyError }) => notifyError('发送失败，请检查连接', '发送失败')).catch(() => {});
+    } finally {
+      // 提交窗口结束即释放（成功/失败都释放；live turn 的锁仍是 sendingRef）
+      submitInFlightRef.current[profile] = false;
     }
   }, [patch]);
 
@@ -528,11 +553,11 @@ export function useGridChat(
       // 不依赖会话路由——宫格模式 useSSE 卸载后必须在此消费（原实现走 profile 路由
       // 无 case → 丢弃 → 实时输出降级为 5s 快照对账 = 功能降级）。terminal.close 同走
       // 全局共享入口（与单视图 useSSE onTerminalClose → handleGlobalEvent 同款）。
-      if (eventName === 'agent.terminal.output') {
+      if (eventName === WsEvent.AGENT_TERMINAL_OUTPUT) {
         writeAgentTerminalChunk(String(payload.process_id || ''), String(payload.chunk || ''));
         return;
       }
-      if (eventName === 'terminal.close') {
+      if (eventName === WsEvent.TERMINAL_CLOSE) {
         handleGlobalEvent(eventName, payload);
         return;
       }
@@ -567,7 +592,7 @@ export function useGridChat(
         // 🔴 2026-08-17 阶段4（per-session 并发轮配套）：交互类事件不受 slot
         // 守卫约束（admitBySlotGuard 内放行）——后台会话的审批/澄清/凭据请求
         // 必须可见可响应（被丢弃 = 工具挂到超时）。
-        if (eventName === 'message.complete' || eventName === 'error') {
+        if (eventName === WsEvent.MESSAGE_COMPLETE || eventName === WsEvent.ERROR) {
           sendingRef.current[profile] = false;
           resetAccumulator(acc);
         }
@@ -581,11 +606,11 @@ export function useGridChat(
         scheduleAccFlush();
       } else {
       switch (eventName) {
-        case 'run.started':
-        case 'message.start':
+        case WsEvent.RUN_STARTED:
+        case WsEvent.MESSAGE_START:
           patch(profile, (s) => ({ ...s, status: 'streaming', lastActivity: Date.now() }));
           break;
-        case 'message.complete': {
+        case WsEvent.MESSAGE_COMPLETE: {
           // 🔴 Phase 4b #5: 记录后端权威终稿（finalizeAccumulator 累加为空时兜底）
           // （过期流守卫已上提至 handler 顶部统一处理 — #10）
           acc.serverContent = (payload.content as string) || '';
@@ -699,7 +724,7 @@ export function useGridChat(
           sendingRef.current[profile] = false;
           break;
         }
-        case 'approval.request':
+        case WsEvent.APPROVAL_REQUEST:
           // 🔴 2026-08-17 阶段4：按会话多槽存（run_id 在顶层 = session_id，合并进
           // payload 供 ApprovalCard 调 approval.respond）
           patch(profile, (s) => ({
@@ -709,7 +734,7 @@ export function useGridChat(
             lastActivity: Date.now(),
           }));
           break;
-        case 'clarify.request':
+        case WsEvent.CLARIFY_REQUEST:
           patch(profile, (s) => ({
             ...s,
             interactions: { ...s.interactions, [String(raw.session_id ?? '')]: { kind: 'clarify', data: payload as Record<string, unknown> } },
@@ -718,7 +743,7 @@ export function useGridChat(
           }));
           break;
         // 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch）
-        case 'clarify.batch.request':
+        case WsEvent.CLARIFY_BATCH_REQUEST:
           patch(profile, (s) => ({
             ...s,
             interactions: { ...s.interactions, [String(raw.session_id ?? '')]: { kind: 'clarify_batch', data: payload as Record<string, unknown> } },
@@ -726,7 +751,7 @@ export function useGridChat(
             lastActivity: Date.now(),
           }));
           break;
-        case 'sudo.request':
+        case WsEvent.SUDO_REQUEST:
           patch(profile, (s) => ({
             ...s,
             interactions: { ...s.interactions, [String(raw.session_id ?? '')]: { kind: 'sudo', data: payload as Record<string, unknown> } },
@@ -734,7 +759,7 @@ export function useGridChat(
             lastActivity: Date.now(),
           }));
           break;
-        case 'secret.request':
+        case WsEvent.SECRET_REQUEST:
           patch(profile, (s) => ({
             ...s,
             interactions: { ...s.interactions, [String(raw.session_id ?? '')]: { kind: 'secret', data: payload as Record<string, unknown> } },
@@ -743,7 +768,7 @@ export function useGridChat(
           }));
           break;
         // 🔴 P2-D: 审批被其他人/路径响应后收起卡片（对齐单视图 approval.responded）
-        case 'approval.responded': {
+        case WsEvent.APPROVAL_RESPONDED: {
           // P2-9: 不硬编码 status，由后续事件（message.delta/complete）驱动真实状态
           const respondedSid = String(raw.run_id ?? raw.session_id ?? '');
           patch(profile, (s) => {
@@ -755,13 +780,13 @@ export function useGridChat(
           break;
         }
         // 🔴 P2-D: 子 Agent 委托事件（对齐单视图 delegate.start/end）
-        case 'delegate.start':
+        case WsEvent.DELEGATE_START:
           patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(`▶ 委托子 Agent: ${(payload.goal as string) || payload.task_id || ''}`)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
           break;
-        case 'delegate.end':
+        case WsEvent.DELEGATE_END:
           patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(`✔ 子 Agent 完成: ${(payload.summary as string) || payload.status || 'done'}`)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
           break;
-        case 'status.update': {
+        case WsEvent.STATUS_UPDATE: {
           // 按 kind 分流（对齐单视图 useMessageStream onStatusUpdate）
           const suKind = payload.kind as string;
           const suText = (payload.text as string) || '';
@@ -796,7 +821,7 @@ export function useGridChat(
           }
           break;
         }
-        case 'error': {
+        case WsEvent.ERROR: {
           // 🔴 P1-6: 保留已累积内容（对齐单视图 onError：finalize + 错误标记 + toast）
           const errParts = finalizeAccumulator(acc);
           resetAccumulator(acc);
@@ -816,18 +841,18 @@ export function useGridChat(
         }
         // ── 推理生命周期（reasoning.available / reasoning.delta / reasoning.end 均由 processAccumulatorEvent 统一处理）──
         // ── Agent 思考状态（对齐单视图 onThinking）──
-        case 'thinking.delta':
+        case WsEvent.THINKING_DELTA:
           patch(profile, (s) => ({ ...s, activityHint: (payload.text as string) || '', lastActivity: Date.now() }));
           break;
         // ── 工具进度（对齐单视图 onToolProgress）──
-        case 'tool.progress': {
+        case WsEvent.TOOL_PROGRESS: {
           const tpTool = (payload.tool as string) || (payload.tool_name as string) || '';
           const tpPreview = payload.preview as string | undefined;
           patch(profile, (s) => ({ ...s, activityHint: tpPreview ? `${tpTool}: ${tpPreview}` : `⚙ ${tpTool} 执行中...`, lastActivity: Date.now() }));
           break;
         }
         // ── 子 Agent 详细进度（对齐单视图 onDelegateProgress）──
-        case 'delegate.progress': {
+        case WsEvent.DELEGATE_PROGRESS: {
           const dpEventType = payload.event_type as string | undefined;
           const dpSummary = (payload.progress_summary as string) || (payload.summary as string) || '';
           const dpTool = payload.tool_name as string | undefined;
@@ -847,21 +872,21 @@ export function useGridChat(
           break;
         }
         // ── 会话标题更新（对齐单视图 onSessionTitle）──
-        case 'session.title':
+        case WsEvent.SESSION_TITLE:
           patch(profile, (s) => ({ ...s, sessionTitle: (payload.title as string) || null, lastActivity: Date.now() }));
           break;
         // ── 模型名 / Fallback（对齐单视图 onModelName / onFallbackActivated）──
-        case 'model.name':
+        case WsEvent.MODEL_NAME:
           patch(profile, (s) => ({ ...s, modelName: (payload.name as string) || null, lastActivity: Date.now() }));
           break;
-        case 'fallback.activated': {
+        case WsEvent.FALLBACK_ACTIVATED: {
           const fbModel = (payload.model as string) || '';
           const fbProvider = (payload.provider as string) || '';
           patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(`⚠ 模型回退: ${fbProvider}/${fbModel}`)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), modelName: fbModel || s.modelName, lastActivity: Date.now() }));
           break;
         }
         // ── 步骤完成（对齐 Hermes _emit_interim_assistant_message 消息分界）/ 中间消息 / 后台审查 ──
-        case 'step.complete': {
+        case WsEvent.STEP_COMPLETE: {
           // finalize 当前累加器 → 写入 messages 为独立气泡，步骤级重置（保留 sawStepComplete 标记）
           const stepParts = finalizeAccumulator(acc);
           resetAccumulatorForStep(acc);
@@ -875,7 +900,7 @@ export function useGridChat(
           }
           break;
         }
-        case 'message.interim': {
+        case WsEvent.MESSAGE_INTERIM: {
           const imContent = (payload.content as string) || '';
           // 🔴 P2-2（Coder 复审 2026-08-09）：对齐 Hermes finalizeInterimAssistantMessage
           //（index.ts:410-464）——interim 是消息分界：先密封当前流式内容为独立气泡
@@ -908,12 +933,12 @@ export function useGridChat(
         }
         // reaction — 用户 affection（ily / <3 / good bot / 心形 emoji）→ 爱心彩蛋
         // 对齐 Hermes: gateway-event.ts reaction → burstVibeHearts()；纯 UI，永不触碰对话
-        case 'reaction':
+        case WsEvent.REACTION:
           if ((payload.kind as string) === 'vibe') {
             burstVibeHearts();
           }
           break;
-        case 'background.review': {
+        case WsEvent.BACKGROUND_REVIEW: {
           const brSummary = (payload.summary as string) || '';
           if (brSummary) {
             patch(profile, (s) => ({ ...s, messages: [...s.messages, { id: gridMsgId(), role: 'system', parts: [textPart(`🔍 后台审查: ${brSummary}`)], timestamp: Date.now() } as ChatMessage].slice(-WINDOW_MAX), lastActivity: Date.now() }));
@@ -921,7 +946,7 @@ export function useGridChat(
           break;
         }
         // ── 会话详情恢复（对齐单视图 onSessionInfo — pending 交互重建 + 🔴 Phase B running=false 自愈）──
-        case 'session.info': {
+        case WsEvent.SESSION_INFO: {
           // 🔴 2026-08-13 并发修复：焦点卡片 cwd 推送（宫格/独立窗口文件面板跟随）。
           // 单视图由 useSSE routeWsEvent 过滤 + useMessageStream 推送；宫格下 useGridChat
           // 接管事件——此前不推 → 切焦点卡片文件面板停留在旧卡片目录（串台观感）。

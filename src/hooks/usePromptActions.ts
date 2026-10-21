@@ -66,7 +66,7 @@ export function usePromptActions({
   setConnectionStatus: React.Dispatch<React.SetStateAction<string>>
   addDebugEvent: (type: string, detail: string) => void
   setSessionListVersion?: React.Dispatch<React.SetStateAction<number>>
-  send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string; queued?: boolean }) => Promise<void>
+  send: (text: string, sessionId?: string | null, modelOpts?: { model?: string; provider?: string; title?: string; queued?: boolean }) => Promise<boolean>
   abort?: () => Promise<void>
   handleNewSession: (title?: string) => Promise<void>
   // 🔴 M-1/M-2 修复：发送链不再携带全局 model/provider ——
@@ -195,8 +195,10 @@ export function usePromptActions({
     const wasBusy = isSendingRef.current || getIsStreaming();
     // 直接发送（idle 直发 / busy 直发共用；wasBusy 不加锁——锁归属 live turn，
     // 对齐宫格 sendTo：早释放会打开双提交窗口，早持有会让旧 turn 的 complete 误 drain）
-    if (!wasBusy) isSendingRef.current = true;
-    storeSetMessages((prev) => [...prev, { id: genId(), role: 'user', parts: [textPart(text)], attachmentRefs: attachmentDataURLs?.length ? attachmentDataURLs : undefined, timestamp: Date.now() } as ChatMessage]);
+    // 🔴 D1（2026-10-21）：记录本次是否由我们取得发送锁——硬闸挡回时
+    // 只释放自己取得的锁，不能误清 live turn 的锁。
+    const acquiredSendingLock = !wasBusy;
+    if (acquiredSendingLock) isSendingRef.current = true;
 
     const wsClient = getWsClient();
     await wsClient.ensureConnected(10000);
@@ -208,10 +210,16 @@ export function usePromptActions({
     const submitLockKey = sessionId || '__pending_new__';
     if (_submitInFlight.has(submitLockKey)) {
       console.warn('[handleSend] submitInFlight guard: already submitting for', submitLockKey);
-      if (!wasBusy) isSendingRef.current = false;
+      if (acquiredSendingLock) isSendingRef.current = false;
       return;
     }
     markSubmitInFlight(submitLockKey);
+
+    // 🔴 D1（2026-10-21）：乐观上屏移到 in-flight 闸**之后**。
+    // 旧顺序（上屏 → ensureConnected → 闸）在连点/弱网下会先加两条用户气泡、
+    // 第二次被闸挡回 → 第二条永久残留（无法清除的幽灵消息，且只提交了一次）。
+    const optimisticMessageId = genId();
+    storeSetMessages((prev) => [...prev, { id: optimisticMessageId, role: 'user', parts: [textPart(text)], attachmentRefs: attachmentDataURLs?.length ? attachmentDataURLs : undefined, timestamp: Date.now() } as ChatMessage]);
 
     // 🔴 2026-08-09 对齐 Hermes createBackendSessionForSend：无会话发送首条消息前
     // 先 session.create（带 cwd），再 submit——后端 prompt.submit 自动创建的会话
@@ -260,9 +268,16 @@ export function usePromptActions({
     addDebugEvent('text', `user: ${text.slice(0, 60)}`);
 
     try {
-      await send(text, sessionId, modelOpts);
-      // 🔴 2026-08-12 树自动刷新：消息发送后 bump → 项目树静默重拉（预览会话标题/时间/计数回显）
-      setSessionListVersion?.((v) => v + 1);
+      const submitted = await send(text, sessionId, modelOpts);
+      if (!submitted) {
+        // 🔴 D1（2026-10-21）：提交失败 → 回滚乐观气泡（错误提示由 onError
+        // 通道给出）。此前气泡永久残留，用户只能看到一条"永远没有回复"的消息。
+        storeSetMessages((prev) => prev.filter((m) => m.id !== optimisticMessageId));
+        if (acquiredSendingLock) isSendingRef.current = false;
+      } else {
+        // 🔴 2026-08-12 树自动刷新：消息发送后 bump → 项目树静默重拉（预览会话标题/时间/计数回显）
+        setSessionListVersion?.((v) => v + 1);
+      }
     } finally {
       clearSubmitInFlight(submitLockKey);
     }
