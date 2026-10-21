@@ -958,7 +958,17 @@ export function useMessageStream({
         !unresolvedUserTail &&
         effectiveId
       ) {
-        sess.loadHistory(effectiveId).then((msgs) => {
+        // 🔴 2026-10-21：回写守卫。`loadHistory` 只对"游标"做 `getSessionId()===id`
+        // 校验，返回的消息数组没有任何归属判断——请求在飞期间用户切走会话或已发
+        // 下一条（onRunStart 改了 currentSessionIdRef / streamIdRef）时，旧会话历史
+        // 会整体覆盖 store ⇒ 新会话消息/新轮流式气泡被抹掉（串台观感）。
+        // 三重判据：会话未变 + 仍在本轮终态（无新轮开始）+ streamId 未被新轮占用。
+        const hydrateSid = effectiveId
+        const hydrateStreamId = streamIdRef.current
+        sess.loadHistory(hydrateSid).then((msgs) => {
+          if (currentSessionIdRef.current !== hydrateSid) return
+          if (!turnEndedRef.current) return
+          if (streamIdRef.current !== hydrateStreamId) return
           if (msgs && msgs.length) {
             storeSetMessages(() => msgs)
           }

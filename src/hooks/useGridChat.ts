@@ -192,6 +192,11 @@ export function useGridChat(
 
   // 🔴 per-agent 发送锁（2026-08-16 方案A：localStorage 队列已退役，无排队）
   const sendingRef = useRef<Record<string, boolean>>({});
+  // 🔴 2026-10-21：锁归属（profile → 持锁轮所属 sessionId，新建会话未拿到 id 时为 null）。
+  // 锁与累加器都是 per-profile 的，但事件可能来自同 profile 下**已被切走**的会话
+  // （后台轮 / 排队 drain 轮 / 委派回注轮）——只有持锁轮自己的终态才允许释放锁、
+  // 清累加器（旧实现无条件释放 → 摘掉 live 轮的锁，可双提交；清 acc → 抹掉 live 轮文本）。
+  const sendingOwnerRef = useRef<Record<string, string | null>>({});
   // 注：2026-08-16 方案A 队列退役——本地队列已删除，sendingRef 保留为 per-agent 发送锁
   // 锁由 message.complete 单一权威释放（Phase B），见 abortAgent/complete 分支
   // 🔴 D1（2026-10-21）：per-agent 提交中闸门（与 sendingRef 语义不同）——
@@ -232,6 +237,7 @@ export function useGridChat(
     // 🔴 P0-3: 切会话前重置旧流状态（防旧流 message.complete 终稿注入新会话）
     if (accRef.current[profile]) resetAccumulator(accRef.current[profile]);
     sendingRef.current[profile] = false;
+    sendingOwnerRef.current[profile] = null;
     // 🔴 2026-08-13 边界修复：切会话清 pending 槽（新会话无旧审批/澄清卡；
     // loadLatest 不一定建 WS 流 → session.info 可能不推，必须显式清）
     // 🔴 2026-08-17 阶段4：交互按会话多槽归属——切 slot 不清 interactions
@@ -359,7 +365,11 @@ export function useGridChat(
     // 🔴 Phase 2: wasBusy 直发路径【不加锁】——锁归属仍是 live turn（steered：旧流自带
     // message.complete 终止链；queued：后端 drain 循环起新 turn，run.started 驱动）。
     // 若此处加锁，旧 turn 的 complete 会误 drain 前端队列，且 queued 分支的释放逻辑双写。
-    if (!wasBusy) sendingRef.current[profile] = true;
+    if (!wasBusy) {
+      sendingRef.current[profile] = true;
+      // 锁归属：新建会话时 sessionId 尚为空，onSessionCreated 会补写权威 id
+      sendingOwnerRef.current[profile] = sessionId ?? null;
+    }
 
     // 🔴 阶段2 统一（frontend-chat-unification-2026-09-09）：ensureConnected +
     // prompt.submit + route_busy_submit outcome（steered/redirected/queued
@@ -379,6 +389,8 @@ export function useGridChat(
           // 后端可能新建 session → 记录 sessionId + 🔴 P1-F 即时持久化（防崩溃丢失）
           onSessionCreated: (newSid) => {
             patch(profile, (st) => ({ ...st, sessionId: newSid }));
+            // 锁归属跟随后端权威 id（acquire 时 sessionId 可能为 null）
+            if (sendingRef.current[profile]) sendingOwnerRef.current[profile] = newSid;
             noteSession(newSid);
           },
         },
@@ -387,6 +399,7 @@ export function useGridChat(
       // 🔴 Phase 2: wasBusy 直发失败不动锁 —— 锁归属是 live turn（其 complete 负责释放）
       if (!wasBusy) {
         sendingRef.current[profile] = false;
+        sendingOwnerRef.current[profile] = null;
         patch(profile, (st) => ({ ...st, status: 'idle' }));
       }
       console.error('[useGridChat] sendTo failed:', profile, e);
@@ -475,6 +488,7 @@ export function useGridChat(
     // 🔴 释放发送锁（对齐单视图 resetSendingLock）
     // 不释放 → 旧流被 abort 后 message.complete 永不到达 → sendingRef 恒 true → Agent 锁死
     sendingRef.current[profile] = false;
+    sendingOwnerRef.current[profile] = null;
     patch(profile, (st) => ({
       ...emptyState(),
       lastActivity: st.lastActivity,
@@ -592,9 +606,16 @@ export function useGridChat(
         // 🔴 2026-08-17 阶段4（per-session 并发轮配套）：交互类事件不受 slot
         // 守卫约束（admitBySlotGuard 内放行）——后台会话的审批/澄清/凭据请求
         // 必须可见可响应（被丢弃 = 工具挂到超时）。
+        // 🔴 2026-10-21：终态事件只在「持锁轮就是事件属主」时才可释放锁/清累加器。
+        // 旧实现无条件释放：切走会话后旧会话（同 profile）的后台轮/排队轮/回注轮
+        // 到达 complete → 摘掉 live 轮的锁（可双提交）+ 抹掉 live 轮的流式文本。
         if (eventName === WsEvent.MESSAGE_COMPLETE || eventName === WsEvent.ERROR) {
-          sendingRef.current[profile] = false;
-          resetAccumulator(acc);
+          const owner = sendingOwnerRef.current[profile];
+          if (owner != null && owner === sessionId) {
+            sendingRef.current[profile] = false;
+            sendingOwnerRef.current[profile] = null;
+            resetAccumulator(acc);
+          }
         }
         return;
       }
@@ -722,6 +743,7 @@ export function useGridChat(
           // 2026-08-16 方案A：本地队列退役——不再前端出队，排队显示由后端
           // queue.status 轮询驱动（后端 spawn_ws_turn_with_drain 自动续轮）
           sendingRef.current[profile] = false;
+          sendingOwnerRef.current[profile] = null;
           break;
         }
         case WsEvent.APPROVAL_REQUEST:
@@ -798,6 +820,7 @@ export function useGridChat(
             const newSid = payload.new_session_id as string | undefined;
             // 🔴 释放发送锁（后端 reset 会中断当前流，message.complete 可能不到达）
             sendingRef.current[profile] = false;
+            sendingOwnerRef.current[profile] = null;
             if (newSid) {
               patch(profile, () => ({
                 ...emptyState(),
@@ -837,6 +860,7 @@ export function useGridChat(
           // 🔴 Phase B: error 也是权威终止事件，释放锁（对齐单视图 onError → drainQueue）
           // 2026-08-16 方案A：本地队列退役——不再前端出队，排队显示由后端驱动
           sendingRef.current[profile] = false;
+          sendingOwnerRef.current[profile] = null;
           break;
         }
         // ── 推理生命周期（reasoning.available / reasoning.delta / reasoning.end 均由 processAccumulatorEvent 统一处理）──
@@ -958,6 +982,7 @@ export function useGridChat(
           // 单视图 useMessageStream:565 有等价分支；宫格之前缺失 → 流式卡死锁无逃生
           if (payload.running === false && sendingRef.current[profile]) {
             sendingRef.current[profile] = false;
+            sendingOwnerRef.current[profile] = null;
             const finalParts = finalizeAccumulator(acc);
             resetAccumulator(acc);
             patch(profile, (s) => {
