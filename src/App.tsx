@@ -1247,6 +1247,7 @@ export default function App() {
     clearImages,
     clearError: clearImageError,
     uploadUnuploaded,
+    markUnuploaded,
   } = useImageAttachments({ getSessionId: () => sess.sessionId });
 
   // 🔴 2026-08-22 重构：聊天图片编辑 = 主窗口内嵌编辑器（壳独立能力，
@@ -1362,6 +1363,9 @@ export default function App() {
         for (const p of synced.paths) {
           ws.imageDetach(p, sid).catch(() => {});
         }
+        // 🔴 2026-10-21：chip 留在界面 → 必须退回"待上传"，否则 uploaded=true
+        // 会让下一次发送跳过重新 attach（chip 还在、模型收不到图）。
+        markUnuploaded(synced.paths);
         return;
       }
     }
@@ -1374,20 +1378,28 @@ export default function App() {
     const fileRefs = attachedFiles.map((f) => f.refText).join(' ');
     const finalText = fileRefs ? `${fileRefs}\n${text}` : text;
 
-    rawHandleSend(finalText, dataURLs.length > 0 ? dataURLs : undefined);
+    // 🔴 2026-10-21：只有**已被后端消费**（accepted / steer / queue）才清本地
+    // 附件 chip。旧实现无条件清空：slash 命令 / in-flight 闸 / 建会话失败 /
+    // 提交失败（含新的队列拒绝）路径下，图已 attach 到后端却从 UI 消失 →
+    // 下一条无关消息被静默带上这张图（串图），用户也无法重试。
+    const consumed = await rawHandleSend(
+      finalText,
+      dataURLs.length > 0 ? dataURLs : undefined,
+    );
 
     // 🔴 2026-08-16 方案A：附件归属后端权威——busy 直发后端 route_busy_submit：
     // media 非空必 fall through Queue，Queue 快照接管 attached_images 后
-    // 后端自行 detach_image（dispatch.rs），Overflow 时保留 for retry；
+    // 后端自行 detach_image（dispatch.rs），拒绝时保留 for retry；
     // 前端不再做条目级 imageDetach（旧前端自治队列配套，已退役）。
-    // 发送/排后都清本地预览（后端 prompt.submit 自动 drain / 排队已暂存）
-    if (images.length > 0) {
-      clearImages();
+    if (consumed) {
+      if (images.length > 0) {
+        clearImages();
+      }
+      if (attachedFiles.length > 0) {
+        clearFilesAttachment();
+      }
     }
-    if (attachedFiles.length > 0) {
-      clearFilesAttachment();
-    }
-  }, [rawHandleSend, attachedImages, clearImages, isSendingRef, sess.sessionId, sess, currentProfile, uploadUnuploaded, attachedFiles, clearFilesAttachment]);
+  }, [rawHandleSend, attachedImages, clearImages, isSendingRef, sess.sessionId, sess, currentProfile, uploadUnuploaded, markUnuploaded, attachedFiles, clearFilesAttachment]);
 
   // 适配 addImage 签名：useImageAttachments 返回 Promise<AttachedImage | null>，
   // InputArea 的 onAddImage 期望 Promise<void>，丢弃返回值即可

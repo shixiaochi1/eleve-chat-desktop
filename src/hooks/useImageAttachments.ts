@@ -375,6 +375,23 @@ export function useImageAttachments(options?: {
     setError(null);
   }, []);
 
+  /**
+   * 把指定后端路径的附件退回「待上传」（🔴 2026-10-21）。
+   *
+   * 场景：附件已 `uploadUnuploaded` 附着到会话，但最终**没有提交**（会话在 await
+   * 期间被切走 → 已 detach；或提交失败/被闸挡回）。此时 chip 留在 UI 上，
+   * 若 `uploaded` 仍为 true，下一次发送会跳过重新 attach → 模型收不到图。
+   */
+  const markUnuploaded = useCallback((paths: string[]) => {
+    if (paths.length === 0) return;
+    const target = new Set(paths);
+    setAttachedImages((prev) =>
+      prev.map((img) =>
+        target.has(img.path) ? { ...img, uploaded: false, path: '' } : img,
+      ),
+    );
+  }, []);
+
   const clearError = useCallback(() => {
     setError(null);
   }, []);
@@ -409,5 +426,6 @@ export function useImageAttachments(options?: {
     clearImages,
     clearError,
     uploadUnuploaded,
+    markUnuploaded,
   };
 }

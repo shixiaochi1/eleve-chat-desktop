@@ -81,7 +81,13 @@ export function usePromptActions({
   /** 🔴 2026-08-13 对齐修复：turn 结束通知（含 abort/失败）——App 消费 busy 期间
    *  点项目记录的 pending 烙印（turn 完成后自动 session.cwd.set 到项目根） */
 }): {
-  handleSend: (text: string, attachmentDataURLs?: string[]) => void
+  /**
+   * 发送消息。返回值 = 本条消息是否**已被后端消费**（accepted / steer / queue）：
+   * `false` 表示未提交（slash 命令分支 / in-flight 闸 / 建会话失败 / 提交失败），
+   * 调用方据此决定是否清空本地附件 chip（🔴 2026-10-21：清早了会让后端残留附件
+   * 被下一条无关消息带走，且用户无法重试）。
+   */
+  handleSend: (text: string, attachmentDataURLs?: string[]) => Promise<boolean>
   handleAbort: () => void
   handleCommand: (cmdName: string, args?: string) => Promise<void>
   isSendingRef: MutableRefObject<boolean>
@@ -151,11 +157,11 @@ export function usePromptActions({
   }, [sess, genId, setSessionListVersion, onSlashConfirm, send, isSendingRef]);
 
   // ── send message ──
-  const handleSend = useCallback(async (text: string, attachmentDataURLs?: string[]) => {
+  const handleSend = useCallback(async (text: string, attachmentDataURLs?: string[]): Promise<boolean> => {
     // 🔴 2026-08-20：纯图片（无文字）放行——attachmentDataURLs 非空即有图
     //（对齐 Hermes 图片独立提交；后端 prompt.submit 对空文本+attached_images 已放行）。
     // 此前 `if (!text.trim()) return` 直接丢弃纯图片消息 → 消息区不显示 + agent 不回复。
-    if (!text.trim() && !(attachmentDataURLs && attachmentDataURLs.length > 0)) return;
+    if (!text.trim() && !(attachmentDataURLs && attachmentDataURLs.length > 0)) return false;
 
     if (!storage.isReady()) {
       console.warn('[handleSend] Storage not ready, waiting...');
@@ -166,12 +172,14 @@ export function usePromptActions({
     if (text.trimStart().startsWith('/')) {
       const cmdPart = text.trimStart().replace(/^\//, '').split(/\s/)[0].toLowerCase();
       const args = text.trimStart().replace(/^\/\S+\s*/, '').trim();
+      // 🔴 2026-10-21：命令分支不消费附件——返回 false 让调用方保留 chip
+      //（旧实现外层无条件清空，图已 attach 到后端 → 被下一条无关消息带走）
       if (cmdPart === 'new' || cmdPart === 'reset') {
         handleNewSession(args || undefined);
-        return;
+        return false;
       }
       handleCommand(cmdPart, args);
-      return;
+      return false;
     }
 
     // 🔴 2026-09-08 round-76 对齐 Hermes DF3 mention middleware（**identification-only**）：
@@ -211,7 +219,7 @@ export function usePromptActions({
     if (_submitInFlight.has(submitLockKey)) {
       console.warn('[handleSend] submitInFlight guard: already submitting for', submitLockKey);
       if (acquiredSendingLock) isSendingRef.current = false;
-      return;
+      return false;
     }
     markSubmitInFlight(submitLockKey);
 
@@ -243,7 +251,7 @@ export function usePromptActions({
           );
           clearSubmitInFlight(submitLockKey);
           if (acquiredSendingLock) isSendingRef.current = false;
-          return;
+          return false;
         }
         sess.setSessionId(created.session_id);
         // 🔴 2026-08-11 修复：sessionCreate 分支缺 persistSessionPointer →
@@ -257,7 +265,7 @@ export function usePromptActions({
         console.error('[handleSend] sessionCreate failed, aborting send:', err);
         clearSubmitInFlight(submitLockKey);
         if (acquiredSendingLock) isSendingRef.current = false;
-        return;
+        return false;
       }
     }
 
@@ -278,8 +286,9 @@ export function usePromptActions({
     setMonitor((prev) => ({ ...prev, tokensIn: 0, tokensOut: 0 }));
     addDebugEvent('text', `user: ${text.slice(0, 60)}`);
 
+    let submitted = false;
     try {
-      const submitted = await send(text, sessionId, modelOpts);
+      submitted = await send(text, sessionId, modelOpts);
       if (!submitted) {
         // 🔴 D1（2026-10-21）：提交失败 → 回滚乐观气泡（错误提示由 onError
         // 通道给出）。此前气泡永久残留，用户只能看到一条"永远没有回复"的消息。
@@ -299,6 +308,8 @@ export function usePromptActions({
     if (sess.freshDraftReady) {
       sess.setFreshDraftReady(false);
     }
+    // 🔴 2026-10-21：把"是否已被后端消费"交给调用方（附件 chip 清理依据）
+    return submitted;
   }, [sess, genId, send, addDebugEvent, handleCommand, handleNewSession, setConnectionStatus, currentProfile, getNewSessionCwd]);
 
   // ── abort ──

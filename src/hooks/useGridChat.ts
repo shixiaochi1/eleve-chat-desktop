@@ -160,7 +160,8 @@ export function useGridChat(
   states: Record<string, AgentChatState>;
   loadLatest: (profile: string, sessionId: string) => Promise<void>;
   loadMore: (profile: string) => Promise<void>;
-  sendTo: (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachmentDataURLs?: string[]; explicitSessionId?: string }) => Promise<void>;
+  /** 返回 false = 消息未被后端消费（闸挡/提交失败）→ 调用方保留附件 chip */
+  sendTo: (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachmentDataURLs?: string[]; explicitSessionId?: string }) => Promise<boolean>;
   abortAgent: (profile: string) => Promise<void>;
   clearPending: (profile: string, kind: 'approval' | 'clarify' | 'clarify_batch' | 'sudo' | 'secret' | 'slash_confirm') => void;
   /** 新建会话：清空本 Agent 上下文，下条 sendTo 后端自动建新 session */
@@ -296,12 +297,14 @@ export function useGridChat(
   }, [patch]);
 
   // ── 发送消息到指定 Agent（显式 profile + session_id，不切全局盖章） ──
-  const sendTo = useCallback(async (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachmentDataURLs?: string[]; explicitSessionId?: string }) => {
+  // 🔴 2026-10-21：返回「是否已被后端消费」——调用方据此决定清空附件 chip 的时机
+  // （未提交的路径必须保留 chip，否则后端残留附件会被下一条无关消息带走）。
+  const sendTo = useCallback(async (profile: string, text: string, modelOpts?: { model?: string; provider?: string }, opts?: { attachmentDataURLs?: string[]; explicitSessionId?: string }): Promise<boolean> => {
     // 🔴 2026-08-27 纯图片消息放行（对齐 Hermes"图片可独立提交"，与
     // usePromptActions.handleSend / useSSE.send 同口径）——附件 base64 已由
     // useImageAttachments.addImage 即时 imageAttachBytes 上传后端 session，
     // 空文本照发后端裁决（空文本+无图 → 后端 "text is required" 错误反馈）。
-    if (!text.trim() && !(opts?.attachmentDataURLs && opts.attachmentDataURLs.length > 0)) return;
+    if (!text.trim() && !(opts?.attachmentDataURLs && opts.attachmentDataURLs.length > 0)) return false;
 
     // 🔴 Phase 2: per-agent 发送锁保留，但 busy 分支不再是"前端截流排队"——
     // 附件/纯文本统一直发后端 prompt.submit，由 route_busy_submit 决定
@@ -322,7 +325,7 @@ export function useGridChat(
     // 两条用户气泡（后端只能靠 steer/queue 去重，前端已经脏了）。
     if (submitInFlightRef.current[profile]) {
       console.warn('[useGridChat] sendTo guard: already submitting for', profile);
-      return;
+      return false;
     }
     submitInFlightRef.current[profile] = true;
 
@@ -375,6 +378,7 @@ export function useGridChat(
     // prompt.submit + route_busy_submit outcome（steered/redirected/queued
     // toast）+ 新会话回传——公共骨架收敛到 lib/prompt-submit.ts。本层保留：
     // per-slot 锁/状态管理、sessionId 前缀守卫、失败 toast。
+    let consumed = false;
     try {
       await submitPromptViaWs(
         getWsClient(),
@@ -395,6 +399,7 @@ export function useGridChat(
           },
         },
       );
+      consumed = true;
     } catch (e) {
       // 🔴 Phase 2: wasBusy 直发失败不动锁 —— 锁归属是 live turn（其 complete 负责释放）
       if (!wasBusy) {
@@ -414,6 +419,7 @@ export function useGridChat(
       // 提交窗口结束即释放（成功/失败都释放；live turn 的锁仍是 sendingRef）
       submitInFlightRef.current[profile] = false;
     }
+    return consumed;
   }, [patch]);
 
   // ── 中止某 Agent 的流 ──

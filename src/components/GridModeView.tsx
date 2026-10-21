@@ -265,8 +265,9 @@ const GridModeView = forwardRef<GridModeViewHandle, GridModeViewProps>(function 
   // 🔴 M-1/M-2 修复：宫格发送不再注入全局 currentModel —— 每张卡片用自己
   // session 的 client（该 profile config.model_ref 热更新 + 卡片级 provider.switch override），
   // 各 Agent 模型互不干扰。useModelContext 仅保留给 ModelPill 展示。
+  // 🔴 2026-10-21：把 sendTo 的「是否已被后端消费」透传给卡片（附件 chip 清理依据）
   const handleSendTo = useCallback((profile: string, text: string, attachmentDataURLs?: string[], sessionId?: string) => {
-    sendTo(profile, text, undefined, { attachmentDataURLs, explicitSessionId: sessionId });
+    return sendTo(profile, text, undefined, { attachmentDataURLs, explicitSessionId: sessionId });
   }, [sendTo]);
 
   // 状态镜像（退出/展开时读当前各 Agent session 指针）

@@ -73,7 +73,8 @@ interface AgentChatCardProps {
   color: AgentCardColor;
   focused: boolean;
   portReady: boolean;
-  onSend: (profile: string, text: string, attachmentDataURLs?: string[], sessionId?: string) => void;
+  /** 🔴 2026-10-21：返回 false = 消息未被后端消费（闸挡/失败）→ 保留附件 chip */
+  onSend: (profile: string, text: string, attachmentDataURLs?: string[], sessionId?: string) => void | Promise<boolean>;
   onLoadMore: (profile: string) => void;
   onAbort: (profile: string) => void;
   onClearPending: (profile: string, kind: 'approval' | 'clarify' | 'clarify_batch' | 'sudo' | 'secret' | 'slash_confirm', sessionId?: string) => void;
@@ -375,13 +376,19 @@ export const AgentChatCard = memo(function AgentChatCard({
     const fileRefs = attachedFiles.map((f) => f.refText).join(' ');
     const finalText = fileRefs ? `${fileRefs}\n${text}` : text;
 
-    onSend(name, finalText, dataURLs.length > 0 ? dataURLs : undefined, explicitSid);
-    // 🔴 2026-08-16 方案A：附件归属后端权威——busy 直发后端 route_busy_submit：
-    // media 非空必 fall through Queue，Queue 快照接管 attached_images 后
-    // 后端自行 detach_image（dispatch.rs），Overflow 时保留 for retry；
-    // 前端不再做条目级 imageDetach（旧前端自治队列配套，已退役）。
-    if (images.length > 0) clearImages();
-    if (attachedFiles.length > 0) clearFileAttachments();
+    const consumed = await onSend(
+      name,
+      finalText,
+      dataURLs.length > 0 ? dataURLs : undefined,
+      explicitSid,
+    );
+    // 🔴 2026-10-21：只有后端已消费才清 chip（与单视图 App.handleSend 同口径）。
+    // 旧实现无条件清空：闸挡/提交失败时图已 attach 到后端却从 UI 消失 →
+    // 下一条无关消息被静默带上这张图。
+    if (consumed !== false) {
+      if (images.length > 0) clearImages();
+      if (attachedFiles.length > 0) clearFileAttachments();
+    }
   }, [onSend, name, clearImages, attachedImages, state.status, uploadUnuploaded, attachedFiles, clearFileAttachments, getNewSessionCwd]);
 
   // 🔴 2026-08-17 阶段4：交互按会话多槽——slot 会话交互渲染卡片，
