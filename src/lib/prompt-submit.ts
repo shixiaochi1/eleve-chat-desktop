@@ -37,6 +37,18 @@ export interface PromptSubmitParams {
   title?: string;
   /** 🔴 单视图特有：client drain 续发标记（红线 3——drain 消息强制 queue） */
   queued?: boolean;
+  /**
+   * 幂等键（2026-10-21）：一次「用户发送意图」的稳定标识。
+   * 调用方若实现自动重试，必须在所有重试中复用同一个 id；不传则由本层生成。
+   */
+  clientEventId?: string;
+}
+
+/** 生成本次发送意图的幂等键（crypto.randomUUID 优先，旧环境回退）。 */
+function newClientEventId(): string {
+  const c = (globalThis as { crypto?: Crypto }).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return `ce_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export interface PromptSubmitCallbacks {
@@ -82,6 +94,9 @@ export async function submitPromptViaWs(
   const result = (await ws.sendRpc('prompt.submit', {
     text: params.text,
     session_id: params.sessionId ?? '',
+    // 🔴 2026-10-21：后端按 (session_id, client_event_id) TTL 去重——
+    // 传输层重试不会产生第二条提问/第二轮回复。
+    client_event_id: params.clientEventId ?? newClientEventId(),
     ...(params.profile ? { profile: params.profile } : {}),
     ...(params.model ? { model: params.model, provider: params.provider || '' } : {}),
     ...(params.title ? { title: params.title } : {}),

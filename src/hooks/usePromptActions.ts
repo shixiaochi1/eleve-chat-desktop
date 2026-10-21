@@ -234,6 +234,17 @@ export function usePromptActions({
           profile: currentProfile,
           ...(cwd ? { cwd } : {}),
         });
+        // 🔴 D4（2026-10-21）：await 期间用户已切到别的会话/Agent → 放弃写回。
+        // 旧实现无条件 setSessionId + persistSessionPointer：新会话指针会覆盖
+        // 用户刚切过去的会话（切走后被拉回新会话 / 指针串台）。
+        if (sess.getSessionId()) {
+          console.warn(
+            '[handleSend] session switched during sessionCreate — dropping new session pointer',
+          );
+          clearSubmitInFlight(submitLockKey);
+          if (acquiredSendingLock) isSendingRef.current = false;
+          return;
+        }
         sess.setSessionId(created.session_id);
         // 🔴 2026-08-11 修复：sessionCreate 分支缺 persistSessionPointer →
         // 指针永远不落盘（onSessionCreated 因 id 相等不触发）→ 重启/HMR 后
@@ -245,7 +256,7 @@ export function usePromptActions({
         // 对齐 Hermes: 建会话失败 → 中止发送
         console.error('[handleSend] sessionCreate failed, aborting send:', err);
         clearSubmitInFlight(submitLockKey);
-        if (!wasBusy) isSendingRef.current = false;
+        if (acquiredSendingLock) isSendingRef.current = false;
         return;
       }
     }
