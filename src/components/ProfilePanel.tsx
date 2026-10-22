@@ -146,10 +146,28 @@ function ProfileCard({
       title={meta}
       className={cn(
         'group relative w-full h-full flex items-center gap-2.5 pl-2.5 pr-2 cursor-pointer transition-colors overflow-hidden',
-        active ? 'bg-accent/50' : 'hover:bg-accent/30',
+        // 🔴 2026-10-23 用户要求"选中要更明显"：选中底色 = 该 Agent 主题色淡染
+        // （内联 style 计算，见下）；非选中只保留 hover 反馈。
+        !active && 'hover:bg-accent/30',
         switching && 'opacity-60'
       )}
+      style={
+        active
+          ? { background: `color-mix(in srgb, ${accent} 12%, transparent)` }
+          : undefined
+      }
     >
+      {/* 选中标识：左侧主题色发光竖条（与项目卡片/会话行同一语言；比纯底色更醒目） */}
+      {active && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
+          style={{
+            background: accent,
+            boxShadow: `0 0 8px color-mix(in srgb, ${accent} 65%, transparent)`,
+          }}
+        />
+      )}
       {/* 头像（微信式 40px 圆角方；运行中 = 右下角绿点；选中 = accent 细描边） */}
       <div
         className="relative shrink-0 w-10 h-10 rounded-lg overflow-hidden bg-muted/40 flex items-center justify-center transition-shadow"
@@ -171,12 +189,14 @@ function ProfileCard({
       <div
         className={cn(
           'min-w-0 flex-1 self-stretch flex flex-col justify-center gap-0.5',
-          !isLast && 'border-b border-[var(--ui-stroke-quaternary)]'
+          // 选中行不画分隔线（整块高亮里一条线会显脏）；其余行保留
+          !isLast && 'border-b',
+          active ? 'border-transparent' : 'border-[var(--ui-stroke-quaternary)]'
         )}
       >
         <div className="flex items-center gap-1.5 min-w-0">
-          {/* 名称恒深色（微信联系人）：只有预览行是灰的；选中只加粗 */}
-          <span className={cn('truncate flex-1 text-[13px] text-foreground', active && 'font-medium')}>
+          {/* 名称恒深色（微信联系人）：只有预览行是灰的；选中加粗 */}
+          <span className={cn('truncate flex-1 text-[13px] text-foreground', active && 'font-semibold')}>
             {displayName}
           </span>
           {profile.is_default && (
