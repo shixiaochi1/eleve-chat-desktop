@@ -22,7 +22,7 @@
  * BotsView 卸载后（切回单视图/宫格）信号必须继续——这正是它存在的意义。
  */
 import { useSyncExternalStore } from 'react';
-import { fetchBotsRoster, type BotRosterEntry } from '../utils/api';
+import { fetchBotsRoster, markBotChatRead, type BotRosterEntry } from '../utils/api';
 import { refreshUnionRoster } from '../plugins/bots/state';
 import { activeSessionId } from '../store/session-status';
 import { isPluginEnabled } from '../contrib/plugins-store';
@@ -37,7 +37,9 @@ const ROSTER_POLL_MS = 5 * 1000;
 // （eleve.plugin.bots.*）；模块级生命周期 ≠ 插件实例，故直写 localStorage
 // 而非 ctx.storage（ctx.storage 未暴露给 hooks 层，语义约定一致）。
 
-let seeded = false;
+// 🔴 2026-10-23（审计 B2）：删除全局 `seeded` 标志——后端 `last_read_at`
+// 才是权威基线（Hermes 语义）。旧实现"首帧只播种"是进程级单标志，新出现的键
+// （首登 bot / 新接远端机）在 seeded=true 时 wm=0 → 一律误报未读。
 /**
  * 水位线/未读表。🔴 2026-09-05 round-54：键从 profile 改为
  * **canonical_session_id ?? profile**——union 花名册含远端连接行，两台机器
@@ -97,23 +99,33 @@ export function ingestBotRoster(bots: BotRosterEntry[]): void {
   for (const bot of bots) {
     const key = unreadKey(bot);
     const la = bot.last_active || 0;
-
-    const wm = watermarks.get(key) ?? 0;
-    if (!seeded || la > wm) watermarks.set(key, la);
+    // 🔴 2026-10-23（审计 B2，对齐 Hermes `sessions.last_read_at`）：
+    // - 后端水位线 = 权威基线；`null` = 从未标记 ⇒ 以当前活动为基线（视为已读，
+    //   旧库/首登 bot 不会一次性全红）;
+    // - 本地 wm 只覆盖"已点开、RPC 尚未回传"的乐观窗口。
+    const serverRead = bot.last_read_at ?? la;
+    const wm = Math.max(watermarks.get(key) ?? 0, serverRead);
+    latestByKey.set(key, la);
 
     // 不在屏上 = 该 canonical 会话不是当前活动会话（键即 sid；远端会话
-    // 永不可能是本地活动会话 → 远端活动正确置未读）。后端契约：
-    // last_active 有值必有 canonical_session_id（同源返回），无 sid 的行
-    // la=0 走不到此分支。
-    if (seeded && la > wm && key !== activeSessionId()) {
+    // 永不可能是本地活动会话 → 远端活动正确置未读）。
+    if (la > wm && key !== activeSessionId()) {
       if (!unread.get(key)) {
         unread.set(key, true);
         changed = true;
       }
+      // 本地推进到 la：同一活动不重复触发；**不代表已读**（serverRead 未变）
       watermarks.set(key, la);
+    } else {
+      if (la > (watermarks.get(key) ?? 0)) watermarks.set(key, la);
+      // 后端明确已读到该活动（另一窗口/设备已读）→ 清本地红点
+      const serverReadAt = bot.last_read_at;
+      if (serverReadAt !== null && serverReadAt !== undefined && serverReadAt >= la && unread.get(key)) {
+        unread.set(key, false);
+        changed = true;
+      }
     }
   }
-  seeded = true;
   if (changed) emit();
   persist();
 }
@@ -140,6 +152,9 @@ export function markBotRead(profile: string, sessionId?: string): void {
   }
   if (cleared) emit();
   persist();
+  // 🔴 2026-10-23（审计 B2）：同步推进后端水位线（跨设备/重启一致）；
+  // 失败静默——本地已乐观清除，下一帧 roster 会对账。
+  void markBotChatRead(profile).catch(() => undefined);
 }
 
 /** 轮询期间的最新 last_active（markBotRead 用，比水位线更新） */
@@ -218,7 +233,6 @@ async function pollOnce(): Promise<void> {
       if (typeof v === 'number') latestByKey.set(k, v);
     }
     if (watermarks.size > 0) {
-      seeded = true; // 恢复的水位线已覆盖历史——重启不误报旧消息
       lastPersisted = raw;
     }
   } catch {

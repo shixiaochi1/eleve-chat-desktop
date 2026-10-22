@@ -791,6 +791,12 @@ export interface BotRosterEntry {
   /** 🔴 活动信号：canonical Bot Chat 最近活动（epoch 秒；对齐 Hermes RosterRow.last_active） */
   last_active?: number | null;
   /**
+   * 🔴 2026-10-23（审计 B2）：后端未读水位线（对齐 Hermes `sessions.last_read_at`）。
+   * `null`/缺省 = 从未标记（前端按"已读基线"处理，避免旧库首启全红）。
+   * 未读判据：`last_active > last_read_at`。
+   */
+  last_read_at?: number | null;
+  /**
    * 🔴 2026-10-22：canonical Bot Chat 的**最后一条可见消息**（花名册行副标题）。
    *
    * 来源 = 后端 `sessions.last_message_text/at` 冗余快照（append 时落库，不读事件流）。
@@ -904,6 +910,15 @@ export async function fetchBotsRoster(): Promise<BotRosterEntry[]> {
 export async function ensureBotChat(profile: string): Promise<string> {
   const data = await call('bot_chat_ensure', { profile });
   return data?.session_id || '';
+}
+
+/**
+ * 推进 canonical Bot Chat 的未读水位线（B2，对齐 Hermes `sessions.last_read_at`）。
+ * 服务端把水位线设为会话当前 `last_active`；失败静默（本地已先乐观清除）。
+ */
+export async function markBotChatRead(profile: string): Promise<boolean> {
+  const data = await call('bot_chat_mark_read', { profile });
+  return Boolean(data?.marked);
 }
 
 // ── 🔴 2026-09-08 round-78：远端 bot 链路命令收编（此前组件裸 requestForBot
