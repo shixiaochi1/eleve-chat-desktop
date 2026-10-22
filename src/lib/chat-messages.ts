@@ -330,7 +330,11 @@ function toolResult(
     ...(payload?.message ? { message: payload.message } : {}),
     ...(payload?.preview ? { preview: payload.preview } : {}),
     ...(payload?.duration_s !== undefined ? { duration_s: payload.duration_s } : {}),
-    ...(payload?.error ? { error: payload.error } : {}),
+    // 🔴 `tool.complete` 的 payload.error 是**布尔失败标记**（后端 is_error），不是错误正文。
+    // 旧实现无条件合并 → 结果对象退化成 `{"error": true}`：红行折叠摘要显示这串 JSON，
+    // 真实错误文本反而被覆盖；而后端一旦误判（如 `"error": null` 被当成错误）就整行标红。
+    // 失败状态由 isError 承载；这里只接收真正的字符串错误正文。
+    ...(typeof payload?.error === 'string' && payload.error ? { error: payload.error } : {}),
   }
 }
 
