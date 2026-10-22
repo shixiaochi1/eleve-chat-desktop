@@ -38,6 +38,7 @@ import {
   savePinnedIds,
   RepoNodeItem,
   ProjectItem,
+  isBotChatPreview,
   type SessionPreview,
   type LaneGroup,
   type ProjectNode,
@@ -351,6 +352,20 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
     });
   }, [onOpenBotChat, onSwitchSession, currentProfile]);
 
+  // 钻取视图里 HOME 的 canonical 私聊 id 集合（点击分流用；非 HOME 恒空）
+  const drillBotChatIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!drillProject?.isNoProject) return ids;
+    for (const repo of drillProject.repos) {
+      for (const group of repo.groups) {
+        for (const s of group.sessions) {
+          if (isBotChatPreview(s)) ids.add(s.id);
+        }
+      }
+    }
+    return ids;
+  }, [drillProject]);
+
   // 🔴 2026-08-12 单击激活（老大指示：单击激活与 Agent 联动，双击才进入项目）：
   //   只做联动：① onEnterProject（文件面板切项目根/workspace + scope + 消息区选最新会话）
   //   ② 显式项目自动设为激活。不进入钻取视图（双击 handleDrill 才钻取）。
@@ -620,7 +635,13 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                     key={r.id}
                     repo={r}
                     sessionId={sessionId}
-                    onSwitchSession={onSwitchSession}
+                    onSwitchSession={(id) => {
+                      // 🔴 2026-10-22 任务 A：同一行（HOME 的 canonical 私聊）在钻取
+                      // 视图里也必须走 bot 登记链——与总览卡片同一条语义，
+                      // 否则右栏域/主区归属会因入口不同而分叉。
+                      if (drillProject.isNoProject && drillBotChatIds.has(id)) handleOpenBotChatRow(id);
+                      else onSwitchSession?.(id);
+                    }}
                     onSessionRowActivate={() => handleSessionRowActivate(drillProject)}
                     onStartWork={handleStartWork}
                     onReveal={handleReveal}

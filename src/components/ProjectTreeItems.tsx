@@ -742,26 +742,41 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
       {expanded && (
         <div className="mt-1 border-t border-[var(--ui-stroke-quaternary)] pt-0.5">
           {previews.length > 0 ? (
-            previews.map(s => {
-              // 🔴 2026-10-22 任务 A：私聊行 = 普通会话行，但点击走 bot 登记链
-              // （registerBotChatSession + setWorkspaceOwner 在 App.handleOpenBotChat 内）
-              const botChat = project.isNoProject === true && isBotChatPreview(s);
-              return (
-                <SessionItem
-                  key={s.id}
-                  s={s}
-                  isActive={s.id === sessionId}
-                  botChat={botChat}
-                  onClick={() => {
-                    onSessionRowActivate?.(project);
-                    if (botChat && onOpenBotChat) onOpenBotChat(s.id);
-                    else onSwitchSession?.(s.id);
-                  }}
-                  actions={sessionActions}
-                  rowClassName="pl-6 rounded-md hover:bg-accent/30"
-                />
-              );
-            })
+            <>
+              {previews.map(s => {
+                // 🔴 2026-10-22 任务 A：私聊行 = 普通会话行，但点击走 bot 登记链
+                // （registerBotChatSession + setWorkspaceOwner 在 App.handleOpenBotChat 内）
+                const botChat = project.isNoProject === true && isBotChatPreview(s);
+                return (
+                  <SessionItem
+                    key={s.id}
+                    s={s}
+                    isActive={s.id === sessionId}
+                    botChat={botChat}
+                    onClick={() => {
+                      onSessionRowActivate?.(project);
+                      if (botChat && onOpenBotChat) onOpenBotChat(s.id);
+                      else onSwitchSession?.(s.id);
+                    }}
+                    actions={sessionActions}
+                    rowClassName="pl-6 rounded-md hover:bg-accent/30"
+                  />
+                );
+              })}
+              {/* 🔴 2026-10-22 任务 C：卡片只列 Top3（后端 preview_limit），会话更多时
+                  给「查看全部」入口 = 双击同一行的钻取视图（全量水合，不另造列表面）。
+                  sessionCount 是后端权威总数（含未进预览的会话），据此判断是否还有更多。 */}
+              {project.sessionCount > previews.length && (
+                <button
+                  type="button"
+                  className="ml-6 pl-2 pr-3 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:underline"
+                  title={`查看全部 ${project.sessionCount} 条会话`}
+                  onClick={(e) => { e.stopPropagation(); onDrill(project); }}
+                >
+                  查看全部
+                </button>
+              )}
+            </>
           ) : (
             <div className="pl-6 pr-1 py-1 text-[10px] text-muted-foreground/50">暂无会话</div>
           )}
