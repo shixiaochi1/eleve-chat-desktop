@@ -90,6 +90,39 @@ export function profileFromSessionId(sid: string | undefined | null): string | n
 }
 
 /**
+ * 会话平台段（`agent:<profile>:<platform>:<...>`）。
+ *
+ * 🔴 2026-10-22 P0：Bot Chat 的 sid 也是 `agent:<p>:bot:<uuid>` 前缀，只靠
+ * `profileFromSessionId` 会把 DM 当成"该 Agent 上次的普通会话"。返回 null =
+ * 旧格式 / 无法判定（调用方按兼容处理）。
+ */
+export function platformFromSessionId(sid: string | undefined | null): string | null {
+  if (!sid) return null;
+  const parts = sid.split(':');
+  if (parts[0] !== 'agent' || parts.length < 3) return null;
+  return parts[2] || null;
+}
+
+/** Bot 域会话（`agent:<p>:bot:...`）——有独立的 canonical 指针，不进 profile 指针域 */
+export function isBotPlatformSessionId(sid: string | undefined | null): boolean {
+  return platformFromSessionId(sid) === 'bot';
+}
+
+/**
+ * 是否可作为 profile 指针（`profile_session_map`）/ 域内"最近会话"的 id：
+ * 归属该 profile **且** 不是 Bot 域会话。
+ *
+ * 不变量：Agent 卡片恢复的目标必须是**普通会话**；Bot Chat 只能由私聊行
+ * （`bot.chat.ensure`）进入。否则点卡片与点私聊行会落到同一条会话。
+ */
+export function isRestorableProfilePointer(
+  sid: string | undefined | null,
+  profile: string,
+): boolean {
+  return !!sid && !isBotPlatformSessionId(sid) && sessionIdMatchesProfile(sid, profile);
+}
+
+/**
  * 校验 session_id 是否属于指定 profile。
  *
  * 返回值语义:
@@ -194,7 +227,8 @@ export function latestSessionForDomain(
 ): { id: string; cwd?: string | null; last_active: number } | null {
   const p = path.toLowerCase(); // Windows 路径大小写不敏感
   const matches = sessions.filter((s) => {
-    if (!sessionIdMatchesProfile(s.id, profile)) return false;
+    // 🔴 2026-10-22 P0：Bot Chat 不得被当作"该项目最新会话"（否则点项目会进 DM）
+    if (!isRestorableProfilePointer(s.id, profile)) return false;
     const c = (s.cwd ?? '').toLowerCase();
     if (path) return !!c && (c === p || c.startsWith(p + '\\') || c.startsWith(p + '/'));
     return !c;

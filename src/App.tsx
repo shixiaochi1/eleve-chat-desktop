@@ -34,7 +34,7 @@ import { loadConnection, isRemoteMode } from './lib/connection';
 import { getRememberedWorkspaceCwd, rememberWorkspaceCwd } from './lib/workspace-cwd';
 import { getActiveProfile } from './utils/api';
 import { getWsClient, setWsActiveProfile, type SessionCreateResponse } from './services/ws-client';
-import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer, loadProfilePointers, saveProfilePointer, removeProfilePointer, latestSessionForDomain, shortSessionLabel } from './utils/session';
+import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer, loadProfilePointers, saveProfilePointer, removeProfilePointer, latestSessionForDomain, shortSessionLabel, isRestorableProfilePointer, isBotPlatformSessionId } from './utils/session';
 import { notifyError } from './utils/notifications';
 import type { ChatMessage } from './types';
 import { Minus, Square, X, FileText } from 'lucide-react';
@@ -320,6 +320,37 @@ export default function App() {
   //   ③ 会话切换/新建/session.info → 不重定向面板（面板不跟随会话）
   //   ④ 切 Agent → 重置（该 Agent 激活项目恢复时重定向）
   const [panelRoot, setPanelRoot] = useState<string | null>(null);
+  /**
+   * 🔴 2026-10-22 P0-2：面板根目录的**归属 Agent**。
+   *
+   * 背景：切 Agent 时为了防抖动会刻意保留旧 `panelRoot` 直到新 Agent 的项目树
+   * 返回（见 switchToProfile/handleProfileChange 注释）。但右栏没有同款守卫 →
+   * 窗口期内文件树显示**上一个 Agent** 的目录，用户可能在错误目录里改文件。
+   *
+   * 语义：`panelRootProfile === currentProfile` 时才允许把 `panelRoot` 交给右栏；
+   * 否则右栏显示"切换中"空态（安全 > 抖动）。
+   */
+  const [panelRootProfile, setPanelRootProfile] = useState<string | null>(null);
+  const currentProfileRef = useRef(currentProfile);
+  currentProfileRef.current = currentProfile;
+  /** 写面板根的唯一入口：同时记录归属 Agent（禁止裸调 setPanelRoot） */
+  const applyPanelRoot = useCallback((path: string | null) => {
+    setPanelRoot(path);
+    setPanelRootProfile(path ? currentProfileRef.current : null);
+  }, []);
+
+  /**
+   * P0-2 兜底：归属与当前 Agent 不一致时最多隐藏 2s。
+   * 正常情况下 `handleProjectScopeRestored`（项目树 fetch 返回）会重新盖章；
+   * 若该路径因任何原因没跑（无项目树 / 面板关闭），超时后放行，避免文件面板
+   * 永久停在"切换中"。
+   */
+  useEffect(() => {
+    if (!panelRoot) return;
+    if (panelRootProfile === currentProfile) return;
+    const timer = window.setTimeout(() => setPanelRootProfile(currentProfile), 2000);
+    return () => window.clearTimeout(timer);
+  }, [currentProfile, panelRoot, panelRootProfile]);
   // 🔴 2026-09-05 round-51：Bot Mode 的 workspace 归属（对齐 Hermes
   // setBotsWorkspaceOwner 的 scope 化 owner 语义——面板跟随当前选中实体，
   // 无归属 = 显式空态）。bot 域状态已一等化到 store/workspace.ts（round-79b
@@ -360,7 +391,7 @@ export default function App() {
         if (r) {
           seededCwdRef.current = r;
           setCurrentSessionCwd(r);
-          setPanelRoot(r); // 🔴 2026-08-13 老大语义重构：初始面板映射 = seed 目录
+          applyPanelRoot(r); // 🔴 2026-08-13 老大语义重构：初始面板映射 = seed 目录
         }
         return true; // remote：记忆有无都算完成
       }
@@ -437,7 +468,7 @@ export default function App() {
     // 🔴 2026-08-16 冻结语义（DSH 对齐）：不再 session.cwd.set 烙印——
     // 会话工作目录创建即冻结，手动导航是纯视图操作（原 busy pending /
     // 轮末补偿机制随之退役）。
-    setPanelRoot(path);
+    applyPanelRoot(path);
     if (!sess.sessionId) {
       setCurrentSessionCwd(path);
       // 🔴 2026-08-13 边界修复：无会话导航 → 新会话落点暂存（resolveNewSessionCwd 消费）
@@ -470,7 +501,9 @@ export default function App() {
           return;
         }
         if (pane === 'sessions') {
-          setActivePanel('sessions');
+          // 🔴 2026-10-22 P0-4：SidePanel 没有 'sessions' 这个 key（历史遗留），
+          // 原实现落进 PluginPaneSlot 无贡献 → 静默空白。会话/Agent 列表在 agents 面板。
+          setActivePanel('agents');
           return;
         }
         // files / terminal / preview / artifacts → 右栏对应 tab
@@ -700,7 +733,12 @@ export default function App() {
     startupRestored.current = true;
     const map = loadProfilePointers();
     const rawTarget = map[currentProfile] || (storage.load('session_id', null) as string | null);
-    const targetId = rawTarget && sessionIdMatchesProfile(rawTarget, currentProfile) ? rawTarget : null;
+    // 🔴 2026-10-22 P0-1：Bot Chat 的 sid 同样是 `agent:<p>:` 前缀，必须排除——
+    // 否则启动恢复把 DM 当成"上次的普通会话"，卡片与私聊行落到同一条会话。
+    if (rawTarget && isBotPlatformSessionId(rawTarget)) {
+      removeProfilePointer(currentProfile, rawTarget);
+    }
+    const targetId = isRestorableProfilePointer(rawTarget, currentProfile) ? rawTarget : null;
     if (targetId) {
       resetStream(targetId); // 🔴 同步锁定权威 ref（loadSessionIntoView 守卫前提）
       loadSessionIntoView(targetId);
@@ -754,14 +792,18 @@ export default function App() {
     // 宫格 persistPointers 刚写回权威指针，避免陈旧全局 sid 覆盖） ──
     const map = loadProfilePointers();
     // 🔴 串台防御：只写入归属正确的 session 指针，防止污染扩散
-    if (writeBack && sess.sessionId && sessionIdMatchesProfile(sess.sessionId, currentProfile)) {
+    if (writeBack && sess.sessionId && isRestorableProfilePointer(sess.sessionId, currentProfile)) {
       map[currentProfile] = sess.sessionId; // 同步本地副本（Step 1b 读目标 key 不受影响，但保持语义一致）
       saveProfilePointer(currentProfile, sess.sessionId);
     }
 
     // ── Step 1b: 🔴 串台根因修复 — 先算目标 session（map 指针可能被历史污染，校验归属后才恢复） ──
     const rawTargetId = map[name] || null;
-    const targetId = rawTargetId && sessionIdMatchesProfile(rawTargetId, name) ? rawTargetId : null;
+    // 🔴 2026-10-22 P0-1：Boot Chat 不可作为恢复目标；被污染的指针顺手清掉（自愈）
+    if (rawTargetId && isBotPlatformSessionId(rawTargetId)) {
+      removeProfilePointer(name, rawTargetId);
+    }
+    const targetId = isRestorableProfilePointer(rawTargetId, name) ? rawTargetId : null;
 
     // ── Step 2: 重置流式状态 + 同步锁定过滤 ref 到目标 session（消灭 effect 异步串台窗口） +
     // 🔴 P0 修复：重置发送锁 + 清排队（否则源 Agent 的 message.complete 被过滤丢弃 →
@@ -778,6 +820,9 @@ export default function App() {
     if (focusChanged) {
       setProjectScopeCwd(null);
       newChatWorkspaceTargetRef.current = null;
+      // 🔴 2026-10-22 P0-2：旧 panelRoot 保留（防抖动）但**标记为不属于新 Agent**，
+      // 右栏在项目树恢复前显示切换中空态 —— 堵住"在旧 Agent 目录里改文件"的窗口。
+      setPanelRootProfile(null);
     }
 
     // ── Step 3b: 🔴 S2 修复 — 刷新会话列表（后端按 profile 过滤，S1 保证 sendRpc 盖章新 profile） ──
@@ -815,6 +860,8 @@ export default function App() {
       // 🔴 2026-08-14 右侧面板抖动根治：切 Agent 不再立即 setPanelRoot(null)——
       // 保持旧面板直到新 Agent 激活项目恢复（fetchTree 后一次切换），避免
       // "未打开项目"占位 ↔ 文件树 两次切换的抖动（与左侧项目树 silent 同语义）
+      // 🔴 2026-10-22 P0-2：保留值但标记归属失效（右栏在恢复前不显示旧 Agent 目录）
+      setPanelRootProfile(null);
       newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：切 Agent 清手动导航落点
       return;
     }
@@ -1106,7 +1153,7 @@ export default function App() {
     // 统一先退回单视图再走既定联动链路。
     exitBotsToSingle();
     if (path) {
-      setPanelRoot(path);        // ① 文件面板映射 → 项目绑定地址（视图，非项目地址本身）
+      applyPanelRoot(path);      // ① 文件面板映射 → 项目绑定地址（视图，非项目地址本身）
       setCurrentSessionCwd(path);       // 终端/新会话落点 → 项目根（Hermes syncProjectCwd 语义）
       setProjectScopeCwd(path);  // ② 新会话落点 = 项目根 / workspace
       newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：点项目 = 项目意图覆盖手动导航
@@ -1209,13 +1256,13 @@ export default function App() {
     if (path) {
       // 🔴 2026-08-13 老大语义重构：切 Agent 恢复激活项目 → 面板映射到项目绑定地址
       // （无“锁”：映射随用户动作变，项目地址永不变）
-      setPanelRoot(path);
+      applyPanelRoot(path);
     } else {
       // 🔴 2026-08-14：新 Agent 无激活项目 → 最终态清面板（显示“未打开项目”）——
       // 一次切换（旧面板 → 占位），而非切 Agent 时立即清再恢复的两次切换
-      setPanelRoot(null);
+      applyPanelRoot(null);
     }
-  }, []);
+  }, [applyPanelRoot]);
 
   // 🔴 P1: 宫格模式 CommandCenter（CMD+K）命令执行路由进宫格（写入 per-agent 状态槽，非不可见的 zustand store）
   const gridAwareCommand = useCallback((cmdName: string, args: string) => {
@@ -2110,9 +2157,12 @@ export default function App() {
                       // workspaceOwner 不承载 room（见 store/workspace.ts 裁定）。
                       if (viewMode === 'bots') return '';
                       if (isBorrowedBotChat(sess.sessionId)) return sessionCwd;
-                      return panelRoot;
+                      // 🔴 2026-10-22 P0-2：panelRoot 残留自上一个 Agent 时不交出
+                      // （切 Agent 窗口期由 panelRootProfile 标记，恢复后自动放行）
+                      return panelRootProfile === currentProfile ? panelRoot : null;
                     })()}
                     sessionId={sess.sessionId}
+                    sessionCwd={sessionCwd}
                     onCwdChange={handleFilePanelCwdChange}
                     onFileAttach={(path: string) => requestComposerInsert(`@file:"${path}"`)}
                   />

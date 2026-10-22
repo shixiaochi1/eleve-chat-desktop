@@ -88,6 +88,14 @@ interface FileBrowserPanelProps {
   cwd?: string | null;
   /** 会话 id（目录切换需后端烙印 — 对齐 Hermes use-cwd-actions session.cwd.set） */
   sessionId?: string | null;
+  /**
+   * 当前会话真实的工作目录（cwd 创建即冻结）。
+   *
+   * 🔴 2026-10-22 P0-3：面板根（`cwd`）与它会不一致（项目域面板跟项目根、
+   * 会话 cwd 可能与项目不同）。两者不一致时在头部显式提示，避免用户误以为
+   * "正在编辑的就是当前会话的目录"。
+   */
+  sessionCwd?: string | null;
   /** 目录切换回调（2026-08-09 对齐 Hermes：前端 setRoot 只改显示，
    *  必须由上层接线 session.cwd.set 烙印，否则重启/重连后回弹） */
   onCwdChange?: (path: string) => void;
@@ -349,6 +357,7 @@ export default function FileBrowserPanel({
   onFileAttach,
   cwd,
   sessionId: _sessionId,
+  sessionCwd,
   onCwdChange,
 }: FileBrowserPanelProps) {
   const {
@@ -738,6 +747,12 @@ export default function FileBrowserPanel({
       })()
     : '未打开项目';
 
+  // 🔴 2026-10-22 P0-3：面板根 ≠ 当前会话 cwd 时给出提示。
+  // 语义上二者本就可能不同（项目域跟项目根；Bot 私聊跟会话 cwd），此前无任何提示，
+  // 用户会误以为"正在编辑的就是当前会话目录"。
+  const normFs = (p: string) => p.replace(/[\\/]+$/, '').replace(/\//g, '\\').toLowerCase();
+  const sessionCwdMismatch = !!rootPath && !!sessionCwd && normFs(rootPath) !== normFs(sessionCwd);
+
   // ── 无根目录状态（会话无 cwd 且未手动选目录；对齐 Hermes noProjectOpen）──
   if (!rootPath && !loading) {
     return (
@@ -748,7 +763,7 @@ export default function FileBrowserPanel({
         <div className="flex flex-col items-center py-8 text-muted-foreground gap-2">
           <Folder size={32} className="text-muted-foreground/30" />
           <p className="text-xs">未打开项目</p>
-          <span className="text-[10px] text-muted-foreground/50 text-center">点击左侧项目卡片打开项目，或手动选择目录（面板跟随项目，不跟随会话）</span>
+          <span className="text-[10px] text-muted-foreground/50 text-center">点击左侧项目卡片打开项目，或手动选择目录。跟随规则：项目域跟随项目根，Bot 私聊跟随该会话工作目录，群聊无单一目录。</span>
           <button
             className="mt-1 flex items-center gap-1 rounded border border-[var(--ui-stroke-tertiary)] px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             onClick={handlePickRoot}
@@ -766,6 +781,14 @@ export default function FileBrowserPanel({
       {/* 头部 */}
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-foreground">文件</span>
+        {sessionCwdMismatch && (
+          <span
+            className="ml-1 mr-auto truncate rounded bg-amber-500/10 px-1 py-0.5 text-[10px] text-amber-600 dark:text-amber-400"
+            title={`面板根：${rootPath}\n当前会话工作目录：${sessionCwd}\n（面板根跟随项目/手动选择，不随会话切换）`}
+          >
+            非会话目录
+          </span>
+        )}
         <div className="flex items-center gap-0.5">
           <button
             className="p-1 rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
