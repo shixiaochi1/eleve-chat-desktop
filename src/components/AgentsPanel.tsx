@@ -34,6 +34,8 @@ import RosterRowMenu from './bots/RosterRowMenu';
 import { getPluginHost } from '../contrib/host';
 import type { AgentEditTarget } from '../contrib/host';
 import { useAgentPanelFilters, type AgentPanelFilterState } from '../hooks/useAgentPanelData';
+import { useProjectTree } from '../hooks/useProjectTree';
+import SessionListView from './bots/SessionListView';
 import { openLocalBotChat, openRemoteBotChat } from '../lib/bot-open';
 import { gatewayOptions } from '../lib/roster-filter';
 import {
@@ -79,6 +81,25 @@ export default function AgentsPanel(props: AgentsPanelProps) {
   const { onOpenBotChat, onEditAgentTarget, ...rest } = props;
   // 当前 Agent（只读取，继续经 rest 下发给 ProfilePanel/ProjectTreePanel）
   const currentProfile = props.currentProfile;
+
+  // ── P2-8：会话列表数据源 ──
+  // 项目集合走 `useProjectTree`（与项目树同源，同一帧）；会话来自 App 的 `sess.sessions`，
+  // 标题优先用 App 的 titles 映射（后端 list 返回的 title 可能为空）。
+  const { projects } = useProjectTree(
+    currentProfile,
+    props.sessionListVersion as number | undefined,
+  );
+  const sessionTitles = (props.sessionTitles as Record<string, string> | undefined) ?? {};
+  const sessionRows = (
+    (props.sessions as
+      | { id: string; cwd?: string | null; title?: string | null; last_active?: number | null }[]
+      | undefined) ?? []
+  ).map((s) => ({
+    id: s.id,
+    cwd: s.cwd ?? null,
+    last_active: s.last_active ?? null,
+    title: sessionTitles[s.id] ?? s.title ?? null,
+  }));
 
   // 筛选态：私聊 + 群聊**共用一套**（工具栏只有一条）⇒ 在面板层持有
   const filtersApi = useAgentPanelFilters();
@@ -177,6 +198,23 @@ export default function AgentsPanel(props: AgentsPanelProps) {
       {/* ── ② 项目区（flex-1 = 卡片区决定的剩余空间） ── */}
       <div className="flex-1 min-h-0 flex flex-col border-t border-[var(--ui-stroke-tertiary)]">
         <ProjectTreePanel {...rest} />
+      </div>
+
+      {/* ── ②.5 会话列表（P2-8：项目 = 分组头）──────────────────────────
+          与项目树共用 `useProjectTree` 的项目集合（同一帧，避免两处各自拉取错位）。
+          🔴 点分组头只折叠、`＋` 才建会话、会话行只切会话——不再"点项目就切消息区改 cwd"
+          （旧 `handleProjectEntered` 的副作用仍保留给项目树，等确认手感后再收）。 */}
+      <div className="shrink-0 max-h-[30%] flex flex-col min-h-0 border-t border-[var(--ui-stroke-tertiary)]">
+        <SessionListView
+          sessions={sessionRows}
+          projects={projects}
+          currentSessionId={(props.sessionId as string | null | undefined) ?? null}
+          onSwitchSession={props.onSwitchSession as ((id: string) => void) | undefined}
+          onNewSessionInProject={(cwd) => {
+            const fn = props.onNewSessionInProject as ((cwd: string) => void) | undefined;
+            if (cwd && fn) fn(cwd);
+          }}
+        />
       </div>
 
       {/* ── ③ 群聊 + 私聊区（有界 + 内部滚动；两个分组各自可折叠） ── */}
