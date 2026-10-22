@@ -1161,14 +1161,21 @@ export default function App() {
   //   ② setCurrentSessionCwd → 会话 cwd 以 session.info 为权威，不被项目点击覆盖；
   //   ③ 消息区联动（切最新会话 / 空草稿）→ 由 SessionListView 显式点会话完成。
   // 语义：点项目 = "接下来的新会话落在哪个目录"，仅此。
-  const handleProjectScopeOnly = useCallback((path: string) => {
+  const handleProjectScopeOnly = useCallback((path: string, sessionId?: string | null) => {
     // 🔴 2026-10-22 老大反馈：点项目右侧抽屉必须联动（此前 P2-8 误删）。
-    // 联动范围：文件面板 → 项目根；消息区不动（会话由显式点击决定）。
+    // 🔴 2026-10-22 二次反馈（实测"点了没反应"）：只写 panelRoot 不够——
+    //   右栏域由**会话**决定（bot 会话域覆盖项目根，见 selectWorkspaceDomain），
+    //   主区也不会自己切会话。点项目 = 进入该项目工作现场 ⇒ 必须同时切会话，
+    //   否则停留在原会话（尤其停在上一个 Agent 的 Bot Chat）时两处都不动。
+    //   sessionId 由 ProjectTreePanel 按项目 preview 算好（HOME 取最近的非私聊会话）。
     if (path) applyPanelRoot(path);
     exitBotsToSingle();
     setProjectScopeCwd(path || null);
     newChatWorkspaceTargetRef.current = null;
-  }, [exitBotsToSingle]);
+    if (sessionId && sessionId !== sess.sessionId) {
+      gridAwareSwitchSession(sessionId);
+    }
+  }, [exitBotsToSingle, gridAwareSwitchSession, sess.sessionId]);
 
   // 🔴 2026-08-13 老大语义重构：会话行点击 → 只同步 scope（新会话落点）；
   // 文件面板是项目映射视图（只跟项目卡片/手动导航），不随会话行点击改变。

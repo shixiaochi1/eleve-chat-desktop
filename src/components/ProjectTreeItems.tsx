@@ -6,7 +6,7 @@
  *   行组件全部 props 驱动，无平行状态源。
  */
 import { memo, useState, Fragment } from 'react';
-import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, MessageCircle, MoreVertical, Pencil, FolderPlus, Copy, Trash2, Home, Pin, Download, Archive, Undo2, Minimize2, BarChart3, ExternalLink } from 'lucide-react';
+import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, MessageCircle, MoreVertical, Pencil, FolderPlus, Copy, Trash2, Home, Pin, Download, Archive, Undo2, Minimize2, BarChart3, ExternalLink, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { projectIconFor } from '../lib/project-icons';
 import { useWorkspaceNodeOpen } from '../lib/sidebar-node-open';
@@ -632,7 +632,7 @@ function projectMenuSpecs(project: ProjectNode, h: {
   ];
 }
 
-export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowActivate, onOpenBotChat, onDrill, onActivate, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop, sessionActions, isDragging, isDragOver }: {
+export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowActivate, onOpenBotChat, onNewSessionInProject, onDrill, onActivate, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop, sessionActions, isDragging, isDragOver }: {
   project: ProjectNode;
   sessionId?: string;
   onSwitchSession?: (id: string) => void;
@@ -657,6 +657,8 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
   onSessionRowActivate?: (project: ProjectNode) => void;
   /** 🔴 2026-10-22 任务 A：HOME 的 Bot Chat 行走 bot 登记链（而非普通 switchSession） */
   onOpenBotChat?: (sessionId: string) => void;
+  /** 🔴 2026-10-22 用户需求：在项目（含 HOME）里直接新开会话——行内 hover 的 + 按钮 */
+  onNewSessionInProject?: (cwd: string) => void;
 }) {
   // 展开状态持久化（对齐 Hermes useWorkspaceNodeOpen；项目行默认展开）
   const [expanded, toggleExpanded] = useWorkspaceNodeOpen(project.id, true);
@@ -755,8 +757,18 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
         {!project.isNoProject && (
           <span className="text-[10px] text-muted-foreground/50">{fmtTime(project.lastActive)}</span>
         )}
-        {/* 🔴 2026-08-12 移除：项目行"在该项目新建会话"按钮（新建统一走全局新建按钮/ /new，
-            自动绑定选中项目 scope） */}
+        {/* 🔴 2026-10-22 用户需求（HOME 下如何新开会话）：行内 + 恢复"在项目里新建会话"。
+            只在有物理路径时显示（HOME = 该 Agent workspace，同样适用）；
+            点击走 App.handleNewSessionInProject → session.create(cwd) 烙印归属。 */}
+        {onNewSessionInProject && path && (
+          <button
+            className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors opacity-0 group-hover/workspace:opacity-100 focus:opacity-100"
+            onClick={(e) => { e.stopPropagation(); onNewSessionInProject(path); }}
+            title={`在「${project.label}」新建会话`}
+          >
+            <Plus size={12} strokeWidth={2} />
+          </button>
+        )}
         {specs.length > 0 && kebab}
       </div>
       {/* 预览会话（卡片内展开，border-t 分隔；对齐 Hermes PROJECT_PREVIEW_COUNT Top3） */}

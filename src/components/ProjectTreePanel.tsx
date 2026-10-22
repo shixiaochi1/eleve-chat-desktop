@@ -377,7 +377,15 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   const handleActivate = useCallback((project: ProjectNode) => {
     // 🔴 2026-08-12 点选状态 v2：点击立即置本地高亮（含自动/Home），持久不被刷新回跳
     persistActiveProject(project);
-    onEnterProject?.(project.path ?? '', project.previewSessions?.[0]?.id ?? null);
+    // 🔴 2026-10-22 用户反馈（主区/右栏不联动）：点项目 = 进入项目工作现场 →
+    // 主区切该项目的最近会话，右栏域（由会话决定）随之回到项目根。
+    // HOME 的 preview 首条是私聊（恒置顶）——点 HOME 不该被动进 bot 域，
+    // 所以取最近的非私聊会话作为落点（没有其它会话则不切，保持当前视图）。
+    const previews = project.previewSessions ?? [];
+    const enterSessionId = project.isNoProject
+      ? previews.find(s => !isBotChatPreview(s))?.id ?? null
+      : previews[0]?.id ?? null;
+    onEnterProject?.(project.path ?? '', enterSessionId);
   }, [persistActiveProject, onEnterProject]);
 
   // 钻取：双击项目行 → 全量水合的 Repo/Lane/Session 树
@@ -748,6 +756,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                           onSwitchSession={onSwitchSession}
                           onSessionRowActivate={handleSessionRowActivate}
                           onOpenBotChat={handleOpenBotChatRow}
+                          onNewSessionInProject={onNewSessionInProject}
                           onDrill={handleDrill}
                           onActivate={handleActivate}
                           onEdit={handleEdit}
