@@ -7,7 +7,7 @@
  *   - 但它在 HOME 里恒排第一，并用对话气泡图标区分
  */
 import { describe, it, expect } from 'vitest';
-import { isBotChatPreview, needsVirtualBotChat, orderHomePreviews } from './ProjectTreeItems';
+import { isBotChatPreview, isCanonicalBotChatTitle, needsVirtualBotChat, orderHomePreviews } from './ProjectTreeItems';
 import type { SessionPreview } from './ProjectTreeItems';
 
 function preview(id: string, title: string, lastActive = 0): SessionPreview {
@@ -19,13 +19,24 @@ const normal1 = preview('agent:default:s1', '项目里的会话', 300);
 const normal2 = preview('agent:default:s2', '另一条会话', 200);
 
 describe('HOME 桶里的 Bot Chat', () => {
-  it('判据 = id 含 :bot: 且标题为 Bot Chat', () => {
+  it('判据 = id 含 :bot: 且标题是 canonical 家族', () => {
     expect(isBotChatPreview(botChat)).toBe(true);
     expect(isBotChatPreview(normal1)).toBe(false);
+    // 压缩轮转后的 lineage 标题仍算私聊（P0-1：否则置顶/图标/打开链全失效）
+    expect(isBotChatPreview({ ...botChat, title: 'Bot Chat #2' })).toBe(true);
     // 只有 id 形态对但标题被改过 → 不再当作私聊（用户重命名即脱离该语义）
     expect(isBotChatPreview({ ...botChat, title: '我的私聊' })).toBe(false);
     // 普通会话即使标题叫 Bot Chat 也不算
     expect(isBotChatPreview({ ...normal1, title: 'Bot Chat' })).toBe(false);
+  });
+
+  it('canonical 标题判据与后端同源（精确 / #N，拒绝相似标题）', () => {
+    expect(isCanonicalBotChatTitle('Bot Chat')).toBe(true);
+    expect(isCanonicalBotChatTitle('Bot Chat #2')).toBe(true);
+    expect(isCanonicalBotChatTitle('Bot Chat 测试')).toBe(false);
+    expect(isCanonicalBotChatTitle('Bot Chat #')).toBe(false);
+    expect(isCanonicalBotChatTitle('Bot Chat #2 副本')).toBe(false);
+    expect(isCanonicalBotChatTitle('')).toBe(false);
   });
 
   it('HOME 里置顶，且不打乱其余会话顺序（不动入参）', () => {

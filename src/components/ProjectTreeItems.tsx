@@ -130,7 +130,20 @@ function fmtTime(ts: number): string {
  *   点击必须走 bot 登记链（registerBotChatSession + setWorkspaceOwner），不能当普通会话切。
  */
 export function isBotChatPreview(s: SessionPreview): boolean {
-  return s.id.includes(':bot:') && (s.title ?? '') === 'Bot Chat';
+  return s.id.includes(':bot:') && isCanonicalBotChatTitle(s.title ?? '');
+}
+
+/**
+ * canonical Bot Chat 标题判据（与后端 `eleve_core::bot::is_canonical_bot_chat_title` 同源）：
+ * 精确 `Bot Chat`，或压缩轮转后的 `Bot Chat #N`（N 为纯数字）。
+ * 🔴 2026-10-23 审计 P0-1：只认精确标题时，轮转后私聊行会失去置顶/图标/bot 打开链。
+ */
+export function isCanonicalBotChatTitle(title: string): boolean {
+  if (title === 'Bot Chat') return true;
+  const rest = title.slice('Bot Chat'.length);
+  if (!rest.startsWith(' #')) return false;
+  const n = rest.slice(2);
+  return n.length > 0 && /^\d+$/.test(n);
 }
 
 /**
