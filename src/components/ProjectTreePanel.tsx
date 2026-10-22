@@ -338,9 +338,13 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   // 不触发 onEnterProject（防把刚点的会话切回项目最新会话）；文件面板不强制切项目根
   // （跟随该会话 session.info 的 bound_cwd，符合"文件树=会话 cwd"）。
   const handleSessionRowActivate = useCallback((project: ProjectNode) => {
+    // 🔴 2026-10-22 自审：切 Agent 的 silent 窗口内旧树仍可点——persistActiveProject
+    // 只是忽略 set_active，scope/面板是这里直接写的，必须在入口拦（否则旧 Agent 的
+    // 项目 path 会写进新 Agent 的 scope）。
+    if (treeProfileRef.current !== currentProfile) return;
     persistActiveProject(project);
     onProjectScopeChange?.(project.path ?? null);
-  }, [persistActiveProject, onProjectScopeChange]);
+  }, [persistActiveProject, onProjectScopeChange, currentProfile]);
 
   // 🔴 2026-10-22 任务 A：HOME 里 canonical Bot Chat 行点击 → 走 bot 登记链。
   // 必须经 openLocalBotChat（ensure canonical → 清未读 → App.handleOpenBotChat）：
@@ -375,6 +379,9 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   //   只做联动：① onEnterProject（文件面板切项目根/workspace + scope + 消息区选最新会话）
   //   ② 显式项目自动设为激活。不进入钻取视图（双击 handleDrill 才钻取）。
   const handleActivate = useCallback((project: ProjectNode) => {
+    // 🔴 2026-10-22 自审：陈旧树点击直接拒绝——persistActiveProject 的守卫只挡
+    // set_active，本函数随后的 onEnterProject 会切会话 + 写 scope/面板根（跨 Agent 污染）。
+    if (treeProfileRef.current !== currentProfile) return;
     // 🔴 2026-08-12 点选状态 v2：点击立即置本地高亮（含自动/Home），持久不被刷新回跳
     persistActiveProject(project);
     // 🔴 2026-10-22 用户反馈（主区/右栏不联动）：点项目 = 进入项目工作现场 →

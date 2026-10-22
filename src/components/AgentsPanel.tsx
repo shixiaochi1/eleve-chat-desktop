@@ -31,7 +31,7 @@ import { getPluginHost } from '../contrib/host';
 import type { AgentEditTarget } from '../contrib/host';
 import { useAgentPanelFilters, type AgentPanelFilterState } from '../hooks/useAgentPanelData';
 import { gatewayOptions } from '../lib/roster-filter';
-import { selectRoom, useRooms, useUnionRoster } from '../plugins/bots/state';
+import { refreshRooms, selectRoom, useRooms, useUnionRoster } from '../plugins/bots/state';
 
 interface AgentsPanelProps {
   currentProfile?: string;
@@ -202,9 +202,15 @@ export default function AgentsPanel(props: AgentsPanelProps) {
           onClose={() => setShowCreateRoom(false)}
           onCreated={(roomId) => {
             setShowCreateRoom(false);
-            // 建房即进房（对齐旧面板 onCreated → openGroupChat）
-            selectRoom(roomId);
-            handleOpenRoomView();
+            // 建房即进房（对齐旧面板 onCreated → openGroupChat）。
+            // 🔴 2026-10-22 自审：先刷新房间 store 再进房——主区靠 rooms 里找房间，
+            // 只依赖 WS created 事件时（事件丢失/尚未到达）会先撞"请选择群聊"空态。
+            void refreshRooms()
+              .catch(() => undefined)
+              .finally(() => {
+                selectRoom(roomId);
+                handleOpenRoomView();
+              });
           }}
           onError={onError}
           onNotice={onNotice}
