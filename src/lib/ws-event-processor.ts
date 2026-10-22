@@ -15,6 +15,7 @@
  *    ❌ 副作用（session 列表刷新 / debug 事件）— 调用方负责
  * ═══════════════════════════════════════════════════════════════════
  */
+import { WsEvent } from '../types/ws-contract.generated';
 import {
   upsertToolPart,
   textPart,
@@ -72,11 +73,11 @@ export function toolPayloadFromEvent(eventName: string, p: Record<string, unknow
   const toolCallId = (p.toolCallId as string) || (p.tool_call_id as string) || '';
   const name = (p.tool as string) || (p.name as string) || 'tool';
   switch (eventName) {
-    case 'tool.start':
+    case WsEvent.TOOL_START:
       return { tool_call_id: toolCallId, name, preview: p.preview as string | undefined };
-    case 'tool.generating':
+    case WsEvent.TOOL_GENERATING:
       return { tool_call_id: toolCallId, name, args: p.args as Record<string, unknown> | undefined };
-    case 'tool.complete':
+    case WsEvent.TOOL_COMPLETE:
       return { tool_call_id: toolCallId, name, duration: p.duration as number | undefined, error: p.error as boolean | undefined };
     default:
       return { tool_call_id: toolCallId, name };
@@ -94,13 +95,13 @@ export function processAccumulatorEvent(
   payload: Record<string, unknown>,
 ): boolean {
   switch (eventName) {
-    case 'message.delta':
+    case WsEvent.MESSAGE_DELTA:
       acc.parts = appendTextPart(acc.parts, (payload.delta as string) || '');
       return true;
-    case 'reasoning.delta':
+    case WsEvent.REASONING_DELTA:
       acc.parts = appendReasoningPart(acc.parts, (payload.text as string) || '');
       return true;
-    case 'reasoning.available': {
+    case WsEvent.REASONING_AVAILABLE: {
       // 🔴 2026-08-08 对齐 Hermes：available = 推理块完成后的摘要（带 text），
       // replace 语义（对齐 Hermes appendReasoningDelta(text, true)）：
       // 移除全部未冻结 reasoning 块 → 追加冻结摘要块（done=true 保持多块边界，
@@ -120,7 +121,7 @@ export function processAccumulatorEvent(
     }
     // 🔴 reasoning.end 已删除（2026-08-08 对齐 Hermes：Hermes 无此事件，
     // 块冻结由 reasoning.available 完成态 replace 承担）
-    case 'moa.reference': {
+    case WsEvent.MOA_REFERENCE: {
       // MoA 参考模型输出（对齐 Hermes use-message-stream gateway-event.ts moa.reference）
       // 作为带标签的推理块展示（◇ Reference idx/cnt — label），复用推理展示区，零平行 UI。
       // 首个参考（idx<=1）替换/清除上一轮残留推理（对齐 Hermes appendReasoningDelta replace=true），
@@ -142,12 +143,12 @@ export function processAccumulatorEvent(
       }
       return true;
     }
-    case 'moa.aggregating': {
+    case WsEvent.MOA_AGGREGATING: {
       // 聚合器开始工作（对齐 Hermes moa.phase phase="aggregator" 的一行标记）
       acc.parts = appendReasoningPart(acc.parts, '◇ MoA aggregating…\n');
       return true;
     }
-    case 'tool.start':
+    case WsEvent.TOOL_START:
       acc.parts = upsertToolPart(acc.parts, toolPayloadFromEvent(eventName, payload), 'running');
       return true;
     // 🔴 2026-08-11 对齐 Hermes gateway-event.ts:830（重复调用显示层根因）：
@@ -158,7 +159,7 @@ export function processAccumulatorEvent(
     // setSessionDraftingTool + pet activity；ELEVE 由 useSSE 回调
     // onToolGenerating 显示状态文本（statusText），此处不建行。
     // case 'tool.generating': 已移除（原 upsertToolPart 调用）
-    case 'tool.complete':
+    case WsEvent.TOOL_COMPLETE:
       acc.parts = upsertToolPart(acc.parts, toolPayloadFromEvent(eventName, payload), 'complete');
       return true;
     default:

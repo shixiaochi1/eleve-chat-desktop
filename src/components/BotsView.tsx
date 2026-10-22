@@ -8,6 +8,7 @@
  *
  * 数据流：命令 → utils/api.ts（bots 命令层）；事件 → ws-client 监听器。
  */
+import { WsEvent } from '../types/ws-contract.generated';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from 'react';
 import { cn } from '@/lib/utils';
 import { ArrowLeft, Bot, ChevronDown, ChevronRight, Loader, PauseCircle, Paperclip, Send, Settings2, Square, Trash2, UserPlus, UserMinus, Users, WifiOff, X } from 'lucide-react';
@@ -510,8 +511,8 @@ function BotsRoomView({ room, roster, onBack }: {
       // 对齐 Hermes KIND_BY_FRAME_TYPE 的 message.delta / reasoning.delta
       // 投影（thinking.delta = Hermes thinking_callback 的 ELEVE 对应物）。
       if (
-        eventName === 'message.delta' || eventName === 'reasoning.delta'
-        || eventName === 'thinking.delta'
+        eventName === WsEvent.MESSAGE_DELTA || eventName === WsEvent.REASONING_DELTA
+        || eventName === WsEvent.THINKING_DELTA
       ) {
         const p = data as {
           session_id?: string; payload?: { delta?: string; text?: string };
@@ -522,11 +523,11 @@ function BotsRoomView({ room, roster, onBack }: {
         if (!mid) return; // 非本房间成员会话（如 1:1 聊天）→ 不归房间
         const payload = p.payload || {};
         const text = String(
-          eventName === 'message.delta' ? (payload.delta ?? '') : (payload.text ?? ''),
+          eventName === WsEvent.MESSAGE_DELTA ? (payload.delta ?? '') : (payload.text ?? ''),
         );
         setMemberActivity(prev => {
           const base = prev[mid] || { iteration: 0, tools: [] };
-          if (eventName === 'message.delta') {
+          if (eventName === WsEvent.MESSAGE_DELTA) {
             // 尾句窗口（覆盖式，≤48 字）——呈现"正在说"，落库文本由终态发言承担
             const merged = (base.speaking || '') + text;
             const tail = merged.length > 48 ? merged.slice(-48) : merged;

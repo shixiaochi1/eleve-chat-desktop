@@ -17,6 +17,7 @@
  * - 卸载：removeEventListener + unsubscribeSession（重连不再 re-attach）
  * - prompt.submit 骑 owner route（1800s 预算），回包/流全部走事件，零轮询
  */
+import { WsEvent, WsMethod } from '../types/ws-contract.generated';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Bot, Send } from 'lucide-react';
 import { getRemoteSocket } from '../services/connections';
@@ -123,13 +124,13 @@ export default function RemoteBotChatView({
     const handler = (eventName: string, rawData: unknown) => {
       const data = (rawData || {}) as Record<string, unknown>;
       if (data.session_id !== sid) return;
-      if (eventName === 'message.delta') {
+      if (eventName === WsEvent.MESSAGE_DELTA) {
         const delta = (data.delta as string) || '';
         if (!delta) return;
         appendRemoteChatDelta(owner, delta);
         return;
       }
-      if (eventName === 'message.complete') {
+      if (eventName === WsEvent.MESSAGE_COMPLETE) {
         // 轮收口 → 权威历史覆盖（流式气泡退役）
         clearRemoteChatStreaming(owner);
         void load();
@@ -144,7 +145,7 @@ export default function RemoteBotChatView({
     sock.subscribeSession(sid);
     void sock.ensureConnected(10_000).then((ok) => {
       if (ok) {
-        sock.sendRpc('session.attach', { session_id: sid }).catch(() => {});
+        sock.sendRpc(WsMethod.SESSION_ATTACH, { session_id: sid }).catch(() => {});
       }
     });
 

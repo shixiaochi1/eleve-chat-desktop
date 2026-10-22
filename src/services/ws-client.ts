@@ -14,6 +14,7 @@
  * - 多个组件可同时监听，互不干扰
  */
 
+import { WsMethod } from '@/types/ws-contract.generated';
 import { getApiBase } from '../utils/api';
 import { isDesktop, rediscoverGatewayPort } from '../utils/bridge';
 
@@ -253,7 +254,7 @@ export class GatewayWsClient {
       if (wasReconnect && this.attachedSessions.size > 0) {
         for (const sid of this.attachedSessions) {
           // 🔴 审查 P3: 与 switchSession 的 session.attach 错误处理一致（P2-2），失败显式 warn 便于排查重连恢复断线
-          this.sendRpc('session.attach', { session_id: sid }).catch((e) => { console.warn('[ws] re-attach failed:', sid, e) })
+          this.sendRpc(WsMethod.SESSION_ATTACH, { session_id: sid }).catch((e) => { console.warn('[ws] re-attach failed:', sid, e) })
         }
       }
       this.connCallbacks?.onOpen?.(wasReconnect)
@@ -419,7 +420,7 @@ export class GatewayWsClient {
     this.pingTimer = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
         // 发送 JSON-RPC ping（对齐 Eleve WS protocol）
-        this.sendRpc('ping', {}).catch(() => {})
+        this.sendRpc(WsMethod.PING, {}).catch(() => {})
       }
     }, IDLE_PING_INTERVAL_MS)
   }
@@ -454,7 +455,7 @@ export class GatewayWsClient {
 
       // WS 正在连接/重连中：排队等待
       if (this._state === 'connecting' || this._state === 'reconnecting') {
-        const queueTimeoutMs = timeoutMs ?? (method === 'prompt.submit' ? 1_800_000 : 60_000)
+        const queueTimeoutMs = timeoutMs ?? (method === WsMethod.PROMPT_SUBMIT ? 1_800_000 : 60_000)
         const timer = setTimeout(() => {
           // 超时：从队列移除并 reject
           const idx = this.pendingQueue.findIndex(e => e.method === method && e.resolve === resolve)
@@ -470,7 +471,7 @@ export class GatewayWsClient {
       // "WebSocket not connected (state=disconnected)" 错误横幅，稍等即连上）。
       // 改为排队等待连接（与 connecting 同队列，连接后 flush），真超时才报错。
       if (this._state === 'disconnected') {
-        const queueTimeoutMs = timeoutMs ?? (method === 'prompt.submit' ? 1_800_000 : 60_000)
+        const queueTimeoutMs = timeoutMs ?? (method === WsMethod.PROMPT_SUBMIT ? 1_800_000 : 60_000)
         const timer = setTimeout(() => {
           // 超时：从队列移除并 reject
           const idx = this.pendingQueue.findIndex(e => e.method === method && e.resolve === resolve)
@@ -491,7 +492,7 @@ export class GatewayWsClient {
     this.ws!.send(JSON.stringify(msg))
 
     // 对齐 Hermes: prompt.submit 1800s（30分钟），其他 60s；调用方可覆盖
-    const timeoutMs = timeoutOpt ?? (method === 'prompt.submit' ? 1_800_000 : 60_000)
+    const timeoutMs = timeoutOpt ?? (method === WsMethod.PROMPT_SUBMIT ? 1_800_000 : 60_000)
     setTimeout(() => {
       if (this.pendingRpc.delete(id)) {
         reject(new RpcError(`RPC timeout: ${method}`, -1))
@@ -603,7 +604,7 @@ export class GatewayWsClient {
     this.attachedSessions.add(sessionId)
     this.pruneAttachedSessions()
     if (isNew && this._state === 'connected') {
-      this.sendRpc('session.attach', { session_id: sessionId }).catch((e) => { console.warn('[ws] session.attach failed:', e) })
+      this.sendRpc(WsMethod.SESSION_ATTACH, { session_id: sessionId }).catch((e) => { console.warn('[ws] session.attach failed:', e) })
     }
   }
 
@@ -631,7 +632,7 @@ export class GatewayWsClient {
     sessionId?: string,
     options?: { model?: string; provider?: string; title?: string; queued?: boolean },
   ): Promise<unknown> {
-    return this.sendRpc('prompt.submit', {
+    return this.sendRpc(WsMethod.PROMPT_SUBMIT, {
       session_id: sessionId || this.sessionId || '',
       text,
       // 对齐架构原则：后端是 session 生命周期权威源
@@ -649,7 +650,7 @@ export class GatewayWsClient {
    * model/provider 不在此传：随后的 prompt.submit 会携带并应用 per-session override（复用既有 switch_model 路径）。
    */
   async sessionCreate(options?: { profile?: string; title?: string; cwd?: string }): Promise<SessionCreateResponse> {
-    const result = await this.sendRpc('session.create', {
+    const result = await this.sendRpc(WsMethod.SESSION_CREATE, {
       ...(options?.profile ? { profile: options.profile } : {}),
       ...(options?.title ? { title: options.title } : {}),
       ...(options?.cwd ? { cwd: options.cwd } : {}),
@@ -659,21 +660,21 @@ export class GatewayWsClient {
 
   /** 中止当前流 — 对齐 Eleve session.interrupt */
   async abortStream(sessionId?: string): Promise<unknown> {
-    return this.sendRpc('session.interrupt', {
+    return this.sendRpc(WsMethod.SESSION_INTERRUPT, {
       session_id: sessionId || this.sessionId || '',
     })
   }
 
   /** 执行 slash 命令 — 对齐 Eleve slash.exec */
   async slashExec(command: string, sessionId?: string): Promise<unknown> {
-    return this.sendRpc('slash.exec', { command, session_id: sessionId || this.sessionId || '' })
+    return this.sendRpc(WsMethod.SLASH_EXEC, { command, session_id: sessionId || this.sessionId || '' })
   }
 
   /** 附加图片（base64）— 对齐 Eleve image.attach_bytes
    * 后端接收 content_base64，写入 ELEVE_HOME/images/，返回 {attached, path, count, bytes, text}
    */
   async imageAttachBytes(contentBase64: string, filename?: string, sessionId?: string): Promise<ImageAttachResponse> {
-    const result = await this.sendRpc('image.attach_bytes', {
+    const result = await this.sendRpc(WsMethod.IMAGE_ATTACH_BYTES, {
       session_id: sessionId || this.sessionId || '',
       content_base64: contentBase64,
       filename: filename || '',
@@ -685,7 +686,7 @@ export class GatewayWsClient {
    * 后端校验路径存在 + 后缀白名单后直接引用（零拷贝，不落盘复制）
    */
   async imageAttach(path: string, sessionId?: string): Promise<ImageAttachResponse> {
-    const result = await this.sendRpc('image.attach', {
+    const result = await this.sendRpc(WsMethod.IMAGE_ATTACH, {
       session_id: sessionId || this.sessionId || '',
       path,
     })
@@ -718,7 +719,7 @@ export class GatewayWsClient {
    * 返回 {attached, name, path, ref_path, ref_text, uploaded}，ref_text 注入 prompt 文本
    */
   async fileAttach(opts: { path?: string; data_url?: string; name?: string; sessionId?: string }): Promise<FileAttachResponse> {
-    const result = await this.sendRpc('file.attach', {
+    const result = await this.sendRpc(WsMethod.FILE_ATTACH, {
       session_id: opts.sessionId || this.sessionId || '',
       ...(opts.path ? { path: opts.path } : {}),
       ...(opts.data_url ? { data_url: opts.data_url } : {}),
@@ -731,7 +732,7 @@ export class GatewayWsClient {
    * 后端接收 path，从 session.attached_images 移除，返回 {detached, count}
    */
   async imageDetach(path: string, sessionId?: string): Promise<ImageDetachResponse> {
-    const result = await this.sendRpc('image.detach', {
+    const result = await this.sendRpc(WsMethod.IMAGE_DETACH, {
       session_id: sessionId || this.sessionId || '',
       path,
     })
@@ -740,12 +741,12 @@ export class GatewayWsClient {
 
   /** 订阅后端工作区目录监控（外部文件变更 → workspace.changed 推送；单实例替换式，幂等） */
   async workspaceWatch(path: string): Promise<{ watching: string; id: string }> {
-    return this.sendRpc('workspace.watch', { path }) as Promise<{ watching: string; id: string }>
+    return this.sendRpc(WsMethod.WORKSPACE_WATCH, { path }) as Promise<{ watching: string; id: string }>
   }
 
   /** 停止工作区目录监控 */
   async workspaceUnwatch(id: string): Promise<{ stopped: boolean }> {
-    return this.sendRpc('workspace.unwatch', { id }) as Promise<{ stopped: boolean }>
+    return this.sendRpc(WsMethod.WORKSPACE_UNWATCH, { id }) as Promise<{ stopped: boolean }>
   }
 
   // ── 语音 RPC（对齐后端 ws/mod.rs voice.record）──
@@ -756,7 +757,7 @@ export class GatewayWsClient {
    * 转录结果由后端通过 voice.transcript 事件推送回前端（见 useVoice 钩子）
    */
   async voiceRecord(action: 'start' | 'stop' | 'cancel' | 'status' = 'status'): Promise<VoiceRecordResponse> {
-    const result = await this.sendRpc('voice.record', { action })
+    const result = await this.sendRpc(WsMethod.VOICE_RECORD, { action })
     return result as VoiceRecordResponse
   }
 
@@ -765,7 +766,7 @@ export class GatewayWsClient {
    * 后端 handler 已存在，本方法补齐前端调用入口（麦克风隐式启用）。
    */
   async voiceToggle(action: 'on' | 'off' | 'status'): Promise<VoiceToggleResponse> {
-    const result = await this.sendRpc('voice.toggle', { action })
+    const result = await this.sendRpc(WsMethod.VOICE_TOGGLE, { action })
     return result as VoiceToggleResponse
   }
 
@@ -774,7 +775,7 @@ export class GatewayWsClient {
    * Hermes _tts_stream_stop(user_barge=True)。用户发消息时调用，立即停止朗读。
    */
   async voiceTtsStop(): Promise<{ ok?: boolean; status?: string }> {
-    const result = await this.sendRpc('voice.tts.stop', {})
+    const result = await this.sendRpc(WsMethod.VOICE_TTS_STOP, {})
     return result as { ok?: boolean; status?: string }
   }
 
@@ -782,13 +783,13 @@ export class GatewayWsClient {
 
   /** 读配置 — config.get { key } */
   async configGet(key: string): Promise<ConfigGetResponse> {
-    const result = await this.sendRpc('config.get', { key })
+    const result = await this.sendRpc(WsMethod.CONFIG_GET, { key })
     return result as ConfigGetResponse
   }
 
   /** 写配置 — config.set { key, value }，内存+磁盘原子更新、立即生效 */
   async configSet(key: string, value: unknown): Promise<ConfigSetResponse> {
-    const result = await this.sendRpc('config.set', { key, value })
+    const result = await this.sendRpc(WsMethod.CONFIG_SET, { key, value })
     return result as ConfigSetResponse
   }
 
@@ -800,7 +801,7 @@ export class GatewayWsClient {
     const params: Record<string, unknown> = { action }
     if (url) params.url = url
     if (sessionId) params.session_id = sessionId
-    const result = await this.sendRpc('browser.manage', params)
+    const result = await this.sendRpc(WsMethod.BROWSER_MANAGE, params)
     return result as BrowserManageResponse
   }
 

@@ -10,6 +10,7 @@
  * 对齐 Hermes handleDesktopGatewayEvent 的职责边界。
  */
 
+import { WsEvent, WsMethod } from '@/types/ws-contract.generated';
 import { getWsClient } from '@/services/ws-client'
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
 import { getCurrentSessionCwd } from '@/lib/session-cwd'
@@ -49,7 +50,7 @@ const PREVIEW_READ_MAX_CHARS = 24_000
 async function respondPreviewAct(requestId: string, result: string): Promise<void> {
   try {
     const ws = getWsClient()
-    await ws.sendRpc('preview.act.respond', { request_id: requestId, text: result })
+    await ws.sendRpc(WsMethod.PREVIEW_ACT_RESPOND, { request_id: requestId, text: result })
   } catch {
     /* 工具侧已超时/连接断开，忽略 */
   }
@@ -104,7 +105,7 @@ async function handlePreviewActRequest(payload: Record<string, unknown>): Promis
 async function respondPreviewRead(requestId: string, text: string): Promise<void> {
   try {
     const ws = getWsClient()
-    await ws.sendRpc('preview.read.respond', { request_id: requestId, text })
+    await ws.sendRpc(WsMethod.PREVIEW_READ_RESPOND, { request_id: requestId, text })
   } catch {
     /* 工具侧已超时/连接断开，忽略 */
   }
@@ -204,31 +205,31 @@ export function initPreviewEvents(options: PreviewEventsOptions): () => void {
       : raw) as Record<string, unknown>
 
     switch (eventName) {
-      case 'preview.restart.progress': {
+      case WsEvent.PREVIEW_RESTART_PROGRESS: {
         const taskId = payload.task_id as string
         if (taskId) progressPreviewRestart(taskId, (payload.text as string) || '')
         return
       }
 
-      case 'preview.restart.complete': {
+      case WsEvent.PREVIEW_RESTART_COMPLETE: {
         const taskId = payload.task_id as string
         if (taskId) completePreviewRestart(taskId, (payload.text as string) || '')
         return
       }
 
-      case 'preview.read.request': {
+      case WsEvent.PREVIEW_READ_REQUEST: {
         // 🔴 2026-08-20 对齐 Hermes read_preview：agent 读取预览活跃 tab 内容
         void handlePreviewReadRequest(payload)
         return
       }
 
-      case 'preview.act.request': {
+      case WsEvent.PREVIEW_ACT_REQUEST: {
         // 🔴 2026-08-29 对齐 Hermes drive_preview：agent 驱动预览活跃 tab 页面
         void handlePreviewActRequest(payload)
         return
       }
 
-      case 'preview.open': {
+      case WsEvent.PREVIEW_OPEN: {
         // 🔴 2026-08-29 对齐 Hermes sessionIsOnScreen 门禁（此前仅聚焦会话生效，
         // 宫格下可见 tile 会话的 open_preview 会静默消失）。ELEVE 服务端已按
         // session_id 路由到对应 WS 客户端，此处过滤为防御性兜底
@@ -248,7 +249,7 @@ export function initPreviewEvents(options: PreviewEventsOptions): () => void {
         return
       }
 
-      case 'preview.close': {
+      case WsEvent.PREVIEW_CLOSE: {
         // 🔴 2026-08-29 对齐 Hermes preview.close（use-preview-routing:108-140）：
         // 与 open 同款 onScreen 门禁——"a session the user can see may tidy the
         // pane it opened; a hidden background turn must not dismiss it"
@@ -270,7 +271,7 @@ export function initPreviewEvents(options: PreviewEventsOptions): () => void {
         return
       }
 
-      case 'tool.complete': {
+      case WsEvent.TOOL_COMPLETE: {
         // 文件变更自动刷新：工具结果带 inline_diff → 已打开的 url 预览重载
         // （对齐 Hermes gatewayEventCompletedFileDiff；后端 tool.complete 需携带 inline_diff）
         const diff = payload.inline_diff

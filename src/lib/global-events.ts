@@ -15,6 +15,7 @@
  *    ❌ 任何带 session_id 的 per-agent 事件 — 调用方负责
  * ═══════════════════════════════════════════════════════════════════
  */
+import { WsEvent, WsMethod } from '@/types/ws-contract.generated';
 import { getWsClient } from '@/services/ws-client';
 import { playWakeSound, dispatchWakeDetected } from './wake-events';
 import { releaseAgentTerminal } from './agent-terminal-stream';
@@ -79,7 +80,7 @@ export function emitProfilesChanged(): void {
  */
 export function handleGlobalEvent(eventName: string, payload: Record<string, unknown>): boolean {
   switch (eventName) {
-    case 'notification.show': {
+    case WsEvent.NOTIFICATION_SHOW: {
       const level = (payload.level as string) || 'info';
       const kind = level === 'error' ? 'error'
         : level === 'warn' || level === 'warning' ? 'warning'
@@ -97,13 +98,13 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
       return true;
     }
 
-    case 'notification.clear':
+    case WsEvent.NOTIFICATION_CLEAR:
       import('../utils/notifications').then(({ dismissNotificationByKey }) => {
         dismissNotificationByKey((payload.key as string) || '');
       }).catch(() => {});
       return true;
 
-    case 'terminal.close': {
+    case WsEvent.TERMINAL_CLOSE: {
       // 🔴 2026-09-01 内存修复（审查 P1-1）：进程退出 → 释放 agent 终端流的
       // 进程级缓冲（backlog ≤256KB + lastSnapshots + 命令头，此前永不删除）
       // 与 terminals surfacedProcs 记录。本 case 是单视图（useSSE
@@ -119,7 +120,7 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
       return true;
     }
 
-    case 'terminal.read.request': {
+    case WsEvent.TERMINAL_READ_REQUEST: {
       const requestId = typeof payload.request_id === 'string' ? payload.request_id : '';
       if (requestId) {
         const startLine = typeof payload.start_line === 'number' ? payload.start_line : undefined;
@@ -127,7 +128,7 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
         (async () => {
           const { readActiveTerminal } = await import('@/store/terminal-buffer');
           const result = readActiveTerminal({ start: startLine, count });
-          getWsClient().sendRpc('terminal.read.respond', {
+          getWsClient().sendRpc(WsMethod.TERMINAL_READ_RESPOND, {
             request_id: requestId,
             text: result ? JSON.stringify(result) : '',
           }).catch(() => {});
@@ -136,7 +137,7 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
       return true;
     }
 
-    case 'browser.progress': {
+    case WsEvent.BROWSER_PROGRESS: {
       const bpLevel = (payload.level as string) || '';
       if (bpLevel === 'error' || bpLevel === 'warning') {
         import('../utils/notifications').then(({ notifyError }) => {
@@ -149,7 +150,7 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
     // projects.changed — 项目数据变化（工具 project_create/switch/delete 或 UI CRUD）
     // 后端带 profile（ELEVE 单进程多 profile，projects.db per-profile）；
     // 空串/null = 归属未知 → 消费方按全量刷新处理。
-    case 'projects.changed': {
+    case WsEvent.PROJECTS_CHANGED: {
       const profile = (payload.profile as string | null | undefined) || null
       for (const fn of projectsChangedListeners) {
         try {
@@ -167,18 +168,18 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
     // 🔴 2026-08-16 流程审查（B1/D1）：原 theme.changed 事件名后端无生产端。
     // profiles.changed — Agent 生命周期变化（新建/删除/改名成功后广播）。
     // 消费方（BotsPane 花名册等）各自重拉；payload 带 action/name。
-    case 'profiles.changed': {
+    case WsEvent.PROFILES_CHANGED: {
       emitProfilesChanged()
       return true
     }
 
-    case 'skin.changed':
+    case WsEvent.SKIN_CHANGED:
       console.debug('[global-events] skin.changed', payload);
       return true;
 
     // wake.detected — 唤醒词命中（常开监听，全局广播无 session_id）
     // 对齐 Hermes wiring.tsx:686：提示音 + 事件总线（App 层开新会话 + 语音）
-    case 'wake.detected': {
+    case WsEvent.WAKE_DETECTED: {
       playWakeSound();
       dispatchWakeDetected({
         phrase: (payload.phrase as string) || '小莉',
@@ -190,7 +191,7 @@ export function handleGlobalEvent(eventName: string, payload: Record<string, unk
 
     // voice.interrupted — full-duplex barge-in 打断（TTS 已切 + turn 已中断，
     // 纯后端语义事件；前端无额外 UI，debug 留痕防静默丢弃）
-    case 'voice.interrupted':
+    case WsEvent.VOICE_INTERRUPTED:
       console.debug('[global-events] voice.interrupted (TTS cut + turns interrupted)');
       return true;
 

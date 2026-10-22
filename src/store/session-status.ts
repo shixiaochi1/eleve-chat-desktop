@@ -22,6 +22,7 @@
  * ⚠️ background 态（Hermes $backgroundRunningSessionIds）：数据源 = 后台 terminal
  * 进程存活（process→session 映射），ELEVE 无等价事件，如实不做（待后端支持）。
  */
+import { WsEvent } from '../types/ws-contract.generated';
 import { useSyncExternalStore } from 'react';
 import { getWsClient } from '../services/ws-client';
 import { call } from '../utils/bridge';
@@ -154,7 +155,7 @@ getWsClient().addEventListener((eventName: string, data: unknown) => {
 
   switch (eventName) {
     // ── 权威快照：running + pending_prompts（后端每次状态变化推送） ──
-    case 'session.info': {
+    case WsEvent.SESSION_INFO: {
       const running = payload.running === true;
       const pending = payload.pending_prompts as Record<string, unknown> | undefined;
       const needsInput = !!pending && Object.keys(pending).length > 0;
@@ -170,7 +171,7 @@ getWsClient().addEventListener((eventName: string, data: unknown) => {
     //    kind=compacting → 压缩中；kind=compacted → 压缩完成。
     //    Hermes 用 compactedTurnRef 记录开始态，恢复信号命中即提前退役；
     //    ELEVE 的 compacting 标志本身即"本次压缩中"，恢复信号分支直接清。 ──
-    case 'status.update': {
+    case WsEvent.STATUS_UPDATE: {
       const kind = payload.kind as string | undefined;
       if (kind === 'compacting') {
         patch(sid, { compacting: true, lastActive: Date.now() });
@@ -183,22 +184,22 @@ getWsClient().addEventListener((eventName: string, data: unknown) => {
     // 恢复信号（对齐 Hermes COMPACTION_RESUME_EVENT_TYPES）：压缩中收到首个
     // 模型输出/工具事件 = 摘要完成、turn 已恢复 → 提前退役压缩态（不依赖
     // compacted 事件——Hermes 同语义：mid-turn 压缩不重发 message.start）
-    case 'message.start':
-    case 'message.delta':
-    case 'reasoning.available':
-    case 'reasoning.delta':
-    case 'thinking.delta':
-    case 'tool.start':
-    case 'tool.generating':
-    case 'tool.progress':
-    case 'step.complete': {
+    case WsEvent.MESSAGE_START:
+    case WsEvent.MESSAGE_DELTA:
+    case WsEvent.REASONING_AVAILABLE:
+    case WsEvent.REASONING_DELTA:
+    case WsEvent.THINKING_DELTA:
+    case WsEvent.TOOL_START:
+    case WsEvent.TOOL_GENERATING:
+    case WsEvent.TOOL_PROGRESS:
+    case WsEvent.STEP_COMPLETE: {
       patch(sid, { running: true, stalled: false, compacting: false, lastActive: Date.now() });
       armWatchdog(sid);
       break;
     }
     // ── turn 结束：running 归零；非活动会话完成 → unread（对齐 Hermes handleTransition） ──
-    case 'message.complete':
-    case 'error': {
+    case WsEvent.MESSAGE_COMPLETE:
+    case WsEvent.ERROR: {
       const wasRunning = (states[sid] ?? IDLE_STATE).running;
       clearWatchdog(sid);
       patch(sid, {
@@ -217,7 +218,7 @@ getWsClient().addEventListener((eventName: string, data: unknown) => {
     // ── 进程启动（2026-08-30 新增事件）：点亮该会话灰点 ──
     // 后端：ProcessRegistry.on_start_tx → Gateway 广播 process.started
     // （registry.rs spawn 注册点 / api_server.rs 6-F2 监听块）
-    case 'process.started': {
+    case WsEvent.PROCESS_STARTED: {
       const pid = flat.process_id as string | undefined;
       if (!pid) break;
       let set = backgroundProcesses.get(sid);
@@ -229,7 +230,7 @@ getWsClient().addEventListener((eventName: string, data: unknown) => {
       patch(sid, { background: true, lastActive: Date.now() });
       break;
     }
-    case 'tool.complete': {
+    case WsEvent.TOOL_COMPLETE: {
       patch(sid, { running: true, stalled: false, lastActive: Date.now() });
       armWatchdog(sid);
       // 工具完成可能伴随进程启停；事件已覆盖绝大部分场景，这里只做补充对账
@@ -239,7 +240,7 @@ getWsClient().addEventListener((eventName: string, data: unknown) => {
     // ── 进程结束：从集合移除，**集合空了才灭灰点** ──
     // 旧实现收到这个事件后又发一次全量 process.list，纯属浪费——
     // 事件本身已经告诉我们是哪个进程关了。
-    case 'terminal.close': {
+    case WsEvent.TERMINAL_CLOSE: {
       const pid = flat.process_id as string | undefined;
       const set = backgroundProcesses.get(sid);
       if (pid && set) {
