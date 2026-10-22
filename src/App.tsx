@@ -365,6 +365,8 @@ export default function App() {
   // 文件面板无会话时导航目录 → 新会话落该目录（此前只做了 remote 记忆，本会话不消费 = 断线）；
   // 任何项目域动作（点项目/会话行/切 Agent）→ 清除（项目意图覆盖手动导航）。
   const newChatWorkspaceTargetRef = useRef<string | null>(null);
+  /** 🔴 2026-10-22：切 Agent 后等会话列表回来的"取最近会话"标记（无历史指针时的兜底） */
+  const pendingLatestSessionRef = useRef<{ profile: string } | null>(null);
   useEffect(() => {
     // 🔴 2026-08-13 老大语义重构：会话切换只影响 sessionCwd（终端/新会话落点），
     // 不碰 panelRoot（文件面板是项目映射视图，不跟随会话）。
@@ -834,11 +836,29 @@ export default function App() {
       // 🔴 P0-1.2: pending 交互恢复依赖后端推送的 session.info 事件（WS 流建立时自动推送）
       // 实时审批/澄清/sudo/secret 由 useSSE/useMessageStream 事件处理器消费
     } else {
-      // 无历史会话 → 空白草稿。
+      // 无历史指针 → 先清，然后等该 Agent 的会话列表回来取**最近一次会话**（见下方 effect）。
       // 🔴 串台/丢失修复：清的是目标 profile（name）的指针，不是源（currentProfile 是闭包旧值=切走的 Agent）。
       clearSessionView(name);
+      pendingLatestSessionRef.current = { profile: name };
     }
   }, [sess, currentProfile, resetStream, loadSessionIntoView, clearSessionView]);
+
+  // 🔴 2026-10-22（老大语义：点 Agent = 恢复工作现场）：指针缺失 ≠ 无历史。
+  // `sess.refresh()` 把该 Agent 的会话列表拉回来后，取最近一次会话加载到主区。
+  useEffect(() => {
+    const pending = pendingLatestSessionRef.current;
+    if (!pending || pending.profile !== currentProfile) return;
+    const rows = sess.sessions as { id: string; last_active?: number }[];
+    const candidates = rows
+      .filter((s) => isRestorableProfilePointer(s.id, currentProfile))
+      .sort((a, b) => (b.last_active ?? 0) - (a.last_active ?? 0));
+    if (candidates.length === 0) {
+      pendingLatestSessionRef.current = null;
+      return;
+    }
+    pendingLatestSessionRef.current = null;
+    loadSessionIntoView(candidates[0].id);
+  }, [currentProfile, sess.sessions, loadSessionIntoView]);
 
   const handleProfileChange = useCallback((name: string) => {
     // 🔴 2026-08-13 边界修复：同 Agent 重复点选短路——否则单视图重跑四步
