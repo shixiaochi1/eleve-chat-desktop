@@ -76,6 +76,8 @@ function loadCollapse(): CollapseState {
 
 export default function AgentsPanel(props: AgentsPanelProps) {
   const { onOpenBotChat, onEditAgentTarget, ...rest } = props;
+  // 当前 Agent（只读取，继续经 rest 下发给 ProfilePanel/ProjectTreePanel）
+  const currentProfile = props.currentProfile;
 
   // 筛选态：私聊 + 群聊**共用一套**（工具栏只有一条）⇒ 在面板层持有
   const filtersApi = useAgentPanelFilters();
@@ -194,6 +196,9 @@ export default function AgentsPanel(props: AgentsPanelProps) {
           />
           <PrivateChatSection
             filters={filters}
+            // 🔴 2026-10-22：Agent 行 = 工作区级导航后，私聊只保留**当前 Agent** 那条
+            // （其它 Agent 的私聊通过切 Agent 到达）——消除"卡片/Agent 行 vs 私聊行"重复。
+            onlyProfile={currentProfile}
             onOpenBotChat={handleOpenLocalChat}
             onOpenRemoteChat={handleOpenRemoteChat}
             onRowMenu={(row, x, y) => setMenu({ row, x, y })}

@@ -26,6 +26,7 @@ import {
   type AgentPanelFilterState,
 } from '../../hooks/useAgentPanelData';
 import { rosterRowKey } from '../../lib/bot-members';
+import { LOCAL_CONNECTION_ID } from '../../services/bot-relay';
 import type { UnionRosterRow } from '../../plugins/bots/state';
 
 export interface PrivateChatSectionProps {
@@ -42,6 +43,14 @@ export interface PrivateChatSectionProps {
   onToggleCollapsed?: () => void;
   /** 分区容器类（父组件控制高度/滚动） */
   className?: string;
+  /**
+   * 只显示该 Agent 的私聊（本机连接）。
+   *
+   * 🔴 2026-10-22（Agent 行 = 工作区级导航）：Agent 列表已覆盖全部 Agent 的
+   * "是谁"，私聊分组再列全部 Agent 就会与 Agent 行重复。只保留**当前 Agent**
+   * 的常驻私聊作为聊天入口；其它 Agent 的私聊通过切换 Agent 到达。
+   */
+  onlyProfile?: string;
 }
 
 export default function PrivateChatSection({
@@ -52,8 +61,20 @@ export default function PrivateChatSection({
   collapsed = false,
   onToggleCollapsed,
   className,
+  onlyProfile,
 }: PrivateChatSectionProps) {
   const { rows, all, loading, hiddenCount, hasConstraint } = usePrivateChatRows(filters);
+
+  // 当前 Agent 作用域：只保留本机连接下该 profile 的行（见 props 文档）
+  const visibleRows = useMemo(
+    () =>
+      onlyProfile
+        ? rows.filter(
+            (r) => r.connectionId === LOCAL_CONNECTION_ID && r.entry.profile === onlyProfile,
+          )
+        : rows,
+    [rows, onlyProfile],
+  );
 
   // 🔴 隐藏项淡化判据必须与**编排同一份**（`hasConstraint` = 搜索 ∨ 类型/活跃度/连接筛选）。
   // 此前只按 query 判断 → 用类型/活跃度/连接筛选时，隐藏行会被展开却不淡化（与旧面板不一致）。
@@ -82,10 +103,10 @@ export default function PrivateChatSection({
           </button>
         )}
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-          私聊
+          {onlyProfile ? '当前 Agent 私聊' : '私聊'}
         </span>
-        {!loading && rows.length > 0 && (
-          <span className="text-[10px] tabular-nums text-muted-foreground/50">{rows.length}</span>
+        {!loading && visibleRows.length > 0 && (
+          <span className="text-[10px] tabular-nums text-muted-foreground/50">{visibleRows.length}</span>
         )}
       </div>
 
@@ -94,7 +115,7 @@ export default function PrivateChatSection({
           否则会出现"内层永不生效的滚动容器"（职责重叠）。 */}
       {!collapsed && (
         <div className="min-h-0 px-1 space-y-1">
-          {rows.map((row) => (
+          {visibleRows.map((row) => (
             <PrivateChatRow
               // 🔴 round-111：键 = 连接作用域（跨连接同名 profile 不共用槽位/未读水位）
               key={rosterRowKey(row)}
@@ -106,8 +127,10 @@ export default function PrivateChatSection({
             />
           ))}
 
-          {rows.length === 0 && (
-            <div className="text-xs text-muted-foreground/70 px-2 py-1.5">{emptyText}</div>
+          {visibleRows.length === 0 && (
+            <div className="text-xs text-muted-foreground/70 px-2 py-1.5">
+              {onlyProfile ? '当前 Agent 暂无可用私聊（切换到该 Agent 后可用）' : emptyText}
+            </div>
           )}
         </div>
       )}

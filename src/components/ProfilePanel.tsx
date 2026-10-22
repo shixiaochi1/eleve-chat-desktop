@@ -18,6 +18,9 @@ import {
 } from 'lucide-react';
 import CreateAgentDialog from './CreateAgentDialog';
 import { AgentAvatarSvg } from '../lib/agent-avatars';
+import { useUnionRoster } from '../plugins/bots/state';
+import { LOCAL_CONNECTION_ID } from '../services/bot-relay';
+import { isBotWorkerActive, isGatewayBusy } from '../lib/bot-activity';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from './ui/dialog';
@@ -89,11 +92,13 @@ function ProfileAvatar({ name, hasAvatar, color, avatarKey }: { name: string; ha
 }
 
 function ProfileCard({
-  profile, active, switching, onSelect, onDelete, onEdit,
+  profile, active, switching, runtime, onSelect, onDelete, onEdit,
 }: {
   profile: ProfileCardData;
   active: boolean;
   switching: boolean;
+  /** 运行态（来自 union roster 本机行）：busy = worker 在跑或 gateway 忙 */
+  runtime?: { busy: boolean; lastActive: number | null };
   onSelect: (name: string) => void;
   onDelete?: (name: string) => void;
   onEdit?: (name: string) => void;
@@ -199,6 +204,17 @@ function ProfileCard({
           <Package size={9} strokeWidth={1.5} />
           <span>{profile.skill_count}</span>
         </span>
+        {/* 🔴 运行中指示（2026-10-22）：Agent 行是工作区级导航，切走就看不到该 Agent 的
+            流式输出——在行上显示运行态，用户不切回去也知道它还在干活。 */}
+        {runtime?.busy && (
+          <span
+            className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400"
+            title="运行中（该 Agent 正在处理任务；切走不会中断，切回可看进度）"
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            运行中
+          </span>
+        )}
       </div>
     </div>
   );
@@ -232,6 +248,23 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
   const [agentOrder, setAgentOrder] = useState<string[]>(() => loadAgentOrder());
   // Agent 卡片实际高度（测量校准；初始估算 = 标题行 + 元信息行 + padding）
   const [cardH, setCardH] = useState(68);
+
+  // 🔴 运行态（2026-10-22）：Agent 行 = 工作区级导航，切走即失去该 Agent 的流式焦点，
+  // 所以在行上显式标"运行中"。数据取 union roster 的**本机行**（远端 Agent 不在卡片区）。
+  const roster = useUnionRoster();
+  const runtimeByName = useMemo(() => {
+    const m = new Map<string, { busy: boolean; lastActive: number | null }>();
+    for (const row of roster) {
+      if (row.connectionId !== LOCAL_CONNECTION_ID) continue;
+      const name = row.entry.profile;
+      if (!name) continue;
+      m.set(name, {
+        busy: isBotWorkerActive(row.entry.worker_session) || isGatewayBusy(row.entry.busy),
+        lastActive: row.entry.last_active ?? null,
+      });
+    }
+    return m;
+  }, [roster]);
 
   // 渲染顺序：order 优先 + 新增追加（对齐项目 orderProjectsByIds 语义）
   const orderedProfiles = useMemo(() => {
@@ -454,6 +487,7 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
                   profile={p}
                   active={p.name === activeName}
                   switching={switching === p.name}
+                  runtime={runtimeByName.get(p.name)}
                   onSelect={handleSelect}
                   onEdit={onEditAgent}
                   onDelete={(name) => { setDeletingTarget(name); setDeleteConfirmName(''); }}
