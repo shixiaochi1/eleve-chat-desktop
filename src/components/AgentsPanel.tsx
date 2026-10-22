@@ -20,9 +20,10 @@
  * 透传 App 下发的 props；本组件只增加第③段的编排与回调。
  */
 import { useCallback, useMemo, useState } from 'react';
-import { EyeOff } from 'lucide-react';
+import { ChevronDown, ChevronRight, EyeOff } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import * as storage from '../utils/storage';
 import ProfilePanel from './ProfilePanel';
 import ProjectTreePanel from './ProjectTreePanel';
 import AgentPanelToolbar from './bots/AgentPanelToolbar';
@@ -96,6 +97,10 @@ export default function AgentsPanel(props: AgentsPanelProps) {
   );
 
   const [collapsed, setCollapsed] = useState<CollapseState>(loadCollapse);
+  // 🔴 2026-10-22：Agent 卡片区可折叠（默认展开；持久化到 localStorage）
+  const [agentsCollapsed, setAgentsCollapsed] = useState<boolean>(
+    () => storage.load('agents_panel_collapsed', false) === true,
+  );
   const toggleCollapse = useCallback((key: keyof CollapseState) => {
     setCollapsed((cur) => {
       const next = { ...cur, [key]: !cur[key] };
@@ -148,9 +153,25 @@ export default function AgentsPanel(props: AgentsPanelProps) {
 
   return (
     <div className="relative flex flex-col h-full min-h-0">
-      {/* ── ① Agent 卡片区（自然高度；max-h-[38%] 仅极端保护，超限内部滚动） ── */}
-      <div className="flex flex-col min-h-0 max-h-[38%] shrink-0">
-        <ProfilePanel {...rest} />
+      {/* ── ① Agent 卡片区（自然高度；max-h-[38%] 仅极端保护，超限内部滚动） ──
+          🔴 2026-10-22：加可折叠（本地持久化）。Agent 区常驻 38% 高度对"以聊天为主"
+          的用户是浪费——收起后空间直接给项目/会话，需要切身份时展开即可。 */}
+      <div className={cn('flex flex-col min-h-0 shrink-0', !agentsCollapsed && 'max-h-[38%]')}>
+        <button
+          type="button"
+          onClick={() => {
+            const next = !agentsCollapsed;
+            setAgentsCollapsed(next);
+            storage.save('agents_panel_collapsed', next);
+          }}
+          className="flex items-center gap-1 px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+          title={agentsCollapsed ? '展开 Agent 列表' : '收起 Agent 列表（把空间让给项目/会话）'}
+          aria-expanded={!agentsCollapsed}
+        >
+          {agentsCollapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+          Agents
+        </button>
+        {!agentsCollapsed && <ProfilePanel {...rest} />}
       </div>
 
       {/* ── ② 项目区（flex-1 = 卡片区决定的剩余空间） ── */}
