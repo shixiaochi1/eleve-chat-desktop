@@ -13,7 +13,7 @@ import { getWsClient } from '../services/ws-client';
 import { cn } from '@/lib/utils';
 import { useSortableList } from '../hooks/useSortableList';
 import {
-  Bot, Cpu, Plug, Package, Star, Loader,
+  Bot, Star, Loader,
   Plus, Trash2,
 } from 'lucide-react';
 import CreateAgentDialog from './CreateAgentDialog';
@@ -110,6 +110,15 @@ function ProfileCard({
   // 🔴 2026-08-12 老大指正：点选状态统一为"给了颜色"的样式——无 color 时颜色 = 主题
   //   primary（var(--dt-primary)），不再出现"裸勾/无竖条"第二形态。Agent 与项目卡片同构。
   const accent = color ?? 'var(--dt-primary)';
+  // 🔴 2026-10-22 用户要求：AGENT 卡片 → **头像行**（与项目/会话行同一视觉语言）。
+  //   卡片化的边框/阴影/两行元信息全部去掉；model/provider/技能数收进 title 提示。
+  const displayName = profile.display_name || profile.name;
+  const meta = [
+    profile.name !== displayName ? profile.name : null,
+    profile.model || '未配置模型',
+    profile.provider,
+    `${profile.skill_count} 技能`,
+  ].filter(Boolean).join(' · ');
   return (
     <div
       role="button"
@@ -117,115 +126,59 @@ function ProfileCard({
       onClick={() => onSelect(profile.name)}
       onDoubleClick={() => onEdit?.(profile.name)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(profile.name); } }}
+      title={meta}
       className={cn(
-        'group relative w-full text-left px-2.5 py-2 rounded-lg border bg-card shadow-sm transition-all duration-150 cursor-pointer overflow-hidden space-y-1.5 hover:bg-accent/30',
-        // 🔴 2026-08-18 选中入场扫光（一次性高光扫过，切换选中时重播）
-        active && 'card-selected-sweep',
+        'group relative w-full h-full text-left pl-2.5 pr-2 rounded-md transition-colors cursor-pointer overflow-hidden flex items-center gap-2 hover:bg-accent/40',
+        active && 'bg-accent/30',
         switching && 'opacity-60'
       )}
-      style={{
-        '--agent-color': color ?? undefined,
-        // 🔴 卡片描边 = accent 30% 透明混合（选中/未选中一致；无 color = 主题 primary）
-        borderColor: `color-mix(in srgb, ${accent} 30%, transparent)`,
-        // 🔴 2026-08-18 老大需求：选中态填充同背景色——不再混入 accent 10% 淡底，
-        // 选中标识只靠描边 + 光环 + 左侧发光竖条（bg-card 保持）
-        background: undefined,
-        // 🔴 选中态背投影（对齐宫格卡片逻辑：细光环 + 明显投影；侧栏卡片小，光环 1px 不显粗）
-        boxShadow: active
-          ? `0 0 0 1px color-mix(in srgb, ${accent} 45%, transparent), 0 6px 18px var(--theme-shadow-color-heavy)`
-          : undefined,
-      } as React.CSSProperties}
     >
       {/* 左侧 accent 强调条：仅选中态渲染（实色+发光）；无 color 用主题 primary */}
       {active && (
         <span
           aria-hidden
-          className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
+          className="absolute left-0 top-1 bottom-1 w-[3px] rounded-r-full"
           style={{
             background: accent,
             boxShadow: `0 0 8px color-mix(in srgb, ${accent} 65%, transparent)`,
           }}
         />
       )}
-      {/* 名称行 */}
-      <div className="flex items-center gap-1.5">
-        {/* 头像容器：恒无方块背景（老大 2026-08-12：与项目卡片一致，选中强调靠描边+淡底+光环） */}
-        <div className="flex items-center justify-center w-6 h-6 rounded-md shrink-0 overflow-hidden transition-all duration-150">
-          {profile.avatar || profile.avatar_key ? (
-            <ProfileAvatar name={profile.display_name || profile.name} hasAvatar={profile.avatar} color={color} avatarKey={profile.avatar_key} />
-          ) : (
-            <Bot size={13} strokeWidth={1.5} style={{ color: color || undefined }} />
-          )}
-        </div>
-        <span className="text-xs font-medium text-foreground truncate flex-1">
-          {profile.display_name || profile.name}
-          {profile.display_name && profile.display_name !== profile.name && (
-            <span className="ml-1 text-[10px] text-muted-foreground/60 font-normal">({profile.name})</span>
-          )}
-        </span>
-        {profile.is_default && (
-          <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] bg-muted text-muted-foreground" title="默认 Agent">
-            <Star size={9} strokeWidth={1.5} />
-            默认
-          </span>
-        )}
-        {switching ? (
-          <Loader size={12} strokeWidth={1.5} className="animate-spin text-primary" />
-        ) : null}
-        {/* 删除按钮（非 default，hover 显示） */}
-        {!profile.is_default && onDelete && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete(profile.name); }}
-            className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-all"
-            title={`删除 ${profile.name}`}
-          >
-            <Trash2 size={12} strokeWidth={1.5} />
-          </button>
-        )}
-      </div>
-
-      {/* 元信息（🔴 2026-08-13 v6 等高保障：flex-nowrap 禁换行——provider 有无不再
-          导致卡片高度差异；切 Agent 数量不变 → 列表总高恒定 → 项目区零移动） */}
-      <div className="flex items-center gap-1.5 pl-7 min-w-0">
-        {profile.model ? (
-          <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground" title="模型">
-            <Cpu size={9} strokeWidth={1.5} />
-            <span className="truncate max-w-[90px]">{profile.model}</span>
-          </span>
+      {/* 头像 */}
+      <div className="flex items-center justify-center w-6 h-6 rounded-md shrink-0 overflow-hidden">
+        {profile.avatar || profile.avatar_key ? (
+          <ProfileAvatar name={displayName} hasAvatar={profile.avatar} color={color} avatarKey={profile.avatar_key} />
         ) : (
-          <span className="text-[10px] text-muted-foreground/40">未配置模型</span>
+          <Bot size={14} strokeWidth={1.5} style={{ color: color || undefined }} />
         )}
-        {profile.provider && (
-          <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground" title="提供方">
-            <Plug size={9} strokeWidth={1.5} />
-            <span className="truncate max-w-[70px]">{profile.provider}</span>
-          </span>
-        )}
-        <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground" title="技能数">
-          <Package size={9} strokeWidth={1.5} />
-          <span>{profile.skill_count}</span>
-        </span>
-        {/* 🔴 运行中指示（2026-10-22）：Agent 行是工作区级导航，切走就看不到该 Agent 的
-            流式输出——在行上显示运行态，用户不切回去也知道它还在干活。 */}
-        {runtime?.busy && (
-          <span
-            className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400"
-            title="运行中（该 Agent 正在处理任务；切走不会中断，切回可看进度）"
-          >
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            运行中
-          </span>
-        )}
-        {/* 最近活动（roster last_active）——排序语义可见化，也与"运行中"互补 */}
-        {runtime?.lastActive ? (
-          <span
-            className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground/60"
-            title="最近活动时间"
-          >
-            {formatRelativeTime(runtime.lastActive)}
-          </span>
-        ) : null}
       </div>
+      <span className={cn('text-xs truncate flex-1', active ? 'font-medium text-foreground' : 'text-muted-foreground group-hover:text-foreground')}>
+        {displayName}
+      </span>
+      {profile.is_default && (
+        <span className="shrink-0" title="默认 Agent">
+          <Star size={10} strokeWidth={1.5} className="text-muted-foreground/50" />
+        </span>
+      )}
+      {switching && <Loader size={12} strokeWidth={1.5} className="shrink-0 animate-spin text-primary" />}
+      {/* 🔴 运行中指示：Agent 行是工作区级导航，切走看不到流式输出——行上给状态点 */}
+      {runtime?.busy && (
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" title="运行中（切走不会中断）" />
+      )}
+      {runtime?.lastActive ? (
+        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/60" title="最近活动时间">
+          {formatRelativeTime(runtime.lastActive)}
+        </span>
+      ) : null}
+      {!profile.is_default && onDelete && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(profile.name); }}
+          className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-all shrink-0"
+          title={`删除 ${profile.name}`}
+        >
+          <Trash2 size={12} strokeWidth={1.5} />
+        </button>
+      )}
     </div>
   );
 }
@@ -256,8 +209,9 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
   const [switching, setSwitching] = useState<string | null>(null);
   // 手排顺序：用户拖拽覆盖后端顺序；新 Agent（未在 order）追加底部
   const [agentOrder, setAgentOrder] = useState<string[]>(() => loadAgentOrder());
-  // Agent 卡片实际高度（测量校准；初始估算 = 标题行 + 元信息行 + padding）
-  const [cardH, setCardH] = useState(68);
+  // Agent 行高（测量校准；初始估算 = 头像行 32 + 行内 padding）
+  // 🔴 2026-10-22：卡片 → 头像行，行高从 68 降到 34（单行）。
+  const [cardH, setCardH] = useState(34);
 
   // 🔴 运行态（2026-10-22）：Agent 行 = 工作区级导航，切走即失去该 Agent 的流式焦点，
   // 所以在行上显式标"运行中"。数据取 union roster 的**本机行**（远端 Agent 不在卡片区）。
@@ -295,15 +249,15 @@ export default function ProfilePanel({ currentProfile, onProfileChange, onProfil
     ids: orderedProfiles.map((p) => p.name),
     onReorder: (ids) => { setAgentOrder(ids); saveAgentOrder(ids); },
     itemHeight: cardH,
-    gap: 6,
-    padTop: 6,
+    gap: 2,
+    padTop: 4,
     onDragStateChange: ({ activeId }) => setDraggingAgent(!!activeId),
   });
-  // 首张卡测量实际高度（校准槽位间距）
+  // 首个行测量实际高度（校准槽位间距）
   const measureFirstCard = useCallback((el: HTMLDivElement | null) => {
-    if (el && cardH === 68) {
+    if (el && cardH === 34) {
       const h = el.getBoundingClientRect().height;
-      if (h > 20 && Math.abs(h - 68) > 2) setCardH(h);
+      if (h > 20 && Math.abs(h - 34) > 2) setCardH(h);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardH]);
