@@ -58,6 +58,10 @@ const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 15000  // 对齐 Hermes: 上限 15s（1s→2s→4s→8s→15s→15s...）
 const RECONNECT_MAX_ATTEMPTS = 20
 const IDLE_PING_INTERVAL_MS = 30000
+/** 🔴 2026-10-23：心跳响应超时。两次无响应即判定半开连接（socket 假死，
+ *  readyState 仍是 OPEN）并 close 触发重连——否则无重连、无对账、新消息永不出现。 */
+const PING_TIMEOUT_MS = 10000
+const PING_MAX_MISSES = 2
 
 // ── 多 Profile：当前活动 profile（对齐 Hermes setApiRequestProfile 模式）──
 // 单点注入：sendRpc 自动给作用域 RPC 盖章 params.profile，避免逐调用点遗漏。
@@ -89,6 +93,8 @@ export class GatewayWsClient {
   private reconnectAttempts = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private pingTimer: ReturnType<typeof setInterval> | null = null
+  /** 连续心跳无响应次数（达到 PING_MAX_MISSES → 判定半开连接并重连）。 */
+  private pingMisses = 0
   private intentionallyClosed = false
   // [multi-connection] remote ws base; when set, doConnect uses it instead of getApiBase
   private remoteBase: string | null = null
@@ -417,12 +423,45 @@ export class GatewayWsClient {
 
   private startPing(): void {
     this.stopPing()
+    this.pingMisses = 0
     this.pingTimer = setInterval(() => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        // 发送 JSON-RPC ping（对齐 Eleve WS protocol）
-        this.sendRpc(WsMethod.PING, {}).catch(() => {})
-      }
+      if (this.ws?.readyState !== WebSocket.OPEN) return
+      // 发送 JSON-RPC ping（对齐 Eleve WS protocol）。
+      // 🔴 2026-10-23 复审修复：必须等响应——半开连接（TCP 假死）时 readyState 仍是
+      // OPEN，fire-and-forget 的 ping 永远不报错 ⇒ 没有重连、没有增量对账，
+      // 房间新消息永远不出现（用户只能靠手动发送/刷新踢醒）。
+      let settled = false
+      const timeout = setTimeout(() => {
+        if (settled) return
+        settled = true
+        this.registerPingMiss()
+      }, PING_TIMEOUT_MS)
+      void this.sendRpc(WsMethod.PING, {})
+        .then(() => {
+          if (settled) return
+          settled = true
+          clearTimeout(timeout)
+          this.pingMisses = 0
+        })
+        .catch(() => {
+          if (settled) return
+          settled = true
+          clearTimeout(timeout)
+          this.registerPingMiss()
+        })
     }, IDLE_PING_INTERVAL_MS)
+  }
+
+  /** 心跳失败累计：连续两次无响应 → 判定半开连接，close 触发既有重连链路。 */
+  private registerPingMiss(): void {
+    this.pingMisses += 1
+    if (this.pingMisses < PING_MAX_MISSES) return
+    this.pingMisses = 0
+    try {
+      this.ws?.close()
+    } catch {
+      /* 已关闭：onclose 会走重连 */
+    }
   }
 
   private stopPing(): void {

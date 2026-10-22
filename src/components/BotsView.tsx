@@ -312,7 +312,10 @@ function BotsRoomView({ room, roster, onBack }: {
       }
     }
     for (const rid of respondedInteractions) live.delete(rid);
-    seedRoomClarify(room.room_id, live);
+    // 🔴 2026-10-23 复审修复：首屏 events 尚未加载时**不要** seed——`seedRoomClarify`
+    // 是替换语义，会把 WS 侧已 note 的徽标一把抹掉（点徽标进房 → 徽标瞬间灭；若 request
+    // 又早于 200 条窗口，卡片重建不出来 = 徽标灭 + 无卡可答 = 房间永久卡住）。
+    if (events.length > 0) seedRoomClarify(room.room_id, live);
 
     // 🔴 round-78e：updater 必须纯函数——先纯收集 additions/resolutions，
     // 再分离提交两个 setState（此前在 updater 内嵌套 setRespondedInteractions，
@@ -350,11 +353,14 @@ function BotsRoomView({ room, roster, onBack }: {
         if (rid) resolutions.push(rid);
       }
     }
-    if (resolutions.length) {
-      const resolvedSet = new Set(resolutions);
+    const resolvedSet = new Set(resolutions);
+    if (resolvedSet.size) {
       setRespondedInteractions((s) => {
         const ns = new Set(s);
-        for (const rid of resolvedSet) ns.delete(rid);
+        // 🔴 2026-10-23 复审修复：resolved 必须**永久加入**退役集。
+        // 此前是 delete → 下一轮 effect 里 request 事件仍在、pending/responded 都不含
+        // rid ⇒ 卡片被重新加回（"已裁决的卡复活、可二次作答"，后端只会回 no pending）。
+        for (const rid of resolvedSet) ns.add(rid);
         return ns;
       });
       setPendingInteractions((cur) => {
@@ -362,12 +368,13 @@ function BotsRoomView({ room, roster, onBack }: {
         for (const rid of resolvedSet) next.delete(rid);
         return next;
       });
-      return;
     }
     if (additions.length) {
       setPendingInteractions((cur) => {
         const next = new Map(cur);
         for (const [rid, item] of additions) {
+          // 同批里的 resolved 优先（request 与 resolved 落在不同页时同屏出现）
+          if (resolvedSet.has(rid)) continue;
           if (!next.has(rid) && !respondedInteractions.has(rid)) next.set(rid, item);
         }
         return next;
