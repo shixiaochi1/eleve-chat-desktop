@@ -13,7 +13,7 @@ import { getWsClient } from '../services/ws-client';
 import { cn } from '@/lib/utils';
 import { useSortableList } from '../hooks/useSortableList';
 import {
-  Bot, Star, Loader,
+  Star, Loader,
   Plus, Trash2,
 } from 'lucide-react';
 import CreateAgentDialog from './CreateAgentDialog';
@@ -155,11 +155,9 @@ function ProfileCard({
         className="relative shrink-0 w-10 h-10 rounded-lg overflow-hidden bg-muted/40 flex items-center justify-center transition-shadow"
         style={active ? { boxShadow: `0 0 0 2px color-mix(in srgb, ${accent} 45%, transparent)` } : undefined}
       >
-        {profile.avatar || profile.avatar_key ? (
-          <ProfileAvatar name={displayName} hasAvatar={profile.avatar} color={color} avatarKey={profile.avatar_key} />
-        ) : (
-          <Bot size={22} strokeWidth={1.5} style={{ color: color || undefined }} />
-        )}
+        {/* 统一走 ProfileAvatar：自定义图 / 预设 SVG / 首字母（首字母用 Agent 主题色，
+            微信联系人同款；无头像时不再退回通用机器人图标） */}
+        <ProfileAvatar name={displayName} hasAvatar={profile.avatar} color={color} avatarKey={profile.avatar_key} />
         {runtime?.busy && (
           <span
             className="absolute right-0.5 bottom-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-card"
@@ -177,7 +175,8 @@ function ProfileCard({
         )}
       >
         <div className="flex items-center gap-1.5 min-w-0">
-          <span className={cn('truncate flex-1 text-[13px]', active ? 'font-medium text-foreground' : 'text-foreground/90')}>
+          {/* 名称恒深色（微信联系人）：只有预览行是灰的；选中只加粗 */}
+          <span className={cn('truncate flex-1 text-[13px] text-foreground', active && 'font-medium')}>
             {displayName}
           </span>
           {profile.is_default && (
@@ -209,7 +208,12 @@ function ProfileCard({
           <span
             className={cn(
               'truncate flex-1 text-[11px]',
-              !preview && runtime?.busy ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground/70'
+              // 未读行的预览更深（微信：未读消息预览是深色）
+              !preview && runtime?.busy
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : unread
+                  ? 'text-foreground/80'
+                  : 'text-muted-foreground/70'
             )}
           >
             {subText}
