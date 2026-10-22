@@ -1142,6 +1142,9 @@ export default function App() {
   //   ③ 消息区联动（切最新会话 / 空草稿）→ 由 SessionListView 显式点会话完成。
   // 语义：点项目 = "接下来的新会话落在哪个目录"，仅此。
   const handleProjectScopeOnly = useCallback((path: string) => {
+    // 🔴 2026-10-22 老大反馈：点项目右侧抽屉必须联动（此前 P2-8 误删）。
+    // 联动范围：文件面板 → 项目根；消息区不动（会话由显式点击决定）。
+    if (path) applyPanelRoot(path);
     exitBotsToSingle();
     setProjectScopeCwd(path || null);
     newChatWorkspaceTargetRef.current = null;
