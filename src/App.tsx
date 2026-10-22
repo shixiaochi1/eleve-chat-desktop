@@ -150,9 +150,15 @@ export default function App() {
   // 🔴 预览中心：外部事件（open_preview/close_preview 工具 / #preview 链接 / 文件树双击）
   // 请求打开预览面板。对齐 Hermes $revealInTreeRequest：事件源 → App 消费。
   // 🔴 2026-08-28 修订：去掉 viewMode==='single' 限制——右栏 Pane 在宫格下与主区
-  // 平级始终挂载（PaneShell 层），宫格下 open_preview 同样直接开右栏「预览」tab
-  // （全局唯一 PreviewCenter/webview；浮层方案废弃——双 PreviewWebPane 实例会
-  // 产生同 URL 双 webview 且 read_preview/restart 归属互相覆盖）
+  // 平级始终挂载（PaneShell 层），宫格下 open_preview 同样直接开右栏「预览」tab。
+  // 🔴 2026-10-23 S1 旧顾虑解除（原注："全局唯一 PreviewCenter/webview；浮层方案
+  // 废弃——双 PreviewWebPane 实例会产生同 URL 双 webview 且 read_preview/restart
+  // 归属互相覆盖"）：多 webview 保活已落地（对齐 Hermes per-tab webview）——
+  // PreviewCenter 按曾激活 tab 常驻多个 pane 实例（PreviewWebPane keyed by
+  // tab.id + active prop），webview 创建/销毁由组件挂载/卸载唯一驱动；
+  // read_preview/drive_preview 经 lib/preview-webview-registry 按 tabId 解析
+  // 激活 tab 的 webview；restart 归属按 URL 匹配（Hermes 同款）——单实例时代的
+  // "同 URL 双 webview + 归属互相覆盖"竞态源随之消失，切 tab 页面状态保留
   const paneOpenRequest = usePaneOpenRequest();
   useEffect(() => {
     if (paneOpenRequest > 0) {

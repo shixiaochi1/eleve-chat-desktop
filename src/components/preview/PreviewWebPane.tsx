@@ -27,7 +27,7 @@ import { isDesktop } from '@/utils/bridge';
 import { cn } from '@/lib/utils';
 import { usePreviewWebview } from '@/hooks/use-preview-webview';
 import { openExternal } from '@/lib/external-open';
-import { createPreviewConsoleState, isNearConsoleBottom } from '@/store/preview-console';
+import { getPreviewConsoleState, isNearConsoleBottom, useConsoleStore } from '@/store/preview-console';
 import { PreviewConsolePanel, formatLogLine } from './PreviewConsolePanel';
 import {
   type PreviewTab,
@@ -42,10 +42,12 @@ import {
   usePreviewStore,
 } from '@/store/preview';
 import { notifySuccess, notifyError } from '@/utils/notifications';
-import { registerActivePreviewWebview } from '@/lib/preview-reader';
 
 interface PreviewWebPaneProps {
   tab: PreviewTab;
+  /** 🔴 2026-10-23 S1 per-tab 常驻：本 pane 是否当前激活 tab（非激活=hidden 折叠，
+   *  webview 与页面状态保活；visible 联动 = active && !iframeError） */
+  active: boolean;
   sessionId?: string | null;
   cwd?: string;
 }
@@ -62,7 +64,7 @@ interface PreviewConsolePushEntry {
 
 /**
  * 地址栏输入归一化（🔴 2026-08-29 对齐 Hermes normalizePreviewAddress，
- * preview-browser-bar.tsx:58-89）：裸主机名是地址栏最常见输入（通常是
+ * preview-browser-bar.tsx normalizePreviewAddress）：裸主机名是地址栏最常见输入（通常是
  * dev server）——loopback 补 `http`（443 无监听也无证书），其余补 `https`。
  * 封禁表刻意收窄：`javascript:` 与 `data:` 在 guest 分区内执行而非导航，
  * 地址栏不是够到它们的地方；浏览器能加载的其余一切（含 about:blank/file:）
@@ -135,7 +137,7 @@ function isModuleMimeError(message: string): boolean {
   return lower.includes('failed to load module script') && lower.includes('mime type');
 }
 
-export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPaneProps) {
+export default function PreviewWebPane({ tab, active, sessionId, cwd }: PreviewWebPaneProps) {
   const { reloadRequest, restart } = usePreviewStore();
   // 🔴 对齐 Hermes $browserPages：初始显示恢复地址（切走再切回 → 上次页面
   // 而非 tab 打开时的初始地址）
@@ -154,11 +156,15 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   // ——此前统一显示"无法连接到服务器"，用户无法定位真实原因
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  // 页面控制台（per pane 实例，对齐 Hermes per-pane consoleState）
-  const [consoleState] = useState(() => createPreviewConsoleState());
+  // 页面控制台（🔴 2026-10-23 S1.2 per-tab 存活：模块级 Map<tabId, state>——
+  // pane 隐藏/重挂载不销毁，切走再切回日志还在；tab 关闭由 store/preview 清理）
+  const [consoleState] = useState(() => getPreviewConsoleState(tab.id));
   const consoleBodyRef = useRef<HTMLDivElement | null>(null);
   const consoleShouldStickRef = useRef(true);
-  const [consoleOpen, setConsoleOpen] = useState(false);
+  // 🔴 2026-10-23 R2.1 对齐 Hermes（consoleOpen 读 per-tab console $open，
+  // preview-pane.tsx）：面板开合状态入 per-tab console store——此前本地
+  // useState + store 的 open 字段死代码两轨并存；per-tab 常驻后语义归一
+  const { open: consoleOpen } = useConsoleStore(consoleState);
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
   // Rust seq 游标（断档检测 → snapshot 补拉）
   const lastSeqRef = useRef<number | null>(null);
@@ -181,6 +187,9 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
     active: isTauri && isSafePreviewUrl(resumeUrl),
     url: resumeUrl,
     reloadKey: tab.target.url,
+    // 🔴 S1：登记 label↔tab（read/act 分流经 registry 解析激活 tab 的 webview）
+    tabId: tab.id,
+    kind: 'url',
     onRecreate: () => {
       // 重建 = 新页面新会话：Rust 侧 close 会销毁 per-label 缓冲，前端同步重置
       lastSeqRef.current = null;
@@ -201,21 +210,15 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
     },
   });
 
-  // tab 切换 → URL 输入框重置为 tab 目标（对齐 Hermes：仅 target.url 变化时重置，
-  // 同 URL 切 tab 保留输入框本地编辑/页面状态——Hermes currentUrl 同款语义）
+  // tab.target.url 变化 → URL 输入框同步（🔴 2026-10-23 S1 per-tab 常驻后仅剩
+  // 一种触发：about:blank 新 tab 首次输入地址 → commitBrowserTabUrl 回写 target.url
+  // → webview 经 reloadKey 重建；旧单实例时代的"切 tab 重置"语义已随 per-tab
+  // 实例化消亡，切 tab 由 hidden 折叠保活、状态不丢）
   useEffect(() => {
     setUrl(tab.target.url);
     setIframeError(null);
     setErrorDetail(null);
   }, [tab.target.url]);
-
-  // 🔴 2026-08-31 tab 激活变化（切走再切回同 tab）→ 清错误态：错误是 webview
-  // 导航事件驱动的瞬时状态，面板切换不产生新事件，残留会让 webview 持续
-  // 被隐藏（旧误报期的 webview 实际加载成功，切回时必须重新可见）
-  useEffect(() => {
-    setIframeError(null);
-    setErrorDetail(null);
-  }, [tab.id]);
 
   // 页面移动（或重定向落到别处）后，真实地址取代我们请求的地址（对齐 Hermes：
   // setPending(null) on url change）
@@ -225,15 +228,9 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   const invalid = draft !== null && draft.trim().length > 0 && !normalizePreviewAddress(draft);
   const shown = draft ?? pending ?? url;
 
-  // 🔴 2026-08-20 read_preview 注册（生命周期已移交 usePreviewWebview）：
-  // webview label 就绪 → 注册为活跃读取目标（preview-events 处理
-  // preview.read.request 时经它取 label 读页面文本）；卸载/URL 变化 → 注销。
-  // 多个 pane 只有当前激活 tab 的组件挂载，天然唯一。
-  useEffect(() => {
-    if (!webviewLabel || !isTauri) return;
-    registerActivePreviewWebview(webviewLabel);
-    return () => registerActivePreviewWebview(null);
-  }, [webviewLabel, isTauri]);
+  // 🔴 2026-10-23 S1：read_preview/act 的 label 解析已移交
+  // lib/preview-webview-registry（usePreviewWebview 创建成功时按 tabId 登记）——
+  // 旧的"全局单值 registerActivePreviewWebview"随单实例时代一并移除
 
   // ── console 事件 + 加载状态事件（webview 就绪后订阅；按 label 分流）──
   useEffect(() => {
@@ -325,7 +322,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
       // Rust 侧 NavigationCompleted IsSuccess=false → emit）。
     };
 
-    // 🔴 2026-08-31 对齐 Hermes did-fail-load（preview-pane.tsx L834-860）：
+    // 🔴 2026-08-31 对齐 Hermes did-fail-load（preview-pane.tsx onFail）：
     // 导航失败原生事件 → console 追加（level 3，带具体 WebErrorStatus/URL
     // 诊断）+ 错误态。（Rust 侧 NavigationCompleted IsSuccess=false → emit；
     //   OperationCanceled 已在 Rust 侧过滤——取消的导航不算失败。）
@@ -375,7 +372,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
 
   // ── 重启成功 → 自动刷新（对齐 Hermes complete 后 requestPreviewReload 语义；
   //    重启 = 服务器代码已更新 → 优先硬刷新 reloadIgnoringCache，Err/非 Windows
-  //    降级普通 reload——对齐 Hermes preview-pane.tsx:365-369 的降级语义）──
+  //    降级普通 reload——对齐 Hermes preview-pane.tsx reloadPreview 的降级语义）──
   useEffect(() => {
     if (restart?.status === 'success' && restart.url === (url.trim() || tab.target.url)) {
       const label = webviewLabelRef.current;
@@ -573,14 +570,16 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
   }, [devtoolsOpen]);
 
   // 错误覆盖层显示时 hide 子 webview（DOM 盖不住原生 HWND，只能隐藏让覆盖层可见）；
-  // 覆盖层消失（重试/导航/刷新）→ show 恢复
+  // 覆盖层消失（重试/导航/刷新）→ show 恢复。
+  // 🔴 2026-10-23 S1：visible = active && !iframeError——非激活 tab 由 PreviewCenter
+  // hidden 折叠（rect 0×0）即可，不依赖 show/hide；此处只管"激活 tab 的错误覆盖"
   useEffect(() => {
     if (!webviewLabelRef.current || !isTauri) return;
     invoke('preview_webview_visible', {
       label: webviewLabelRef.current,
-      visible: !iframeError,
+      visible: active && !iframeError,
     }).catch(() => {});
-  }, [iframeError, isTauri]);
+  }, [iframeError, active, isTauri]);
 
   // 重启状态归属：仅当前 pane 的 URL 关联（Hermes restartingServer 同款判断）
   const currentUrl = url.trim() || tab.target.url;
@@ -723,10 +722,11 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
             <Bug size={13} />
           </button>
         )}
-        {/* 页面控制台开关（对齐 Hermes titlebar console toggle） */}
+        {/* 页面控制台开关（对齐 Hermes titlebar console toggle；🔴 R2.1 状态在
+            per-tab console store，与 Hermes $open 同源） */}
         {webviewActive && (
           <button
-            onClick={() => setConsoleOpen((o) => !o)}
+            onClick={() => consoleState.setOpen((o) => !o)}
             className={cn(
               'flex items-center justify-center w-6 h-6 rounded transition-colors',
               consoleOpen
@@ -807,8 +807,11 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
         )}
 
         {/* 加载错误覆盖层（分类文案：moduleMime / serverNotFound / failed，对齐 Hermes loadErrorTitle）
-            覆盖层是 DOM，盖不住原生子 webview → 显示时 hide webview（见下方 iframeError effect） */}
-        {iframeError && !isRestarting && (
+            覆盖层是 DOM，盖不住原生子 webview → 显示时 hide webview（见下方 iframeError effect）。
+            🔴 2026-10-23 S2.4 对齐 Hermes（PreviewLoadError({restarting})）：重启期间
+            覆盖层保留可见——用户能看到失败原因上下文 + 重启按钮转圈，而不是覆盖层
+            突然消失只剩"重启中"（ELEVE 旧实现 isRestarting 时隐藏覆盖层，与 Hermes 相悖） */}
+        {iframeError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--ui-bg-editor)] gap-3">
             <AlertCircle size={32} className="text-[var(--ui-yellow)]" strokeWidth={1.5} />
             <span className="text-xs text-[var(--ui-text-secondary)]">
@@ -850,7 +853,7 @@ export default function PreviewWebPane({ tab, sessionId, cwd }: PreviewWebPanePr
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors"
               >
                 <Loader2 size={12} className={isRestarting ? 'animate-spin' : ''} />
-                重启预览服务器
+                {isRestarting ? '重启中…' : '重启预览服务器'}
               </button>
             </div>
           </div>

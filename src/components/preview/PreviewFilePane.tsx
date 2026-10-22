@@ -22,6 +22,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { readFile, readTextFile, stat, writeTextFile } from '@tauri-apps/plugin-fs';
 import { AlertCircle, Download, File, Loader2, Pencil, RefreshCw, X } from 'lucide-react';
 import type { PreviewTab } from '@/store/preview';
+import { clearPreviewTabMissing, markPreviewTabMissing } from '@/store/preview';
 import { renderMarkdown } from '@/utils/markdown';
 import { resolveMediaPlaybackSrc } from '@/utils/media';
 import { formatFileSize } from '@/utils/format';
@@ -57,7 +58,7 @@ function isHtmlPath(path: string): boolean {
   return /\.html?$/i.test(path.split(/[?#]/, 1)[0] || path);
 }
 
-/** 🔴 2026-08-29 对齐 Hermes 二进制检测（preview-file.tsx:209-227）：前 4KB 含
+/** 🔴 2026-08-29 对齐 Hermes 二进制检测（preview-file.tsx looksBinaryBytes）：前 4KB 含
  *  NUL 字节即二进制；或控制字符（除 \t\n\r）占比 >12%。此前用 UTF-8 替换符
  *  占比 >1%——UTF-16/宽字节文本会被误判 */
 function isLikelyBinary(bytes: Uint8Array): boolean {
@@ -125,6 +126,9 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   const [forcePreview, setForcePreview] = useState(false);
   // ── git diff 视图（对齐 Hermes state.diff：工作树 vs HEAD 未提交变更）──
   const [diff, setDiff] = useState<string | null>(null);
+  // 🔴 2026-10-23 S2.1 对齐 Hermes state.truncated：forcePreview 后也只渲染前
+  // 512KB（大文件全量入 DOM 会卡死渲染）；编辑对 truncated 禁用
+  const [truncated, setTruncated] = useState(false);
   // 用户选择的视图；null = auto（有 diff → diff；markdown → rendered；否则 source，
   // 对齐 Hermes autoMode）。文件切换/重读时重置。
   const [userMode, setUserMode] = useState<'source' | 'rendered' | 'diff' | null>(null);
@@ -159,6 +163,10 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     setError(null);
     setBinary(false);
     setByteSize(0);
+    // 🔴 S2.1/S2.2：截断态/墓碑随重读重置（墓碑乐观清除——watcher 对不存在的
+    // 文件建不上，文件恢复后的刷新通道只有手动重载，读取失败会再标回）
+    setTruncated(false);
+    if (tab.target.missing) clearPreviewTabMissing(tab.id);
     // 🔴 去 key remount 后 pane 常驻：跨文件切换必须重置大文件拦截状态，
     //    否则上一个文件的「仍要预览」残留到新文件（旧实现靠 key 重建隐式重置）
     setForcePreview(false);
@@ -252,10 +260,18 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
           setLargeBlocked(true);
         } else {
           let bin: boolean;
+          // 🔴 S2.1 对齐 Hermes TEXT_PREVIEW_MAX_BYTES（preview-file.tsx）：
+          // forcePreview 后也只取前 512KB 渲染——大文件全量入 DOM 会卡死；
+          // truncated 标志 → 顶部提示条 + 禁编辑（"never files we only loaded
+          // the first 512 KB of"）。⚠️ plugin-fs 此版本无分段读，读取峰值仍
+          // 全量字节（渲染层已解）；Rust 侧分段读取命令列为 follow-up
+          let truncatedNext = false;
           if (isFsRemoteMode()) {
             // remote：无字节流 → 文本直读 + 替换符检测降级
-            const value = (await remoteReadText(path)).text;
+            const raw = (await remoteReadText(path)).text;
             if (cancelled) return;
+            truncatedNext = raw.length > LARGE_FILE_THRESHOLD;
+            const value = truncatedNext ? raw.slice(0, LARGE_FILE_THRESHOLD) : raw;
             bin = isLikelyBinaryText(value);
             setText(value);
             setBinary(bin);
@@ -263,10 +279,13 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
             // 🔴 对齐 Hermes：字节读取 → 前 4KB 检测 → UTF-8 解码
             const bytes = await readFile(path);
             if (cancelled) return;
-            bin = isLikelyBinary(bytes);
-            setText(new TextDecoder('utf-8').decode(bytes));
+            truncatedNext = bytes.length > LARGE_FILE_THRESHOLD;
+            const effective = truncatedNext ? bytes.subarray(0, LARGE_FILE_THRESHOLD) : bytes;
+            bin = isLikelyBinary(effective);
+            setText(new TextDecoder('utf-8').decode(effective));
             setBinary(bin);
           }
+          setTruncated(truncatedNext);
           // diff 拉取（对齐 Hermes L670-684：best-effort；非 git 仓库/无变更 → 空 →
           // diff 模式不显示；二进制无 diff）
           if (!bin) {
@@ -281,7 +300,16 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
           }
         }
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        const message = e instanceof Error ? e.message : String(e);
+        if (!cancelled) {
+          // 🔴 S2.2 对齐 Hermes DesktopFileMissingError → markPreviewTabMissing：
+          // 确认文件不存在 → tab 打墓碑（显式「文件不存在」空态；持久化层剥离，
+          // 下次启动不再探测死路径）。Tauri fs / OS 错误文案多形态，宽匹配
+          if (!isFsRemoteMode() && /os error (2|3)\b|not found|cannot find|找不到/i.test(message)) {
+            markPreviewTabMissing(tab.id);
+          }
+          setError(message);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -404,8 +432,9 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   // ── 编辑能力（对齐 Hermes canEdit：完整可读文本；largeBlocked 拦截态不读内容 →
   //    不可编辑，force 预览后解除——Hermes blockedByTarget 同款语义）──
   // 编辑仅限完整可读文本（对齐 Hermes：never images, binaries, or files we only
-  // loaded the first 512 KB of）——PDF 无文本态，显式排除（防御语义）
-  const canEdit = text !== null && !binary && !largeBlocked && !isImage && !isPdf;
+  // loaded the first 512 KB of）——PDF 无文本态，显式排除（防御语义）；
+  // 🔴 S2.1：truncated（只载了前 512KB）禁编辑
+  const canEdit = text !== null && !binary && !largeBlocked && !truncated && !isImage && !isPdf;
 
   // 每击键：更新 draft ref（不重渲染），仅 dirty 边界翻转时 setState
   const handleEditorChange = useCallback((value: string) => {
@@ -526,10 +555,11 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
   const autoMode: 'source' | 'rendered' | 'diff' = hasDiff
     ? 'diff'
     : isHtmlFile
-      ? // 🔴 HTML 首选视图 = renderMode（对齐 Hermes previewTargetForSource 首值语义）
-        tab.target.renderMode === 'preview'
-        ? 'rendered'
-        : 'source'
+      ? // 🔴 2026-10-23 S2.3 对齐 Hermes withRenderMode 兜底：HTML 默认渲染，
+        // 仅显式 renderMode='source' 落源码（历史持久化 tab / 已切换过的 tab）
+        tab.target.renderMode === 'source'
+        ? 'source'
+        : 'rendered'
       : isMarkdown
         ? 'rendered'
         : 'source';
@@ -558,6 +588,10 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
     active: htmlWebviewActive,
     url: path,
     reloadKey: `${path}:${reloadKey}:${selfReload}`,
+    // 🔴 2026-10-23 S1：file HTML webview 也登记 label↔tab（registry 统一解析；
+    // kind='file'——read/act 只认 url tab，file tab 的 webview 不参与）
+    tabId: tab.id,
+    kind: 'file',
   });
 
   return (
@@ -677,6 +711,24 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
               <span className="text-xs">读取中...</span>
             </div>
           </div>
+        ) : tab.target.missing ? (
+          /* 🔴 S2.2 对齐 Hermes missingBody（preview-file.tsx）：墓碑空态——
+             tab 留存显式告知文件已消失；持久化层已剥离，重启后不再保留 */
+          <div className="flex-1 min-h-0 overflow-auto">
+            <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
+              <AlertCircle size={32} strokeWidth={1} className="text-[var(--ui-yellow)]" />
+              <span className="text-xs text-[var(--ui-text-secondary)]">文件不存在</span>
+              <span
+                className="max-w-[80%] truncate text-[10px] text-[var(--ui-text-tertiary)]"
+                title={path}
+              >
+                {path}
+              </span>
+              <span className="text-[10px] text-[var(--ui-text-quaternary)]/70">
+                文件已被删除或移动；此标签页在应用重启后不再保留
+              </span>
+            </div>
+          </div>
         ) : error ? (
           <div className="flex-1 min-h-0 overflow-auto">
             <div className="flex flex-col items-center justify-center h-full text-[var(--ui-text-quaternary)] gap-2">
@@ -752,6 +804,13 @@ export default function PreviewFilePane({ tab }: PreviewFilePaneProps) {
             }}
             ref={readViewRef}
           >
+            {/* 🔴 S2.1 截断提示条（对齐 Hermes state.truncated note）：只载了前
+                512KB，渲染/编辑均基于截断内容 */}
+            {truncated && (
+              <div className="shrink-0 border-b border-[var(--ui-yellow)]/40 bg-[var(--ui-yellow)]/10 px-3 py-1.5 text-[10px] text-[var(--ui-text-secondary)]">
+                文件较大，仅加载前 {formatFileSize(LARGE_FILE_THRESHOLD, 0)}——渲染与编辑基于截断内容；完整内容请下载后用编辑器打开
+              </div>
+            )}
             {/* 模式切换行（对齐 Hermes PreviewModeSwitcher：仅多模式时显示；
                 渲染/源码/变更——有 git diff 时出现「变更」） */}
             {modes.length > 1 && (

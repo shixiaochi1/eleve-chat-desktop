@@ -5,8 +5,10 @@
  * 在预览子 webview 内注入执行（Tauri `preview_webview_eval_js`），提供：
  * - elements 清点：可见可交互元素 → ref（`btn-sign-in` / `inp-email` 形态）+
  *   role/label/value 清单；打 `data-eleve-ref` 标记 + css 路径指纹持久化
- * - ref 解析：标记优先 → 路径指纹 → 文本兜底（页面重渲染后 ref 仍holds =
- *   rebound，无需 Agent 干预）；仅导航使 refs 失效（stale）
+ * - ref 解析：标记优先 → 路径指纹 → 文本兜底（页面重渲染后 ref 仍 holds——
+ *   指纹/文本兜底命中即重绑定，无需 Agent 干预；🔴 2026-10-23 S4.1 与 Hermes
+ *   差异如实标注：应答不单独区分 rebound 类目，只报 added/changed/removed/same）；
+ *   仅导航使 refs 失效（stale）
  * - 动作：click / hover / type（native setter + input/change，React 兼容）/
  *   press / scroll / strobe（批量高亮）/ back / forward / reload
  * - delta 应答：added 全量 / changed 仅动过的字段 / removed / same 计数——
@@ -149,6 +151,19 @@ function doHover(el) {
   fire(el, 'pointerover', o); fire(el, 'mouseover', o); fire(el, 'mousemove', o);
   el.dispatchEvent(new MouseEvent('mouseenter', Object.assign({ bubbles: false, cancelable: true, view: window }, o)));
 }
+// 🔴 2026-10-23 R2.2 对齐 Hermes typable === false 拒绝（preview-act.ts doType
+// 前的 typable 探针）：非 text input/textarea/contenteditable 的元素拒绝输入——
+// 否则原生 value setter 对任意元素"成功"，Agent 收到 ok:true 却什么都没发生
+function isTypable(el) {
+  if (!el) return false;
+  var tag = el.tagName;
+  if (tag === 'TEXTAREA') return true;
+  if (tag === 'INPUT') {
+    var t = (el.getAttribute('type') || 'text').toLowerCase();
+    return ['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].indexOf(t) === -1;
+  }
+  return el.isContentEditable === true;
+}
 function doType(el, text, submit) {
   el.scrollIntoView({ block: 'center' });
   el.focus();
@@ -164,12 +179,20 @@ function doType(el, text, submit) {
     else if (f) f.submit();
   }
 }
+// 🔴 2026-10-23 S4.3 平台限制如实标注（对齐 Hermes preview-act.ts 差异）：
+// ① 合成 KeyboardEvent 无 Hermes sendInputEvent 的 allowShortcut 守卫——可打印
+//   键在 body 上（页面自身快捷键）也会被"按下"，页面快捷键可能误触发；
+// ② 无 pointerdown 见证（Hermes __hermesHit）——无法区分"页面忽略的点击"与
+//   "从未到达的点击"，click 应答的 ok:true 只代表事件已派发
 function doPress(key) {
   var el = document.activeElement || document.body;
   var o = { key: key, bubbles: true, cancelable: true };
   el.dispatchEvent(new KeyboardEvent('keydown', o));
   el.dispatchEvent(new KeyboardEvent('keyup', o));
 }
+// 🔴 S4.3：scrollTop/scrollBy 合成滚动——Hermes 用真实滚轮事件并明确指出
+// scrollBy 会让 scroll-linked 效果（吸顶头/无限滚动）休眠（preview-act.ts
+// wheelBy 注释）；wry 无 sendInputEvent 通道，此为已知差异
 function doScroll(el, amount, to) {
   if (!el) {
     if (to === 'top') window.scrollTo(0, 0);
@@ -185,7 +208,7 @@ function delta(next) {
   var prev = S.inv || [];
   var prevMap = {}; prev.forEach(function (o) { prevMap[o.ref] = o; });
   var nextMap = {}; next.forEach(function (o) { nextMap[o.ref] = o; });
-  var d = { added: [], changed: [], removed: [], rebound: [], same: 0 };
+  var d = { added: [], changed: [], removed: [], same: 0 };
   next.forEach(function (o) {
     var p = prevMap[o.ref];
     if (!p) { d.added.push(o); return; }
@@ -297,7 +320,7 @@ if (STALE) {
   S.inv = invStale;
   result.stale = true;
   result.elements = invStale;
-  result.delta = { added: invStale, changed: [], removed: [], rebound: [], same: 0 };
+  result.delta = { added: invStale, changed: [], removed: [], same: 0 };
 } else if (act === 'elements') {
   var inv = scan();
   mark(inv);
@@ -315,14 +338,30 @@ if (STALE) {
 } else if (act === 'type') {
   var el = findEl(P.ref) || (P.selector ? document.querySelector(P.selector) : null);
   if (!el) { result.ok = false; result.error = 'element not found: ' + (P.ref || P.selector); }
+  // 🔴 R2.2 对齐 Hermes：非可输入元素拒绝 type（typable === false → 拒绝），
+  // 错误里带 tagName 供 Agent 换 ref 或换动作
+  else if (!isTypable(el)) {
+    result.ok = false;
+    result.error = 'not a text input (' + el.tagName.toLowerCase() + (el.isContentEditable ? ' [contenteditable]' : '') + '): ' + (P.ref || P.selector);
+  }
   else {
     if (P.ref) el.setAttribute('data-eleve-ref', P.ref);
     doType(el, P.text === undefined ? '' : String(P.text), !!P.submit);
     result.delta = rescan();
   }
 } else if (act === 'press') {
-  doPress(P.key || 'Enter');
-  result.delta = rescan();
+  // 🔴 R2.2 对齐 Hermes allowShortcut 守卫（preview-act.ts doPress）：可打印
+  // 单字符落在 body（无聚焦输入）= 页面自身快捷键（如 GitHub 的 / 聚焦搜索）——
+  // 未显式 allowShortcut 时拒绝，防 Agent 盲按触发页面动作
+  var k = String(P.key || 'Enter');
+  var onBody = !document.activeElement || document.activeElement === document.body;
+  if (!P.allowShortcut && onBody && k.length === 1) {
+    result.ok = false;
+    result.error = 'refusing printable key "' + k + '" on the page body without allowShortcut (it would trigger the page\'s own shortcut)';
+  } else {
+    doPress(k);
+    result.delta = rescan();
+  }
 } else if (act === 'scroll') {
   var el = P.ref ? findEl(P.ref) : null;
   if (P.ref && !el) { result.ok = false; result.error = 'element not found: ' + P.ref; }

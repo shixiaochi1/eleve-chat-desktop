@@ -14,13 +14,31 @@ function basename(value: string): string {
   return value.split(/[\\/]/).filter(Boolean).pop() || value
 }
 
-function joinPath(base: string, rel: string): string {
+// 🔴 2026-10-23 对齐 Hermes joinPath（lib/local-preview.ts）：逐段折叠 `.`/`..`
+// （不越根）——否则 `C:/proj/../x.html` 与 `C:/proj/x.html` 是同文件两种写法，
+// 会按 url 键控开出两个 tab（id/dirty key 皆分裂）。Hermes 注释明确为此修过 bug
+// 🔴 R2.5 导出（store/preview-status 的规范身份计算复用，不重复造轮子）
+export function joinPath(base: string, rel: string): string {
   if (!base) return rel
-  return `${base.replace(/[\\/]+$/, '')}/${rel.replace(/^\.?\//, '')}`
+
+  const normalizedBase = base.replace(/\\/g, '/')
+  const root = normalizedBase.match(/^(?:\/\/|(?:[A-Za-z]:)?\/)/)?.[0] ?? ''
+  const parts = normalizedBase.slice(root.length).split('/').filter(Boolean)
+
+  for (const part of rel.replace(/\\/g, '/').split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') {
+      parts.pop()
+      continue
+    }
+    parts.push(part)
+  }
+
+  return `${root}${parts.join('/')}`
 }
 
-/** Windows 盘符绝对路径（C:\… / C:/…） */
-function isWindowsAbsPath(value: string): boolean {
+/** Windows 盘符绝对路径（C:\… / C:/…）——R2.5 导出（preview-status 复用） */
+export function isWindowsAbsPath(value: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(value)
 }
 

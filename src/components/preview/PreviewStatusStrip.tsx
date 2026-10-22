@@ -13,7 +13,8 @@ import { ExternalLink, Globe, X } from 'lucide-react';
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { openExternal } from '@/lib/external-open';
-import { togglePreviewTab } from '@/store/preview';
+import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
+import { isPreviewOpenFor, togglePreviewTab, usePreviewStore } from '@/store/preview';
 import {
   removePreviewArtifact,
   usePreviewArtifacts,
@@ -21,12 +22,21 @@ import {
 } from '@/store/preview-status';
 
 function StatusRow({ item, onDismiss }: { item: PreviewArtifact; onDismiss: (id: string) => void }) {
+  // 🔴 2026-10-23 R2.3 对齐 Hermes preview-row 已开指示（行读 $previewTabSources
+  // 显示该 target 的预览是否已开）：订阅 store，身份级匹配（canonical file key
+  // + url live page），行内显示「已开」徽标 + ⌘/Ctrl 提示跟随开合态
+  usePreviewStore();
+  const openInPreview = isPreviewOpenFor(item.target, item.cwd || undefined);
+
   // 🔴 2026-08-29 修复（对齐 Hermes preview-row openPreviewTargetInBrowser）：
   // 普通点击 = 系统浏览器/默认程序打开——URL 交给默认浏览器、本地路径交给
   // 系统默认程序（shell open 与 ToolEntry openExternal 同款）。此前头注释声称
   // "系统浏览器打开"，实现却调 openPreview 在应用内打开，语义相反。
+  // 🔴 2026-10-23 S2.6 对齐 Hermes preview-row 点击先归一化再派发（裸串直接
+  // openExternal 对 file:// URL / 相对路径打不开；归一化统一为 URL 或绝对路径）
   const openDefaultTarget = () => {
-    void openExternal(item.target);
+    const resolved = normalizeOrLocalPreviewTarget(item.target, item.cwd || undefined);
+    void openExternal(resolved?.url ?? item.target);
   };
 
   // 🔴 2026-09-05 开关双语义收口到 store togglePreviewTab（与 ToolEntry 行内
@@ -42,10 +52,15 @@ function StatusRow({ item, onDismiss }: { item: PreviewArtifact; onDismiss: (id:
         if (e.metaKey || e.ctrlKey) toggleInAppPreview();
         else openDefaultTarget();
       }}
-      title={`${item.target}（⌘/Ctrl+点击在应用内预览中开/关）`}
+      title={`${item.target}（${openInPreview ? '预览已开，⌘/Ctrl+点击关闭' : '⌘/Ctrl+点击在应用内预览中打开'}；单击系统打开）`}
     >
       <Globe size={12} className="shrink-0 text-info" />
       <span className="min-w-0 flex-1 truncate text-[var(--ui-text-secondary)]">{item.label}</span>
+      {openInPreview && (
+        <span className="shrink-0 rounded-full bg-[var(--ui-control-active-background)] px-1.5 py-px text-[9px] leading-4 text-[var(--ui-text-tertiary)]">
+          已开
+        </span>
+      )}
       <ExternalLink
         size={11}
         className="shrink-0 text-[var(--ui-text-quaternary)] opacity-0 group-hover/status-row:opacity-100"

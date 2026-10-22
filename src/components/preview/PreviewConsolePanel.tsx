@@ -178,7 +178,9 @@ export function PreviewConsolePanel({
     notifySuccess(`已将 ${entries.length} 条日志发送到输入区`, '已发送到输入区')
   }
 
-  // ── 高度拖拽（对齐 Hermes：pointer capture + rAF 节流；双击恢复默认高度）──
+  // ── 高度拖拽（对齐 Hermes：pointer capture + rAF 节流；🔴 2026-10-23 S2.5
+  //    尾帧提交——cleanup 时把排队中的最后值落地，对齐 rafCoalesce 的
+  //    resize.finish()：松手高度不再落后指针最多一帧）──
   const startConsoleResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault()
     const handle = event.currentTarget
@@ -186,24 +188,31 @@ export function PreviewConsolePanel({
     const startHeight = height
     const previousCursor = document.body.style.cursor
     const previousUserSelect = document.body.style.userSelect
+    let pendingHeight: number | null = null
 
     const move = (ev: PointerEvent) => {
       ev.preventDefault()
       const delta = ev.clientY - startY
       // 向上拖 = 面板变高（顶部把手，delta 取反）
       const next = clampConsoleHeight(startHeight - delta)
-      // rAF 节流：拖拽帧率内至多更新一次（对齐 Hermes rafCoalesce 语义）
+      pendingHeight = next
+      // rAF 节流：拖拽帧率内至多更新一次（对齐 Hermes rafCoalesce）
       if (resizeRafRef.current !== null) return
       resizeRafRef.current = window.requestAnimationFrame(() => {
         resizeRafRef.current = null
-        consoleState.setHeight(next)
+        consoleState.setHeight(pendingHeight ?? next)
+        pendingHeight = null
       })
     }
 
     const cleanup = () => {
+      // 尾帧提交：排队中的最后位置直接落地（对齐 Hermes cleanup → finish()）
       if (resizeRafRef.current !== null) {
         window.cancelAnimationFrame(resizeRafRef.current)
         resizeRafRef.current = null
+      }
+      if (pendingHeight !== null) {
+        consoleState.setHeight(pendingHeight)
       }
       document.body.style.cursor = previousCursor
       document.body.style.userSelect = previousUserSelect
@@ -226,15 +235,25 @@ export function PreviewConsolePanel({
   }
 
   return (
+    // 🔴 2026-10-23 S2.5：容器补 relative——把手 absolute -top-1 必须锚定面板
+    // 自身顶边（Hermes 面板 absolute 定位天然如此；ELEVE flex 嵌入需显式声明，
+    // 否则锚到更外层、把手脱离面板）
     <div
-      className="flex flex-col shrink-0 overflow-hidden border-t border-[var(--ui-stroke-secondary)] bg-[var(--ui-bg-editor)]"
+      className="relative flex flex-col shrink-0 overflow-hidden border-t border-[var(--ui-stroke-secondary)] bg-[var(--ui-bg-editor)]"
       style={{ height: `${height}px` }}
     >
-      {/* 拖拽把手（双击恢复默认高度） */}
+      {/* 拖拽把手（🔴 2026-10-23 S2.5 对齐 Hermes：双击=折叠到头部高度 32px——
+          Hermes onDoubleClick setHeight(CONSOLE_HEADER_HEIGHT)；ELEVE 增强：已
+          折叠时双击恢复默认高（Hermes 覆盖式面板拖拽即可拉回，ELEVE 同可拖拽，
+          此增强不违背 Hermes 语义） */}
       <div
         aria-label="拖动调整高度"
         className="group absolute inset-x-0 -top-1 z-10 h-2 cursor-row-resize"
-        onDoubleClick={() => consoleState.setHeight(DEFAULT_CONSOLE_HEIGHT)}
+        onDoubleClick={() =>
+          consoleState.setHeight((cur) =>
+            cur <= CONSOLE_HEADER_HEIGHT ? DEFAULT_CONSOLE_HEIGHT : CONSOLE_HEADER_HEIGHT,
+          )
+        }
         onPointerDown={startConsoleResize}
         role="separator"
       >

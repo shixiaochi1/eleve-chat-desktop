@@ -47,7 +47,18 @@ export function previewTargetFromMarkdownHref(href?: string): string | null {
   }
 }
 
+/** 🔴 2026-10-23 对齐 Hermes isWindowsAbsolutePath（lib/preview-targets.ts）：
+ *  `new URL('C:\\…')` 会把盘符读成伪 scheme——Windows 绝对路径必须在此分流，
+ *  否则 pathname 无 '/' 分隔，label 错成整条路径 */
+function isWindowsAbsolutePath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value);
+}
+
 export function previewName(target: string): string {
+  // Windows 绝对路径不进 new URL，直接按分隔符取末段（对齐 Hermes previewName）
+  if (isWindowsAbsolutePath(target)) {
+    return target.split(/[\\/]/).filter(Boolean).pop() || target;
+  }
   try {
     const url = new URL(target);
     if (url.protocol === 'file:') {

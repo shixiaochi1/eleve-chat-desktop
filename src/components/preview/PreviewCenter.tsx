@@ -1,9 +1,19 @@
 /**
  * PreviewCenter — 多 Tab 预览中心（对齐 Hermes ChatPreviewRail + PreviewPane 分派）
  *
+ * 🔴 2026-10-23 S1 多 webview 保活（对齐 Hermes：每 preview tab 持有独立 webview，
+ * pane 隐藏不销毁——切 tab 不再销毁重建，SPA 路由/表单/滚动/console 日志/URL
+ * 历史全部保留；对齐 Hermes preview-tile zone 模型 per-tabId 常驻）：
+ * - mountedIds：曾激活过的 tab 集合——首次可见才挂载（webview create 需要真实
+ *   坐标尺寸，对齐右栏 previewMounted 先例），此后常驻
+ * - 非激活 pane 用 hidden 包裹 → 容器 rect 0×0 → ResizeObserver 把 webview
+ *   折叠（对齐右栏 pane 级折叠先例；webview 常驻不销毁，激活后展开）
+ * - tab 关闭 → 移出 mountedIds → React 卸载该 pane → usePreviewWebview cleanup
+ *   → Rust close + registry 注销
+ *
  * - 顶部 tab 条：url / file 两种 target；右键菜单（关闭/关闭其它/关闭右侧/全部关闭）
- * - 内容区按 active tab 的 target.kind 分派：
- *   - url  → PreviewWebPane（URL 输入 + iframe + 重启）
+ * - 内容区按各 tab 的 target.kind 分派：
+ *   - url  → PreviewWebPane（URL 输入 + webview + 重启）
  *   - file → PreviewFilePane（本地文件渲染）
  *
  * 产物（artifact）保持独立 ArtifactPanel tab——ELEVE 已有功能等价（版本累加/全屏/下载）
@@ -11,7 +21,7 @@
  */
 
 import { File, Globe, X, ExternalLink, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { cn } from '@/lib/utils';
 import { usePreviewDirty } from '@/lib/preview-edit';
@@ -26,6 +36,7 @@ import {
   openPreview,
   selectTab,
   usePreviewStore,
+  type PreviewTab,
 } from '@/store/preview';
 import PreviewWebPane from './PreviewWebPane';
 import PreviewFilePane from './PreviewFilePane';
@@ -160,27 +171,58 @@ function PreviewEmptyState() {
 
 export default function PreviewCenter({ sessionId, cwd }: PreviewCenterProps) {
   const { tabs, activeId } = usePreviewStore();
-  const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0] ?? null;
+
+  // 🔴 S1 mountedIds：曾激活过的 tab（首次可见才挂载 pane——webview create 需要
+  //    真实坐标尺寸；之后常驻，hidden 折叠保活）。初始 = 恢复的激活 tab。
+  const [mountedIds, setMountedIds] = useState<string[]>(() =>
+    activeId ? [activeId] : [],
+  );
+
+  // 激活 tab 变化 → 追加进 mountedIds（未激活过的 tab 不挂载，防 N tab 齐发 N create）
+  useEffect(() => {
+    if (activeId) {
+      setMountedIds((prev) => (prev.includes(activeId) ? prev : [...prev, activeId]));
+    }
+  }, [activeId]);
+
+  // tabs 收缩（closeTab/closeOther/closeToRight/closeAll）→ 已关闭的 tab 移出
+  // mountedIds（React 卸载 pane → usePreviewWebview cleanup → Rust close）
+  useEffect(() => {
+    setMountedIds((prev) => {
+      const next = prev.filter((id) => tabs.some((t) => t.id === id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [tabs]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <PreviewTabBar />
-      {activeTab ? (
-        activeTab.target.kind === 'url' ? (
-          /* 对齐 Hermes：不 key remount（旧实现切 tab 无条件销毁重建 webview →
-             页面状态丢失 + 布局竞态）。pane 常驻，webview 生命周期由
-             PreviewWebPane 内部按 target.url 决定（同 URL 切 tab 保留，
-             URL 变才重建）。url/file 组件类型不同，React 自动卸载/挂载。 */
-          <PreviewWebPane tab={activeTab} sessionId={sessionId} cwd={cwd} />
-        ) : activeTab.target.kind === 'artifact' ? (
-          /* 🔴 2026-08-20 对齐 Hermes preview-artifact：生成的 HTML/SVG 产物
-             显示在预览区（ArtifactPanel 管产物管理，本处只渲染） */
-          <ArtifactPreviewPane tab={activeTab} />
-        ) : (
-          <PreviewFilePane tab={activeTab} />
-        )
-      ) : (
+      {tabs.length === 0 ? (
         <PreviewEmptyState />
+      ) : (
+        /* 🔴 S1 per-tab 常驻分派：每个曾激活的 tab 一个 pane 实例，keyed by tab.id；
+           非激活 hidden 折叠（webview 0×0 保活），激活的撑满内容区。
+           url/file/artifact 组件类型不同，React 按位置自动切换类型——同 kind
+           切换纯 prop 更新不重挂 */
+        mountedIds.flatMap((tabId) => {
+          const tab = tabs.find((t) => t.id === tabId);
+          if (!tab) return [];
+          const isActive = tabId === activeId;
+          return [
+            <div
+              key={tabId}
+              className={isActive ? 'flex flex-col flex-1 min-h-0' : 'hidden'}
+            >
+              {tab.target.kind === 'url' ? (
+                <PreviewWebPane tab={tab} active={isActive} sessionId={sessionId} cwd={cwd} />
+              ) : tab.target.kind === 'artifact' ? (
+                <ArtifactPreviewPane tab={tab} />
+              ) : (
+                <PreviewFilePane tab={tab} />
+              )}
+            </div>,
+          ];
+        })
       )}
     </div>
   );

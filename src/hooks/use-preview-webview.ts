@@ -14,6 +14,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { registerPreviewWebview, unregisterPreviewWebview } from '@/lib/preview-webview-registry';
 
 export interface UsePreviewWebviewOptions {
   /** false = 不创建（并销毁已有）——激活条件由调用方计算 */
@@ -22,6 +23,12 @@ export interface UsePreviewWebviewOptions {
   url: string;
   /** 值变化 → 销毁重建（载入新内容；undefined/恒定 = 不响应） */
   reloadKey?: unknown;
+  /** 🔴 2026-10-23 S1：宿主 tab id——登记进 label↔tab 注册表（preview-events 的
+   *  read/act 分流经它解析"当前激活 tab 的 webview"）。省略 = 不登记（调用方
+   *  自管，仅过渡期兼容） */
+  tabId?: string;
+  /** 🔴 2026-10-23 S1：宿主 tab 的 target.kind（registry 元数据） */
+  kind?: 'file' | 'url';
   /** 每次重建前同步调用（调用方重置 per-webview 运行态：console 游标/错误态等） */
   onRecreate?: () => void;
   /** 🔴 2026-09-01 创建失败回调（此前 catch 只 console.error，UI 黑屏无任何
@@ -42,6 +49,8 @@ export function usePreviewWebview({
   active,
   url,
   reloadKey,
+  tabId,
+  kind,
   onRecreate,
   onCreateError,
 }: UsePreviewWebviewOptions): UsePreviewWebviewResult {
@@ -79,6 +88,8 @@ export function usePreviewWebview({
         }
         labelRef.current = l;
         setLabel(l);
+        // 🔴 S1：创建成功 → 登记 label↔tab（read/act 分流的数据源）
+        if (tabId) registerPreviewWebview(tabId, { label: l, kind: kind ?? 'url' });
       })
       .catch((e) => {
         console.error('[preview-webview] create failed:', e);
@@ -91,6 +102,8 @@ export function usePreviewWebview({
       labelRef.current = null;
       setLabel(null);
       if (l) {
+        // 🔴 S1：卸载 → 注销注册表（带 label 防重建竞态期间旧 cleanup 误删新映射）
+        if (tabId) unregisterPreviewWebview(tabId, l);
         invoke('preview_webview_close', { label: l }).catch(() => {});
       }
     };

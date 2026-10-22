@@ -4,9 +4,8 @@ import { detectArtifact, type ArtifactDetection } from '@/lib/artifact-detect';
 import { enhanceRichFences } from '@/lib/rich-fence';
 import { resolveMediaSrc, mediaName, mediaKind, isPlayableMedia, resolveMediaPlaybackSrc } from '@/utils/media';
 import { ArtifactCard } from './ArtifactCard';
-import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview';
 import { getCurrentSessionCwd } from '@/lib/session-cwd';
-import { openPreview } from '@/store/preview';
+import { togglePreviewTab } from '@/store/preview';
 import { openLink } from '@/lib/external-open';
 
 /**
@@ -212,28 +211,40 @@ export default forwardRef<HTMLDivElement, StreamBlocksProps>(function StreamBloc
   ref
 ) {
   // 🔴 2026-08-10 对齐 Hermes MarkdownLink：消息里链接点击 → 预览抽屉 / 系统浏览器。
-  // - file:/#preview: → 右侧预览抽屉（对齐 PreviewAttachment openPreview）
+  // - file:/#preview: → 右侧预览抽屉（对齐 PreviewAttachment，toggle 开关双语义）
   // - 🔴 2026-08-30 http(s) 外链 → **内嵌预览面板**（对齐 Hermes openLink——
   //   "reading a doc doesn't cost a context switch out of the app, and it is
   //   the surface the agent can see"；旧实现误读 Hermes 全量 openExternal）
   //   Ctrl/⌘/中键逃逸系统浏览器（wantsNativeBrowser）
   // - 其它 scheme（mailto: 等）→ OS
   // - 站内锚点 #xxx 不拦截
+  // 🔴 2026-10-23 R2.4 修复：#preview 链接判定移到通用 # 锚点早退**之前**——
+  //   旧顺序 `href.startsWith('#')` 先 return，#preview:/#preview/ 永远到不了
+  //   预览分支（正文内联预览链接实为死代码，点击落入锚点导航无反应）。
+  //   同时 openPreview → togglePreviewTab（对齐 Hermes PreviewAttachment 的
+  //   in-app toggle 默认：再点一次 = 关）
   const handleLinkClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const anchor = (e.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
     if (!anchor) return;
     const href = anchor.getAttribute('href') || '';
+    if (href.startsWith('#preview:') || href.startsWith('#preview/')) {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        // toggle 内部经 normalizeOrLocalPreviewTarget 归一化（含 cwd join）
+        togglePreviewTab(decodeURIComponent(href.slice('#preview'.length + 1)), getCurrentSessionCwd());
+      } catch {
+        /* 非法编码序列忽略 */
+      }
+      return;
+    }
     if (href.startsWith('#')) return;
     e.preventDefault();
     e.stopPropagation();
 
-    if (href.startsWith('file:') || href.startsWith('#preview:') || href.startsWith('#preview/')) {
-      const raw = href.startsWith('file:')
-        ? href
-        : decodeURIComponent(href.slice('#preview'.length + 1));
-      // 🔴 传当前会话 cwd（对齐 Hermes $currentCwd）：相对路径 #preview 链接 join 成绝对路径
-      const preview = normalizeOrLocalPreviewTarget(raw, getCurrentSessionCwd());
-      if (preview) openPreview(preview, 'explicit-link');
+    if (href.startsWith('file:')) {
+      // 🔴 传当前会话 cwd（对齐 Hermes $currentCwd）：相对路径 join 成绝对路径
+      togglePreviewTab(href, getCurrentSessionCwd());
       return;
     }
 
