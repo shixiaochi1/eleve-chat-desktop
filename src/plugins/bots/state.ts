@@ -256,6 +256,9 @@ export function useRoomsWithPendingClarify(): ReadonlySet<string> {
 
 let rooms: BotRoom[] = [];
 let roomsLoaded = false;
+/** 🔴 2026-10-22：首拉失败原因（null = 无错误）。此前失败不落状态 → 所有消费方
+ *  永远停在"加载中…"（用户实测：Agent 面板群聊分组一直转圈）。 */
+let roomsError: string | null = null;
 let refreshInFlight: Promise<BotRoom[]> | null = null;
 const roomsListeners = new Set<() => void>();
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -271,8 +274,18 @@ export function refreshRooms(): Promise<BotRoom[]> {
     .then((list) => {
       rooms = list;
       roomsLoaded = true;
+      roomsError = null;
       emitRooms();
       return list;
+    })
+    .catch((e) => {
+      // 失败：只落错误 + 通知（`roomsLoaded` 保持 false，语义仍是"尚未成功拉到"）。
+      // ⚠️ 不要在失败时改 `rooms`/`roomsLoaded`——BotsView 的 `!roomsLoaded` effect
+      // 依赖两者，值不变才不会被 emit 触发成失败风暴；重试由 UI（RoomListSection
+      // 的 WS 连接态 + 重试按钮）显式驱动。
+      roomsError = (e as Error)?.message?.trim() || '加载群聊失败';
+      emitRooms();
+      throw e;
     })
     .finally(() => {
       refreshInFlight = null;
@@ -328,6 +341,18 @@ export function useRoomsLoaded(): boolean {
     },
     isRoomsLoaded,
     () => false,
+  );
+}
+
+/** 首拉失败原因的响应式消费（null = 正常；非 null → 错误态 + 重试）。 */
+export function useRoomsError(): string | null {
+  return useSyncExternalStore(
+    (fn) => {
+      roomsListeners.add(fn);
+      return () => roomsListeners.delete(fn);
+    },
+    () => roomsError,
+    () => null,
   );
 }
 

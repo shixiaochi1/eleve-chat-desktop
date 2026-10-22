@@ -59,7 +59,7 @@ import { getWsClient } from '../services/ws-client';
 import { formatMessageTime } from '../utils/time';
 import {
   clearRoomNeedsYou, closeRemoteChat, isUnionFresh, refreshRooms,
-  refreshUnionRoster, seedRoomClarify, selectRoom, useRemoteChat, useRooms, useRoomsLoaded,
+  refreshUnionRoster, seedRoomClarify, selectRoom, useRemoteChat, useRooms, useRoomsError, useRoomsLoaded,
   useSelectedRoomId, useUnionRoster,
   type UnionRosterRow,
 } from '../plugins/bots/state';
@@ -89,6 +89,7 @@ export default function BotsRoomMainView() {
   // 自持 fetch/本地副本/WS 订阅全部删除（三处 fetch 合并，详见 state.ts）。
   const rooms = useRooms();
   const roomsLoaded = useRoomsLoaded();
+  const roomsError = useRoomsError();
   // 🔴 2026-09-06 round-68：用户显式关闭（onBack/解散回列表）→ 空态不被
   // 自动选房劫持；组件重挂（切走再切回群聊视图/重开应用）ref 重置 →
   // 自动选恢复（"进入群聊界面即见最近群聊"语义只对"进入"生效）。
@@ -113,7 +114,7 @@ export default function BotsRoomMainView() {
   // 触发本 effect 重评估），组件不再自己打 RPC。
   useEffect(() => {
     if (!roomsLoaded) {
-      void refreshRooms(); // 首拉：store 更新 → 重渲染回到本 effect
+      void refreshRooms().catch(() => undefined); // 首拉：store 更新 → 重渲染回到本 effect
       return;
     }
     if (userClosedRef.current) return; // 显式关闭 → 尊重空态
@@ -147,7 +148,22 @@ export default function BotsRoomMainView() {
   }
 
   // 🔴 round-75：加载态 = store 首拉未完成（roomsLoaded 响应式）。
+  // 🔴 2026-10-22：首拉失败不能再永远转圈——错误态 + 重试（与侧栏群聊分组一致）。
   if (!roomsLoaded) {
+    if (roomsError) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2 px-6 text-center">
+          <div className="text-sm text-destructive">群聊加载失败</div>
+          <div className="text-xs text-muted-foreground/70 max-w-sm break-words">{roomsError}</div>
+          <button
+            className="text-xs text-primary hover:underline"
+            onClick={() => void refreshRooms().catch(() => undefined)}
+          >
+            重试
+          </button>
+        </div>
+      );
+    }
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2">
         <Loader size={22} className="animate-spin opacity-60" />

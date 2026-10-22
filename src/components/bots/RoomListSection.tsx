@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, RotateCw, ChevronDown, ChevronRight } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { getWsClient } from '../../services/ws-client';
 import { RoomCard } from './RoomCard';
 import { useRoomRows, type AgentPanelFilterState } from '../../hooks/useAgentPanelData';
 import { reorderRosterRooms } from '../../lib/group-order';
@@ -26,7 +27,9 @@ import {
   type BotRoom,
 } from '../../utils/api';
 import {
+  isRoomsLoaded,
   refreshRooms,
+  useRoomsError,
   useRoomsNeedingYou,
   useRoomsWithPendingClarify,
   useSelectedRoomId,
@@ -66,6 +69,19 @@ export default function RoomListSection({
   const selectedRoomId = useSelectedRoomId();
   const roomsNeedingYou = useRoomsNeedingYou();
   const roomsWithClarify = useRoomsWithPendingClarify();
+  const roomsError = useRoomsError();
+
+  // 🔴 2026-10-22（用户实测：群聊一直显示加载中）：本分组此前**没有首拉触发**——
+  // 只有主区 BotsView 会 refreshRooms，用户不进群聊视图时 roomsLoaded 恒 false。
+  // 现在挂载即拉，但必须等 WS 连上（disconnected 态 sendRpc 直接 reject，不排队）；
+  // 只依赖 wsState：连接建立/重连时补拉，失败则停在错误态等用户点重试（不自动风暴）。
+  const [wsState, setWsState] = useState(getWsClient().state);
+  useEffect(() => getWsClient().onStateChange(setWsState), []);
+  useEffect(() => {
+    if (wsState !== 'connected') return;
+    if (isRoomsLoaded()) return;
+    void refreshRooms().catch(() => undefined);
+  }, [wsState]);
 
   // ── 副本接管区（本机持有的他机房间副本；权威失联时可接管） ──
   const [replicas, setReplicas] = useState<ReplicaMeta[]>([]);
@@ -122,13 +138,15 @@ export default function RoomListSection({
         >
           <RotateCw size={11} />
         </button>
+        {/* 🔴 2026-10-22 用户反馈：新建按钮样式要统一——与「新建项目 / 新建 Agent」
+            同款主题渐变胶囊（此前是浅色 bg-primary/15 次级按钮，视觉等级不一致）。 */}
         <button
           type="button"
-          className="inline-flex items-center gap-1 pl-1 pr-2 h-[20px] rounded-full text-[10px] font-medium transition-all duration-150 active:scale-[0.96] bg-primary/15 text-primary hover:bg-primary/25 shrink-0"
+          className="inline-flex items-center gap-1.5 pl-1 pr-2.5 h-[22px] rounded-full text-[11px] leading-normal font-semibold transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_1px_3px_rgba(0,0,0,0.12),0_3px_8px_var(--theme-shadow-color)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(0,0,0,0.16),0_6px_16px_var(--theme-shadow-color-heavy)] hover:brightness-[1.06] hover:-translate-y-[1.5px] shrink-0"
           title="新建群聊"
           onClick={onCreateRoom}
         >
-          <Plus size={11} strokeWidth={2.5} className="shrink-0" />
+          <Plus size={12} strokeWidth={2.5} className="shrink-0" />
           新建
         </button>
       </div>
@@ -203,7 +221,23 @@ export default function RoomListSection({
         ))}
 
         {rows.length === 0 && (
-          <div className="text-[11px] text-muted-foreground/70 px-2 py-1.5">{emptyText}</div>
+          roomsError ? (
+            // 失败态：与"加载中/暂无群聊"区分开，给可点的重试（此前无出口）
+            <div className="flex items-center gap-2 px-2 py-1.5 text-[11px]">
+              <span className="min-w-0 flex-1 truncate text-destructive" title={roomsError}>
+                群聊加载失败
+              </span>
+              <button
+                type="button"
+                className="shrink-0 text-primary hover:underline"
+                onClick={() => void refreshRooms().catch(() => undefined)}
+              >
+                重试
+              </button>
+            </div>
+          ) : (
+            <div className="text-[11px] text-muted-foreground/70 px-2 py-1.5">{emptyText}</div>
+          )
         )}
       </div>
       )}
