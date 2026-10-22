@@ -7,7 +7,7 @@
  *   - 但它在 HOME 里恒排第一，并用对话气泡图标区分
  */
 import { describe, it, expect } from 'vitest';
-import { isBotChatPreview, orderHomePreviews } from './ProjectTreeItems';
+import { isBotChatPreview, needsVirtualBotChat, orderHomePreviews } from './ProjectTreeItems';
 import type { SessionPreview } from './ProjectTreeItems';
 
 function preview(id: string, title: string, lastActive = 0): SessionPreview {
@@ -41,5 +41,17 @@ describe('HOME 桶里的 Bot Chat', () => {
   it('没有 Bot Chat 时顺序完全不变', () => {
     const input = [normal1, normal2];
     expect(orderHomePreviews(input, true).map((s) => s.id)).toEqual([normal1.id, normal2.id]);
+  });
+
+  it('私聊会话尚未铸造时，HOME 需要占位行（否则入口消失）', () => {
+    // 从未开过私聊的 Agent：后端没有这条会话
+    expect(needsVirtualBotChat([normal1], true)).toBe(true);
+    expect(needsVirtualBotChat([], true)).toBe(true);
+    // 已有 canonical 私聊 → 不补占位（防重复行）
+    expect(needsVirtualBotChat([botChat, normal1], true)).toBe(false);
+    // 只有群成员会话（title 不是 Bot Chat）→ 仍需要占位
+    expect(needsVirtualBotChat([{ ...normal2, title: 'Group: #room' }], true)).toBe(true);
+    // 非 HOME 项目永不补
+    expect(needsVirtualBotChat([normal1], false)).toBe(false);
   });
 });

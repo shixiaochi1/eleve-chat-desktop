@@ -134,6 +134,17 @@ export function isBotChatPreview(s: SessionPreview): boolean {
 }
 
 /**
+ * HOME 是否需要「私聊占位行」。
+ *
+ * 独立「私聊」分组删除后，私聊唯一入口 = HOME 下那条 canonical 会话；但该 Agent
+ * 从未开过私聊时会话尚未铸造，后端不会返回这一行 → 入口消失。此时补一条占位行，
+ * 点击才 ensure（保持"用户显式打开才触发 intro kick"的既有语义）。
+ */
+export function needsVirtualBotChat(previews: SessionPreview[], isNoProject: boolean): boolean {
+  return isNoProject && !previews.some(isBotChatPreview);
+}
+
+/**
  * HOME 桶预览会话的展示顺序：canonical Bot Chat 恒置顶，其余保持后端顺序。
  * 非 HOME 项目原样返回（不改项目内会话排序）。
  */
@@ -210,7 +221,7 @@ export function savePinnedIds(ids: Set<string>): void {
   } catch { /* ignore */ }
 }
 
-const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, rowClassName, botChat }: {
+const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, rowClassName, botChat, virtual }: {
   s: SessionPreview;
   isActive: boolean;
   onClick: () => void;
@@ -219,6 +230,9 @@ const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, r
   rowClassName?: string;
   /** 🔴 2026-10-22 任务 A：HOME 里的 canonical Bot Chat（= 与 Agent 的私聊）用对话气泡图标区分 */
   botChat?: boolean;
+  /** 🔴 2026-10-22：私聊占位行（该 Agent 还没开过私聊，canonical 会话尚未铸造）——
+   *  无 session id ⇒ 不渲染行菜单/右键菜单（重命名/删除对不存在的会话无意义）。 */
+  virtual?: boolean;
 }) {
   const title = s.title || s.id.slice(0, 8);
   const isPinned = actions.isPinned(s);
@@ -317,9 +331,12 @@ const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, r
       <span className={cn('truncate flex-1', isActive && 'text-accent-orange')}>{title}</span>
       {isPinned && <Pin size={10} className="shrink-0 text-muted-foreground/50" />}
       <span className="text-[10px] text-muted-foreground shrink-0">{fmtTime(s.lastActive || s.startedAt)}</span>
-      {menu}
+      {!virtual && menu}
     </div>
   );
+
+  // 占位行（私聊尚未铸造）：没有会话实体，不给行菜单/右键菜单
+  if (virtual) return row;
 
   // 右键菜单与 kebab 同款（对齐 Hermes SessionContextMenu）
   return (
@@ -646,6 +663,10 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
   const rawPreviews = project.previewSessions ?? [];
   // 🔴 2026-10-22 任务 A：HOME 桶里 canonical Bot Chat 恒置顶（其余顺序不动）
   const previews = orderHomePreviews(rawPreviews, project.isNoProject === true);
+  // 🔴 2026-10-22：私聊入口恒在（独立「私聊」分组已删）——HOME 且后端尚未返回这条
+  // canonical 会话时（该 Agent 从未开过私聊），补一条占位行，避免入口消失。
+  const showVirtualBotChat =
+    !!onOpenBotChat && needsVirtualBotChat(previews, project.isNoProject === true);
   const specs = projectMenuSpecs(project, { onSetActive, onEdit, onAddFolder, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop });
   const path = project.path || '';
 
@@ -741,8 +762,26 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
       {/* 预览会话（卡片内展开，border-t 分隔；对齐 Hermes PROJECT_PREVIEW_COUNT Top3） */}
       {expanded && (
         <div className="mt-1 border-t border-[var(--ui-stroke-quaternary)] pt-0.5">
-          {previews.length > 0 ? (
+          {(previews.length > 0 || showVirtualBotChat) ? (
             <>
+              {/* 🔴 2026-10-22 任务 A：私聊入口恒在——该 Agent 从未开过私聊时 canonical
+                  会话尚未铸造，后端不会返回这一行。这里补一条**占位行**（无 id、无行菜单）；
+                  点击才走 openLocalBotChat（= 用户显式打开，才允许触发 intro kick）。
+                  会话一旦存在，后端注入的真实行就会取代占位行。 */}
+              {showVirtualBotChat && (
+                <SessionItem
+                  s={{ id: '', title: 'Bot Chat', lastActive: 0, startedAt: 0, messageCount: 0 }}
+                  isActive={false}
+                  botChat
+                  virtual
+                  onClick={() => {
+                    onSessionRowActivate?.(project);
+                    onOpenBotChat?.('');
+                  }}
+                  actions={sessionActions}
+                  rowClassName="pl-6 rounded-md hover:bg-accent/30"
+                />
+              )}
               {previews.map(s => {
                 // 🔴 2026-10-22 任务 A：私聊行 = 普通会话行，但点击走 bot 登记链
                 // （registerBotChatSession + setWorkspaceOwner 在 App.handleOpenBotChat 内）

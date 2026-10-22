@@ -210,6 +210,11 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
     // → 树区域整体替换成“加载中...”（区块头+项目卡片全消失 → 高度塌缩）→ 数据
     // 回来再恢复 = 两次突变 = 项目卡片上下抖动。silent 保留旧树直到新数据到达，
     // 一次替换（正常数据刷新，无 loading 闪变）
+    //
+    // 🔴 2026-10-22：私聊唯一入口 = HOME 下那条 canonical 会话（独立分组已删）。
+    // ⚠️ 这里**不能**自动 ensureBotChat：`bot.chat.ensure` 是 intro kick 触发点
+    // （用户显式打开才让 bot 说第一句）。未开过私聊时由 ProjectItems 渲染占位行，
+    // 点击时才 ensure——保持"首行由用户打开触发"的既有语义。
     void fetchTree(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProfile]);
