@@ -168,18 +168,29 @@ function ProfileCard({
           }}
         />
       )}
-      {/* 头像（微信式 40px 圆角方；运行中 = 右下角绿点；选中 = accent 细描边） */}
-      <div
-        className="relative shrink-0 w-10 h-10 rounded-lg overflow-hidden bg-muted/40 flex items-center justify-center transition-shadow"
-        style={active ? { boxShadow: `0 0 0 2px color-mix(in srgb, ${accent} 45%, transparent)` } : undefined}
-      >
-        {/* 统一走 ProfileAvatar：自定义图 / 预设 SVG / 首字母（首字母用 Agent 主题色，
-            微信联系人同款；无头像时不再退回通用机器人图标） */}
-        <ProfileAvatar name={displayName} hasAvatar={profile.avatar} color={color} avatarKey={profile.avatar_key} />
+      {/* 头像（微信式 40px 圆角方）。🔴 2026-10-23：角标（未读红点 / 运行中绿点）
+          放在 overflow-hidden 容器**外面**——放在里面会被圆角裁掉一半。 */}
+      <div className="relative shrink-0 w-10 h-10">
+        <div
+          className="w-full h-full rounded-lg overflow-hidden bg-muted/40 flex items-center justify-center transition-shadow"
+          style={active ? { boxShadow: `0 0 0 2px color-mix(in srgb, ${accent} 45%, transparent)` } : undefined}
+        >
+          {/* 统一走 ProfileAvatar：自定义图 / 预设 SVG / 首字母（首字母用 Agent 主题色，
+              微信联系人同款；无头像时不再退回通用机器人图标） */}
+          <ProfileAvatar name={displayName} hasAvatar={profile.avatar} color={color} avatarKey={profile.avatar_key} />
+        </div>
         {runtime?.busy && (
           <span
-            className="absolute right-0.5 bottom-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-card"
+            className="absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-card"
             title="运行中（切走不会中断）"
+          />
+        )}
+        {/* 🔴 2026-10-23 用户需求：多个 Agent 并存时，新消息必须一眼可见——
+            未读 = 头像右上角红点（微信未读同款位置）+ 右侧时间转红 + 预览加深。 */}
+        {unread && (
+          <span
+            className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-destructive border-2 border-card"
+            title="有新消息（打开私聊即清除）"
           />
         )}
       </div>
@@ -208,7 +219,9 @@ function ProfileCard({
           {/* 时间：hover 时让位给删除（微信行没有删除，但管理能力要保留） */}
           <span
             className={cn(
-              'shrink-0 text-[10px] tabular-nums text-muted-foreground/50',
+              'shrink-0 text-[10px] tabular-nums',
+              // 未读时时间转红（第二个扫视信号，不占额外宽度）
+              unread ? 'text-destructive' : 'text-muted-foreground/50',
               !profile.is_default && onDelete && 'group-hover:hidden'
             )}
           >
@@ -238,9 +251,6 @@ function ProfileCard({
           >
             {subText}
           </span>
-          {unread && (
-            <span className="shrink-0 h-2 w-2 rounded-full bg-destructive" title="有未读消息" />
-          )}
         </div>
       </div>
     </div>
