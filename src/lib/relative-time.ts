@@ -23,3 +23,37 @@ export function formatRelativeTime(
   const d = new Date(ms);
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
+
+/**
+ * 聊天列表角标时间（微信/IM 联系人行的右上角写法，比 `formatRelativeTime`
+ * 更短，260px 侧栏放得下）：
+ * - 今天 → `HH:mm`
+ * - 昨天 → `昨天`
+ * - 今年更早 → `M/D`
+ * - 跨年 → `YYYY/M/D`
+ */
+export function formatChatListTime(
+  input: number | null | undefined,
+  now: number = Date.now(),
+): string {
+  if (!input || input <= 0) return '';
+  const ms = input > 1e12 ? input : input * 1000;
+  const d = new Date(ms);
+  const n = new Date(now);
+  const sameDay =
+    d.getFullYear() === n.getFullYear() &&
+    d.getMonth() === n.getMonth() &&
+    d.getDate() === n.getDate();
+  if (sameDay) {
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+  const y = new Date(now);
+  y.setDate(y.getDate() - 1);
+  const isYesterday =
+    d.getFullYear() === y.getFullYear() &&
+    d.getMonth() === y.getMonth() &&
+    d.getDate() === y.getDate();
+  if (isYesterday) return '昨天';
+  if (d.getFullYear() === n.getFullYear()) return `${d.getMonth() + 1}/${d.getDate()}`;
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
