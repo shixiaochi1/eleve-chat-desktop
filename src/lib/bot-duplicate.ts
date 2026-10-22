@@ -1,4 +1,10 @@
 /**
+ * 🔴 @deprecated 未挂载（unreachable）
+ * 2026-10-22 任务 B：调用链 roster-row-actions（→ RosterRowMenu）随「私聊」分组
+ * 的删除而失去挂载点；本文件只剩单测（bot-duplicate.test.ts）在跑。
+ * 消费者：无（生产代码零 import）；deadcode 复核：node scripts/deadcode-check.mjs
+ * ⚠️ 请勿在此处修 bug 或加功能——复活前先接回入口；确认废弃则连同单测一起删。
+ *
  * 复制 Agent（对齐 Hermes `profile-ops.ts:301 duplicateBot`）。
  *
  * Hermes 的三步（实现体）：

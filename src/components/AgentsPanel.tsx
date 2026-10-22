@@ -4,17 +4,15 @@
  * 版式（自上而下，老大拍板）：
  *   ① Agent 卡片区 —— 单击 = 切身份（现状语义不变；身份档案：model/provider/技能数）
  *   ② 项目区     —— 当前 Agent 的项目树（per-profile，切身份自动换）
- *   ③ 群聊 + 私聊区 —— 群聊分组（房间行 → 进房间视图）+ 私聊分组（每 Agent 一行 → 开它的常驻私聊）
+ *   ③ 群聊区     —— 房间行 → 进房间视图
  *
- * 决策依据（见 docs/agent-panel-merge-plan-20260916.md）：
- *   - 卡片与私聊**不合并**：单击卡片仍 = 切身份，私聊是独立分组（老大决策①）
- *   - 群聊 + 私聊全部收进本面板；「群聊」IconBar 按钮退役（P5）
- *   - 群聊是**跨 Agent 共享房间**（无 owner 字段）⇒ 独立分组，不挂 agent 之下；
- *     私聊是 per-Agent 一对一常驻通道 ⇒ 每 Agent 一行
- *   - 重复感抑制：卡片只做身份（无运行态徽标），私聊行只做聊天入口（活跃/未读/attention）
+ * 🔴 2026-10-22 任务 B（用户定案，交接文档 §4-B）：**删除独立「私聊」分组**。
+ *   私聊不是特殊物件，就是 HOME 项目下的一条 canonical 会话（ProjectTreePanel 里
+ *   置顶 + 气泡图标）；它的点击链走 App.handleOpenBotChat（bot 域登记），
+ *   与旧私聊入口同一条链——重复的第二个视图已两次被否，不再重建。
  *
- * 高度：三段各自有界（卡片 max 38% / 项目 flex-1 / 会话区 max 45%），
- * 群聊与私聊分组可折叠（localStorage 持久化）——260px 栏内不出现双滚动条。
+ * 高度：三段各自有界（卡片 max 38% / 项目 flex-1 / 群聊区 max 45%），
+ * 群聊分组可折叠（localStorage 持久化）——260px 栏内不出现双滚动条。
  *
  * 数据流（沿用原有受控单向流）：ProfilePanel / ProjectTreePanel 仍由 SidePanel
  * 透传 App 下发的 props；本组件只增加第③段的编排与回调。
@@ -27,28 +25,21 @@ import * as storage from '../utils/storage';
 import ProfilePanel from './ProfilePanel';
 import ProjectTreePanel from './ProjectTreePanel';
 import AgentPanelToolbar from './bots/AgentPanelToolbar';
-import PrivateChatSection from './bots/PrivateChatSection';
 import RoomCreateDialog from './bots/RoomCreateDialog';
 import RoomListSection from './bots/RoomListSection';
-import RosterRowMenu from './bots/RosterRowMenu';
 import { getPluginHost } from '../contrib/host';
 import type { AgentEditTarget } from '../contrib/host';
 import { useAgentPanelFilters, type AgentPanelFilterState } from '../hooks/useAgentPanelData';
-import { openLocalBotChat, openRemoteBotChat } from '../lib/bot-open';
 import { gatewayOptions } from '../lib/roster-filter';
-import {
-  selectRoom,
-  useRooms,
-  useUnionRoster,
-  type UnionRosterRow,
-} from '../plugins/bots/state';
+import { selectRoom, useRooms, useUnionRoster } from '../plugins/bots/state';
 
 interface AgentsPanelProps {
   currentProfile?: string;
   currentProfileLabel?: string;
   /** App.handleOpenBotChat —— 收 session id（登记 bot 域 + 切视图 + 切会话） */
   onOpenBotChat?: (sessionId: string) => void;
-  /** 编辑 Agent（远端行带 connectionId，骑 owner 连接）；App 侧 = setEditTarget */
+  /** 🔴 2026-10-22：私聊分组移除后本面板不再消费（远端 Agent 编辑入口随分组退役）。
+   *  字段保留仅为维持 SidePanel/App 的既有传参契约，不参与渲染。 */
   onEditAgentTarget?: (target: AgentEditTarget) => void;
   /** 本机 Agent 编辑（旧入口，仅传名字；无 onEditAgentTarget 时兜底） */
   onEditAgent?: (name: string) => void;
@@ -59,7 +50,6 @@ const COLLAPSE_KEY = 'eleve.agentPanel.sections.v1';
 
 interface CollapseState {
   rooms: boolean;
-  chats: boolean;
 }
 
 function loadCollapse(): CollapseState {
@@ -67,21 +57,18 @@ function loadCollapse(): CollapseState {
     const raw = localStorage.getItem(COLLAPSE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<CollapseState>;
-      return { rooms: Boolean(parsed.rooms), chats: Boolean(parsed.chats) };
+      return { rooms: Boolean(parsed.rooms) };
     }
   } catch {
     /* 存储禁用/损坏 → 默认全展开 */
   }
-  return { rooms: false, chats: false };
+  return { rooms: false };
 }
 
 export default function AgentsPanel(props: AgentsPanelProps) {
-  const { onOpenBotChat, onEditAgentTarget, ...rest } = props;
-  // 当前 Agent（只读取，继续经 rest 下发给 ProfilePanel/ProjectTreePanel）
-  const currentProfile = props.currentProfile;
+  const { onOpenBotChat, ...rest } = props;
 
-
-  // 筛选态：私聊 + 群聊**共用一套**（工具栏只有一条）⇒ 在面板层持有
+  // 筛选态：Agent + 群聊**共用一套**（工具栏只有一条）⇒ 在面板层持有
   const filtersApi = useAgentPanelFilters();
   const filters: AgentPanelFilterState = filtersApi.state;
 
@@ -115,37 +102,10 @@ export default function AgentsPanel(props: AgentsPanelProps) {
   }, []);
 
   const [showCreateRoom, setShowCreateRoom] = useState(false);
-  const [menu, setMenu] = useState<{ row: UnionRosterRow; x: number; y: number } | null>(null);
   const [banner, setBanner] = useState<{ kind: 'error' | 'notice'; text: string } | null>(null);
 
   const onError = useCallback((text: string) => setBanner({ kind: 'error', text }), []);
   const onNotice = useCallback((text: string) => setBanner({ kind: 'notice', text }), []);
-
-  /** 本机私聊：ensure canonical → 交给 App 的 handleOpenBotChat
-   *  （**不设兜底链**：另建一条 getPluginHost().openSession 会绕过 App 的 bot 域登记
-   *   `registerBotChatSession` + `setWorkspaceOwner`，同一语义两份实现必分叉） */
-  const handleOpenLocalChat = useCallback(
-    (profile: string) => {
-      if (!onOpenBotChat) {
-        console.warn('[AgentsPanel] onOpenBotChat 未注入——无法打开本机私聊');
-        return;
-      }
-      void openLocalBotChat(profile, { onOpenBotChat, onError });
-    },
-    [onOpenBotChat, onError],
-  );
-
-  /** 远端私聊：骑 owner 连接 ensure → 主区切 bots 视图（承载远端会话） */
-  const handleOpenRemoteChat = useCallback(
-    (row: UnionRosterRow) => {
-      void openRemoteBotChat(row, {
-        onOpened: () => getPluginHost()?.openView('bots'),
-        onError,
-        onNotice,
-      });
-    },
-    [onError, onNotice],
-  );
 
   /** 房间行 → 主区房间视图 */
   const handleOpenRoomView = useCallback(() => {
@@ -175,13 +135,15 @@ export default function AgentsPanel(props: AgentsPanelProps) {
         {!agentsCollapsed && <ProfilePanel {...rest} />}
       </div>
 
-      {/* ── ② 项目区（flex-1 = 卡片区决定的剩余空间） ── */}
+      {/* ── ② 项目区（flex-1 = 卡片区决定的剩余空间） ──
+          🔴 2026-10-22 任务 A：onOpenBotChat 显式下发——HOME 桶里的 canonical
+          Bot Chat 行点击必须走 bot 域登记链（{...rest} 不含它，它被解构掉了）。 */}
       <div className="flex-1 min-h-0 flex flex-col border-t border-[var(--ui-stroke-tertiary)]">
-        <ProjectTreePanel {...rest} />
+        <ProjectTreePanel {...rest} onOpenBotChat={onOpenBotChat} />
       </div>
 
 
-      {/* ── ③ 群聊 + 私聊区（有界 + 内部滚动；两个分组各自可折叠） ── */}
+      {/* ── ③ 群聊区（有界 + 内部滚动；可折叠） ── */}
       <div className="shrink-0 max-h-[45%] flex flex-col min-h-0 border-t border-[var(--ui-stroke-tertiary)]">
         <AgentPanelToolbar
           filters={filters}
@@ -217,17 +179,6 @@ export default function AgentsPanel(props: AgentsPanelProps) {
             collapsed={collapsed.rooms}
             onToggleCollapsed={() => toggleCollapse('rooms')}
           />
-          <PrivateChatSection
-            filters={filters}
-            // 🔴 2026-10-22：Agent 行 = 工作区级导航后，私聊只保留**当前 Agent** 那条
-            // （其它 Agent 的私聊通过切 Agent 到达）——消除"卡片/Agent 行 vs 私聊行"重复。
-            onlyProfile={currentProfile}
-            onOpenBotChat={handleOpenLocalChat}
-            onOpenRemoteChat={handleOpenRemoteChat}
-            onRowMenu={(row, x, y) => setMenu({ row, x, y })}
-            collapsed={collapsed.chats}
-            onToggleCollapsed={() => toggleCollapse('chats')}
-          />
         </div>
 
         {/* 「已隐藏 N」统一入口——**一处覆盖 Agent + 群聊两组**（与旧面板同语义；
@@ -255,19 +206,6 @@ export default function AgentsPanel(props: AgentsPanelProps) {
             selectRoom(roomId);
             handleOpenRoomView();
           }}
-          onError={onError}
-          onNotice={onNotice}
-        />
-      )}
-
-      {/* 私聊行右键菜单（编辑 / 复制 / 置顶 / 隐藏） */}
-      {menu && (
-        <RosterRowMenu
-          row={menu.row}
-          x={menu.x}
-          y={menu.y}
-          onClose={() => setMenu(null)}
-          onEditAgent={onEditAgentTarget}
           onError={onError}
           onNotice={onNotice}
         />

@@ -1,4 +1,10 @@
 /**
+ * 🔴 @deprecated 未挂载（unreachable）
+ * 2026-10-22 任务 B：独立「私聊」分组已删除，本菜单随之失去挂载点。
+ * （远端 Agent 的「编辑」入口一并退役；本机 Agent 仍可双击卡片编辑。）
+ * 消费者：无（仅 AgentsPanel 曾渲染）；deadcode 复核：node scripts/deadcode-check.mjs
+ * ⚠️ 请勿在此处修 bug 或加功能——复活前先接回入口；确认废弃则整链删除。
+ *
  * RosterRowMenu — 私聊分组行的右键菜单（编辑 / 复制 / 置顶 / 隐藏）。
  *
  * 🔴 2026-09-16 round-116 P2b（Agent 面板整合）：从旧 `components/BotsPane.tsx`

@@ -6,7 +6,7 @@
  *   行组件全部 props 驱动，无平行状态源。
  */
 import { memo, useState, Fragment } from 'react';
-import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, MoreVertical, Pencil, FolderPlus, Copy, Trash2, Home, Pin, Download, Archive, Undo2, Minimize2, BarChart3, ExternalLink } from 'lucide-react';
+import { ChevronRight, ChevronDown, FolderGit, GitBranch, FolderOpen, Blocks, MessageSquare, MessageCircle, MoreVertical, Pencil, FolderPlus, Copy, Trash2, Home, Pin, Download, Archive, Undo2, Minimize2, BarChart3, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { projectIconFor } from '../lib/project-icons';
 import { useWorkspaceNodeOpen } from '../lib/sidebar-node-open';
@@ -76,6 +76,9 @@ export interface ProjectTreePanelProps {
    *   静默重拉 projects.tree（预览会话/计数/时间即时回显，老大需求：缺自动刷新机制） */
   sessionListVersion?: number;
   onSwitchSession?: (id: string) => void;
+  /** 🔴 2026-10-22 任务 A：HOME 里 canonical Bot Chat 行的打开链（App.handleOpenBotChat）。
+   *  行点击不能走普通 switchSession——否则绕过 bot 域登记（右栏/归属与私聊入口分叉）。 */
+  onOpenBotChat?: (sessionId: string) => void;
   /** 🔴 2026-09-06 round-68c：删除会话统一走 App 权威链（handleDeleteSession：
    *  removeProfilePointer 清僵尸指针 + detachSession 订阅注册表 + 删当前会话
    *  清全局状态）——此前本面板删除只刷新树，profile_session_map 残留僵尸指针
@@ -118,6 +121,26 @@ function fmtTime(ts: number): string {
   const h = Math.floor(min / 60);
   if (h < 24) return `${h}h`;
   return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+/**
+ * HOME 桶里的 canonical Bot Chat（= 与 Agent 的常驻私聊）。
+ * id 形如 `<profile>:bot:<sid>`（后端 bot.chat.ensure 铸造），标题恒为 `Bot Chat`。
+ * 🔴 2026-10-22 任务 A：它就是 HOME 下的一条普通会话，只是展示上置顶 + 气泡图标；
+ *   点击必须走 bot 登记链（registerBotChatSession + setWorkspaceOwner），不能当普通会话切。
+ */
+export function isBotChatPreview(s: SessionPreview): boolean {
+  return s.id.includes(':bot:') && (s.title ?? '') === 'Bot Chat';
+}
+
+/**
+ * HOME 桶预览会话的展示顺序：canonical Bot Chat 恒置顶，其余保持后端顺序。
+ * 非 HOME 项目原样返回（不改项目内会话排序）。
+ */
+export function orderHomePreviews(previews: SessionPreview[], isNoProject: boolean): SessionPreview[] {
+  if (!isNoProject) return previews;
+  // sort 稳定：布尔差 0/1 → 只把私聊行提到最前，其余相对顺序不变
+  return [...previews].sort((a, b) => Number(isBotChatPreview(b)) - Number(isBotChatPreview(a)));
 }
 
 /** 写 IDEA.md 到项目主文件夹（对齐 Hermes writeProjectIdea；best-effort，失败静默） */
@@ -187,13 +210,15 @@ export function savePinnedIds(ids: Set<string>): void {
   } catch { /* ignore */ }
 }
 
-const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, rowClassName }: {
+const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, rowClassName, botChat }: {
   s: SessionPreview;
   isActive: boolean;
   onClick: () => void;
   actions: SessionRowActions;
   /** 🔴 2026-08-12 卡片化：项目预览会话在卡片内展开时覆盖缩进/hover（树内保持 pl-8） */
   rowClassName?: string;
+  /** 🔴 2026-10-22 任务 A：HOME 里的 canonical Bot Chat（= 与 Agent 的私聊）用对话气泡图标区分 */
+  botChat?: boolean;
 }) {
   const title = s.title || s.id.slice(0, 8);
   const isPinned = actions.isPinned(s);
@@ -284,7 +309,11 @@ const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, r
     >
       <SessionStatusDot sessionId={s.id} dotClassName={isActive ? '!bg-accent-orange' : undefined} />
       {/* 🔴 2026-08-12 老大：选中会话行图标变橙色（区分当前消息） */}
-      <MessageSquare size={12} className={cn('shrink-0', isActive ? 'text-accent-orange' : 'text-muted-foreground')} />
+      {botChat ? (
+        <MessageCircle size={12} className={cn('shrink-0', isActive ? 'text-accent-orange' : 'text-muted-foreground')} />
+      ) : (
+        <MessageSquare size={12} className={cn('shrink-0', isActive ? 'text-accent-orange' : 'text-muted-foreground')} />
+      )}
       <span className={cn('truncate flex-1', isActive && 'text-accent-orange')}>{title}</span>
       {isPinned && <Pin size={10} className="shrink-0 text-muted-foreground/50" />}
       <span className="text-[10px] text-muted-foreground shrink-0">{fmtTime(s.lastActive || s.startedAt)}</span>
@@ -586,7 +615,7 @@ function projectMenuSpecs(project: ProjectNode, h: {
   ];
 }
 
-export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowActivate, onDrill, onActivate, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop, sessionActions, isDragging, isDragOver }: {
+export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowActivate, onOpenBotChat, onDrill, onActivate, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop, sessionActions, isDragging, isDragOver }: {
   project: ProjectNode;
   sessionId?: string;
   onSwitchSession?: (id: string) => void;
@@ -609,10 +638,14 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
   isDragOver?: boolean;
   /** 🔴 2026-08-13 问题2：会话行点击 → 所属项目域激活 */
   onSessionRowActivate?: (project: ProjectNode) => void;
+  /** 🔴 2026-10-22 任务 A：HOME 的 Bot Chat 行走 bot 登记链（而非普通 switchSession） */
+  onOpenBotChat?: (sessionId: string) => void;
 }) {
   // 展开状态持久化（对齐 Hermes useWorkspaceNodeOpen；项目行默认展开）
   const [expanded, toggleExpanded] = useWorkspaceNodeOpen(project.id, true);
-  const previews = project.previewSessions ?? [];
+  const rawPreviews = project.previewSessions ?? [];
+  // 🔴 2026-10-22 任务 A：HOME 桶里 canonical Bot Chat 恒置顶（其余顺序不动）
+  const previews = orderHomePreviews(rawPreviews, project.isNoProject === true);
   const specs = projectMenuSpecs(project, { onSetActive, onEdit, onAddFolder, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop });
   const path = project.path || '';
 
@@ -709,9 +742,26 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
       {expanded && (
         <div className="mt-1 border-t border-[var(--ui-stroke-quaternary)] pt-0.5">
           {previews.length > 0 ? (
-            previews.map(s => (
-              <SessionItem key={s.id} s={s} isActive={s.id === sessionId} onClick={() => { onSessionRowActivate?.(project); onSwitchSession?.(s.id); }} actions={sessionActions} rowClassName="pl-6 rounded-md hover:bg-accent/30" />
-            ))
+            previews.map(s => {
+              // 🔴 2026-10-22 任务 A：私聊行 = 普通会话行，但点击走 bot 登记链
+              // （registerBotChatSession + setWorkspaceOwner 在 App.handleOpenBotChat 内）
+              const botChat = project.isNoProject === true && isBotChatPreview(s);
+              return (
+                <SessionItem
+                  key={s.id}
+                  s={s}
+                  isActive={s.id === sessionId}
+                  botChat={botChat}
+                  onClick={() => {
+                    onSessionRowActivate?.(project);
+                    if (botChat && onOpenBotChat) onOpenBotChat(s.id);
+                    else onSwitchSession?.(s.id);
+                  }}
+                  actions={sessionActions}
+                  rowClassName="pl-6 rounded-md hover:bg-accent/30"
+                />
+              );
+            })
           ) : (
             <div className="pl-6 pr-1 py-1 text-[10px] text-muted-foreground/50">暂无会话</div>
           )}

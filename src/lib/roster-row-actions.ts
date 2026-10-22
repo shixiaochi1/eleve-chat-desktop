@@ -1,4 +1,9 @@
 /**
+ * 🔴 @deprecated 未挂载（unreachable）
+ * 2026-10-22 任务 B：唯一消费者 RosterRowMenu 随「私聊」分组的删除而失去挂载点。
+ * 消费者：无；deadcode 复核：node scripts/deadcode-check.mjs
+ * ⚠️ 请勿在此处修 bug 或加功能——复活前先接回入口；确认废弃则整链删除。
+ *
  * roster-row-actions — 私聊分组行的**动作实现**（编辑由 UI 层发起，此处只做数据动作）。
  *
  * 🔴 2026-09-16 round-116 P2b（Agent 面板整合）：从旧 `components/BotsPane.tsx`

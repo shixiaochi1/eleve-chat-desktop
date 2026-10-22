@@ -1,4 +1,11 @@
 /**
+ * 🔴 @deprecated 未挂载（unreachable）
+ * 2026-10-22 任务 B：独立「私聊」分组已删除（用户定案：私聊不是特殊物件，就是
+ * HOME 项目下的一条 canonical 会话，见 ProjectTreeItems 的 isBotChatPreview /
+ * orderHomePreviews，点击链走 App.handleOpenBotChat）。
+ * 消费者：无（全仓零 import）；deadcode 复核：node scripts/deadcode-check.mjs
+ * ⚠️ 请勿在此处修 bug 或加功能——复活前先接回入口；确认废弃则整链删除。
+ *
  * PrivateChatSection — Agent 面板「③群聊 + 私聊区」的**私聊分组**。
  *
  * 🔴 2026-09-16 round-116 P2（Agent 面板整合）：群聊 + 私聊并入 Agent 侧边页。

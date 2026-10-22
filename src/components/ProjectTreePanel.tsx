@@ -29,6 +29,7 @@ import { gitWorktreeList, gitWorktreeRemove, type HermesGitWorktree } from '../l
 import { WorktreeDialog } from './worktree/WorktreeDialog';
 import { pickDirectory } from '../utils/directory-picker';
 import { notifySuccess, notifyError, notifyInfo } from '../utils/notifications';
+import { openLocalBotChat } from '../lib/bot-open';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from './ui/dialog';
@@ -46,7 +47,7 @@ import {
 } from './ProjectTreeItems';
 import { ProjectDialog, SessionRenameDialog } from './ProjectDialogs';
 
-export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwitchSession, currentProfile, onNewSessionInProject, onEnterProject, onProjectScopeChange, onProjectScopeRestored, onDeleteSession }: ProjectTreePanelProps) {
+export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwitchSession, onOpenBotChat, currentProfile, onNewSessionInProject, onEnterProject, onProjectScopeChange, onProjectScopeRestored, onDeleteSession }: ProjectTreePanelProps) {
   const [tree, setTree] = useState<TreeResult | null>(null);
   // 🔴 2026-08-12 点选状态修复 v2（老大指正：点击后全部未激活）：
   //   本地 selectedId = 用户显式点选（纯前端权威），null = 未点选 → 渲染跟随后端 active_id。
@@ -334,6 +335,21 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
     persistActiveProject(project);
     onProjectScopeChange?.(project.path ?? null);
   }, [persistActiveProject, onProjectScopeChange]);
+
+  // 🔴 2026-10-22 任务 A：HOME 里 canonical Bot Chat 行点击 → 走 bot 登记链。
+  // 必须经 openLocalBotChat（ensure canonical → 清未读 → App.handleOpenBotChat）：
+  // 直接 onSwitchSession 会绕过 registerBotChatSession + setWorkspaceOwner，
+  // 右栏域/主区归属与 Agent 面板的私聊入口分叉（交接文档 §4-A）。
+  const handleOpenBotChatRow = useCallback((sid: string) => {
+    if (!onOpenBotChat || !currentProfile) {
+      onSwitchSession?.(sid); // 未注入/无 profile 时退化为普通切换（不产生平行实现）
+      return;
+    }
+    void openLocalBotChat(currentProfile, {
+      onOpenBotChat: (id) => onOpenBotChat(id),
+      onError: (message) => notifyError(message, '打开私聊失败'),
+    });
+  }, [onOpenBotChat, onSwitchSession, currentProfile]);
 
   // 🔴 2026-08-12 单击激活（老大指示：单击激活与 Agent 联动，双击才进入项目）：
   //   只做联动：① onEnterProject（文件面板切项目根/workspace + scope + 消息区选最新会话）
@@ -705,6 +721,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                           sessionId={sessionId}
                           onSwitchSession={onSwitchSession}
                           onSessionRowActivate={handleSessionRowActivate}
+                          onOpenBotChat={handleOpenBotChatRow}
                           onDrill={handleDrill}
                           onActivate={handleActivate}
                           onEdit={handleEdit}

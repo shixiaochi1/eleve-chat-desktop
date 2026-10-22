@@ -1,4 +1,10 @@
 /**
+ * 🔴 @deprecated 未挂载（unreachable）
+ * 2026-10-22 任务 B：独立「私聊」分组已删除（私聊 = HOME 项目下一条会话，
+ * 行渲染由 ProjectTreeItems 的 SessionItem 承担）。本文件随之失去消费者。
+ * 消费者：无（仅 PrivateChatSection 曾引用）；deadcode 复核：node scripts/deadcode-check.mjs
+ * ⚠️ 请勿在此处修 bug 或加功能——复活前先接回入口；确认废弃则整链删除。
+ *
  * PrivateChatRow — Agent 面板「③群聊 + 私聊区」私聊分组的行。
  *
  * 🔴 2026-09-17 round-116 P4.5（架构收敛）：从 components/BotsView.tsx 实体化到此处。
