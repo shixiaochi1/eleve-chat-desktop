@@ -1408,7 +1408,11 @@ function BotsRoomView({ room, roster, onBack }: {
                   choices={p.choices}
                   title={`${label} 需要你的澄清`}
                   submit={async (resp) => {
-                    const ok = await respondBotRoomInteraction(requestId, resp);
+                    const ok = await respondBotRoomInteraction(requestId, resp, {
+                      roomId: p.roomId,
+                      taskId: p.taskId || undefined,
+                      executionGeneration: p.executionGeneration,
+                    });
                     return ok ? { status: 'resolved' } : { status: 'error' };
                   }}
                   onDone={() => settleInteraction(requestId)}

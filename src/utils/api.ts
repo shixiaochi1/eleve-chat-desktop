@@ -993,8 +993,21 @@ export async function promoteBotRoomReplica(roomId: string): Promise<number> {
 
 /** 🔴 round-78d：响应成员轮交互房间卡（clarify——oneshot 转交解锁成员
  * agent 的 clarify 工具；approval 卡是裁决不是回答，走 approveBotRoomTask） */
-export async function respondBotRoomInteraction(requestId: string, answer: string): Promise<boolean> {
-  const data = await call('bot_rooms_interact_respond', { request_id: requestId, answer });
+export async function respondBotRoomInteraction(
+  requestId: string,
+  answer: string,
+  coords?: { roomId: string; taskId?: string; executionGeneration?: number },
+): Promise<boolean> {
+  // 🔴 2026-10-23（P0-2）：带上归属坐标——后端 `room_id + task_id +
+  // execution_generation` 与登记值全等才受理（此前只按 request_id，已知 id
+  // 即可回答任意房间的卡）。
+  const data = await call('bot_rooms_interact_respond', {
+    request_id: requestId,
+    answer,
+    room_id: coords?.roomId,
+    task_id: coords?.taskId,
+    execution_generation: coords?.executionGeneration ?? 0,
+  });
   return data?.ok === true;
 }
 
