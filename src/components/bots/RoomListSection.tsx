@@ -134,7 +134,11 @@ export default function RoomListSection({
           type="button"
           className="ml-auto p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
           title="刷新房间列表"
-          onClick={() => void refreshRooms().then(loadReplicas)}
+          onClick={() => {
+            void refreshRooms()
+              .then(loadReplicas)
+              .catch((e) => onError?.(`刷新群聊失败：${(e as Error).message}`));
+          }}
         >
           <RotateCw size={11} />
         </button>

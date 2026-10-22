@@ -1172,10 +1172,13 @@ export default function App() {
     exitBotsToSingle();
     setProjectScopeCwd(path || null);
     newChatWorkspaceTargetRef.current = null;
-    if (sessionId && sessionId !== sess.sessionId) {
+    // 去重读**同步权威 ref**（不是 sess.sessionId 异步 state）：双击项目行会先触发
+    // 两次 onClick→handleActivate，用 state 判重时两次闭包都拿到旧值 → 重复
+    // handleSwitchSession（多余 loadHistory + 流重置）。
+    if (sessionId && sessionId !== currentSessionIdRef.current) {
       gridAwareSwitchSession(sessionId);
     }
-  }, [exitBotsToSingle, gridAwareSwitchSession, sess.sessionId]);
+  }, [exitBotsToSingle, gridAwareSwitchSession]);
 
   // 🔴 2026-08-13 老大语义重构：会话行点击 → 只同步 scope（新会话落点）；
   // 文件面板是项目映射视图（只跟项目卡片/手动导航），不随会话行点击改变。
