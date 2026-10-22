@@ -10,7 +10,7 @@ import {
 import { textPart } from '@/lib/chat-messages';
 import { requestComposerInsert } from '@/lib/composer-events';
 import { setCurrentSessionCwd, getCurrentSessionCwd, useSessionCwd } from '@/lib/session-cwd';
-import { isBorrowedBotChat, shouldRestoreAgentView } from '@/lib/workspace-domain';
+import { isBorrowedBotChat, shouldRestoreAgentView, selectWorkspaceDomain, workspaceDomainLabel } from '@/lib/workspace-domain';
 import { registerBotChatSession, setWorkspaceOwner, settleWorkspaceOwnerForSession, useWorkspaceOwner } from './store/workspace';
 import { clearPreviewArtifacts } from '@/store/preview-status';
 import PreviewStatusStrip from './components/preview/PreviewStatusStrip';
@@ -2141,32 +2141,33 @@ export default function App() {
             {rightOpen && (
               <>
                 <RightSidebarTabs activeTab={rightTab} onTabChange={setRightTab} onClose={() => setRightOpen(false)} />
-                {rightTab === 'files' && (
-                  <FileBrowserPanel
-                    cwd={(() => {
-                      // 🔴 2026-09-05 round-51：Bot Mode workspace 归属（对齐
-                      // Hermes setBotsWorkspaceOwner）——群聊主区激活 → 无归属
-                      // 空态（多成员多工作区，blocked 语义）；canonical Bot
-                      // Chat 激活 → 跟随该 bot 的 workspace（cwd = round-43
-                      // 烙印值，经 session.info 推送）；其余 → 项目域 panelRoot
-                      // （2026-08-13 四条定稿语义不动）。
-                      // 🔴 round-79e 终审：远端 Bot Chat（RemoteBotChatView）
-                      // 激活同属此空态——远端 fs 不接本地 workspace 管线
-                      // （round-76 插件域会话视图），显示本地目录是冒充。
-                      // 群聊焦点实体归插件域 store（selectedRoomId），
-                      // workspaceOwner 不承载 room（见 store/workspace.ts 裁定）。
-                      if (viewMode === 'bots') return '';
-                      if (isBorrowedBotChat(sess.sessionId)) return sessionCwd;
-                      // 🔴 2026-10-22 P0-2：panelRoot 残留自上一个 Agent 时不交出
-                      // （切 Agent 窗口期由 panelRootProfile 标记，恢复后自动放行）
-                      return panelRootProfile === currentProfile ? panelRoot : null;
-                    })()}
-                    sessionId={sess.sessionId}
-                    sessionCwd={sessionCwd}
-                    onCwdChange={handleFilePanelCwdChange}
-                    onFileAttach={(path: string) => requestComposerInsert(`@file:"${path}"`)}
-                  />
-                )}
+                {rightTab === 'files' &&
+                  (() => {
+                    // 🔴 2026-10-22 P2-9：右栏根的**唯一来源** = selectWorkspaceDomain。
+                    // 语义：项目域 → 项目绑定路径（残留自上一个 Agent 时传 null）；
+                    // Bot Chat 借道 → 该会话 cwd（远端为 null）；群聊 → 无单一目录。
+                    const domain = selectWorkspaceDomain({
+                      viewMode,
+                      sessionId: sess.sessionId,
+                      sessionCwd,
+                      projectRoot: panelRootProfile === currentProfile ? panelRoot : null,
+                    });
+                    return (
+                      <FileBrowserPanel
+                        cwd={domain.root}
+                        sessionId={sess.sessionId}
+                        sessionCwd={sessionCwd}
+                        domainLabel={workspaceDomainLabel(domain)}
+                        disabledReason={
+                          domain.kind === 'room'
+                            ? '群聊包含多个 Agent 的独立工作目录，没有单一根目录可浏览。切换到某个 Agent 后可浏览其项目目录。'
+                            : null
+                        }
+                        onCwdChange={handleFilePanelCwdChange}
+                        onFileAttach={(path: string) => requestComposerInsert(`@file:"${path}"`)}
+                      />
+                    );
+                  })()}
                 {rightTab === 'artifacts' && (
                   <ArtifactPanel sessionId={sess.sessionId} profile={currentProfile} onSwitchSession={gridAwareSwitchSession} />
                 )}

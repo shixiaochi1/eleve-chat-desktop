@@ -96,6 +96,10 @@ interface FileBrowserPanelProps {
    * "正在编辑的就是当前会话的目录"。
    */
   sessionCwd?: string | null;
+  /** 当前根所属的域（项目 / 会话 / 群聊），用于头部徽标 */
+  domainLabel?: string;
+  /** 非空 = 该域无单一目录（群聊），面板禁用并展示原因 */
+  disabledReason?: string | null;
   /** 目录切换回调（2026-08-09 对齐 Hermes：前端 setRoot 只改显示，
    *  必须由上层接线 session.cwd.set 烙印，否则重启/重连后回弹） */
   onCwdChange?: (path: string) => void;
@@ -358,6 +362,8 @@ export default function FileBrowserPanel({
   cwd,
   sessionId: _sessionId,
   sessionCwd,
+  domainLabel,
+  disabledReason,
   onCwdChange,
 }: FileBrowserPanelProps) {
   const {
@@ -753,6 +759,27 @@ export default function FileBrowserPanel({
   const normFs = (p: string) => p.replace(/[\\/]+$/, '').replace(/\//g, '\\').toLowerCase();
   const sessionCwdMismatch = !!rootPath && !!sessionCwd && normFs(rootPath) !== normFs(sessionCwd);
 
+  // ── 域禁用态（群聊：多 Agent 多工作区，没有单一根目录）──
+  if (disabledReason) {
+    return (
+      <div className="flex flex-col flex-1 min-h-0 p-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-medium text-foreground">文件</span>
+          {domainLabel && (
+            <span className="rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+              {domainLabel}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-col items-center py-8 text-muted-foreground gap-2">
+          <Folder size={32} className="text-muted-foreground/30" />
+          <p className="text-xs">当前域没有单一目录</p>
+          <span className="text-[10px] text-muted-foreground/50 text-center">{disabledReason}</span>
+        </div>
+      </div>
+    );
+  }
+
   // ── 无根目录状态（会话无 cwd 且未手动选目录；对齐 Hermes noProjectOpen）──
   if (!rootPath && !loading) {
     return (
@@ -781,6 +808,11 @@ export default function FileBrowserPanel({
       {/* 头部 */}
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-foreground">文件</span>
+        {domainLabel && (
+          <span className="ml-1 rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+            {domainLabel}
+          </span>
+        )}
         {sessionCwdMismatch && (
           <span
             className="ml-1 mr-auto truncate rounded bg-amber-500/10 px-1 py-0.5 text-[10px] text-amber-600 dark:text-amber-400"
