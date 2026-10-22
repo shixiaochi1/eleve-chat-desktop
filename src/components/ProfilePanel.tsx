@@ -21,6 +21,7 @@ import { AgentAvatarSvg } from '../lib/agent-avatars';
 import { useUnionRoster } from '../plugins/bots/state';
 import { LOCAL_CONNECTION_ID } from '../services/bot-relay';
 import { isBotWorkerActive, isGatewayBusy } from '../lib/bot-activity';
+import { formatRelativeTime } from '../lib/relative-time';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from './ui/dialog';
@@ -215,6 +216,15 @@ function ProfileCard({
             运行中
           </span>
         )}
+        {/* 最近活动（roster last_active）——排序语义可见化，也与"运行中"互补 */}
+        {runtime?.lastActive ? (
+          <span
+            className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground/60"
+            title="最近活动时间"
+          >
+            {formatRelativeTime(runtime.lastActive)}
+          </span>
+        ) : null}
       </div>
     </div>
   );
