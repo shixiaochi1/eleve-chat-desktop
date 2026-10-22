@@ -260,6 +260,13 @@ let roomsLoaded = false;
  *  永远停在"加载中…"（用户实测：Agent 面板群聊分组一直转圈）。 */
 let roomsError: string | null = null;
 let refreshInFlight: Promise<BotRoom[]> | null = null;
+/** 🔴 B6：在飞期间又收到刷新请求（WS 事件 / 重连 / 手动）——登记一次补拉。
+ *  此前防抖回调先清 timer 再调 refreshRooms，若此刻在飞则直接返回旧 promise，
+ *  `finally` 里已无 timer ⇒ 事件被吞（列表陈旧到下一个事件）。 */
+let refreshQueued = false;
+/** 请求序号：只应用最新一次请求的响应（防先发后至覆盖新列表）。 */
+let issuedSeq = 0;
+let appliedSeq = 0;
 const roomsListeners = new Set<() => void>();
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -269,9 +276,15 @@ function emitRooms() {
 
 /** 拉取房间列表并写入 store（唯一写入口；并发调用合并为单次在飞请求）。 */
 export function refreshRooms(): Promise<BotRoom[]> {
-  if (refreshInFlight) return refreshInFlight;
+  if (refreshInFlight) {
+    refreshQueued = true;
+    return refreshInFlight;
+  }
+  const seq = ++issuedSeq;
   refreshInFlight = fetchBotRooms()
     .then((list) => {
+      if (seq < appliedSeq) return rooms; // 旧响应：丢弃，保留新列表
+      appliedSeq = seq;
       rooms = list;
       roomsLoaded = true;
       roomsError = null;
@@ -289,13 +302,15 @@ export function refreshRooms(): Promise<BotRoom[]> {
     })
     .finally(() => {
       refreshInFlight = null;
-      // 🔴 round-75 复审修复：在飞期间的 WS 事件已排入防抖队列（debounceTimer
-      // 非 null）——其数据变更不包含在本次响应里，吞掉 = 界面陈旧（改名/解散
-      // 丢失直到下一事件）。清队列立即补拉一次（此时 refreshInFlight 已 null，
-      // 不会递归重入）。
+      // 在飞期间排队的重拉（防抖队列 / 合并期请求）只补一次；先清 state 再发，
+      // 避免递归重入（此时 refreshInFlight 已 null）。
+      const shouldRefetch = debounceTimer !== null || refreshQueued;
       if (debounceTimer) {
         clearTimeout(debounceTimer);
         debounceTimer = null;
+      }
+      refreshQueued = false;
+      if (shouldRefetch) {
         void refreshRooms().catch(() => undefined);
       }
     });
@@ -307,6 +322,7 @@ function scheduleRoomsRefresh(): void {
   if (debounceTimer) return; // 已有待执行的重拉
   debounceTimer = setTimeout(() => {
     debounceTimer = null;
+    // 若此刻在飞：refreshRooms 会登记 refreshQueued，finally 里补拉（不吞事件）
     void refreshRooms().catch(() => undefined);
   }, 150);
 }

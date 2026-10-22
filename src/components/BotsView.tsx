@@ -107,7 +107,9 @@ export default function BotsRoomMainView() {
   // 拉取者唯一（useBotUnread 轮询 + 此处 stale 补拉），消费一律读 store。
   const unionRows = useUnionRoster();
   useEffect(() => {
-    if (!isUnionFresh(5_000)) void refreshUnionRoster();
+    // 🔴 2026-10-23 审计 B6：union 拉取失败此前是裸 void（unhandled rejection，
+    // 远端 roster 失败也无 UI）——吞掉即可，ghost 行由 last-good 兜底。
+    if (!isUnionFresh(5_000)) void refreshUnionRoster().catch(() => undefined);
   }, []);
 
   // 🔴 round-75：首拉 + 自动选房 + 解散回退——全部数据驱动（store 变化

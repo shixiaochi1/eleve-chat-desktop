@@ -13,7 +13,7 @@
  * 语义依据（见审查报告追加 6）：群聊是**跨 Agent 共享房间**（无 owner 字段、
  * `bot.rooms.list` 不按 profile 过滤）⇒ 只能是独立分组，不能挂到某个 Agent 之下。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, RotateCw, ChevronDown, ChevronRight } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -73,14 +73,23 @@ export default function RoomListSection({
 
   // 🔴 2026-10-22（用户实测：群聊一直显示加载中）：本分组此前**没有首拉触发**——
   // 只有主区 BotsView 会 refreshRooms，用户不进群聊视图时 roomsLoaded 恒 false。
-  // 现在挂载即拉，但必须等 WS 连上（disconnected 态 sendRpc 直接 reject，不排队）；
-  // 只依赖 wsState：连接建立/重连时补拉，失败则停在错误态等用户点重试（不自动风暴）。
+  // 现在挂载即拉，但必须等 WS 连上（disconnected 态 sendRpc 直接 reject，不排队）。
+  // 🔴 2026-10-23 审计 B6：断线期间漏掉的 created/disbanded 事件不会重放 ⇒ **重连
+  // 必须强制对齐一次**（此前 `isRoomsLoaded()` 直接 return → 长期陈旧）。
   const [wsState, setWsState] = useState(getWsClient().state);
   useEffect(() => getWsClient().onStateChange(setWsState), []);
+  const prevWsRef = useRef(wsState);
   useEffect(() => {
-    if (wsState !== 'connected') return;
-    if (isRoomsLoaded()) return;
-    void refreshRooms().catch(() => undefined);
+    if (wsState !== 'connected') {
+      prevWsRef.current = wsState;
+      return;
+    }
+    const reconnected = prevWsRef.current !== 'connected';
+    prevWsRef.current = wsState;
+    // 首挂载（previous 也是 connected）只在尚未加载时拉；重连无条件拉
+    if (reconnected || !isRoomsLoaded()) {
+      void refreshRooms().catch(() => undefined);
+    }
   }, [wsState]);
 
   // ── 副本接管区（本机持有的他机房间副本；权威失联时可接管） ──
@@ -194,6 +203,23 @@ export default function RoomListSection({
                 </button>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* 🔴 2026-10-23 审计 B6：已有旧数据时刷新失败此前完全静默——给一行
+            非阻塞提示（列表仍是旧数据），可点重试。 */}
+        {roomsError && rows.length > 0 && (
+          <div className="flex items-center gap-2 px-2 py-1 text-[10px]">
+            <span className="min-w-0 flex-1 truncate text-amber-600 dark:text-amber-400" title={roomsError}>
+              同步失败，显示的是旧列表
+            </span>
+            <button
+              type="button"
+              className="shrink-0 text-primary hover:underline"
+              onClick={() => void refreshRooms().catch(() => undefined)}
+            >
+              重试
+            </button>
           </div>
         )}
 
