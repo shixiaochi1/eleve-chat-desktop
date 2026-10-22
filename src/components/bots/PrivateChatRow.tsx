@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { attentionHint, attentionKey, useBotAttention } from '../../hooks/useBotAttention';
 import { unreadKey, useBotUnread } from '../../hooks/useBotUnread';
 import { botStalledSecs, isBotActive, isBotWorkerActive, isGatewayBusy } from '../../lib/bot-activity';
+import { formatRelativeTime } from '../../lib/relative-time';
 import type { UnionRosterRow } from '../../plugins/bots/state';
 
 // ── 花名册单行（提取组件：未读点需 useBotUnread 订阅，hook 不能进 map） ──
@@ -111,15 +112,29 @@ export function PrivateChatRow({ row, onOpen, onRowMenu, dimmed }: {
       <span className="min-w-0 flex-1">
         <span className="block text-sm text-foreground truncate">{bot.display_name || bot.handle}</span>
         <span className="block text-xs text-muted-foreground truncate">
-          @{bot.handle}
-          {row.isRemote && (
-            <span className={cn('ml-1.5 rounded px-1 py-px text-[10px]', row.reachable ? 'bg-accent/60 text-foreground' : 'bg-destructive/20 text-destructive')}>
-              {row.connectionLabel}
-            </span>
+          {/* 🔴 2026-10-22：优先显示**最后一条消息 + 相对时间**（"行 = 聊天"语义，
+              对齐 Hermes roster 的 messaging-app 排布）。无快照（旧库/新会话）时
+              回退到 @handle · 角色描述。 */}
+          {bot.last_message?.text ? (
+            <>
+              <span className="text-muted-foreground/90">{bot.last_message.text}</span>
+              <span className="ml-1.5 tabular-nums text-muted-foreground/50">
+                {formatRelativeTime(bot.last_message.at)}
+              </span>
+            </>
+          ) : (
+            <>
+              @{bot.handle}
+              {row.isRemote && (
+                <span className={cn('ml-1.5 rounded px-1 py-px text-[10px]', row.reachable ? 'bg-accent/60 text-foreground' : 'bg-destructive/20 text-destructive')}>
+                  {row.connectionLabel}
+                </span>
+              )}
+              {/* 🔴 round-78d：角色描述副行（对齐 Hermes roster role 行——后端
+                  round-54 已透传 description，此前前端类型未接、无处落地） */}
+              {bot.description ? ` · ${bot.description}` : ''}
+            </>
           )}
-          {/* 🔴 round-78d：角色描述副行（对齐 Hermes roster role 行——后端
-              round-54 已透传 description，此前前端类型未接、无处落地） */}
-          {bot.description ? ` · ${bot.description}` : ''}
         </span>
       </span>
       {attention && (

@@ -790,6 +790,13 @@ export interface BotRosterEntry {
   canonical_session_id?: string | null;
   /** 🔴 活动信号：canonical Bot Chat 最近活动（epoch 秒；对齐 Hermes RosterRow.last_active） */
   last_active?: number | null;
+  /**
+   * 🔴 2026-10-22：canonical Bot Chat 的**最后一条可见消息**（花名册行副标题）。
+   *
+   * 来源 = 后端 `sessions.last_message_text/at` 冗余快照（append 时落库，不读事件流）。
+   * `null`/缺省 = 旧库或新会话无快照 → 前端回退到 description。
+   */
+  last_message?: { text: string; at: number } | null;
   /** 🔴 2026-09-15（对齐 Hermes roster `botMood = workerActive || (本机 && gateway busy)`）：
    *  该 profile 本机**是否有会话正在跑一轮**。数据源 = gateway `snapshot_running_agents`
    *  （session key `agent:<profile>:…` 归属 profile）。缺省/旧后端 = undefined/false。 */
