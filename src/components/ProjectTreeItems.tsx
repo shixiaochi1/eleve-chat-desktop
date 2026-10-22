@@ -234,7 +234,7 @@ export function savePinnedIds(ids: Set<string>): void {
   } catch { /* ignore */ }
 }
 
-const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, rowClassName, botChat, virtual }: {
+const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, rowClassName, botChat, virtual, onNewTopic }: {
   s: SessionPreview;
   isActive: boolean;
   onClick: () => void;
@@ -243,6 +243,8 @@ const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, r
   rowClassName?: string;
   /** 🔴 2026-10-22 任务 A：HOME 里的 canonical Bot Chat（= 与 Agent 的私聊）用对话气泡图标区分 */
   botChat?: boolean;
+  /** 🔴 2026-10-23：私聊「新话题」（轮转 canonical，上下文清零）；仅 bot 行渲染 */
+  onNewTopic?: () => void;
   /** 🔴 2026-10-22：私聊占位行（该 Agent 还没开过私聊，canonical 会话尚未铸造）——
    *  无 session id ⇒ 不渲染行菜单/右键菜单（重命名/删除对不存在的会话无意义）。 */
   virtual?: boolean;
@@ -288,6 +290,14 @@ const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, r
           <Minimize2 size={12} className="shrink-0" />
           <span className="flex-1">压缩上下文</span>
         </DropdownMenuItem>
+        {/* 🔴 2026-10-23：私聊「新话题」——旧会话轮转保留，新会话零上下文
+            （单 canonical 会无限累积：实测 284 条 / 17 万 token） */}
+        {botChat && onNewTopic && (
+          <DropdownMenuItem onSelect={() => onNewTopic()}>
+            <Plus size={12} className="shrink-0" />
+            <span className="flex-1">新话题（清空上下文）</span>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem disabled={!s.id} onSelect={() => void actions.onBranch(s.id)}>
           <GitBranch size={12} className="shrink-0" />
           <span className="flex-1">分支会话</span>
@@ -377,6 +387,12 @@ const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, r
           <Minimize2 size={12} className="shrink-0" />
           <span className="flex-1">压缩上下文</span>
         </ContextMenuItem>
+        {botChat && onNewTopic && (
+          <ContextMenuItem onSelect={() => onNewTopic()}>
+            <Plus size={12} className="shrink-0" />
+            <span className="flex-1">新话题（清空上下文）</span>
+          </ContextMenuItem>
+        )}
         <ContextMenuItem disabled={!s.id} onSelect={() => void actions.onBranch(s.id)}>
           <GitBranch size={12} className="shrink-0" />
           <span className="flex-1">分支会话</span>
@@ -645,7 +661,7 @@ function projectMenuSpecs(project: ProjectNode, h: {
   ];
 }
 
-export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowActivate, onOpenBotChat, onNewSessionInProject, onDrill, onActivate, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop, sessionActions, isDragging, isDragOver }: {
+export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwitchSession, onSessionRowActivate, onOpenBotChat, onNewSessionInProject, onNewBotChatTopic, onDrill, onActivate, onEdit, onAddFolder, onSetActive, onReveal, onCopyPath, onDelete, onDismiss, isActiveProject, desktop, sessionActions, isDragging, isDragOver }: {
   project: ProjectNode;
   sessionId?: string;
   onSwitchSession?: (id: string) => void;
@@ -672,6 +688,8 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
   onOpenBotChat?: (sessionId: string) => void;
   /** 🔴 2026-10-22 用户需求：在项目（含 HOME）里直接新开会话——行内 hover 的 + 按钮 */
   onNewSessionInProject?: (cwd: string) => void;
+  /** 🔴 2026-10-23：私聊「新话题」——轮转 canonical，旧会话保留、新会话零上下文 */
+  onNewBotChatTopic?: () => void;
 }) {
   // 展开状态持久化（对齐 Hermes useWorkspaceNodeOpen；项目行默认展开）
   const [expanded, toggleExpanded] = useWorkspaceNodeOpen(project.id, true);
@@ -817,6 +835,7 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
                     s={s}
                     isActive={s.id === sessionId}
                     botChat={botChat}
+                    onNewTopic={botChat ? onNewBotChatTopic : undefined}
                     onClick={() => {
                       onSessionRowActivate?.(project);
                       if (botChat && onOpenBotChat) onOpenBotChat(s.id);

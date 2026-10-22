@@ -913,6 +913,18 @@ export async function ensureBotChat(profile: string): Promise<string> {
 }
 
 /**
+ * 私聊「新话题」：把当前 canonical 轮转为历史（`Bot Chat #N`，仍可回看），
+ * 新建一条空 canonical 并返回其 session_id。
+ *
+ * 用于"N 件事不在同一个上下文里说"——单 canonical 会无限累积（实测 284 条 /
+ * 17 万 token）；新话题 = 零历史的新会话，DM 落点自动指向它。
+ */
+export async function newBotChatTopic(profile: string): Promise<string> {
+  const data = await call('bot_chat_new_topic', { profile });
+  return data?.session_id || '';
+}
+
+/**
  * 推进 canonical Bot Chat 的未读水位线（B2，对齐 Hermes `sessions.last_read_at`）。
  * 服务端把水位线设为会话当前 `last_active`；失败静默（本地已先乐观清除）。
  */

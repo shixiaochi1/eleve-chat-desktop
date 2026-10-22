@@ -24,12 +24,13 @@ import { getDismissedWorktrees, dismissWorktree } from '../lib/dismissed-worktre
 import { getProjectOrderIds, setProjectOrderIds, orderProjectsByIds } from '../lib/project-order';
 import { useSortableList } from '../hooks/useSortableList';
 import { toggleArchiveSession } from '../lib/session-actions';
-import { undoSessionTurn, compressSession, branchSession, getSessionUsage, deleteProject } from '../utils/api';
+import { undoSessionTurn, compressSession, branchSession, getSessionUsage, deleteProject, newBotChatTopic } from '../utils/api';
 import { gitWorktreeList, gitWorktreeRemove, type HermesGitWorktree } from '../lib/git';
 import { WorktreeDialog } from './worktree/WorktreeDialog';
 import { pickDirectory } from '../utils/directory-picker';
 import { notifySuccess, notifyError, notifyInfo } from '../utils/notifications';
 import { openLocalBotChat } from '../lib/bot-open';
+import { markBotRead } from '../hooks/useBotUnread';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from './ui/dialog';
@@ -351,15 +352,45 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   // 直接 onSwitchSession 会绕过 registerBotChatSession + setWorkspaceOwner，
   // 右栏域/主区归属与 Agent 面板的私聊入口分叉（交接文档 §4-A）。
   const handleOpenBotChatRow = useCallback((sid: string) => {
-    if (!onOpenBotChat || !currentProfile) {
-      onSwitchSession?.(sid); // 未注入/无 profile 时退化为普通切换（不产生平行实现）
+    if (!onOpenBotChat) {
+      onSwitchSession?.(sid); // 未注入时退化为普通切换（不产生平行实现）
       return;
     }
+    // 🔴 2026-10-23：已有 sid（当前 canonical / 压缩后的 #N）→ 直接打开，不再 ensure。
+    // ensure 会解析到**当前** canonical——点旧行会错误跳到新会话（"新话题"轮转后尤其明显）。
+    if (sid) {
+      if (currentProfile) markBotRead(currentProfile, sid); // 本地乐观 + 后端水位线
+      onOpenBotChat(sid);
+      return;
+    }
+    // 占位行（该 Agent 还没开过私聊）：ensure 铸造后再打开
+    if (!currentProfile) return;
     void openLocalBotChat(currentProfile, {
       onOpenBotChat: (id) => onOpenBotChat(id),
       onError: (message) => notifyError(message, '打开私聊失败'),
     });
   }, [onOpenBotChat, onSwitchSession, currentProfile]);
+
+  // 🔴 2026-10-23（用户反馈：私聊上下文涨得快、N 件事挤一个上下文）：
+  // 「新话题」= 后端把当前 canonical 轮转为 `Bot Chat #N`（保留可回看），新建空
+  // canonical；创建后走 `onOpenBotChat` 登记 bot 域并切换（不能直接 switchSession，
+  // 否则绕过 bot 域归属）。旧会话不再接收 DM，新消息全部落到新会话。
+  const handleNewBotChatTopic = useCallback(() => {
+    if (!currentProfile || !onOpenBotChat) return;
+    void (async () => {
+      try {
+        const sid = await newBotChatTopic(currentProfile);
+        if (!sid) {
+          notifyError('新话题创建失败：未返回会话 ID', '私聊');
+          return;
+        }
+        onOpenBotChat(sid);
+        void fetchTree(true);
+      } catch (e) {
+        notifyError(`新话题创建失败：${(e as Error).message}`, '私聊');
+      }
+    })();
+  }, [currentProfile, onOpenBotChat, fetchTree]);
 
   // 钻取视图里 HOME 的 canonical 私聊 id 集合（点击分流用；非 HOME 恒空）
   const drillBotChatIds = useMemo(() => {
@@ -764,6 +795,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
                           onSessionRowActivate={handleSessionRowActivate}
                           onOpenBotChat={handleOpenBotChatRow}
                           onNewSessionInProject={onNewSessionInProject}
+                          onNewBotChatTopic={handleNewBotChatTopic}
                           onDrill={handleDrill}
                           onActivate={handleActivate}
                           onEdit={handleEdit}

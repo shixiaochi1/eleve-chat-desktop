@@ -197,6 +197,8 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   bot_chat_ensure:        'bot.chat.ensure',
   // 🔴 2026-10-23（审计 B2）：未读水位线后端化（Hermes sessions.last_read_at）
   bot_chat_mark_read:     'bot.chat.mark_read',
+  // 🔴 2026-10-23：私聊「新话题」（轮转 canonical，上下文清零）
+  bot_chat_new_topic:     'bot.chat.new_topic',
   bot_chats_list:         'bot.chats.list',
   bot_rooms_create:       'bot.rooms.create',
   bot_rooms_list:         'bot.rooms.list',
