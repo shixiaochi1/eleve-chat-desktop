@@ -1135,105 +1135,17 @@ export default function App() {
     getNewSessionCwd: resolveNewSessionCwd, // 🔴 2026-08-13 边界：统一单一漏斗（target > scope > seeded）
   });
 
-  // 🔴 2026-08-12 联动重构（老大需求：选 Agent → 点项目/HOME → 消息区 + 右侧文件一起联动）：
-  //   统一联动模型：
-  //   ① 文件面板：项目 → 切项目根；HOME → 切该 Agent workspace（后端已把 workspace 注入
-  //      Home 桶 path，Hermes 基线 Home 无路径可切，ELEVE 老大定义 HOME = Agent workspace）
-  //   ② scope：项目 → 新会话落项目根；HOME → 新会话落 workspace（与后端 resolve_session_cwd
-  //      ④级 workspace 兑底同源）；空 path（旧后端兑底）→ 退出项目域
-  //   ③ 消息区：找该 Agent 该域的最新活跃会话（项目 = cwd 前缀匹配；HOME = workspace 域）
-  //      → 有则切换（宫格=焦点卡片；单视图=完整切换链），无则空白草稿（懒创建落 scope）
-  //      ；当前会话已属于该域且非 busy → 保持不打断
-  const handleProjectEntered = useCallback((path: string, recommendedSessionId?: string | null) => {
-    console.log(`[app] handleProjectEntered path=${path} rec=${recommendedSessionId}`);
-    // 🔴 2026-09-05 round-53 联动回归修复（用户实测：群聊视图下点项目卡片，
-    // 消息区与右抽屉文件都不联动）——handleProjectEntered/handleProfileChange
-    // 原本只有 grid 分支（round-43 迁 bots 布局时遗漏），viewMode 卡在 'bots'：
-    // 主区不换、右抽屉被 group 域清空。点项目/Agent 卡片 = 离开群聊上下文，
-    // 统一先退回单视图再走既定联动链路。
+  // 🔴 2026-10-22 P2-8：项目点击只设 scope（新会话落点）。
+  // 原 handleProjectEntered 的三件事已移除——
+  //   ① 文件面板切项目根 → 改由右栏域模型跟随会话 cwd；
+  //   ② setCurrentSessionCwd → 会话 cwd 以 session.info 为权威，不被项目点击覆盖；
+  //   ③ 消息区联动（切最新会话 / 空草稿）→ 由 SessionListView 显式点会话完成。
+  // 语义：点项目 = "接下来的新会话落在哪个目录"，仅此。
+  const handleProjectScopeOnly = useCallback((path: string) => {
     exitBotsToSingle();
-    if (path) {
-      applyPanelRoot(path);      // ① 文件面板映射 → 项目绑定地址（视图，非项目地址本身）
-      setCurrentSessionCwd(path);       // 终端/新会话落点 → 项目根（Hermes syncProjectCwd 语义）
-      setProjectScopeCwd(path);  // ② 新会话落点 = 项目根 / workspace
-      newChatWorkspaceTargetRef.current = null; // 🔴 2026-08-13 边界：点项目 = 项目意图覆盖手动导航
-    } else {
-      // 空 path（旧后端兑底/无绑定项目）：退出项目域；面板保持当前映射（无绑定地址可切）
-      setProjectScopeCwd(null);
-      newChatWorkspaceTargetRef.current = null;
-    }
-    // ③ 消息区联动（推荐会话 = 后端分组权威：项目 = 该项目 previewSessions 最新；
-    //    HOME = Home 桶 unowned 全集最新；无推荐 → 前端域匹配兑底 → 空态新建）
-    // 🔴 2026-08-16 架构修正（老大指示）：视图切换与任务执行解耦——焦点卡片
-    // 运行中（busy）**允许**切换视图：运行中轮的输出在离开期间被 session 过滤
-    // 隐藏，但轮在后台照常跑完、消息按迭代边界持久化；切回时 loadLatest /
-    // loadHistory 重载（与断线重连同一已加固路径：attach → session.info 快照
-    // + pending_prompts 恢复 + 全量历史），不丢结果。旧实现（审计 P1）busy
-    // 时弹"任务运行中"阻止切换 = 把视图诉求错当成会话绑定变更，属糊弄。
-    // 会话 cwd 绑定变更（同会话回根烙印/手动导航）才走 pending 轮末机制——
-    // 运行中轮的工具环境不能中途挪走（后端 busy 拒绝 4009 是对的）。
-    if (viewMode === 'grid') {
-      // 宫格：焦点 Agent 卡片切推荐/兑底最新会话（与单视图同一 target 规则，走
-      // gridAwareSwitchSession 统一入口——宫格下自动路由 gridRef，不平行直调）；
-      // 无 → 新会话带项目 cwd（HOME 则 workspace），卡片自治不打扰其它卡片。
-      // busy 切卡：loadLatest 重置累加器 + 释放发送锁 + 加载新会话消息；
-      // 旧会话轮继续后台跑，其迟到事件由过期流守卫（#10）丢弃，锁不泄漏。
-      const target = (recommendedSessionId && sessionIdMatchesProfile(recommendedSessionId, currentProfile))
-        ? recommendedSessionId
-        : (latestSessionForDomain(sess.sessions, currentProfile, path)?.id ?? null);
-      if (target) {
-        gridAwareSwitchSession(target);
-      } else {
-        gridRef.current?.newSession(currentProfile, path || undefined);
-      }
-      return;
-    }
-    const sid = sess.sessionId;
-    const cur = sid ? sess.sessions.find((s) => s.id === sid) : undefined;
-    const curCwd = cur?.cwd ?? null;
-    // 路径边界判定（Windows 分隔符 + 大小写不敏感；防 C:\projAB 误判属于 C:\projA）
-    const p = path.toLowerCase();
-    const belongs = !!path && !!curCwd && (() => {
-      const c = curCwd.toLowerCase();
-      return c === p || c.startsWith(p + '\\') || c.startsWith(p + '/');
-    })();
-    // 🔴 2026-08-17 会话隔离修复（F1）：用户显式点击项目 = 明确的"消息区切到
-    // 该项目"意图。busy 会话的 cwd 若落在所点项目域内（HOME 桶 = agent
-    // workspace，新建项目通常位于其下 → cwd 前缀重叠），原"保持当前会话"
-    // 早退分支会把消息区**钉在 busy 会话** → 之后每条消息都进 busy 会话
-    // （busy 路由 queue/steer，无流式回复）→"切项目后说话没反应"。修复：
-    // busy 时强制切离（切到目标会话 / 无目标则清空草稿，下一条消息落在所点
-    // 项目）；仅当非 busy 且确实已在目标域时才保持（防重复点击打断）。
-    const busy = isSendingRef.current || getIsStreaming();
-    // 目标会话：推荐（后端分组权威）> 前端域匹配兑底。
-    const target = (recommendedSessionId && sessionIdMatchesProfile(recommendedSessionId, currentProfile))
-      ? recommendedSessionId
-      : (latestSessionForDomain(sess.sessions, currentProfile, path)?.id ?? null);
-    if (target) {
-      if (target === sid) {
-        // 目标 == 当前会话：非 busy 且已在目标域 → 保持（防重复点击打断）；
-        // busy → 域内最新就是 busy 会话本身，切无可切 → 清空草稿（释放锁 +
-        // 下一条消息新建会话落所点项目），把消息区从 busy 会话上摘下来。
-        if (!busy && belongs) return;
-        if (busy) {
-          resetStream(null);
-          resetSendingLockRef.current?.();
-          clearSessionView(currentProfile);
-        }
-        return;
-      }
-      // 目标 != 当前会话 → 切换（busy 同样切——切走不打断后台轮，其迟到
-      // 事件被 session 过滤丢弃，锁由 resetStream/loadHistory 链释放）。
-      gridAwareSwitchSession(target);
-      return;
-    }
-    // 无目标会话 → 空草稿：与 handleProfileChange 草稿路径同款重置——源会话的
-    // message.complete 被 session 过滤丢弃 → onDone 不触发 → 发送锁/流式
-    // 状态残留 → 新草稿发送瘫痪；必须先复位（resetStream 同步锁定过滤 ref）。
-    resetStream(null);
-    resetSendingLockRef.current?.();
-    clearSessionView(currentProfile);
-  }, [sess, isSendingRef, resetStream, resetSendingLockRef, clearSessionView, currentProfile, viewMode, gridAwareSwitchSession]);
+    setProjectScopeCwd(path || null);
+    newChatWorkspaceTargetRef.current = null;
+  }, [exitBotsToSingle]);
 
   // 🔴 2026-08-13 老大语义重构：会话行点击 → 只同步 scope（新会话落点）；
   // 文件面板是项目映射视图（只跟项目卡片/手动导航），不随会话行点击改变。
@@ -1732,7 +1644,7 @@ export default function App() {
                   isStreaming={isStreaming}
                   messageCount={messageCount}
                   onNewSessionInProject={handleNewSessionInProject}
-                  onEnterProject={handleProjectEntered}
+                  onEnterProject={handleProjectScopeOnly}
                   onProjectScopeChange={handleProjectScopeChange}
   onProjectScopeRestored={handleProjectScopeRestored}
                   sessionListVersion={sessionListVersion}
