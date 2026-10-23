@@ -639,7 +639,9 @@ function BotsRoomView({ room, roster, onBack }: {
         setError('最多 4 个附件');
         break;
       }
-      if (f.size > 15_000_000) {
+      // 🔴 2026-10-23（第四轮 P1）：与后端 `15 * 1024 * 1024` 同源——此前前端
+      // 15_000_000 会把 15.0–15.7MB 的文件放进来、后端再拒（用户白等一次上传）。
+      if (f.size > 15 * 1024 * 1024) {
         setError(`${f.name || '附件'}：超过 15MB 上限`);
         continue;
       }
@@ -1219,7 +1221,10 @@ function BotsRoomView({ room, roster, onBack }: {
                   if (ev.kind === KIND_MEMBER) {
                     // 🔴 阶段1 统一：成员气泡走 MessageRow（agent 气泡原语）。
                     // 成员前缀行（@handle · display · time）是群聊特有归属 UI，保留。
-                    const handle = String(ev.actor.handle || ev.actor.id || '');
+                    // 🔴 2026-10-23（第四轮 P1）：不再把 actor.id 当人名（gateway actor
+                    // 的 id 是本机 install id）；成员快照 handle 缺失时用 member_id 前缀。
+                    const midForBubble = String(ev.payload?.member_id || '');
+                    const handle = String(ev.actor.handle || midForBubble.slice(0, 8));
                     const display = memberByHandle[handle] || handle;
                     // 🔴 round-95：发言者归属（对齐 Hermes group-chat-view.tsx:980-1002
                     // botAppearance 头像 + :1008-1017 跨连接同名消歧）。此前前缀只有
@@ -1289,7 +1294,8 @@ function BotsRoomView({ room, roster, onBack }: {
                     const members = Array.isArray(room.members) ? room.members : [];
                     const nameOf = (id: string) => {
                       const m = members.find(x => x.member_id === id);
-                      return m ? `@${m.handle}` : id.slice(0, 8);
+                      // 已移除成员给可读标签（此前只剩 8 位 id 前缀）
+                      return m ? `@${m.handle}` : `@已移除成员(${id.slice(0, 8)})`;
                     };
                     const held = Array.isArray(ev.payload.held) ? (ev.payload.held as string[]) : [];
                     const released = Array.isArray(ev.payload.released) ? (ev.payload.released as string[]) : [];
@@ -1319,7 +1325,21 @@ function BotsRoomView({ room, roster, onBack }: {
                     // handle 优先花名册映射（恢复层事件的 actor.handle 为空）
                     const mid = String(ev.payload?.member_id || '');
                     const byId = (Array.isArray(room.members) ? room.members : []).find(m => m.member_id === mid);
-                    const who = byId ? `@${byId.handle}` : `@${String(ev.actor.handle || ev.actor.id || mid)}`;
+                    // 🔴 2026-10-23（第四轮 P1）：终态 actor 可能是 gateway（handle 空、
+                    // id = 本机 install id）——此前直接 `actor.id` 当人名，渲染成
+                    // `@install-xxxx`。按：名册 → 成员快照 handle → 「已移除成员(id8)」；
+                    // gateway/system actor 显式标「系统」，绝不把 id 当人名。
+                    const actorIsMember = String(ev.actor.kind || '') === 'member';
+                    const snapshotHandle = actorIsMember
+                      ? String(ev.actor.handle || '').trim()
+                      : '';
+                    const who = byId
+                      ? `@${byId.handle}`
+                      : snapshotHandle
+                        ? `@${snapshotHandle}`
+                        : mid
+                          ? `@已移除成员(${mid.slice(0, 8)})`
+                          : '@系统';
                     // 🔴 2026-09-14（F2）：同走 `turnIdOf`。此前内联正则不认
                     // `:deferred:g{gen}` ⇒ deferred 行恒拿不到 turnId ⇒
                     // 「重试」按钮不渲染（后端 r115m 的按代次 retry 在 UI 层不可达）。
@@ -1362,7 +1382,8 @@ function BotsRoomView({ room, roster, onBack }: {
                     const members = Array.isArray(room.members) ? room.members : [];
                     const nameOf = (id: string) => {
                       const m = members.find(x => x.member_id === id);
-                      return m ? `@${m.handle}` : id.slice(0, 8);
+                      // 已移除成员给可读标签（此前只剩 8 位 id 前缀）
+                      return m ? `@${m.handle}` : `@已移除成员(${id.slice(0, 8)})`;
                     };
                     const added = Array.isArray(ev.payload.added) ? (ev.payload.added as Array<{ profile?: string }>) : [];
                     const removed = Array.isArray(ev.payload.removed) ? (ev.payload.removed as Array<{ profile?: string; member_id?: string }>) : [];

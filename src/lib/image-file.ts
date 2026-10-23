@@ -10,7 +10,7 @@
  */
 
 /** 设备选择图片（返回 data URL）；超限 / 取消 / 读失败 → null（调用方不动状态）。 */
-export function pickImageFile(maxBytes = 15_000_000): Promise<string | null> {
+export function pickImageFile(maxBytes = 15 * 1024 * 1024): Promise<string | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
