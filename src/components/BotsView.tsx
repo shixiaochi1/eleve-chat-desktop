@@ -936,7 +936,16 @@ function BotsRoomView({ room, roster, onBack }: {
 
   const stopRoom = async () => {
     setBusy(true);
-    try { await stopBotRoom(room.room_id); await refresh(); } finally { setBusy(false); }
+    try {
+      await stopBotRoom(room.room_id);
+      await refresh();
+    } catch (e) {
+      // 🔴 2026-10-23（第五轮 P1）：此前 stop 无 catch——点「停止」失败完全无声，
+      // 用户以为停了、实际在飞轮还在跑（进而误以为解散也被卡住）。
+      setError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   // 🔴 2026-10-23（第三轮 P1）：成员 hold 控制面 UI——此前 hold 只能靠聊天指令
