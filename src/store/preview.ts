@@ -369,7 +369,18 @@ export function openPreview(rawTarget: PreviewTarget, source: PreviewRecordSourc
   if (existing) {
     update({
       tabs: state.tabs.map((t) =>
-        t.id === existing.id ? { ...t, target, label: labelFor(target) } : t,
+        t.id === existing.id
+          ? {
+              ...t,
+              // 🔴 2026-10-23 R3.3：re-open 刷新 target 不清墓碑——target0 是
+              // 调用方意图（不代表文件已恢复），missing 只能经手动重载清除
+              // （PreviewFilePane 读取成功路径 clearPreviewTabMissing）。Hermes
+              // 此处全量替换 target 同样不设墓碑，但其 pane 会重新探测兜底；
+              // ELEVE pane 常驻不重读（S1），靠保留字段维持自洽
+              target: { ...target, missing: existing.target.missing || target0.missing === true },
+              label: labelFor(target),
+            }
+          : t,
       ),
       activeId: existing.id,
     })
@@ -617,17 +628,23 @@ export function beginPreviewRestart(taskId: string, url: string): void {
 
 export function progressPreviewRestart(taskId: string, text: string): void {
   const r = state.restart
-  if (!r || r.taskId !== taskId) return
+  // 🔴 2026-10-23 R3.1 对齐 Hermes progressPreviewServerRestart：complete/fail
+  // 之后迟到的 progress 不再计入（status 非 running 早退），防止终态后日志追加
+  if (!r || r.taskId !== taskId || r.status !== 'running') return
   update({
     restart: { ...r, entries: [...r.entries, { text, level: 'info', timestamp: Date.now() }] },
   })
 }
 
-/** 完成：非 error 前缀/非 failed 文本 → success；否则 error。成功后由 UI 消费触发 iframe 重载 */
+/** 完成：对齐 Hermes completePreviewServerRestart——只认 `error:` 前缀
+ *  （normalize(text).startsWith('error:')）。🔴 2026-10-23 R3.2 收敛：旧实现
+ *  自创 `includes('failed')` 放宽——后端失败路径（ws/preview.rs）文本恒带
+ *  `error:` 前缀，放宽会把 agent 总结里的 "failed" 字样误判为失败（与 Hermes
+ *  相悖）。成功后由 UI 消费触发 reload */
 export function completePreviewRestart(taskId: string, text: string): void {
   const r = state.restart
   if (!r || r.taskId !== taskId) return
-  const isError = text.startsWith('error:') || text.toLowerCase().includes('failed')
+  const isError = text.trim().startsWith('error:')
   update({
     restart: {
       ...r,
@@ -639,7 +656,8 @@ export function completePreviewRestart(taskId: string, text: string): void {
 
 export function failPreviewRestart(taskId: string, text: string): void {
   const r = state.restart
-  if (!r || r.taskId !== taskId) return
+  // 🔴 R3.6 对齐 Hermes failPreviewServerRestart：非 running 终态幂等早退
+  if (!r || r.taskId !== taskId || r.status !== 'running') return
   update({
     restart: {
       ...r,

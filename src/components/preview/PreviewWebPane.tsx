@@ -424,6 +424,16 @@ export default function PreviewWebPane({ tab, active, sessionId, cwd }: PreviewW
       if (!taskId) {
         throw new Error('Background restart did not return a task id');
       }
+      // 🔴 2026-10-23 R3.4 对齐 Hermes restartServer 启动反馈
+      // （preview-pane.tsx：appendConsoleEntry(lookingRestart) + notify info）：
+      // 重启已受理的事实立即进入 console/通知——后台工作的可见性。Hermes 同时
+      // consoleState.setOpen(true)（折叠面板里看不到工作）；ELEVE 有独立
+      // 「重启进度」常驻区块承担可见性，不再强制开 console（形态差异，语义等价）
+      consoleState.append({
+        level: 1,
+        message: `正在后台重启预览服务器…（task ${taskId}）`,
+      });
+      notifySuccess('重启任务已受理，进度将实时显示', '预览服务器重启');
       beginPreviewRestart(taskId, targetUrl);
     } catch (e) {
       failPreviewRestartRequest(
@@ -599,16 +609,19 @@ export default function PreviewWebPane({ tab, active, sessionId, cwd }: PreviewW
   }, [restart, currentUrl]);
 
   // ── 重启完成/失败通知（对齐 Hermes：complete → notify success；error → notify warning）──
+  // 🔴 2026-10-23 R3.5 加 active 门禁：多 Browser tab 允许同 URL（ELEVE 多 webview），
+  // URL 归属匹配会让每个匹配 pane 都通知一次；Hermes 是 One Browser 单例 URL tab
+  // 天然唯一。门禁语义 = 只有"用户正看着的 pane"通知（对齐 Hermes 单通知行为）
   useEffect(() => {
     const r = restart;
-    if (!r || r.url !== currentUrl) return;
+    if (!r || r.url !== currentUrl || !active) return;
     if (r.status === 'success') {
       notifySuccess('预览服务器已重启，正在重新加载页面', '重启完成');
     } else if (r.status === 'error') {
       const last = r.entries[r.entries.length - 1];
       notifyError(new Error(last?.text ?? '未知错误'), '预览服务器重启失败');
     }
-  }, [restart, currentUrl]);
+  }, [restart, currentUrl, active]);
 
   const webviewActive = isTauri && webviewLabel !== null && isSafePreviewUrl(currentUrl);
   // 🔴 2026-09-01 本地文件 tab：重启预览服务器语义无效（无 dev server 可重启）

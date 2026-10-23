@@ -128,4 +128,33 @@ describe('preview store（S2.3/S3.2/S2.2）', () => {
     store.togglePreviewTab('http://localhost:5173/', undefined)
     expect(store.getPreviewStoreState().tabs).toHaveLength(0)
   })
+
+  it('R3：complete 只认 error: 前缀（含 failed 字样无前缀 = success，对齐收敛）', async () => {
+    const store = await loadStore()
+    store.beginPreviewRestart('t1', 'http://localhost:5173/')
+    store.completePreviewRestart('t1', 'restart failed to install deps')
+    expect(store.getPreviewStoreState().restart?.status).toBe('success')
+    store.beginPreviewRestart('t2', 'http://localhost:5173/')
+    store.completePreviewRestart('t2', 'error: build crashed')
+    expect(store.getPreviewStoreState().restart?.status).toBe('error')
+  })
+
+  it('R3：progress/fail 在终态后幂等早退（对齐 running 门禁）', async () => {
+    const store = await loadStore()
+    store.beginPreviewRestart('t1', 'http://x/')
+    store.completePreviewRestart('t1', 'done')
+    const entries = store.getPreviewStoreState().restart?.entries.length ?? 0
+    store.progressPreviewRestart('t1', 'late progress')
+    store.failPreviewRestart('t1', 'late fail')
+    expect(store.getPreviewStoreState().restart?.status).toBe('success')
+    expect(store.getPreviewStoreState().restart?.entries.length).toBe(entries)
+  })
+
+  it('R3：openPreview re-open 不清 missing 墓碑（手动重载是唯一恢复通道）', async () => {
+    const store = await loadStore()
+    const id = store.openPreview({ kind: 'file', url: 'C:/p/gone.html' })
+    store.markPreviewTabMissing(id)
+    store.openPreview({ kind: 'file', url: 'file:///C:/p/gone.html' })
+    expect(store.getPreviewStoreState().tabs[0].target.missing).toBe(true)
+  })
 })
