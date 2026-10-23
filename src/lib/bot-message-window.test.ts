@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  MESSAGE_WINDOW_MAX_EXPANDED,
   MESSAGE_WINDOW_PAGE,
   STICK_TO_BOTTOM_THRESHOLD_PX,
   isNearBottom,
@@ -105,3 +106,11 @@ describe('isNearBottom — 粘底判据（对齐 Hermes #89835）', () => {
     expect(isNearBottom({ ...viewport, scrollHeight: 1000, scrollTop: 420 }, 100)).toBe(true);
   });
 });
+
+  it('展开后仍受 5000 条渲染上限（不无限增长）', () => {
+    const items = Array.from({ length: 6_000 }, (_, i) => i);
+    const out = renderWindow(items, true);
+    expect(out.length).toBe(MESSAGE_WINDOW_MAX_EXPANDED);
+    expect(out[out.length - 1]).toBe(5_999);
+    expect(out[0]).toBe(1_000);
+  });

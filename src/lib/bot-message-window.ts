@@ -22,6 +22,9 @@
 /** 每页 / 初始渲染窗口的事件条数（后端 `bot.rooms.events` 的页大小同值 200）。 */
 export const MESSAGE_WINDOW_PAGE = 200;
 
+/** 展开历史后的渲染上限（防长期房间全量重扫；`events` 本身仍完整保留）。 */
+export const MESSAGE_WINDOW_MAX_EXPANDED = 5_000;
+
 /** "已在底部"的容差（像素）——与 Hermes `group-chat-view.tsx:543` 同值。 */
 export const STICK_TO_BOTTOM_THRESHOLD_PX = 80;
 
@@ -45,7 +48,11 @@ export function messageWindow<T>(items: T[], size: number): T[] {
  * 用户刚翻到的历史会自己消失。改成"展开即全部"，语义简单且与阅读行为一致。
  */
 export function renderWindow<T>(items: T[], expanded: boolean, page = MESSAGE_WINDOW_PAGE): T[] {
-  return expanded ? items.slice() : messageWindow(items, page);
+  if (!expanded) return messageWindow(items, page);
+  // 🔴 2026-10-23（P2）：展开后此前 `items.slice()`（无上限）——长期房间可累积
+  // 上千条，每次事件/状态变化都全量重扫 + 重建 DOM。保留最近 5000 条作为渲染
+  // 上限（`events` 本身不丢），足够覆盖正常阅读，且把最坏复杂度钉死。
+  return messageWindow(items, MESSAGE_WINDOW_MAX_EXPANDED);
 }
 
 /**
