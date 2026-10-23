@@ -21,19 +21,26 @@ export interface OpenLocalBotChatOptions {
   /** App.handleOpenBotChat —— 收 session id（登记 bot 域 + 切视图 + 切会话） */
   onOpenBotChat: (sessionId: string) => void;
   onError?: (message: string) => void;
+  /** 非致命提示（如压缩已暂停）——不阻断打开 */
+  onWarning?: (message: string) => void;
 }
 
 /** 打开**本机** Agent 的常驻私聊（无则后端懒建）。 */
 export async function openLocalBotChat(
   profile: string,
-  { onOpenBotChat, onError }: OpenLocalBotChatOptions,
+  { onOpenBotChat, onError, onWarning }: OpenLocalBotChatOptions,
 ): Promise<void> {
   try {
-    const sid = await ensureBotChat(profile);
+    const { sessionId: sid, compressionPaused } = await ensureBotChat(profile);
     // ack 锚定 canonical 会话（未读键公式），profile 仅作无会话回退；
     // 两个键都清——键会随 canonical 出现而漂移（round-76）
     markBotRead(profile, sid || undefined);
     if (sid) onOpenBotChat(sid);
+    // 🔴 2026-10-23（对齐 Hermes 用户告警）：压缩冷却/反抖动封锁时提示开新话题，
+    // 避免用户以为上下文还能自动压缩。
+    if (compressionPaused) {
+      onWarning?.('该 Agent 的上下文压缩已暂停（可能已达模型上限），建议用「新话题」开启新会话');
+    }
   } catch (e) {
     onError?.((e as Error).message);
   }

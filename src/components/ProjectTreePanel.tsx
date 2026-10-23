@@ -368,6 +368,8 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
     void openLocalBotChat(currentProfile, {
       onOpenBotChat: (id) => onOpenBotChat(id),
       onError: (message) => notifyError(message, '打开私聊失败'),
+      // 压缩暂停时给可见提示（此前只有后端日志）
+      onWarning: (message) => notifyError(message, '私聊'),
     });
   }, [onOpenBotChat, onSwitchSession, currentProfile]);
 

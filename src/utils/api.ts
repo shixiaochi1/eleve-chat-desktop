@@ -906,10 +906,19 @@ export async function fetchBotsRoster(): Promise<BotRosterEntry[]> {
   return Array.isArray(data?.bots) ? data.bots : [];
 }
 
+/** ensure 结果：canonical 会话 id + 自动压缩是否暂停（暂停时建议开新话题）。 */
+export interface BotChatEnsureResult {
+  sessionId: string;
+  compressionPaused: boolean;
+}
+
 /** 确保 canonical Bot Chat 存在并取 session_id（打开 bot 私聊入口） */
-export async function ensureBotChat(profile: string): Promise<string> {
+export async function ensureBotChat(profile: string): Promise<BotChatEnsureResult> {
   const data = await call('bot_chat_ensure', { profile });
-  return data?.session_id || '';
+  return {
+    sessionId: data?.session_id || '',
+    compressionPaused: data?.compression_paused === true,
+  };
 }
 
 /**
