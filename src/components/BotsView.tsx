@@ -959,6 +959,17 @@ function BotsRoomView({ room, roster, onBack }: {
     }
   };
 
+  // 🔴 2026-10-23（第五轮 P1）：成员级 hold 的第二入口——点房间头的 `@handle`
+  // 直接切换（此前只有"全体暂停"按钮；暂停单个成员仍得手打 `@名字 停一下`）。
+  const toggleMemberHold = async (memberId: string, hold: boolean) => {
+    try {
+      await setBotRoomHolds(room.room_id, [memberId], hold);
+      await refresh();
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    }
+  };
+
   const disband = async () => {
     // 🔴 2026-09-05 round-48：解散是永久墓碑（Hermes disband 同义）——
     // 二次确认防误触（此前单击直调，事件流与成员会话随之不可恢复）
@@ -1023,7 +1034,23 @@ function BotsRoomView({ room, roster, onBack }: {
           <div className="text-sm font-medium text-foreground truncate">{room.name}</div>
           <div className="flex items-center gap-1.5 min-w-0">
             <div className="text-[11px] text-muted-foreground truncate min-w-0">
-              {room.members.map((m) => `@${m.handle}`).join(' ')}
+              {room.members.map((m) => {
+                const held = heldMembers.some((h) => h.member_id === m.member_id);
+                return (
+                  <button
+                    key={m.member_id}
+                    type="button"
+                    className={cn(
+                      'mr-1 rounded px-0.5 hover:bg-accent/50 hover:text-foreground',
+                      held && 'line-through opacity-60',
+                    )}
+                    title={held ? `恢复 @${m.handle} 的发言` : `暂停 @${m.handle} 的发言`}
+                    onClick={() => void toggleMemberHold(m.member_id, !held)}
+                  >
+                    @{m.handle}
+                  </button>
+                );
+              })}
             </div>
             {/* 🔴 round-95：房间头可用性计数（对齐 Hermes
                 group-chat-view.tsx:677-689 "X of Y available"）。派生复用
