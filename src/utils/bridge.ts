@@ -199,6 +199,8 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   bot_chat_mark_read:     'bot.chat.mark_read',
   // 🔴 2026-10-23：私聊「新话题」（轮转 canonical，上下文清零）
   bot_chat_new_topic:     'bot.chat.new_topic',
+  // 🔴 2026-10-23：成员 hold 控制面（RPC 由聊天指令之外显式调用）
+  bot_rooms_hold:         'bot.rooms.hold',
   bot_chats_list:         'bot.chats.list',
   bot_rooms_create:       'bot.rooms.create',
   bot_rooms_list:         'bot.rooms.list',

@@ -922,6 +922,26 @@ export async function ensureBotChat(profile: string): Promise<BotChatEnsureResul
 }
 
 /**
+ * 设置/清除成员 hold（`hold=true` 暂停发言，`false` 恢复）。
+ *
+ * 🔴 2026-10-23（第三轮 P1）：此前 hold 只能靠聊天指令（`@bob 停一下`）触发，
+ * 这是控制面 RPC 的前端封装。`memberIds` 省略/空 = 全房间成员。
+ * 返回本次实际变化的 member_id。
+ */
+export async function setBotRoomHolds(
+  roomId: string,
+  memberIds: string[] | undefined,
+  hold: boolean,
+): Promise<string[]> {
+  const data = await call('bot_rooms_hold', {
+    room_id: roomId,
+    member_ids: memberIds,
+    hold,
+  });
+  return Array.isArray(data?.changed) ? (data.changed as string[]) : [];
+}
+
+/**
  * 私聊「新话题」：把当前 canonical 轮转为历史（`Bot Chat #N`，仍可回看），
  * 新建一条空 canonical 并返回其 session_id。
  *
