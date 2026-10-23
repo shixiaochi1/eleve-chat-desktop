@@ -16,6 +16,7 @@ import {
   approveBotRoomTask, changeBotRoomMembers, disbandBotRoom, fetchBotRoomEvents,
   fetchBotRoomPendingTask, renameBotRoom, respondBotRoomInteraction, retryBotRoomTask,
   setBotRoomImage,
+  setBotRoomHolds,
   sendBotRoomMessage, stopBotRoom,
   type BotRoom, type BotRoomEvent, type PendingRoomTask, type RoomAttachmentDraft,
 } from '../utils/api';
@@ -935,6 +936,17 @@ function BotsRoomView({ room, roster, onBack }: {
     try { await stopBotRoom(room.room_id); await refresh(); } finally { setBusy(false); }
   };
 
+  // 🔴 2026-10-23（第三轮 P1）：成员 hold 控制面 UI——此前 hold 只能靠聊天指令
+  // （`@bob 停一下`）触发，普通用户无从操作。语义与指令一致（幂等 + 事件）。
+  const setAllHolds = async (hold: boolean) => {
+    try {
+      await setBotRoomHolds(room.room_id, undefined, hold);
+      await refresh();
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    }
+  };
+
   const disband = async () => {
     // 🔴 2026-09-05 round-48：解散是永久墓碑（Hermes disband 同义）——
     // 二次确认防误触（此前单击直调，事件流与成员会话随之不可恢复）
@@ -1014,6 +1026,14 @@ function BotsRoomView({ room, roster, onBack }: {
         </div>
         {/* 🔴 round-76：停止是"运行态"的对应动作，无讨论在飞时不可点（此前空跑
             也能点，点了只落一条无意义的围栏事件） */}
+        <button
+          className="p-1.5 rounded hover:bg-accent/50"
+          title={heldMembers.length > 0 ? '已暂停全部成员' : '暂停全部成员发言'}
+          disabled={busy || roomBusy || heldMembers.length > 0}
+          onClick={() => void setAllHolds(true)}
+        >
+          <PauseCircle size={13} className="text-muted-foreground" />
+        </button>
         <button className="p-1.5 rounded hover:bg-accent/50" title="停止当前讨论" disabled={busy || !roomBusy} onClick={stopRoom}>
           <Square size={13} className="text-muted-foreground" />
         </button>
@@ -1065,6 +1085,14 @@ function BotsRoomView({ room, roster, onBack }: {
             </div>
             <div className="text-muted-foreground">@提及该成员、或发送 resume 可恢复其发言</div>
           </div>
+          {/* 🔴 2026-10-23：控制面入口——不必再手打 resume 指令 */}
+          <button
+            type="button"
+            className="ml-auto shrink-0 text-primary hover:underline"
+            onClick={() => void setAllHolds(false)}
+          >
+            全部恢复
+          </button>
         </div>
       )}
 
