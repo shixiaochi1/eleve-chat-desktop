@@ -317,14 +317,17 @@ export function refreshRooms(): Promise<BotRoom[]> {
   return refreshInFlight;
 }
 
-/** 防抖触发重拉（WS 元信息事件 burst 合并）。 */
-function scheduleRoomsRefresh(): void {
+/** 防抖触发重拉（WS 元信息事件 burst 合并）。
+ *
+ *  `delayMs`：元信息事件 150ms；消息洪流 2s（房间行预览只需最终值）——先到者
+ *  优先（`if (debounceTimer) return`），混合 burst 由更快的元信息档收敛。 */
+function scheduleRoomsRefresh(delayMs = 150): void {
   if (debounceTimer) return; // 已有待执行的重拉
   debounceTimer = setTimeout(() => {
     debounceTimer = null;
     // 若此刻在飞：refreshRooms 会登记 refreshQueued，finally 里补拉（不吞事件）
     void refreshRooms().catch(() => undefined);
-  }, 150);
+  }, delayMs);
 }
 
 /** 订阅房间列表变化（组件消费入口）。 */
@@ -475,7 +478,12 @@ getWsClient().addEventListener((eventName, data) => {
     const roomId = envelope?.room_id;
     if (roomId) dropRoomClarify(roomId);
   }
-  if (
+  // 🔴 2026-10-23（P2 性能）：消息事件不再与元信息同档——一轮讨论可产生数十条
+  // `message.*`，原来每条都触发 150ms 防抖的**全量** rooms.list（后端全量序列化 +
+  // 前端全量重渲染）。房间行预览只需要最终值，2s 低频足够；元信息仍 150ms。
+  if (kind === 'message.user' || kind === 'message.member') {
+    scheduleRoomsRefresh(2_000);
+  } else if (
     kind === 'room.created' ||
     kind === 'room.renamed' ||
     kind === 'room.members_changed' ||
@@ -486,11 +494,6 @@ getWsClient().addEventListener((eventName, data) => {
     // 🔴 round-78d：authority 接管/退位——房间权威谱系变化需刷新列表
     kind === 'authority.claimed' ||
     kind === 'authority.lost' ||
-    // 🔴 round-95 G6：房间行的**末条消息预览 + 时间**由后端 rooms.list 派生，
-    // 消息事件不触发重拉 → 左栏房间行会一直停在打开房间那一刻的预览。
-    // 150ms 防抖已把一轮讨论的多条消息并成一次重拉。
-    kind === 'message.user' ||
-    kind === 'message.member' ||
     // 🔴 round-95 G3：hold 集变更 → 房间行摘要里的 holds 需同步
     kind === 'room.holds_changed' ||
     // 🔴 round-97：房间图变更 → 左栏行图标/主区房头需同步（图在 BotRoom 上，

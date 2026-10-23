@@ -40,6 +40,7 @@ import {
 // 🔴 round-107：房间级草稿（模块级 Map——切房重挂不丢草稿，对齐 Hermes group-panes.ts）
 import {
   botRoomDraftSnapshot,
+  clearBotRoomDraft,
   patchBotRoomDraft,
   restoreBotRoomDraft,
 } from '../lib/bot-room-drafts';
@@ -954,6 +955,9 @@ function BotsRoomView({ room, roster, onBack }: {
     setBusy(true);
     try {
       await disbandBotRoom(room.room_id);
+      // 🔴 2026-10-23（P2）：房间退役 → 丢弃该房间草稿（含 base64 附件，单房可达
+      // 数十 MB）；此前只有测试调 clearBotRoomDraft，模块级 Map 永不回收。
+      clearBotRoomDraft(room.room_id);
       onBack();
     } catch (e) {
       // 🔴 round-79g 对齐 Hermes disband（stop 未确认不得解散）：后端拒绝
