@@ -73,7 +73,15 @@ export async function openRemoteBotChat(
       15_000,
     );
 
-    markBotRead(row.entry.profile, res?.session_id || row.entry.canonical_session_id || undefined);
+    // 🔴 2026-10-23（第五轮 P1）：远端 profile 的已读回执必须走**远端网关**——
+    // `markBotRead` 走本机 call，会把本机同名 profile 的未读一起清掉
+    // （跨连接污染：点远端 Agent 行，本机同名 Agent 的红点消失）。
+    void requestForBot(
+      { connectionId: row.connectionId, profile: 'default' },
+      'bot.chat.mark_read',
+      { profile: row.entry.profile },
+      10_000,
+    ).catch(() => undefined);
 
     if (res?.session_id) {
       // 点远端行 = **打开远端会话**（会话开在远端网关、行点击即达）；
