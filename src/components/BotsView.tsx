@@ -11,7 +11,7 @@
 import { WsEvent } from '../types/ws-contract.generated';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from 'react';
 import { cn } from '@/lib/utils';
-import { ArrowLeft, Bot, ChevronDown, ChevronRight, Loader, PauseCircle, Paperclip, Send, Settings2, Square, Trash2, UserPlus, UserMinus, Users, WifiOff, X } from 'lucide-react';
+import { ArrowLeft, Bot, ChevronDown, ChevronRight, Copy, Loader, PauseCircle, Paperclip, Reply, Send, Settings2, Square, Trash2, UserPlus, UserMinus, Users, WifiOff, X } from 'lucide-react';
 import {
   approveBotRoomTask, changeBotRoomMembers, disbandBotRoom, fetchBotRoomEvents,
   fetchBotRoomPendingTask, renameBotRoom, respondBotRoomInteraction, retryBotRoomTask,
@@ -69,6 +69,8 @@ import RemoteBotChatView from './RemoteBotChatView';
 import RoomImageControls from './RoomImageControls';
 import MessageRow from './MessageRow';
 import ClarifyCard from './ClarifyCard';
+// 🔴 2026-10-24：@提及 accent 内联渲染（对齐 Hermes group-mention-text.tsx）
+import RoomMentionDecorate from './bots/RoomMentionDecorate';
 
 /** 🔴 2026-09-05 stage-5：本机持有的房间副本元数据（bot.rooms.replicas.list）。
  *  🔴 2026-09-05 round-48：主区无 replica UI（接管面在 BotsPane 待接管区块）
@@ -775,6 +777,27 @@ function BotsRoomView({ room, roster, onBack }: {
     }
   };
 
+  /** 🔴 2026-10-24（对齐 Hermes `replyToMember`，group-chat-view.tsx:1198-1218 +
+   *  `group-rounds.ts:147-168`）：hover 成员消息的 Reply——把 `@handle ` 种子进
+   *  **该条所属线程**的回复框（线程回复 = 只路由到该成员）；主时间线/LEGACY 落
+   *  主 composer（开新线程）。已带该 tag 前缀时幂等（重复点击不叠 N 个 @）。 */
+  const replyToMember = (handle: string, thread: string) => {
+    const tag = `@${handle} `;
+    if (thread && thread !== LEGACY_THREAD) {
+      setActiveReplyThread(thread);
+      setThreadDrafts((cur) => {
+        const existing = cur[thread] ?? '';
+        const next = { ...cur, [thread]: existing.startsWith(tag) ? existing : `${tag}${existing}` };
+        patchBotRoomDraft(room.room_id, { replies: next, activeReplyThread: thread });
+        return next;
+      });
+    } else {
+      const next = draft.startsWith(tag) ? draft : `${tag}${draft}`;
+      setDraft(next);
+      patchBotRoomDraft(room.room_id, { main: next });
+    }
+  };
+
   // 🔴 2026-09-08 round-76：**在飞轮集合**判定（此前只看事件流末条 turn.*，
   // 一旦末尾是某个成员的 settled 而另一个成员的轮仍在跑，忙态就被误判为
   // false → 发送键错切成发送态，消息被塞进在飞讨论）。
@@ -1247,14 +1270,18 @@ function BotsRoomView({ room, roster, onBack }: {
                           {formatMessageTime(ev.created_at)}
                         </span>
                         <div className="w-full max-w-[85%] [&>div]:items-end">
-                          <MessageRow
-                            message={{
-                              id: `ev-${ev.seq}`,
-                              role: 'user',
-                              parts: [{ type: 'text', text: String(ev.payload.text ?? '') }],
-                              attachmentRefs: attachmentRefs.length > 0 ? attachmentRefs : undefined,
-                            }}
-                          />
+                          {/* 🔴 2026-10-24：用户消息里的 @提及同样染 accent
+                              （Hermes group-mention-text 对 user 条目同规则） */}
+                          <RoomMentionDecorate members={room.members}>
+                            <MessageRow
+                              message={{
+                                id: `ev-${ev.seq}`,
+                                role: 'user',
+                                parts: [{ type: 'text', text: String(ev.payload.text ?? '') }],
+                                attachmentRefs: attachmentRefs.length > 0 ? attachmentRefs : undefined,
+                              }}
+                            />
+                          </RoomMentionDecorate>
                         </div>
                       </div>
                     );
@@ -1272,7 +1299,7 @@ function BotsRoomView({ room, roster, onBack }: {
                     // 文本，两个连接上的同名 bot 在 transcript 里完全无法区分。
                     const who = findMemberRoster(roster, handle, String(ev.actor.profile || ''));
                     return (
-                      <div key={ev.seq} className="flex flex-col items-start">
+                      <div key={ev.seq} className="group flex flex-col items-start">
                         <span className="flex items-center gap-1 mb-0.5 px-1 select-text min-w-0">
                           <span
                             className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[9px] font-semibold text-white"
@@ -1302,15 +1329,40 @@ function BotsRoomView({ room, roster, onBack }: {
                               迟到补投
                             </span>
                           )}
+                          {/* 🔴 2026-10-24：hover 操作（对齐 Hermes group-chat-view.tsx:1301-1320
+                              Reply/Copy）——Reply 把 `@handle ` 种子进该条所属线程的回复框
+                              （主时间线落主 composer）；Copy 复制原文（mention 装饰不改文本）。 */}
+                          <span className="ml-1 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                            <button
+                              type="button"
+                              className="p-0.5 rounded hover:bg-accent/70 text-muted-foreground hover:text-foreground"
+                              title={`回复 @${handle}`}
+                              onClick={() => replyToMember(handle, thread)}
+                            >
+                              <Reply size={11} />
+                            </button>
+                            <button
+                              type="button"
+                              className="p-0.5 rounded hover:bg-accent/70 text-muted-foreground hover:text-foreground"
+                              title="复制"
+                              onClick={() => void navigator.clipboard?.writeText(String(ev.payload.text ?? ''))}
+                            >
+                              <Copy size={11} />
+                            </button>
+                          </span>
                         </span>
                         <div className="w-full max-w-[85%] [&>div]:items-start">
-                          <MessageRow
-                            message={{
-                              id: `ev-${ev.seq}`,
-                              role: 'assistant',
-                              parts: [{ type: 'text', text: String(ev.payload.text ?? '') }],
-                            }}
-                          />
+                          {/* 🔴 2026-10-24：@提及 accent 内联渲染（对齐 Hermes
+                              group-mention-text.tsx——纯装饰，code/链接/未知@不染） */}
+                          <RoomMentionDecorate members={room.members}>
+                            <MessageRow
+                              message={{
+                                id: `ev-${ev.seq}`,
+                                role: 'assistant',
+                                parts: [{ type: 'text', text: String(ev.payload.text ?? '') }],
+                              }}
+                            />
+                          </RoomMentionDecorate>
                         </div>
                       </div>
                     );

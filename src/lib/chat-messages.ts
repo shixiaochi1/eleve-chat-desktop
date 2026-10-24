@@ -692,6 +692,30 @@ function timelineTaskCount(metadata: unknown): number | undefined {
 }
 
 /** timeline 事件行的人类可读文案（对标 Hermes timelineDisplayContent，中文化） */
+// 🔴 2026-10-24（对齐 Hermes Desktop `AGENT_MESSAGE_RE`，
+// apps/desktop/.../thread/user-message.tsx:94-95，逐字）：DM **来信**行
+// （"Message from 🤖 <name> (@<handle>): …"，relay 落地重写为
+// (@handle@connection)；含无表情变体与旧式 [Message from agent '<name>']）。
+// 该行以 role=user 落库（接收方的轮跑在它上面）但**不是人类在说话**——
+// 渲染为 system 事件行而非用户气泡（round-49 回信侧的同款观感修正，
+// 本轮补上来信侧）。识别走文本正则而非 display_kind 是刻意的：压缩的
+// user-originated 锚定（compressor is_user_originated_turn）要求它保持普通
+// user 行，Hermes 同样不打 display_kind。
+const AGENT_MESSAGE_RE =
+  /^(?:Message from (?:🤖\s*)?([^:\n(]{1,64}?)(?:\s*\(@([a-z0-9][a-z0-9_-]{0,63})(?:@[a-zA-Z0-9][a-zA-Z0-9_-]{0,63})?\))?:\s*|\[Message from agent '([^']{1,64})'\]\s*)([\s\S]*)$/u
+
+/** DM 来信行的 system 事件文案（Hermes AgentMessageNote 的单行等价物——
+ *  Hermes 是头像 + "Message from {sender}" + 正文折叠 details；ELEVE system
+ *  行无折叠面，正文按 160 摘要内联）。 */
+function agentDmNoticeLine(m: RegExpExecArray): string {
+  const name = (m[1] || m[3] || '').trim()
+  const handle = m[2]
+  const body = (m[4] || '').trim()
+  const digest = body.length > 160 ? `${body.slice(0, 160)}…` : body
+  const who = handle ? `🤖 ${name} (@${handle})` : `🤖 ${name || '队友'}`
+  return digest ? `${who} 的私信：${digest}` : `${who} 的私信`
+}
+
 function timelineDisplayContent(message: SessionMessage, content: string): string {
   if (message.display_kind === 'model_switch') {
     return '模型已切换'
@@ -716,11 +740,24 @@ function timelineDisplayContent(message: SessionMessage, content: string): strin
   // completion notification 形态——回信经通知路径到达发送方下一轮，会话流
   // 不出现回信原文消息条目）。从注入文本头提取归属（[BOT DM REPLY/FAILED —
   // @handle (display)]），正文截断 160 字符摘要；完整全文仅供 Agent 消化。
+  // 🔴 2026-10-24：词表补齐后端四态（REPLY/FAILED/SILENT/TIMEOUT，见
+  // bot_chat.rs local_receipt_block / relay_receipt_block / relay_timeout）——
+  // 此前只认 REPLY|FAILED，SILENT/TIMEOUT 落入 head=null 兜底，被误报为
+  // "回信已送达"（状态说反 + 模型侧英文说明文本外泄）。SILENT/TIMEOUT 的
+  // body 是给模型看的解释文本，不截给用户 → 固定中文行不带摘要。
   if (message.display_kind === 'bot_dm') {
-    const head = /^\[BOT DM (REPLY|FAILED) — @([a-zA-Z0-9._-]+)[^\]]*\]\n*/.exec(content)
-    const who = head ? `@${head[2]}` : '队友'
-    const failed = head?.[1] === 'FAILED'
-    const body = head ? content.slice(head[0].length) : content
+    const head = /^\[BOT DM (REPLY|FAILED|SILENT|TIMEOUT) — @([a-zA-Z0-9._-]+)[^\]]*\]\n*/.exec(content)
+    const who = head ? `@${head[2]}` : null
+    if (head && head[1] === 'SILENT') return `${who} 已读但选择不回复（无需跟进）`
+    if (head && head[1] === 'TIMEOUT') return `${who} 等待回信超时（消息可能仍会迟到送达，勿盲目重发）`
+    // head=null 的 bot_dm 行 = intro kick / cron 生产者投递（无回执头）——
+    // 中性文案，不再冒称"回信已送达"
+    if (!head) {
+      const digest = content.trim().length > 160 ? `${content.trim().slice(0, 160)}…` : content.trim()
+      return digest ? `系统注入消息：${digest}` : '系统注入消息'
+    }
+    const failed = head[1] === 'FAILED'
+    const body = content.slice(head[0].length)
     const trimmed = body.replace(/\n\[Replied to: "[\s\S]*"\]\s*$/, '').trim()
     const digest = trimmed.length > 160 ? `${trimmed.slice(0, 160)}…` : trimmed
     const label = failed ? '的 DM 未能送达回信' : '的回信已送达'
@@ -901,6 +938,12 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
     }
 
     const content = message.content || message.text || message.context || message.name
+    // 🔴 2026-10-24：DM 来信行识别（const 定义与理由见 AGENT_MESSAGE_RE 头注）。
+    // 只认 display_kind 为空的 user 行（typed 行各有去处：steer/bot_dm/…）。
+    const agentDm =
+      message.role === 'user' && !message.display_kind
+        ? AGENT_MESSAGE_RE.exec(textFromUnknown(content).trimStart())
+        : null
     // 🔴 display_kind 管线（1:1 对标 Hermes desktop toChatMessages L982-989）：
     // hidden → 内容丢弃（行仍 replay 给模型）；model_switch / auto_continue /
     // async_delegation_complete → 降级为 system 事件行 + 人类可读摘要，
@@ -909,7 +952,8 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
       message.display_kind === 'model_switch' ||
       message.display_kind === 'async_delegation_complete' ||
       message.display_kind === 'auto_continue' ||
-      message.display_kind === 'bot_dm'
+      message.display_kind === 'bot_dm' ||
+      agentDm !== null
         ? 'system'
         : (message.role as MessageRole)
     // 🔴 steer 行（2026-09-11 对齐 Hermes desktop）：后端交付形态是独立 role:user
@@ -917,10 +961,12 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
     // 会看到一整坨标记文本）。role 保持 user（气泡），不进 system 事件行分支。
     const contentForDisplay =
       message.display_kind === 'steer' ? stripSteerMarker(textFromUnknown(content)) : content
-    const displayContent = transcriptContent(
-      message.display_kind,
-      timelineDisplayContent(message, displayContentForMessage(message.role, contentForDisplay)),
-    )
+    const displayContent = agentDm
+      ? agentDmNoticeLine(agentDm)
+      : transcriptContent(
+          message.display_kind,
+          timelineDisplayContent(message, displayContentForMessage(message.role, contentForDisplay)),
+        )
     // 🔴 2026-08-08 图片附件恢复：user 消息的多模态图片提取为 attachmentRefs
     // （对齐 Hermes history → attachmentRefs 渲染缩略图）。来源：
     //  ① content 列（ELEVE 枚举格式数组，如有）
