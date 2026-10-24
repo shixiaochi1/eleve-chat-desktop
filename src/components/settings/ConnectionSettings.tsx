@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Network, Link2, Loader, CheckCircle2, XCircle, Server } from 'lucide-react';
+import { Network, Link2, Loader, CheckCircle2, XCircle, Server, ServerCog } from 'lucide-react';
 import RemoteConnectionsRegistry from './RemoteConnectionsRegistry';
+import BotPeersSection from './BotPeersSection';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { notifySuccess, notifyError } from '../../utils/notifications';
@@ -181,6 +182,15 @@ export default function ConnectionSettings() {
         desc="注册其它网关实例，供 Bots 花名册合并与跨网关私信使用；不影响上方主连接"
       >
         <RemoteConnectionsRegistry />
+      </SectionCard>
+
+      {/* 🔴 P2：peer 智能体网关（stock API 通道）——与 relay 连接注册表相互独立 */}
+      <SectionCard
+        icon={ServerCog}
+        title="Peer 智能体网关"
+        desc="注册异构智能体网关（对端实现 stock API），供 message_agent 的 <peer>/<agent> 目标使用；与上方远程连接是两条独立通道"
+      >
+        <BotPeersSection />
       </SectionCard>
     </div>
   );

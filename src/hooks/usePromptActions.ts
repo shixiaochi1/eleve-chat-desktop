@@ -7,6 +7,8 @@ import { textPart } from '@/lib/chat-messages'
 import { getWsClient } from '../services/ws-client';
 import { annotateBotMentions } from '@/lib/bot-mentions';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
+import { isBorrowedBotChat } from '@/lib/workspace-domain';
+import { notifyInfo } from '../utils/notifications';
 
 import type { ChatMessage } from '@/types'
 import type { SessionManagerHandle } from './useSessions';
@@ -175,6 +177,18 @@ export function usePromptActions({
       // 🔴 2026-10-21：命令分支不消费附件——返回 false 让调用方保留 chip
       //（旧实现外层无条件清空，图已 attach 到后端 → 被下一条无关消息带走）
       if (cmdPart === 'new' || cmdPart === 'reset') {
+        // 🔴 2026-10-24（对齐审查 A3）：canonical Bot Chat 是 forever-chat
+        // （对齐 Hermes plugin.tsx:765-801）——/new 会 fork 出草稿会话
+        // （Bots 模式承诺永不发生），裸 /new|/reset 改写为 /compress
+        // （ELEVE 的压缩命令，= Hermes /compact：同等体感"新鲜工作上下文、
+        // 同一条会话"）并告知。仅守 canonical 私聊；同 profile 的普通会话
+        // 保留完整 /new 自由；带参数形态仍走 App 层硬拦（后端 reset_session
+        // fail-closed 兜底）。
+        if (!args && isBorrowedBotChat(sess.sessionId)) {
+          notifyInfo('该私聊永不重置——已改为压缩（/compress）。想和这个 Agent 开一次性会话，请用普通会话。');
+          void handleCommand('compress');
+          return false;
+        }
         handleNewSession(args || undefined);
         return false;
       }

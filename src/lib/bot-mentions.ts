@@ -19,6 +19,8 @@ export interface MentionRow {
   displayName?: string;
   /** 远端行才有（本地行 undefined） */
   connectionId?: string;
+  /** 连接展示名（远端行标记用，对齐 UnionRosterRow.connectionLabel） */
+  connectionLabel?: string;
   isRemote: boolean;
 }
 
@@ -39,6 +41,7 @@ function toMentionRows(rows: UnionRosterRow[]): MentionRow[] {
     profile: r.entry.profile,
     displayName: r.entry.display_name || r.entry.handle,
     connectionId: r.isRemote ? r.connectionId : undefined,
+    connectionLabel: r.isRemote ? r.connectionLabel : undefined,
     isRemote: r.isRemote,
   }));
 }
@@ -75,17 +78,36 @@ export function matchMentionRows(text: string, rows: MentionRow[]): MentionRow[]
 }
 
 /**
- * identification-only 注入行（对齐 Hermes middleware 语义：只告知"用户指的是谁"，
- * 是否投递/投递什么由 agent 决定；英文协议行与群聊成员 prompt 同风格）。
+ * identification-only 注入行（🔴 2026-10-24 对齐审查 A4：逐字对齐 Hermes
+ * plugin.tsx:851-882 的 middleware 形态——此前只列 @handle 名单，缺逐 bot
+ * 解析行与"无 message_agent 工具就明说"兜底）：
+ * - 每行给出 agent 身份解析（profile + 友好名 + 跨连接来源），让 agent 确切
+ *   知道 "@research-buddy" 是谁；
+ * - message_agent 只解析 canonical 身份：本地裸 profile、远端
+ *   `profile@connectionId`（relay 花名册寻址）——UI 别名（handle 与 profile
+ *   不同）单独标注 target，否则 agent 拿别名去投递会被解析器拒绝；
+ * - 是否投递/投递什么由 agent 决定，**从不代发、不改写用户原话**。
  */
 export function buildIdentificationNote(hits: MentionRow[]): string {
-  const names = hits
-    .map((r) => (r.isRemote ? `@${r.handle}@${r.connectionId}` : `@${r.handle}`))
-    .join(', ');
+  const lines = hits.map((r) => {
+    const handle = r.handle || r.profile;
+    // 友好名（display_name 缺省时 = handle，此时不重复展示）
+    const title = r.displayName && r.displayName !== handle ? ` ("${r.displayName}")` : '';
+    const target = r.isRemote && r.connectionId ? `${r.profile}@${r.connectionId}` : r.profile;
+    const where = r.isRemote
+      ? ` — on ${r.connectionLabel || r.connectionId} (message_agent target: "${target}")`
+      : handle !== target
+        ? ` (message_agent target: "${target}")`
+        : '';
+    return `@${handle} = agent profile "${r.profile}"${title}${where}`;
+  });
   return (
-    `\n\n[User mention] The user is addressing: ${names}. ` +
-    'They are teammates in your Bot Mode roster. Decide yourself whether and what ' +
-    "to send them via the message_agent tool; never forward the user's message verbatim."
+    '\n\n[@mentions resolved from the Bot Mode roster — the user is referring to: ' +
+    lines.join('; ') +
+    '. If they want one of these agents contacted, compose your own message and send it ' +
+    'with your message_agent tool (agents on other connected machines are reachable too — ' +
+    'the Desktop relays it); never forward the user’s text verbatim. If this session has ' +
+    'no message_agent tool, agent messaging is unavailable here — say so.]'
   );
 }
 
