@@ -17,7 +17,7 @@ import {
   fetchBotRoomPendingTask, renameBotRoom, respondBotRoomInteraction, retryBotRoomTask,
   setBotRoomImage,
   setBotRoomHolds,
-  sendBotRoomMessage, stopBotRoom,
+  sendBotRoomMessage, stopBotRoom, sweepBotRoomExternal,
   type BotRoom, type BotRoomEvent, type PendingRoomTask, type RoomAttachmentDraft,
 } from '../utils/api';
 import { formatRowAge } from '../utils/time';
@@ -504,6 +504,11 @@ function BotsRoomView({ room, roster, onBack }: {
     setMemberActivity({});
     activitySidRef.current = {};
     refresh();
+    // 🔴 2026-10-24（对齐 Hermes group-external-writes.ts #93813「打开房间时」
+    // sweep）：fire-and-forget 触发外部写入回填——镜像行落库后由
+    // `bot.room.event` 推送流入本视图（上方订阅已并入事件流）；失败静默
+    // （best-effort，对齐 Hermes "unreachable or gone: nothing to mirror"）。
+    void sweepBotRoomExternal(roomRef.current.room_id).catch(() => {});
 
     const ws = getWsClient();
     const unsubscribe = ws.addEventListener((eventName, data) => {

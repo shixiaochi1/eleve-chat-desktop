@@ -11,7 +11,7 @@
  *   - 至少 2 个成员（`ROOM_MEMBER_MIN`），上限 `ROOM_MEMBER_MAX`
  *   - 创建成功后由父组件进房（`onCreated(roomId)` → 选中 + 主区切房间视图）
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -46,6 +46,12 @@ export default function RoomCreateDialog({
   const [newMembers, setNewMembers] = useState<string[]>([]);
   const [newImage, setNewImage] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  // 🔴 2026-10-24（对齐 Hermes create_room 幂等）：每次打开弹层铸一个幂等键——
+  // 提交重试/双击复用同一 id ⇒ 服务端幂等返回；关掉重开 = 新意图 = 新 id。
+  const roomIdRef = useRef<string>('');
+  if (!roomIdRef.current) {
+    roomIdRef.current = crypto.randomUUID().replaceAll('-', '');
+  }
 
   const pickRows = useMemo(() => pickableMembers(bots), [bots]);
   const pickableCount = useMemo(() => pickRows.filter((r) => !r.disabled).length, [pickRows]);
@@ -85,7 +91,7 @@ export default function RoomCreateDialog({
 
     setCreating(true);
     try {
-      const room = await createBotRoom(name, newMembers, newImage);
+      const room = await createBotRoom(name, newMembers, newImage, roomIdRef.current);
       onNotice?.(`已创建「${name}」（${newMembers.length} 个 Agent）`);
       if (room?.room_id) {
         onCreated(room.room_id);

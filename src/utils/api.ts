@@ -1064,15 +1064,24 @@ export async function approveBotRoomTask(params: {
   return typeof data?.resolved === 'number' ? data.resolved : 0;
 }
 
-/** 创建群聊房间（2-6 名 bot；🔴 round-70 注释修正：每次 FRESH room——服务端
- *  mint 新 room_id，无 (name,members) 幂等；重试防重由 UI single-flight 覆盖） */
+/** 创建群聊房间（2-6 名 bot）。
+ *  🔴 2026-10-24（对齐 Hermes `create_room` 幂等，hosted_rooms.py:857-896）：
+ *  调用方携带幂等键 `roomId`（每次打开创建弹层铸一个）——同 id + 同名 +
+ *  同成员集合的重试/双击 ⇒ 服务端返回既有房间而非重复建房；缺键 = 服务端
+ *  mint 新 id（FRESH room 语义不变）。 */
 export async function createBotRoom(
   name: string,
   members: string[],
   image?: string | null,
+  roomId?: string,
 ): Promise<BotRoom> {
-  // 缺图不传键（后端把缺键/空串统一归一为 None，但少传一个键盘面更干净）
-  const data = await call('bot_rooms_create', image ? { name, members, image } : { name, members });
+  // 缺图/缺幂等键不传键（后端把缺键/空串统一归一为 None，但少传一个键盘面更干净）
+  const data = await call('bot_rooms_create', {
+    name,
+    members,
+    ...(image ? { image } : {}),
+    ...(roomId ? { room_id: roomId } : {}),
+  });
   return data?.room;
 }
 
@@ -1169,6 +1178,15 @@ export async function fetchBotRoomEvents(
     latest_seq: data?.latest_seq ?? 0,
     has_more: !!data?.has_more,
   };
+}
+
+/** 🔴 2026-10-24（对齐 Hermes `group-external-writes.ts` #93813「打开房间时」
+ *  sweep）：触发外部写入回填——成员的 `Group: …` 会话里房间引擎之外的写入
+ *  （CLI resume / 工具 / routine）以成员名义镜像进房间日志一次。幂等；
+ *  fire-and-forget 使用（镜像行经 `bot.room.event` 推送流入视图）。 */
+export async function sweepBotRoomExternal(roomId: string): Promise<number> {
+  const data = await call('bot_rooms_sweep_external', { room_id: roomId });
+  return typeof data?.mirrored === 'number' ? data.mirrored : 0;
 }
 
 /** 停止房间在飞讨论（围栏事件） */

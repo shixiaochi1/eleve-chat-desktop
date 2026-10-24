@@ -73,7 +73,9 @@ export default function RoomListSection({
 
   // 🔴 2026-10-22（用户实测：群聊一直显示加载中）：本分组此前**没有首拉触发**——
   // 只有主区 BotsView 会 refreshRooms，用户不进群聊视图时 roomsLoaded 恒 false。
-  // 现在挂载即拉，但必须等 WS 连上（disconnected 态 sendRpc 直接 reject，不排队）。
+  // 现在挂载即拉，但等 WS 连上再拉（🔴 2026-10-24 注释修正：ws-client.ts:508-522
+  // 自 2026-08-22 起 disconnected 态 sendRpc **排队**带 60s 超时，不是直接 reject；
+  // 仍等 connected 的理由 = 不在离线队列里积压首拉 + 重连时刻本就强制对齐一次）。
   // 🔴 2026-10-23 审计 B6：断线期间漏掉的 created/disbanded 事件不会重放 ⇒ **重连
   // 必须强制对齐一次**（此前 `isRoomsLoaded()` 直接 return → 长期陈旧）。
   const [wsState, setWsState] = useState(getWsClient().state);

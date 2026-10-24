@@ -214,6 +214,8 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   // 🔴 round-110：房间花名册展示偏好（置顶 / 隐藏）
   bot_rooms_set_prefs:    'bot.rooms.set_prefs',
   bot_rooms_stop:         'bot.rooms.stop',
+  // 🔴 2026-10-24：外部写入回填（对齐 Hermes group-external-writes.ts #93813）
+  bot_rooms_sweep_external: 'bot.rooms.sweep_external',
   bot_rooms_disband:      'bot.rooms.disband',
   // 🔴 round-79f 跨进程 driver：indeterminate 显式重试 + 未决任务可见性
   bot_rooms_retry:        'bot.rooms.retry',
