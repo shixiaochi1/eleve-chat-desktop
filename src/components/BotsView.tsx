@@ -11,11 +11,13 @@
 import { WsEvent } from '../types/ws-contract.generated';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from 'react';
 import { cn } from '@/lib/utils';
-import { ArrowLeft, Bot, ChevronDown, ChevronRight, Copy, Loader, PauseCircle, Paperclip, Reply, Send, Settings2, Square, Trash2, UserPlus, UserMinus, Users, WifiOff, X } from 'lucide-react';
+import { ArrowLeft, Bot, ChevronDown, ChevronRight, Copy, History, Loader, PauseCircle, Paperclip, Reply, Send, Settings2, Square, Trash2, UserPlus, UserMinus, Users, WifiOff, X } from 'lucide-react';
 import {
   approveBotRoomTask, changeBotRoomMembers, disbandBotRoom, fetchBotRoomEvents,
   fetchBotRoomPendingTask, renameBotRoom, respondBotRoomInteraction, retryBotRoomTask,
   setBotRoomImage,
+  setBotRoomHoldDetection,
+  compressBotRoomMember,
   setBotRoomHolds,
   sendBotRoomMessage, stopBotRoom, sweepBotRoomExternal,
   type BotRoom, type BotRoomEvent, type PendingRoomTask, type RoomAttachmentDraft,
@@ -59,6 +61,8 @@ import { RETAINED_EVENTS, mergeRoomEvents, retainLoadedEvents } from '../lib/bot
 import { makeImageThumb, readImageFile } from '../lib/image-file';
 import { getWsClient } from '../services/ws-client';
 import { formatMessageTime } from '../utils/time';
+import { notifyError, notifyInfo, notifySuccess } from '../utils/notifications';
+import { GROUP_SLASH_UNSUPPORTED, isGroupSlashCommand } from '../lib/group-slash';
 import {
   clearRoomNeedsYou, closeRemoteChat, isUnionFresh, refreshRooms,
   refreshUnionRoster, seedRoomClarify, selectRoom, useRemoteChat, useRooms, useRoomsError, useRoomsLoaded,
@@ -452,15 +456,17 @@ function BotsRoomView({ room, roster, onBack }: {
       // 增量：只拉游标之后的新事件，逐页追平（正常情况下 0~几条，一次即止）
       for (let page = 0; page < 20; page++) {
         const before = latestSeq.current;
-        const { events: fresh } = await fetchBotRoomEvents(roomRef.current.room_id, {
+        const { events: fresh, has_more } = await fetchBotRoomEvents(roomRef.current.room_id, {
           sinceSeq: before,
           limit: PAGE,
         });
         const maxSeq = fresh.reduce((m, e) => Math.max(m, e.seq), before);
         latestSeq.current = maxSeq;
         if (fresh.length) mergeEvents(fresh);
-        // 本页未满 = 已追平；游标未前进 = 防死循环
-        if (fresh.length < PAGE || maxSeq <= before) break;
+        // 🔴 2026-10-25：后端对单页加了 2MiB 字节上限——"页未满"不再等于
+        // "已追平"。有 has_more 就继续；旧后端不返回该键时退回 length<PAGE
+        // 的旧判据（兼容）。游标未前进 = 防死循环。
+        if ((!has_more && fresh.length < PAGE) || maxSeq <= before) break;
       }
     } catch { /* 静默（下一次推送/轮询兜底） */ }
   }, [mergeEvents]);
@@ -676,6 +682,13 @@ function BotsRoomView({ room, roster, onBack }: {
   const send = async () => {
     const text = draft.trim();
     if ((!text && !attachments.length) || sending) return;
+    // 🔴 2026-10-24（对齐 Hermes `group-slash.ts:5-18`）：群聊不能派发斜杠命令——
+    // 命令形状的输入会原样进成员 prompt，直接拦下并指路单聊；`/etc/hosts`
+    // 这类路径不受影响（判据是"命令形状"不是"以 / 开头"）。
+    if (text && isGroupSlashCommand(text)) {
+      notifyInfo(GROUP_SLASH_UNSUPPORTED);
+      return;
+    }
     // 🔴 2026-09-15（前端审查 F3）：**允许在轮进行中发言**（插话）——对齐 Hermes
     // 两侧引擎：桌面（renderer-owned）主输入框**没有**忙态闸，新发送只 bump epoch，
     // 旧轮记 `cancelled` 退出（`group-rounds.ts:427/452-460`，测试
@@ -743,6 +756,11 @@ function BotsRoomView({ room, roster, onBack }: {
   const sendInThread = async (thread: string) => {
     const text = (threadDrafts[thread] ?? '').trim();
     if (!text || sending) return;
+    // 🔴 2026-10-24：线程回复同样不能派发斜杠命令（与主输入框同一判据）
+    if (isGroupSlashCommand(text)) {
+      notifyInfo(GROUP_SLASH_UNSUPPORTED);
+      return;
+    }
     // 🔴 2026-09-15（前端审查 F3）：与主 send 同款——线程内回复同样允许插话
     // （Hermes 主/线程两个 composer 都没有忙态闸）。同线程插话正是后端 superseded
     // 判据的主场景：在飞轮按"同线程出现更新用户事件"作废，新消息重新驱动本轮。
@@ -1964,6 +1982,51 @@ function RoomEditDialog({
 }) {
   const [pendingRemove, setPendingRemove] = useState<string[]>([]);
   const [pendingAdd, setPendingAdd] = useState<string[]>([]);
+  // 🔴 2026-10-24（对齐 Hermes 房间设置）：
+  // - hold 检测开关：立即写（不是 Save 的一部分——Hermes 的 toggle 也是即时生效）
+  // - 成员历史压缩：一次一个（网关同一时刻只允许一个压缩流程持有锁）
+  const [holdDetection, setHoldDetection] = useState(room.hold_detection !== false);
+  const [compressing, setCompressing] = useState<string | null>(null);
+  useEffect(() => {
+    setHoldDetection(room.hold_detection !== false);
+  }, [room.room_id, room.hold_detection]);
+
+  const toggleHoldDetection = async () => {
+    const next = !holdDetection;
+    setHoldDetection(next); // 乐观；失败回滚
+    try {
+      await setBotRoomHoldDetection(room.room_id, next);
+      await refreshRooms();
+    } catch (e) {
+      setHoldDetection(!next);
+      notifyError(e, '保存停止指令检测开关失败');
+    }
+  };
+
+  const compressMember = async (memberId: string, handle: string) => {
+    if (compressing) return;
+    setCompressing(memberId);
+    try {
+      const outcome = await compressBotRoomMember(room.room_id, memberId);
+      if (outcome.status === 'compressed') {
+        notifySuccess(
+          `已压缩 @${outcome.handle || handle} 的成员历史${outcome.summary ? `：${outcome.summary}` : ''}`,
+        );
+      } else if (outcome.status === 'skipped') {
+        notifyInfo(`@${outcome.handle || handle} 未压缩：${outcome.message ?? '没有可压缩的会话'}`);
+      } else {
+        notifyError(
+          new Error(outcome.message ?? '压缩失败'),
+          `压缩 @${outcome.handle || handle} 的历史失败`,
+        );
+      }
+    } catch (e) {
+      notifyError(e, `压缩 @${handle} 的历史失败`);
+    } finally {
+      setCompressing(null);
+    }
+  };
+
   const nextCount = room.members.length - pendingRemove.length + pendingAdd.length;
   // 🔴 2026-09-05 round-48：与创建场景统一为 2-6（后端 MIN/MAX_DISCUSSION_MEMBERS
   // 硬约束——此前编辑允许删到 1 人，存盘后房间无法驱动）
@@ -2005,6 +2068,23 @@ function RoomEditDialog({
           memberHandles={room.members.map((m) => m.handle)}
         />
 
+        {/* 🔴 2026-10-24（对齐 Hermes `holdDetection`）：关闭后 @成员 stop/pause
+            只是普通内容，不再暂停成员。即时生效（不属于 Save 批次）。 */}
+        <label className="flex items-start gap-2 px-1 text-xs text-muted-foreground cursor-pointer select-none">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={holdDetection}
+            onChange={() => void toggleHoldDetection()}
+          />
+          <span>
+            检测停止指令
+            <span className="block text-[11px] text-muted-foreground/70">
+              @成员 stop / pause 会暂停该成员；关闭后按普通内容处理
+            </span>
+          </span>
+        </label>
+
         <div className="max-h-48 overflow-y-auto space-y-1">
           {/* 当前成员（标记移除） */}
           {room.members.map((m) => {
@@ -2012,14 +2092,29 @@ function RoomEditDialog({
             return (
               <div key={m.member_id} className={cn('flex items-center justify-between px-2 py-1.5 rounded-md', marked ? 'opacity-40' : 'hover:bg-accent/30')}>
                 <span className="text-sm text-foreground">@{m.handle} · {m.display_name}</span>
-                <button
-                  className="p-1 rounded hover:bg-destructive/20"
-                  title={marked ? '撤销移除' : '移除成员'}
-                  onClick={() => setPendingRemove((cur) =>
-                    marked ? cur.filter((id) => id !== m.member_id) : [...cur, m.member_id])}
-                >
-                  {marked ? <UserPlus size={13} className="text-foreground" /> : <UserMinus size={13} className="text-destructive" />}
-                </button>
+                <span className="flex items-center gap-0.5">
+                  {/* 🔴 2026-10-24（Hermes group-compress #102291）：成员的
+                      `Group:` 隐藏会话在别处不可达，由房间设置提供压缩入口。 */}
+                  <button
+                    className="p-1 rounded hover:bg-accent/50 disabled:opacity-40"
+                    title={`压缩 @${m.handle} 的成员历史`}
+                    aria-label={`压缩历史：${m.handle}`}
+                    disabled={compressing !== null}
+                    onClick={() => void compressMember(m.member_id, m.handle)}
+                  >
+                    {compressing === m.member_id
+                      ? <Loader size={13} className="animate-spin text-muted-foreground" />
+                      : <History size={13} className="text-muted-foreground" />}
+                  </button>
+                  <button
+                    className="p-1 rounded hover:bg-destructive/20"
+                    title={marked ? '撤销移除' : '移除成员'}
+                    onClick={() => setPendingRemove((cur) =>
+                      marked ? cur.filter((id) => id !== m.member_id) : [...cur, m.member_id])}
+                  >
+                    {marked ? <UserPlus size={13} className="text-foreground" /> : <UserMinus size={13} className="text-destructive" />}
+                  </button>
+                </span>
               </div>
             );
           })}
