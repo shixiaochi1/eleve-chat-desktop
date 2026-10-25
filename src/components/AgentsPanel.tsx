@@ -248,6 +248,19 @@ export default function AgentsPanel(props: AgentsPanelProps) {
             )}
           >
             {banner.text}
+            {/* 🔴 2026-10-25：远端私聊打开失败的分类动作——错误文案已点名
+                Gateways 设置时给一键入口，而不是让用户自己找面板。 */}
+            {banner.kind === 'error' && /Gateways 设置|网关设置/.test(banner.text) && (
+              <button
+                className="ml-2 underline hover:text-foreground"
+                onClick={() => {
+                  getPluginHost()?.setPanel('gateway');
+                  setBanner(null);
+                }}
+              >
+                打开网关设置
+              </button>
+            )}
             <button className="ml-2 underline hover:text-foreground" onClick={() => setBanner(null)}>
               关闭
             </button>

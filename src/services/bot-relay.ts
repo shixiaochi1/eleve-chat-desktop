@@ -22,6 +22,11 @@ import { fetchBotsRoster, type BotRosterEntry } from '../utils/api';
 // 独立模块：`plugins/bots/state.ts` 反向依赖本文件（fetchUnionRoster），
 // 两处不能共用同一个 store 文件（会成环）。
 import { attentionKey, clearBotAttention, noteBotAttention } from '../hooks/useBotAttention';
+import {
+  clearPeerApproval,
+  clearPeerApprovalRequest,
+  notePeerApproval,
+} from '../plugins/bots/peerApprovals';
 
 // ── 节奏常量（对齐 relay.ts）──
 const RELAY_ROSTER_INTERVAL_MS = 60_000;
@@ -196,7 +201,11 @@ async function drainRelayOutboxes(): Promise<void> {
   drainBusy = true;
   try {
     const connections = relayConnections();
-    if (connections.length < 2) return;
+    if (connections.length < 2) {
+      // 单连接也要跑房间卡裁决 outbox（本地权威 + 已回连的 target 场景）。
+      void drainPeerApprovalOutbox();
+      return;
+    }
     const byId = new Map(connections.map(c => [c.id, c]));
 
     for (const sender of connections) {
@@ -276,6 +285,8 @@ async function drainRelayOutboxes(): Promise<void> {
 
     // 🔴 stage-5 P1-b：authority 的 remote 成员轮投递队列（hosted rooms）
     void drainPeerDispatches();
+    // 🔴 2026-10-25：房间卡裁决 outbox → target approve（remote approval 闭环）
+    void drainPeerApprovalOutbox();
     // 🔴 round-94：投递之前先确保**票已就位**（无票 authority 直接
     // turn.failed，根本不会产出 dispatch 行——补票只能前置）
     void syncRoomGrants();
@@ -327,10 +338,26 @@ interface PeerTurnStatus {
     max_id: number;
     rows: Array<{ id: number; text: string }>;
   };
+  /** 🔴 2026-10-25：target 成员轮的待决审批（running 帧；Desktop 展示后
+   *  调 target `bot.rooms.peer.approve` 转发裁决）。 */
+  pending_approval?: {
+    request_id: string;
+    command: string;
+    description: string;
+    pattern_key: string;
+    allow_session: boolean;
+    allow_permanent: boolean;
+  };
 }
 
 /** 在飞轮询防重入（dispatchId → true） */
 const dispatchPollers = new Map<string, boolean>();
+/** 已向 authority 镜像过的远端审批（`dispatch:request`；防每 tick 重报） */
+const notedPeerApprovals = new Set<string>();
+/** dispatch → 最近一次已镜像的 request_id（target 审批消失时用于清房间卡）。 */
+const notedApprovalRequests = new Map<string, string>();
+/** 正在转发的房间卡裁决（`room:request`；防 take/ack 并发重入） */
+const forwardingApprovals = new Set<string>();
 export const PEER_POLL_INTERVAL_MS = 5_000;
 /** 366 × 5s = 1830s = 后端 **`ROOM_TURN_TIMEOUT_SECONDS`**（hosted room
  *  单成员轮预算，对齐 Hermes `hosted_room_driver.py:107 turn_timeout_seconds`）。
@@ -439,31 +466,67 @@ async function syncReplicasUnlocked(): Promise<void> {
       continue;
     }
     try {
-      const [roomRes, evRes] = await Promise.all([
-        requestForBot<{ rooms?: Array<{ room_id: string; name: string; members?: unknown[] }> }>(
-          routeOf(authority), 'bot.rooms.list', {}, 15_000,
-        ),
-        requestForBot<{ events?: unknown[] }>(
-          routeOf(authority), 'bot.rooms.events', { room_id: t.roomId, since_seq: 0, limit: 500 }, 15_000,
-        ),
-      ]);
+      const roomRes = await requestForBot<{
+        rooms?: Array<{
+          room_id: string;
+          name: string;
+          members?: unknown[];
+          authority_epoch?: number;
+          authority_gateway_id?: string;
+        }>;
+      }>(routeOf(authority), 'bot.rooms.list', {}, 15_000);
       const room = roomRes?.rooms?.find(r => r.room_id === t.roomId);
       if (!room) continue; // authority 侧房间已散（disband/接管转移）——副本保留
-      await requestForBot(
-        routeOf(target),
-        'bot.rooms.replica.ingest',
-        {
-          meta: {
-            room_id: t.roomId,
-            room_name: room.name,
-            members_json: JSON.stringify(room.members ?? []),
-            authority_gateway_id: t.authorityId,
-            authority_epoch: 1,
-          },
-          events: evRes?.events ?? [],
-        },
-        15_000,
-      );
+      const meta = {
+        room_id: t.roomId,
+        room_name: room.name,
+        members_json: JSON.stringify(room.members ?? []),
+        // 🔴 2026-10-25：副本不是恒 epoch 1——必须带 authority 的真实
+        // epoch/gateway id，否则 promote 后的 fencing 代次与 authority 分叉。
+        authority_gateway_id: room.authority_gateway_id ?? t.authorityId,
+        authority_epoch: Number(room.authority_epoch ?? 1),
+      };
+      // 🔴 2026-10-25：不再只拉第一页。先问 target 已到哪一 seq，再按
+      // `has_more` 逐页补齐——此前恒 since_seq=0/limit=500，500 条后的
+      // 事件永远不会进副本，promote 后日志出洞。
+      let since = 0;
+      try {
+        const st = await requestForBot<{ last_seq?: number }>(
+          routeOf(target),
+          'groups.replica_state',
+          { room_id: t.roomId },
+          10_000,
+        );
+        since = Number(st?.last_seq ?? 0);
+      } catch {
+        // 新副本/旧 target：从头拉
+      }
+      let pages = 0;
+      let firstPage = true;
+      while (pages < 40) {
+        const evRes = await requestForBot<{ events?: unknown[]; has_more?: boolean }>(
+          routeOf(authority),
+          'bot.rooms.events',
+          { room_id: t.roomId, since_seq: since, limit: 500 },
+          15_000,
+        );
+        const events = evRes?.events ?? [];
+        // 空房间也要 ingest 一次 meta（否则 target 不知道怎么 promote 空房）。
+        if (!events.length && !firstPage) break;
+        await requestForBot(
+          routeOf(target),
+          'bot.rooms.replica.ingest',
+          { meta, events },
+          15_000,
+        );
+        firstPage = false;
+        if (!events.length || !evRes?.has_more) break;
+        const last = events[events.length - 1] as { seq?: number } | undefined;
+        const next = Number(last?.seq ?? since);
+        if (!Number.isFinite(next) || next <= since) break;
+        since = next;
+        pages += 1;
+      }
     } catch {
       // authority/target 暂不可达——下轮重试
     }
@@ -671,13 +734,80 @@ async function deliverPeerDispatch(authority: { id: string; remote: RemoteConnec
           { grant_token: d.grant_token, dispatch: dispatchPayloadOf(d), since_seq: 0 },
         );
         const st = res?.status;
+        if (st?.state === 'running') {
+          // 🔴 2026-10-25：target 成员轮抛出的审批 → 登记到 Desktop 的
+          // 待决集合（App 级 Modal）。没有审批 = 清掉该 dispatch 的旧卡。
+          const pa = st.pending_approval;
+          const payload = dispatchPayloadOf(d);
+          if (pa && payload) {
+            const taskId = String(payload.task_id ?? d.turn_id ?? '');
+            const generation = Number(payload.execution_generation ?? 1);
+            notePeerApproval({
+              dispatchId: d.id,
+              targetConnId: target.id,
+              authorityConnId: authority.id,
+              grantToken: d.grant_token,
+              dispatch: payload,
+              prompt: d.prompt,
+              requestId: pa.request_id,
+              command: pa.command,
+              description: pa.description,
+              memberId: d.member_id,
+              memberProfile: d.member_profile,
+              roomId: d.room_id,
+              taskId,
+              executionGeneration: generation,
+            });
+            // 🔴 2026-10-25：把远端审批镜像到 authority 房间时间线（幂等；
+            // 同一 request 只报一次）。authority 落 interaction.request 卡，
+            // 用户也可在房间内裁决。
+            const noteKey = `${d.id}:${pa.request_id}`;
+            const previousRequest = notedApprovalRequests.get(d.id);
+            if (previousRequest && previousRequest !== pa.request_id) {
+              // target 换了审批：旧的房间卡先清掉，避免两卡并存点到已失效的那张。
+              await clearAuthorityApproval(d.room_id, authority, d.id);
+            }
+            if (!notedPeerApprovals.has(noteKey)) {
+              notedPeerApprovals.add(noteKey);
+              notedApprovalRequests.set(d.id, pa.request_id);
+              void requestForBot(
+                routeOf(authority),
+                'bot.rooms.peer.approval.note',
+                {
+                  room_id: d.room_id,
+                  dispatch_id: d.id,
+                  request_id: pa.request_id,
+                  target_conn_id: target.id,
+                  member_id: d.member_id,
+                  task_id: taskId,
+                  execution_generation: generation,
+                  command: pa.command,
+                  description: pa.description,
+                },
+                10_000,
+              ).catch(() => {
+                // authority 暂不可达——下一轮 target status 会再次触发（清 key）
+                notedPeerApprovals.delete(noteKey);
+                notedApprovalRequests.delete(d.id);
+              });
+            }
+          } else {
+            await clearAuthorityApproval(d.room_id, authority, d.id);
+            clearPeerApproval(d.id);
+          }
+          continue;
+        }
         if (st?.state === 'completed') {
+          await clearAuthorityApproval(d.room_id, authority, d.id);
+          clearPeerApproval(d.id);
           // 🔴 2026-10-25：把 target 采的外部写入快照一并转回 authority
           // （远端成员会话只在 target 可读——这是唯一能跨机回填的通道）。
           await postResult({ reply: String(st.reply || ''), external: st.external });
           return;
         }
         if (st?.state === 'cancelled') {
+          await clearAuthorityApproval(d.room_id, authority, d.id);
+          clearPeerApproval(d.id);
           await postResult({ error: 'cancelled by authority stop fence' });
           return;
         }
@@ -685,9 +815,110 @@ async function deliverPeerDispatch(authority: { id: string; remote: RemoteConnec
         // 目标暂不可达——预算内继续重试
       }
     }
+    await clearAuthorityApproval(d.room_id, authority, d.id);
+    clearPeerApproval(d.id);
     await postResult({ error: 'member turn did not finish within budget' });
   } finally {
     dispatchPollers.delete(d.id);
+  }
+}
+
+interface RemoteApprovalOutboxItem {
+  room_id: string;
+  request_id: string;
+  choice: 'once' | 'deny';
+  target_conn_id: string;
+  dispatch_id: string;
+  member_id: string;
+  member_profile: string;
+  grant_token: string;
+  dispatch: Record<string, unknown>;
+  prompt: string;
+}
+
+/** 🔴 2026-10-25：房间卡裁决 → target approve → authority ack 的单步转发。 */
+/** target 审批消失（完成/取消/另一客户端已裁决）→ 清 authority 房间卡。 */
+async function clearAuthorityApproval(
+  roomId: string,
+  authority: { id: string; remote: RemoteConnection | null },
+  dispatchId: string,
+): Promise<void> {
+  const requestId = notedApprovalRequests.get(dispatchId);
+  if (!requestId) return;
+  try {
+    await requestForBot(
+      routeOf(authority),
+      'bot.rooms.peer.approval.clear',
+      { room_id: roomId, request_id: requestId },
+      10_000,
+    );
+    notedApprovalRequests.delete(dispatchId);
+    notedPeerApprovals.delete(`${dispatchId}:${requestId}`);
+  } catch {
+    /* authority 暂不可达：保留映射，下一轮 continue 前还会重试 */
+  }
+}
+
+async function drainPeerApprovalOutbox(): Promise<void> {
+  for (const authority of relayConnections()) {
+    let items: RemoteApprovalOutboxItem[] = [];
+    try {
+      const res = await requestForBot<{ items?: RemoteApprovalOutboxItem[] }>(
+        routeOf(authority), 'bot.rooms.peer.approval.take', { limit: 20 }, 10_000,
+      );
+      items = Array.isArray(res?.items) ? res.items : [];
+    } catch {
+      continue; // 旧后端/离线
+    }
+    for (const item of items) {
+      const key = `${item.room_id}:${item.request_id}`;
+      if (!item?.dispatch_id || !item?.request_id || forwardingApprovals.has(key)) continue;
+      forwardingApprovals.add(key);
+      try {
+        let target: { id: string; remote: RemoteConnection | null } | null =
+          relayConnections().find(c => c.id === item.target_conn_id) || null;
+        if (!target) {
+          target = findConnectionForProfile(item.member_profile).conn ?? null;
+        }
+        if (!target) {
+          forwardingApprovals.delete(key);
+          continue;
+        }
+        let forwarded = false;
+        try {
+          await requestForBot(
+            routeOf(target),
+            'bot.rooms.peer.approve',
+            {
+              grant_token: item.grant_token,
+              dispatch: item.dispatch,
+              prompt: item.prompt,
+              request_id: item.request_id,
+              choice: item.choice,
+            },
+            30_000,
+          );
+          forwarded = true;
+        } catch (e) {
+          // target 已收口/已裁决 = 视为成功（幂等重试）；其他错误留给下轮。
+          const msg = e instanceof Error ? e.message : String(e);
+          if (/no longer pending|not pending|已过期|resolved/i.test(msg)) forwarded = true;
+        }
+        if (!forwarded) continue;
+        await requestForBot(
+          routeOf(authority),
+          'bot.rooms.peer.approval.ack',
+          { room_id: item.room_id, request_id: item.request_id },
+          10_000,
+        ).catch(() => {});
+        // 房间卡已裁决 → Desktop Modal 同步清卡（用户可能在房间内点的）。
+        clearPeerApprovalRequest(item.dispatch_id, item.request_id);
+        notedPeerApprovals.delete(`${item.dispatch_id}:${item.request_id}`);
+        notedApprovalRequests.delete(item.dispatch_id);
+      } finally {
+        forwardingApprovals.delete(key);
+      }
+    }
   }
 }
 

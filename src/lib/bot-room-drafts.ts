@@ -25,6 +25,10 @@ export interface BotRoomDraft {
   replies: Record<string, string>;
   /** 主输入框待发附件（对齐 Hermes `pendingAttachments`） */
   attachments: RoomAttachmentDraft[];
+  /** 🔴 2026-10-25：线程回复框待发附件，按 thread id 分桶（对齐 Hermes
+   *  `group-chat-view.tsx:1452` 的 per-thread drop target——在此之前 ELEVE
+   *  线程回复只能发文字，图片只能另开新线程）。 */
+  threadAttachments: Record<string, RoomAttachmentDraft[]>;
   /**
    * 正在"回复中"的线程 = 该线程显示回复输入框（`null` = 各线程只显示"回复"链接）。
    *
@@ -46,6 +50,7 @@ function emptyDraft(): BotRoomDraft {
     main: '',
     replies: {},
     attachments: [],
+    threadAttachments: {},
     activeReplyThread: null,
     revision: 0,
   };
@@ -57,6 +62,9 @@ function cloneDraft(d: BotRoomDraft): BotRoomDraft {
     main: d.main,
     replies: { ...(d.replies || {}) },
     attachments: [...(d.attachments || [])],
+    threadAttachments: Object.fromEntries(
+      Object.entries(d.threadAttachments || {}).map(([k, v]) => [k, [...v]]),
+    ),
     activeReplyThread: d.activeReplyThread ?? null,
     revision: d.revision,
   };
@@ -82,6 +90,12 @@ export function patchBotRoomDraft(
     main: patch.main ?? current.main,
     replies: { ...(patch.replies ?? current.replies) },
     attachments: [...(patch.attachments ?? current.attachments)],
+    threadAttachments: Object.fromEntries(
+      // 兼容旧持久化草稿（无该字段）——旧条目不能让线程回复框初始化即崩。
+      Object.entries(patch.threadAttachments ?? current.threadAttachments ?? {}).map(
+        ([k, v]) => [k, [...v]],
+      ),
+    ),
     // 🔴 round-119：`null` 是**合法值**（= 收起回复框），故不能用 `??`
     // （它会把显式清空吞成"保持原值"）——必须按 `undefined` 区分"未传"与"传 null"。
     activeReplyThread:

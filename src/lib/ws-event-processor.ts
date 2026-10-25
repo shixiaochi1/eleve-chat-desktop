@@ -207,7 +207,15 @@ export function finalizeAccumulator(acc: StreamAccumulator): ChatMessagePart[] {
 
 /** 归一化的 pending 交互对象（两视图共用） */
 export interface PendingInteractions {
-  approval?: { command: string; description: string; pattern: string; choices: string[]; run_id: string };
+  approval?: {
+    command: string;
+    description: string;
+    pattern: string;
+    choices: string[];
+    run_id: string;
+    /** 🔴 后端待决条目唯一 ID（定向决议；旧快照/后端可能没有） */
+    request_id?: string;
+  };
   clarify?: { clarify_id: string; question: string; choices: string[]; multi_select?: boolean };
   /** 🔴 2026-08-23：批量澄清表单（questions 存在时走 clarify_batch，刷新恢复用） */
   clarify_batch?: {
@@ -224,7 +232,8 @@ export interface PendingInteractions {
  * 从 session.info 的 pending_prompts 提取归一化交互对象。
  *
  * 后端 pending_prompts 字段名与前端状态字段名不一致：
- *   - approval.request_id → run_id
+ *   - approval.run_id  = 会话 ID（`fallbackRunId`，即 session_id）
+ *   - approval.request_id 保持原义 = 待决条目 ID（定向决议用）
  *   - sudo_password.sudo_id → request_id
  *   - secret_capture.secret_id → request_id
  *   - slash_confirm.confirm_id → confirmId
@@ -248,7 +257,8 @@ export function extractPendingInteractions(
       description: (pp.approval.description as string) || '',
       pattern: (pp.approval.pattern as string) || '',
       choices: (pp.approval.choices as string[]) || ['once', 'session', 'deny'],
-      run_id: fallbackRunId || (pp.approval.request_id as string) || '',
+      run_id: fallbackRunId || '',
+      request_id: (pp.approval.request_id as string) || '',
     };
     hasAny = true;
   }

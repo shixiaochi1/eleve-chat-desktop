@@ -25,7 +25,7 @@ import {
 import { formatRowAge } from '../utils/time';
 import {
   ROOM_MEMBER_MAX, ROOM_MEMBER_MIN,
-  findMemberRoster, memberAvailability, memberPickLabel, pickableMembers,
+  findMemberRoster, memberAvailability, memberPickLabel, mentionTagForms, pickableMembers,
 } from '../lib/bot-members';
 // 🔴 round-120：线程**布局**（到达顺序 + 每线程收尾位置；见 lib/bot-threads.ts）
 import { LEGACY_THREAD, threadLayout } from '../lib/bot-threads';
@@ -70,6 +70,7 @@ import {
   type UnionRosterRow,
 } from '../plugins/bots/state';
 import RemoteBotChatView from './RemoteBotChatView';
+import { setActiveRoomId } from '../plugins/bots/active-room';
 import RoomImageControls from './RoomImageControls';
 import MessageRow from './MessageRow';
 import ClarifyCard from './ClarifyCard';
@@ -153,6 +154,13 @@ export default function BotsRoomMainView() {
   // "点远端 bot 行 = 打开远端 chat"）——BotsPane.openRemoteBotChat 置位。
   // 此分支在全部 hooks 之后、任何条件 return 之前（hooks 顺序恒定）。
   const remoteChat = useRemoteChat();
+  // 🔴 2026-10-25：房间视图真正可见时，远端审批由房间卡承载；Desktop
+  // Modal 只在该房间不可见时出现（避免同一 decision 两张卡）。远端私聊
+  // 分支不显示房间卡 → 视为房间不可见，让 Modal 接管。
+  useEffect(() => {
+    setActiveRoomId(remoteChat ? null : selectedRoomId);
+    return () => setActiveRoomId(null);
+  }, [remoteChat, selectedRoomId]);
   if (remoteChat) {
     return <RemoteBotChatView chat={remoteChat} onBack={closeRemoteChat} />;
   }
@@ -229,6 +237,10 @@ function BotsRoomView({ room, roster, onBack }: {
   const [threadDrafts, setThreadDrafts] = useState<Record<string, string>>(
     () => botRoomDraftSnapshot(room.room_id).replies,
   );
+  // 🔴 2026-10-25：线程回复的待发附件（按 thread 分桶，与草稿同库、切房不丢）。
+  const [threadAttachments, setThreadAttachments] = useState<
+    Record<string, RoomAttachmentDraft[]>
+  >(() => botRoomDraftSnapshot(room.room_id).threadAttachments);
   // 🔴 round-120：**线程折叠已退役**——Hermes 明确"线程 id 只限定回复与 prompt 的
   // 作用域，**不限定可见性**"（`group-chat-view.tsx:1044-1046`："a newer topic must
   // never hide a member's completed answer or move it ahead of intervening messages"）。
@@ -644,11 +656,15 @@ function BotsRoomView({ room, roster, onBack }: {
   const [attachments, setAttachments] = useState<RoomAttachmentDraft[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const addFiles = useCallback(async (files: FileList | File[] | null) => {
-    if (!files || !files.length) return;
+  /** 文件 → 附件草稿（主输入框与线程回复共用同一套校验/缩略图逻辑）。 */
+  const readAttachmentDrafts = useCallback(async (
+    files: FileList | File[] | null,
+    existing: number,
+  ): Promise<RoomAttachmentDraft[]> => {
+    if (!files || !files.length) return [];
     const picked: RoomAttachmentDraft[] = [];
     for (const f of Array.from(files)) {
-      if (picked.length + attachments.length >= 4) {
+      if (picked.length + existing >= 4) {
         setError('最多 4 个附件');
         break;
       }
@@ -670,14 +686,47 @@ function BotsRoomView({ room, roster, onBack }: {
       if (kind === 'image') thumb = await makeImageThumb(data);
       picked.push({ name: f.name || 'file', kind, thumb, data });
     }
-    if (picked.length) {
-      setAttachments((cur) => {
-        const next = [...cur, ...picked].slice(0, 4);
-        patchBotRoomDraft(room.room_id, { attachments: next });
-        return next;
-      });
-    }
-  }, [attachments.length]);
+    return picked;
+  }, []);
+
+  const addFiles = useCallback(async (files: FileList | File[] | null) => {
+    const picked = await readAttachmentDrafts(files, attachments.length);
+    if (!picked.length) return;
+    setAttachments((cur) => {
+      const next = [...cur, ...picked].slice(0, 4);
+      patchBotRoomDraft(room.room_id, { attachments: next });
+      return next;
+    });
+  }, [attachments.length, readAttachmentDrafts, room.room_id]);
+
+  /** 线程回复框加附件（对齐 Hermes `group-chat-view.tsx:1452` 的 per-thread 目标）。 */
+  const addThreadFiles = useCallback(async (
+    thread: string,
+    files: FileList | File[] | null,
+  ) => {
+    const existing = threadAttachments[thread]?.length ?? 0;
+    const picked = await readAttachmentDrafts(files, existing);
+    if (!picked.length) return;
+    setThreadAttachments((cur) => {
+      const next = {
+        ...cur,
+        [thread]: [...(cur[thread] ?? []), ...picked].slice(0, 4),
+      };
+      patchBotRoomDraft(room.room_id, { threadAttachments: next });
+      return next;
+    });
+  }, [threadAttachments, readAttachmentDrafts, room.room_id]);
+
+  const removeThreadAttachment = useCallback((thread: string, index: number) => {
+    setThreadAttachments((cur) => {
+      const next = {
+        ...cur,
+        [thread]: (cur[thread] ?? []).filter((_, i) => i !== index),
+      };
+      patchBotRoomDraft(room.room_id, { threadAttachments: next });
+      return next;
+    });
+  }, [room.room_id]);
 
   const send = async () => {
     const text = draft.trim();
@@ -755,7 +804,8 @@ function BotsRoomView({ room, roster, onBack }: {
    *  与主 send 同款：忙态拦截、幂等键、失败恢复草稿。 */
   const sendInThread = async (thread: string) => {
     const text = (threadDrafts[thread] ?? '').trim();
-    if (!text || sending) return;
+    const atts = threadAttachments[thread] ?? [];
+    if ((!text && !atts.length) || sending) return;
     // 🔴 2026-10-24：线程回复同样不能派发斜杠命令（与主输入框同一判据）
     if (isGroupSlashCommand(text)) {
       notifyInfo(GROUP_SLASH_UNSUPPORTED);
@@ -769,10 +819,19 @@ function BotsRoomView({ room, roster, onBack }: {
     const beforeThread = botRoomDraftSnapshot(room.room_id);
     const clearedThread = patchBotRoomDraft(room.room_id, {
       replies: { ...threadDrafts, [thread]: '' },
+      threadAttachments: { ...threadAttachments, [thread]: [] },
     });
     setThreadDrafts((cur) => ({ ...cur, [thread]: '' }));
+    setThreadAttachments((cur) => ({ ...cur, [thread]: [] }));
     try {
-      const receipt = await sendBotRoomMessage(room.room_id, text, clientEventId, undefined, thread);
+      // 只有附件时用占位文本（与主输入框 `（附件）` 同款，后端拒绝空正文）。
+      const receipt = await sendBotRoomMessage(
+        room.room_id,
+        text || '（附件）',
+        clientEventId,
+        atts,
+        thread,
+      );
       // 🔴 2026-09-15（D2）：与主 send 同款——回执（完整事件行）直接并入事件流做即时回显
       mergeEvents([receipt]);
       clearRoomNeedsYou(room.room_id);
@@ -787,8 +846,10 @@ function BotsRoomView({ room, roster, onBack }: {
       );
       if (restoredThread) {
         setThreadDrafts(restoredThread.replies);
+        setThreadAttachments(restoredThread.threadAttachments);
       } else {
         setThreadDrafts((cur) => ({ ...cur, [thread]: text }));
+        setThreadAttachments((cur) => ({ ...cur, [thread]: atts }));
       }
     } finally {
       setSending(false);
@@ -1239,10 +1300,15 @@ function BotsRoomView({ room, roster, onBack }: {
             </button>
           </div>
         )}
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-1">
-          <Bot size={12} />
-          <span>群聊已创建 · @提及成员、或直接发言（默认全员回应）</span>
-        </div>
+        {/* 🔴 2026-10-25：空态提示只在**真无任何事件**时显示（对齐 Hermes
+            `group-chat-view.tsx:1474-1487` 的 `room.log.length === 0` 判据）——
+            长会话顶部不再常驻一行噪音。 */}
+        {windowedEvents.length === 0 && (
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-1">
+            <Bot size={12} />
+            <span>群聊已创建 · @提及成员、或直接发言（默认全员回应）</span>
+          </div>
+        )}
         {/* 🔴 2026-09-05 round-48：渲染窗口上限（对齐 Hermes GROUP_CHAT_HISTORY_LIMIT
             的窗口化思路；长房间事件流不无限增长 DOM）——完整日志仍在后端。
             🔴 round-120：**按到达顺序**渲染（不再按线程分组/排序/折叠）——对齐 Hermes
@@ -1281,11 +1347,21 @@ function BotsRoomView({ room, roster, onBack }: {
                     const atts = Array.isArray(ev.payload.attachments) ? (ev.payload.attachments as Array<{ name?: string; kind?: string; thumb?: string }>) : [];
                     const attachmentRefs = atts.map((a) => a.thumb || a.name || 'file');
                     return (
-                      <div key={ev.seq} className="flex flex-col items-end">
+                      <div key={ev.seq} className="group/msg flex flex-col items-end">
                         {/* 🔴 round-78d：时间戳（对齐 Hermes 消息 log 带 at——异步多轮讨论
-                            需判读消息新旧；此前两种气泡零时间信息） */}
-                        <span className="text-[10px] text-muted-foreground/60 mb-0.5 px-1">
+                            需判读消息新旧；此前两种气泡零时间信息）。
+                            🔴 2026-10-25：用户消息也补 hover/键盘复制（对齐 Hermes
+                            `group-chat-view.tsx:1301-1318`——user 条目不给 Reply，但给 Copy）。 */}
+                        <span className="flex items-center gap-1 text-[10px] text-muted-foreground/60 mb-0.5 px-1">
                           {formatMessageTime(ev.created_at)}
+                          <button
+                            type="button"
+                            className="p-0.5 rounded opacity-0 group-hover/msg:opacity-100 focus:opacity-100 hover:bg-accent/70 text-muted-foreground hover:text-foreground transition-opacity"
+                            title="复制"
+                            onClick={() => void navigator.clipboard?.writeText(String(ev.payload.text ?? ''))}
+                          >
+                            <Copy size={10} />
+                          </button>
                         </span>
                         <div className="w-full max-w-[85%] [&>div]:items-end">
                           {/* 🔴 2026-10-24：用户消息里的 @提及同样染 accent
@@ -1350,7 +1426,10 @@ function BotsRoomView({ room, roster, onBack }: {
                           {/* 🔴 2026-10-24：hover 操作（对齐 Hermes group-chat-view.tsx:1301-1320
                               Reply/Copy）——Reply 把 `@handle ` 种子进该条所属线程的回复框
                               （主时间线落主 composer）；Copy 复制原文（mention 装饰不改文本）。 */}
-                          <span className="ml-1 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                          {/* 🔴 2026-10-25：键盘可达（对齐 Hermes `group-chat-view.tsx:1302`
+                              的 `focus-within:opacity-100 / pointer-events-auto`）——
+                              纯 hover 时 Tab 聚焦到按钮却仍不可见。 */}
+                          <span className="ml-1 inline-flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto">
                             <button
                               type="button"
                               className="p-0.5 rounded hover:bg-accent/70 text-muted-foreground hover:text-foreground"
@@ -1395,6 +1474,32 @@ function BotsRoomView({ room, roster, onBack }: {
                         — 讨论已停止（成员保持暂停 —— 说「resume」或直接 @ 某成员可恢复）—
                       </div>
                     );
+                  }
+                  // 🔴 2026-10-25（对齐 Hermes `group-chat-parts.tsx:443-459`）：
+                  // 澄清/审批答完回显——此前卡片提交即消失，时间线无法回溯
+                  // "当时选了什么"。答案由后端随 `interaction.resolved` 落库。
+                  if (ev.kind === 'interaction.resolved') {
+                    const status = String(ev.payload.status ?? '');
+                    const mid = String(ev.payload.member_id ?? '');
+                    const member = room.members.find((m) => m.member_id === mid);
+                    const who = member ? `@${member.handle}` : `@已移除成员(${mid.slice(0, 8)})`;
+                    const answer = String(ev.payload.answer ?? '').trim();
+                    if (status === 'answered' && answer) {
+                      const digest = answer.length > 200 ? `${answer.slice(0, 200)}…` : answer;
+                      return (
+                        <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">
+                          — {who} 的提问已答：<span className="text-foreground/80 whitespace-pre-wrap break-words" title={answer}>{digest}</span> —
+                        </div>
+                      );
+                    }
+                    if (ev.payload.kind === 'approval' && (status === 'once' || status === 'deny')) {
+                      return (
+                        <div key={ev.seq} className="text-center text-[11px] text-muted-foreground/70 py-0.5">
+                          — {who} 的审批已{status === 'once' ? '批准' : '拒绝'} —
+                        </div>
+                      );
+                    }
+                    return null;
                   }
                   if (ev.kind === 'room.disbanded') {
                     return <div key={ev.seq} className="text-center text-[11px] text-destructive py-0.5">— 群聊已解散 —</div>;
@@ -1536,6 +1641,9 @@ function BotsRoomView({ room, roster, onBack }: {
                     }
                     onSubmit={() => void sendInThread(thread)}
                     busy={sending}
+                    attachments={threadAttachments[thread] ?? []}
+                    onAddFiles={(files) => void addThreadFiles(thread, files)}
+                    onRemoveAttachment={(index) => removeThreadAttachment(thread, index)}
                   />
                 ) : (
                   <ThreadReplyLink
@@ -1561,8 +1669,11 @@ function BotsRoomView({ room, roster, onBack }: {
           // 🔴 阶段2 统一（frontend-chat-unification-2026-09-09）：clarify 分支
           // 换装 ClarifyCard（提交通道注入 respondBotRoomInteraction——round-78d
           // 房间域转交通道），与单视图/宫格同一交互卡渲染原语。单选项即提交、
-          // 手动输入兜底、过期折叠态全部免费获得。multiSelect 不传（原手写卡
-          // 亦无多选语义——房间后端 interact_respond 按 answer 原文转交）。
+          // 手动输入兜底、过期折叠态全部免费获得。
+          // 🔴 2026-10-25：**multiSelect 必须透传**（此前恒当单选）——后端
+          // `InteractionRequest::Clarify{multi_select}` 已下发，丢弃会让多选
+          // 请求只回一个值、答案错但不报错。批量多题（questions[]）后端不产，
+          // 保持单题渲染。
           if (p.kind === 'clarify') {
             return (
               <div key={`interact-${requestId}`} className="max-w-[85%] self-center w-full">
@@ -1570,6 +1681,7 @@ function BotsRoomView({ room, roster, onBack }: {
                   clarifyId={requestId}
                   question={p.question}
                   choices={p.choices}
+                  multiSelect={p.multiSelect}
                   title={`${label} 需要你的澄清`}
                   submit={async (resp) => {
                     const ok = await respondBotRoomInteraction(requestId, resp, {
@@ -1599,10 +1711,12 @@ function BotsRoomView({ room, roster, onBack }: {
                     <div className="text-xs text-muted-foreground break-words">{p.description}</div>
                   )}
                   <div className="flex flex-wrap gap-1.5">
+                    {/* 🔴 2026-10-25：房间审批只允许 once/deny（对齐 Hermes
+                        `hosted_room_service.py:515-516`）。会话侧的白名单选项
+                        （session/always）不得用于房间卡——否则会把"逐卡一次性"
+                        授权持久化进成员会话。 */}
                     {[
                       { c: 'once', label: '允许一次' },
-                      ...(p.allowSession ? [{ c: 'session', label: '本会话内允许' }] : []),
-                      ...(p.allowPermanent ? [{ c: 'always', label: '始终允许' }] : []),
                       { c: 'deny', label: '拒绝' },
                     ].map(({ c, label: bl }) => (
                       <button
@@ -1873,10 +1987,15 @@ function MentionTextarea({
       const handle = String(member.handle || '').trim();
       const display = String(member.display_name || handle).trim();
       if (!handle) continue;
+      // 🔴 2026-10-25：除 handle/display 外也匹配友好名的 slug/collapsed
+      // （对齐 Hermes `botMentionTag`）——改名后用户按新名字也能搜到；
+      // 选中仍插入 handle（后端 mention 解析只认 handle/display）。
+      const tagForms = mentionTagForms(display);
       if (
         token.query &&
         !handle.toLowerCase().startsWith(token.query) &&
-        !display.toLowerCase().startsWith(token.query)
+        !display.toLowerCase().startsWith(token.query) &&
+        !tagForms.some((t) => t.startsWith(token.query))
       ) {
         continue;
       }
@@ -2199,23 +2318,85 @@ function ThreadReplyBox({
   onChange,
   onSubmit,
   busy,
+  attachments,
+  onAddFiles,
+  onRemoveAttachment,
 }: {
   members: BotRoom['members'];
   value: string;
   onChange: (v: string) => void;
   onSubmit: () => void;
   busy: boolean;
+  /** 🔴 2026-10-25：线程内附件（对齐 Hermes `group-chat-view.tsx:1394/1411/1452`
+   *  ——线程回复同样可附图，drop/paste 目标按 `replyThread` 分桶）。 */
+  attachments: RoomAttachmentDraft[];
+  onAddFiles: (files: FileList | File[] | null) => void;
+  onRemoveAttachment: (index: number) => void;
 }) {
+  const fileRef = useRef<HTMLInputElement | null>(null);
   return (
     <div className="composer-surface relative rounded-2xl border mt-1.5">
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap gap-2 px-(--composer-surface-pad-x) pt-2">
+          {attachments.map((a, i) => (
+            <div key={`${a.name}-${i}`} className="relative group">
+              {a.thumb ? (
+                <img
+                  src={a.thumb}
+                  alt={a.name}
+                  className="h-14 w-14 object-cover rounded-md border border-[var(--ui-stroke-tertiary)]"
+                />
+              ) : (
+                <div className="h-14 px-2 flex items-center rounded-md border border-[var(--ui-stroke-tertiary)] bg-accent/40 text-[10px] text-muted-foreground max-w-32">
+                  <span className="truncate">{a.name}</span>
+                </div>
+              )}
+              <button
+                className="absolute -top-1.5 -right-1.5 p-0.5 rounded-full bg-background border border-[var(--ui-stroke-tertiary)] text-muted-foreground"
+                onClick={() => onRemoveAttachment(i)}
+                title="移除附件"
+                type="button"
+              >
+                <X size={10} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="flex items-end gap-2 px-(--composer-surface-pad-x) py-(--composer-surface-pad-y)">
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            onAddFiles(e.target.files);
+            e.target.value = '';
+          }}
+        />
+        <button
+          type="button"
+          className="inline-flex size-(--composer-control-size) shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground"
+          onClick={() => fileRef.current?.click()}
+          title="添加附件"
+          aria-label="Add attachment"
+        >
+          <Paperclip size={15} />
+        </button>
         <div className="min-w-0 flex-1">
           <MentionTextarea
             members={members}
             value={value}
             onChange={onChange}
             onSubmit={onSubmit}
-            placeholder="回复此线程…（输入 @ 唤起成员）"
+            onPaste={(e) => {
+              const fs = e.clipboardData?.files;
+              if (fs?.length) {
+                e.preventDefault();
+                onAddFiles(fs);
+              }
+            }}
+            placeholder="回复此线程…（输入 @ 唤起成员，可粘贴附件）"
           />
         </div>
         <button
@@ -2224,7 +2405,7 @@ function ThreadReplyBox({
             'bg-foreground text-background hover:bg-foreground/90 active:scale-90',
             'disabled:cursor-not-allowed disabled:bg-foreground/30 disabled:opacity-100 disabled:active:scale-100',
           )}
-          disabled={busy || !value.trim()}
+          disabled={busy || (!value.trim() && !attachments.length)}
           onClick={onSubmit}
           title={busy ? '发送中…' : '回复此线程'}
           aria-label="Reply in thread"

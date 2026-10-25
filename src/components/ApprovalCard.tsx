@@ -19,8 +19,20 @@ interface ApprovalCardProps {
   pattern?: string;
   choices?: string[];
   run_id?: string;  // 即 session_id，用于 WS approval.respond
+  /**
+   * 🔴 后端待决条目唯一 ID（对齐 Hermes `request_id`）。
+   * 带上它 = 只决议这一条，并发审批（并行 tool batch / 子 agent）不会误决别的卡片；
+   * 旧后端/旧快照没有该字段 → 不传，退回 session 级 FIFO 语义。
+   */
+  request_id?: string;
   /** 🔴 卡片归属 profile（宫格模式显式传入）；undefined 时 sendRpc 自动盖当前活跃 profile（单视图正确） */
   profile?: string;
+  /**
+   * 🔴 2026-10-25：远端会话注入的决议通道（默认走本机 `getWsClient`）。
+   * 远端 Bot Chat 的审批必须骑**目标连接**的 socket 发 `approval.respond`，
+   * 不能落到本机同会话 id（可能根本不存在）。
+   */
+  onSubmit?: (choice: string) => Promise<{ resolved?: number }>;
   onDone?: (choice: string) => void;
 }
 
@@ -31,7 +43,7 @@ const choiceLabels: Record<string, string> = {
   deny: '拒绝',
 };
 
-export default function ApprovalCard({ command, description, pattern, choices, run_id, profile, onDone }: ApprovalCardProps) {
+export default function ApprovalCard({ command, description, pattern, choices, run_id, request_id, profile, onSubmit, onDone }: ApprovalCardProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -50,13 +62,21 @@ export default function ApprovalCard({ command, description, pattern, choices, r
       // 🔴 对齐 Hermes: WS JSON-RPC approval.respond（非 HTTP POST）
       // Hermes 桌面端: gateway.request('approval.respond', { choice, session_id })
       // run_id 在 WS 路径中即为 session_id（approval_session_key）
-      const ws = getWsClient();
-      const res = await ws.sendRpc('approval.respond', {
-        session_id: run_id,
-        choice,
-        all: false,
-        profile, // 显式归属 profile（undefined → sendRpc 自动盖章）
-      }) as { resolved?: number };
+      // 🔴 2026-10-25：远端会话有注入通道时骑目标连接；否则走本机单视图通道。
+      let res: { resolved?: number };
+      if (onSubmit) {
+        res = await onSubmit(choice);
+      } else {
+        const ws = getWsClient();
+        res = await ws.sendRpc('approval.respond', {
+          session_id: run_id,
+          choice,
+          all: false,
+          // 定向决议（undefined 会被 JSON.stringify 丢弃 → 后端退回 session 级语义）
+          request_id: request_id || undefined,
+          profile, // 显式归属 profile（undefined → sendRpc 自动盖章）
+        }) as { resolved?: number };
+      }
       // 🔴 resolved=0 = 后端已无 pending（超时/中断已 deny）→ 折叠过期态
       if (typeof res?.resolved === 'number' && res.resolved === 0) {
         setExpired(true);
@@ -70,7 +90,7 @@ export default function ApprovalCard({ command, description, pattern, choices, r
     } finally {
       setSubmitting(false);
     }
-  }, [submitting, submitted, expired, onDone, run_id, profile]);
+  }, [submitting, submitted, expired, onDone, run_id, request_id, profile]);
 
   // ── 已完成折叠态 ──
   if (submitted) {

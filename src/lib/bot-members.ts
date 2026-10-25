@@ -18,6 +18,28 @@
 
 import type { UnionRosterRow } from '../plugins/bots/state';
 
+/**
+ * 🔴 2026-10-25（对齐 Hermes `mentionNameForms`，`data.ts:1184-1199`）：
+ * 成员改名（friendly display）后的 @ 补全匹配形式。
+ *
+ * Hermes 的补全按 `botMentionTag(member)`（友好名 slug）匹配并**插入**该 tag；
+ * ELEVE 的 mention 解析只认 handle/display_name，所以这里**只用于匹配**，
+ * 选中后仍插入 handle——既让"记得改名"的用户搜得到，又不产生无法路由的 @。
+ * 保留字（all/everyone/user/default/hermes/eleve）丢弃，防劫持全员/品牌句柄。
+ */
+export function mentionTagForms(displayName: string): string[] {
+  const name = String(displayName || '').trim().toLowerCase();
+  if (!name) return [];
+  const slug = name.replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+  const collapsed = name.replace(/[^a-z0-9_-]+/g, '');
+  return [...new Set([slug, collapsed])].filter(
+    (form) =>
+      form.length > 0 &&
+      /^[a-z0-9][a-z0-9_-]*$/.test(form) &&
+      !['all', 'everyone', 'user', 'default', 'hermes', 'eleve'].includes(form),
+  );
+}
+
 export interface MemberPickRow {
   /** 提交给后端的键（后端按 `profile` 匹配本地注册 / 远端 roster） */
   profile: string;

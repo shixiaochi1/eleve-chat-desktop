@@ -351,7 +351,7 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
   // 必须经 openLocalBotChat（ensure canonical → 清未读 → App.handleOpenBotChat）：
   // 直接 onSwitchSession 会绕过 registerBotChatSession + setWorkspaceOwner，
   // 右栏域/主区归属与 Agent 面板的私聊入口分叉（交接文档 §4-A）。
-  const handleOpenBotChatRow = useCallback((sid: string) => {
+  const handleOpenBotChatRow = useCallback((sid: string, title?: string) => {
     if (!onOpenBotChat) {
       onSwitchSession?.(sid); // 未注入时退化为普通切换（不产生平行实现）
       return;
@@ -359,7 +359,14 @@ export default function ProjectTreePanel({ sessionId, sessionListVersion, onSwit
     // 🔴 2026-10-23：已有 sid（当前 canonical / 压缩后的 #N）→ 直接打开，不再 ensure。
     // ensure 会解析到**当前** canonical——点旧行会错误跳到新会话（"新话题"轮转后尤其明显）。
     if (sid) {
-      if (currentProfile) markBotRead(currentProfile, sid); // 本地乐观 + 后端水位线
+      // 🔴 2026-10-24（前端对齐 Hermes canonical-chat 的 lineage 语义）：
+      // 只有**当前 canonical**（标题精确 "Bot Chat"）才推进已读水位线。
+      // `Bot Chat #N` 是轮转后的历史会话——它不再接收新 DM，本身没有未读；
+      // 若仍调 markBotChatRead(profile)，会把**新 canonical** 的 last_read_at
+      // 一并推进（用户只是翻旧记录，却把当前私聊的红点清掉）。
+      if (currentProfile && (title === undefined || title === 'Bot Chat')) {
+        markBotRead(currentProfile, sid); // 本地乐观 + 后端水位线
+      }
       onOpenBotChat(sid);
       return;
     }

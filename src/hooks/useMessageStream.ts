@@ -120,7 +120,7 @@ export interface UseMessageStreamProps {
     title?: string | null
     questions: { qid: string; id?: string | null; question: string; choices?: string[] | null; multi_select?: boolean }[]
   } | null) => void
-  setActiveApproval: (data: { session_id?: string; command: string; description: string; pattern: string; choices: string[]; run_id: string } | null) => void
+  setActiveApproval: (data: { session_id?: string; command: string; description: string; pattern: string; choices: string[]; run_id: string; request_id?: string } | null) => void
   setActiveSudo?: (data: { session_id?: string; request_id: string; prompt?: string } | null) => void
   setActiveSecret?: (data: { session_id?: string; request_id: string; prompt: string; env_var: string; metadata?: Record<string, unknown> } | null) => void
   /** 🔴 2026-08-17 阶段4：审批被其他路径响应后按会话关闭卡片（run_id = session_id） */

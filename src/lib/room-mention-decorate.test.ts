@@ -60,4 +60,17 @@ describe('splitMentionSegments', () => {
     expect(splitMentionSegments('没有提及', MEMBERS)).toEqual([{ text: '没有提及' }]);
     expect(splitMentionSegments('@nobody 不认识', MEMBERS)).toEqual([{ text: '@nobody 不认识' }]);
   });
+
+  it('尾部标点与后端清洗同规则：@bob. / @alice: 仍染色，标点留正文', () => {
+    expect(splitMentionSegments('@alice. 继续', MEMBERS)).toEqual([
+      { text: '@alice', kind: 'agent' },
+      { text: '. 继续' },
+    ]);
+    expect(splitMentionSegments('@alice: 继续', MEMBERS)).toEqual([
+      { text: '@alice', kind: 'agent' },
+      // `:` 不在 MENTION_TOKEN_RE 词类内，本就落在正文段
+      { text: ': 继续' },
+    ]);
+    expect(classifyRoomMention('alice.', MEMBERS)).toBe('agent');
+  });
 });

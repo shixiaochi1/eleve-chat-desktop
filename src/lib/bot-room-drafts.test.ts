@@ -25,6 +25,7 @@ describe('bot-room-drafts — 房间级草稿（切房/重挂不丢）', () => {
       main: '',
       replies: {},
       attachments: [],
+      threadAttachments: {},
       activeReplyThread: null,
       revision: 0,
     });

@@ -213,6 +213,9 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   bot_rooms_image:        'bot.rooms.image',
   // 🔴 round-110：房间花名册展示偏好（置顶 / 隐藏）
   bot_rooms_set_prefs:    'bot.rooms.set_prefs',
+  // 🔴 2026-10-24：hold 检测开关 + 成员历史压缩
+  bot_rooms_set_hold_detection: 'bot.rooms.set_hold_detection',
+  bot_rooms_compress:     'bot.rooms.compress',
   bot_rooms_stop:         'bot.rooms.stop',
   // 🔴 2026-10-24：外部写入回填（对齐 Hermes group-external-writes.ts #93813）
   bot_rooms_sweep_external: 'bot.rooms.sweep_external',
@@ -427,16 +430,20 @@ export async function restartService(): Promise<void> {
   await call('restart_service', {});
 }
 
-export async function call(command: string, args: Record<string, any> = {}): Promise<any> {
+export async function call(
+  command: string,
+  args: Record<string, any> = {},
+  timeoutMs?: number,
+): Promise<any> {
   const wsMethod = COMMAND_TO_WS_METHOD[command];
 
   if (wsMethod) {
     // 参数适配
     const adapted = adaptParams(command, args);
-    // A类/B类/C类：走 WS JSON-RPC
+    // A类/B类/C类：走 WS JSON-RPC（timeoutMs 可选——压缩等长处理器需要 >60s）
     const { getWsClient } = await import('../services/ws-client');
     const wsClient = getWsClient();
-    return wsClient.sendRpc(wsMethod, adapted);
+    return wsClient.sendRpc(wsMethod, adapted, timeoutMs);
   }
 
   // Kanban 命令：走 HTTP REST API（对齐 Hermes，不走 WS JSON-RPC）

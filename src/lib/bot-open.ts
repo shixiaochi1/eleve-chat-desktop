@@ -59,7 +59,10 @@ export async function openRemoteBotChat(
   { onOpened, onError, onNotice }: OpenRemoteBotChatOptions = {},
 ): Promise<void> {
   if (!row.reachable) {
-    onError?.(`远程连接「${row.connectionLabel}」当前不可达——无法就绪 @${row.entry.handle} 的 Bot Chat`);
+    onError?.(
+      `远程连接「${row.connectionLabel}」当前不可达——无法就绪 @${row.entry.handle} 的 Bot Chat` +
+        `（到 Gateways 设置检查该连接是否在线/地址是否正确）`,
+    );
     return;
   }
 
@@ -100,6 +103,16 @@ export async function openRemoteBotChat(
       );
     }
   } catch (e) {
-    onError?.(`远程 Bot Chat 就绪失败：${(e as Error).message}`);
+    // 🔴 2026-10-25（对齐 Hermes `canonical-chat.ts:232-269` 的分类提示）：
+    // 远端打开失败不能只甩原始错误——按可操作方向给一句 next step。
+    const raw = (e as Error).message || String(e);
+    const hint = /timeout|timed out|超时/i.test(raw)
+      ? '（连接超时：到 Gateways 设置检查地址/网络，或稍后重试）'
+      : /unauthor|forbidden|401|403|api.?key|auth/i.test(raw)
+        ? '（认证失败：到 Gateways 设置检查该连接的密钥）'
+        : /version|protocol|upgrade|incompatible/i.test(raw)
+          ? '（网关版本/协议不匹配：升级远端网关后重试）'
+          : '';
+    onError?.(`远程 Bot Chat 就绪失败：${raw}${hint}`);
   }
 }

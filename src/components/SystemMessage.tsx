@@ -1,4 +1,4 @@
-import { Compass } from 'lucide-react';
+import { Bot, ChevronDown, Compass } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -12,6 +12,8 @@ import { cn } from '@/lib/utils';
  */
 const STEER_NOTE_RE = /^steer:(?<text>[\s\S]+)$/;
 const SLASH_STATUS_RE = /^slash:(?<command>\/[^\n]+)\n(?<output>[\s\S]*)$/;
+/** DM 来信载荷（`chat-messages.agentDmNoticeLine` 生成：摘要 + \u0000 + JSON）。 */
+const AGENT_DM_SEP = '\u0000';
 
 interface SystemMessageProps {
   text: string;
@@ -19,6 +21,41 @@ interface SystemMessageProps {
 
 export default function SystemMessage({ text }: SystemMessageProps) {
   if (!text) return null;
+
+  // 🔴 2026-10-24（对齐 Hermes `AgentMessageNote`）：DM 来信 = 归属行 +
+  // 正文折叠。此前只有 160 字摘要，正文在展示面永久丢失。
+  if (text.includes(AGENT_DM_SEP)) {
+    const [summary, raw] = text.split(AGENT_DM_SEP, 2);
+    let payload: { name?: string; handle?: string; body?: string } | null = null;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      payload = null;
+    }
+    if (payload) {
+      const body = (payload.body || '').trim();
+      return (
+        <details
+          className="group w-[72%] max-w-[44rem] self-center rounded-md border border-[var(--ui-stroke-tertiary)] px-2.5 py-1 text-[0.6875rem] leading-5 text-muted-foreground/60"
+          data-role="system"
+        >
+          <summary className="flex cursor-pointer list-none items-center gap-1.5">
+            <Bot className="shrink-0 text-muted-foreground/55" size={12} strokeWidth={1.5} />
+            <span className="truncate">{summary}</span>
+            <ChevronDown
+              className="ml-auto shrink-0 text-muted-foreground/40 transition-transform group-open:rotate-180"
+              size={11}
+            />
+          </summary>
+          {body && (
+            <div className="mt-1 whitespace-pre-wrap text-left text-muted-foreground/55">
+              {body}
+            </div>
+          )}
+        </details>
+      );
+    }
+  }
 
   const steerNote = text.match(STEER_NOTE_RE);
   if (steerNote?.groups) {

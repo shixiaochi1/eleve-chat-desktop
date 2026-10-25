@@ -18,6 +18,7 @@ import {
   ROOM_MEMBER_MIN,
   findMemberRoutingRow,
   findRosterRowByKey,
+  mentionTagForms,
   pickableMembers,
   rosterRowKey,
 } from './bot-members';
@@ -194,6 +195,15 @@ describe('pickableMembers — 跨连接同名的路由冲突', () => {
  * Hermes：`GROUP_CHAT_MAX_MEMBERS = 6`（`group-chat.ts:1216`）。
  * 锁值用例 = 改任一侧时的报警器（同 `bot-relay-timeouts.test.ts` 的做法）。
  */
+describe('mentionTagForms — 友好名的 @ 补全匹配', () => {
+  it('slug + collapsed 两种形式；保留字丢弃；纯 CJK 无形式（回落到 handle）', () => {
+    expect(mentionTagForms('Research Buddy')).toEqual(['research-buddy', 'researchbuddy']);
+    expect(mentionTagForms('  Hermes  ')).toEqual([]);
+    expect(mentionTagForms('莫西')).toEqual([]);
+    expect(mentionTagForms('')).toEqual([]);
+  });
+});
+
 describe('ROOM_MEMBER_MIN / ROOM_MEMBER_MAX — 与后端 policy 同值', () => {
   it('下限 2 / 上限 6（改这里必须同步改 policy.rs 的 MIN/MAX_DISCUSSION_MEMBERS）', () => {
     expect(ROOM_MEMBER_MIN).toBe(2);

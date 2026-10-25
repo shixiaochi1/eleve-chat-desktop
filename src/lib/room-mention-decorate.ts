@@ -28,7 +28,10 @@ export function classifyRoomMention(
   token: string,
   members: readonly RoomMentionMember[],
 ): RoomMentionKind | null {
-  const t = token.trim().toLowerCase();
+  // 🔴 2026-10-24（与后端 `policy.rs::scan_mention_tokens` 同一条清洗规则）：
+  // 后端对 token 剥尾部 `: . , ; ! ?` 后再查成员表——`@bob.` / `@bob:` 是
+  // 合法点名（路由会投给 bob），染色判定必须同样剥，否则"路由认、界面不认"。
+  const t = token.trim().replace(/[.:,;!?]+$/u, '').toLowerCase();
   if (!t) return null;
   if (t === 'everyone' || t === 'all') return 'broadcast';
   if (t === 'user') return 'human';
@@ -61,11 +64,14 @@ export function splitMentionSegments(
   let last = 0;
   for (const m of text.matchAll(new RegExp(MENTION_TOKEN_RE))) {
     const at = m.index ?? 0;
-    const kind = classifyRoomMention(m[1], members);
+    // 与后端同款尾部清洗；染色只覆盖 `@token` 本身，尾部标点留在正文里
+    // （`@bob.` → 高亮 `@bob`，`.` 是标点不是提及的一部分）。
+    const token = m[1].replace(/[.:,;!?]+$/u, '');
+    const kind = classifyRoomMention(token, members);
     if (!kind) continue;
     if (at > last) out.push({ text: text.slice(last, at) });
-    out.push({ text: `@${m[1]}`, kind });
-    last = at + m[0].length;
+    out.push({ text: `@${token}`, kind });
+    last = at + 1 + token.length;
   }
   if (last < text.length) out.push({ text: text.slice(last) });
   return out;

@@ -19,13 +19,15 @@ interface ClarifyBatchCardProps {
   title?: string | null;
   questions: BatchQuestionWire[];
   profile?: string;
+  /** 🔴 2026-10-25：远端会话注入的提交通道（默认走本机 clarify.respond）。 */
+  submit?: (payload: string) => Promise<{ status?: string; ok?: boolean; resolved?: number }>;
   onDone?: (response: string) => void;
 }
 
 /** 单选选中后自动跳下一题的延迟（让用户看到选中态再跳转） */
 const AUTO_ADVANCE_MS = 220;
 
-export default function ClarifyBatchCard({ clarifyId, title, questions, profile, onDone }: ClarifyBatchCardProps) {
+export default function ClarifyBatchCard({ clarifyId, title, questions, profile, submit, onDone }: ClarifyBatchCardProps) {
   // 选项选择：单选 string / 多选 string[]
   const [selected, setSelected] = useState<Record<string, string | string[]>>({});
   // 手动输入（选项都不对时的兜底答案）
@@ -104,7 +106,9 @@ export default function ClarifyBatchCard({ clarifyId, title, questions, profile,
     try {
       // 对齐 Hermes batch callback：{answers: {qid: raw}, timed_out: false}
       const payload = JSON.stringify({ answers: buildAnswers(), timed_out: false });
-      const result = await submitClarifyResponse(clarifyId ?? '', payload, profile);
+      const result = submit
+        ? await submit(payload)
+        : await submitClarifyResponse(clarifyId ?? '', payload, profile);
       if (result?.status === 'resolved' || result?.status === 'ok' || result?.ok) {
         setSubmitted(true);
         onDone?.(payload);

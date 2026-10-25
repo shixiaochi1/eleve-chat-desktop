@@ -132,7 +132,10 @@ export function RoomCard({ room, active, needsYou, roster, pinned, hidden, canMo
         {pinned && (
           <Pin size={10} className="shrink-0 text-muted-foreground" aria-label="已置顶" />
         )}
-        <div className="hidden group-hover/room:flex items-center gap-0.5 shrink-0">
+        {/* 🔴 2026-10-25：`hidden`（display:none）会把按钮移出 tab 序，键盘/触屏
+            用户永远够不到置顶/隐藏/排序。改 opacity + pointer-events（不引发
+            hover 时的布局位移），并对 focus-within 同样显示。 */}
+        <div className="flex items-center gap-0.5 shrink-0 opacity-0 pointer-events-none group-hover/room:opacity-100 group-hover/room:pointer-events-auto group-focus-within/room:opacity-100 group-focus-within/room:pointer-events-auto transition-opacity">
           {/* 🔴 round-111：手动顺序（对齐 Hermes group-order 的 Move up / Move down）。
               只在**同 pin band 的可见**邻居间交换；band 边缘禁用而非绕行。 */}
           <button

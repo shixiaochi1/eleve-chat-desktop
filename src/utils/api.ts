@@ -878,6 +878,9 @@ export interface BotRoom {
    *  与 `pinned`/`hidden` 同层落 `bot_rooms` 表（我方刻意偏离 Hermes 的本地
    *  storage），但同样是**纯展示序**：不进房间事件流、不参与跨网关镜像。 */
   roster_order?: number | null;
+  /** 🔴 2026-10-24：是否解析 @成员 stop/pause（对齐 Hermes `GroupChat.holdDetection`；
+   *  缺省 true = 开启）。关闭后 stop 词只是普通内容，不改 hold 状态。 */
+  hold_detection?: boolean;
   members: { member_id: string; profile: string; handle: string; display_name: string }[];
   next_seq: number;
   created_at: number;
@@ -1106,6 +1109,37 @@ export async function setBotRoomPrefs(
 ): Promise<BotRoom> {
   const data = await call('bot_rooms_set_prefs', { room_id: roomId, ...patch });
   return data?.room;
+}
+
+/** 🔴 2026-10-24：房间 hold 检测开关（对齐 Hermes `setGroupChatHoldDetection`）。
+ *  关闭后消息里的 `@成员 stop/pause` 只是普通内容。返回更新后的房间行。 */
+export async function setBotRoomHoldDetection(roomId: string, enabled: boolean): Promise<BotRoom> {
+  const data = await call('bot_rooms_set_hold_detection', { room_id: roomId, enabled });
+  return data?.room;
+}
+
+/** 成员历史压缩结果（对齐 Hermes `GroupMemberCompressOutcome` 的单条语义）。 */
+export interface BotRoomMemberCompressOutcome {
+  member_id: string;
+  handle: string;
+  /** compressed | skipped | failed */
+  status: string;
+  summary?: string;
+  message?: string;
+}
+
+/** 🔴 2026-10-24：压缩某成员的隐藏 plumbing 会话（Hermes `group-compress.ts` #102291）。
+ *  超时对齐 Hermes 的 660s（网关压缩在后台提交摘要，30s 会误报超时）。 */
+export async function compressBotRoomMember(
+  roomId: string,
+  memberId: string,
+): Promise<BotRoomMemberCompressOutcome> {
+  const data = await call(
+    'bot_rooms_compress',
+    { room_id: roomId, member_id: memberId },
+    660_000,
+  );
+  return data?.outcome;
 }
 
 /** 群聊房间列表 */

@@ -15,15 +15,28 @@
 import { setBotRoomPrefs, promoteBotRoomReplica } from '../utils/api';
 import type { BotRoom } from '../utils/api';
 import { reorderRosterRooms, rosterOrderWrites } from './group-order';
-import { closeRemoteChat, refreshRooms, selectRoom } from '../plugins/bots/state';
+import { closeRemoteChat, patchRoomLocal, refreshRooms, selectRoom } from '../plugins/bots/state';
 
-/** 改房间展示偏好（置顶 / 隐藏）。服务端才是 source of truth；写后重拉房间列表。 */
+/**
+ * 改房间展示偏好（置顶 / 隐藏）。
+ *
+ * 🔴 2026-10-25（对齐 Hermes `group-pin.ts:10-21`）：**先本地翻转再写服务端**，
+ * 失败回滚——此前 await RPC + refresh 才变，慢连接下按钮 1-2 个 RTT 无反馈。
+ * 服务端仍是 source of truth（成功后 refresh 对账）。
+ */
 export async function setRoomPrefs(
   room: BotRoom,
   patch: { pinned?: boolean; hidden?: boolean },
 ): Promise<void> {
-  await setBotRoomPrefs(room.room_id, patch);
-  await refreshRooms();
+  const before = { pinned: room.pinned, hidden: room.hidden };
+  patchRoomLocal(room.room_id, patch);
+  try {
+    await setBotRoomPrefs(room.room_id, patch);
+    await refreshRooms();
+  } catch (e) {
+    patchRoomLocal(room.room_id, before);
+    throw e;
+  }
 }
 
 /**
@@ -44,11 +57,26 @@ export async function moveRoom(
   const writes = rosterOrderWrites(ordered, next);
   if (!writes.length) return false;
 
+  // 🔴 2026-10-25（对齐 Hermes `group-order.ts:29-47`）：移动一格只应有一次
+  // 用户可感知的延迟——先本地重排，再**并行**写全部新下标（顺序无关，每行
+  // 一个独立字段），失败用快照回滚。此前逐行 await = N 个串行 RTT，中途失败
+  // 还会留下半套顺序。
+  const before = new Map(ordered.map((r) => [r.room_id, r.roster_order]));
   for (const w of writes) {
-    await setBotRoomPrefs(w.roomId, { roster_order: w.rosterOrder });
+    patchRoomLocal(w.roomId, { roster_order: w.rosterOrder });
   }
-  await refreshRooms();
-  return true;
+  try {
+    await Promise.all(
+      writes.map((w) => setBotRoomPrefs(w.roomId, { roster_order: w.rosterOrder })),
+    );
+    await refreshRooms();
+    return true;
+  } catch (e) {
+    for (const [roomId, order] of before) {
+      patchRoomLocal(roomId, { roster_order: order });
+    }
+    throw e;
+  }
 }
 
 /** 打开房间：选中 + 关闭远端私聊视图（互斥），主区导航由调用方（`openView('bots')`）负责。 */

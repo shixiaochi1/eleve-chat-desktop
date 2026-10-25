@@ -274,6 +274,35 @@ function emitRooms() {
   for (const fn of roomsListeners) fn();
 }
 
+/**
+ * 🔴 2026-10-25（对齐 Hermes `group-pin.ts` / `group-order.ts` 的乐观更新）：
+ * 本地预置房间展示偏好，RPC 失败时由调用方回滚。只改内存 store，不写服务端。
+ * 返回是否真的命中并改变了某一行（未命中 = 房间已消失，调用方应跳过 RPC）。
+ */
+export function patchRoomLocal(
+  roomId: string,
+  patch: Partial<Pick<BotRoom, 'pinned' | 'hidden' | 'roster_order'>>,
+): boolean {
+  let changed = false;
+  const next = rooms.map((room) => {
+    if (room.room_id !== roomId) return room;
+    const updated = { ...room, ...patch };
+    if (
+      updated.pinned !== room.pinned ||
+      updated.hidden !== room.hidden ||
+      updated.roster_order !== room.roster_order
+    ) {
+      changed = true;
+    }
+    return updated;
+  });
+  if (changed) {
+    rooms = next;
+    emitRooms();
+  }
+  return changed;
+}
+
 /** 拉取房间列表并写入 store（唯一写入口；并发调用合并为单次在飞请求）。 */
 export function refreshRooms(): Promise<BotRoom[]> {
   if (refreshInFlight) {

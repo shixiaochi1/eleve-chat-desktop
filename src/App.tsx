@@ -35,6 +35,8 @@ import { getRememberedWorkspaceCwd, rememberWorkspaceCwd } from './lib/workspace
 import { getActiveProfile } from './utils/api';
 import { getWsClient, setWsActiveProfile, type SessionCreateResponse } from './services/ws-client';
 import { sessionIdMatchesProfile, profileFromSessionId, persistSessionPointer, clearSessionPointer, loadProfilePointers, saveProfilePointer, removeProfilePointer, latestSessionForDomain, shortSessionLabel, isRestorableProfilePointer, isBotPlatformSessionId } from './utils/session';
+import { getUnionRoster, useUnionRoster } from './plugins/bots/state';
+import { LOCAL_CONNECTION_ID } from './services/bot-relay';
 import { notifyError } from './utils/notifications';
 import type { ChatMessage } from './types';
 import { Minus, Square, X, FileText } from 'lucide-react';
@@ -58,6 +60,7 @@ import InputArea from './components/InputArea';
 import ContextBar from './components/ContextBar';
 import TodoPanel from './components/TodoPanel';
 import ClarifyCard from './components/ClarifyCard';
+import PeerApprovalModal from './components/PeerApprovalModal';
 import ClarifyBatchCard from './components/ClarifyBatchCard';
 import ApprovalCard from './components/ApprovalCard';
 import SlashConfirmCard from './components/SlashConfirmCard';
@@ -206,7 +209,7 @@ export default function App() {
   // 澄清/凭据请求必须可见可响应（单槽覆盖 = 前一个会话的工具挂到超时）。
   // 当前会话的交互渲染在消息区原位置；其他会话的交互渲染"后台会话交互"区。
   type PendingInteraction =
-    | { kind: 'approval'; sessionId: string; data: { command: string; description: string; pattern: string; choices: string[]; run_id: string } }
+    | { kind: 'approval'; sessionId: string; data: { command: string; description: string; pattern: string; choices: string[]; run_id: string; request_id?: string } }
     | { kind: 'clarify'; sessionId: string; data: { clarify_id: string; question: string; choices: string[]; multi_select?: boolean } }
     // 🔴 批量澄清（一次表单多题，对齐 Hermes questions batch）
     | { kind: 'clarify_batch'; sessionId: string; data: { clarify_id?: string; title?: string | null; questions?: { qid: string; id?: string | null; question: string; choices?: string[] | null; multi_select?: boolean }[] } }
@@ -645,7 +648,7 @@ export default function App() {
     setActiveApproval: (data) => {
       if (data === null) { if (sess.sessionId) removeInteraction(sess.sessionId); return; }
       const sid = data.session_id ?? data.run_id ?? sess.sessionId ?? '';
-      upsertInteraction({ kind: 'approval', sessionId: sid, data: { command: data.command, description: data.description, pattern: data.pattern, choices: data.choices, run_id: data.run_id } });
+      upsertInteraction({ kind: 'approval', sessionId: sid, data: { command: data.command, description: data.description, pattern: data.pattern, choices: data.choices, run_id: data.run_id, request_id: data.request_id } });
     },
     setActiveSudo: (data) => {
       if (data === null) { if (sess.sessionId) removeInteraction(sess.sessionId); return; }
@@ -1013,6 +1016,14 @@ export default function App() {
     handleSwitchSession(id);
   }, [viewMode, currentProfile, handleSwitchSession, exitBotsToSingle]);
 
+  // 🔴 2026-10-25：记录"打开时它是不是当前 canonical"——只有 canonical 才在
+  // 轮转后自动跟随；用户显式打开历史 `Bot Chat #N` 时不抢走视图。
+  const followBotChatRef = useRef<{
+    sid: string;
+    profile: string;
+    canonicalAtOpen: string;
+  } | null>(null);
+
   // 🔴 2026-09-04 Bot Mode：打开 bot 的 canonical chat（对齐 Hermes Desktop
   // bot-mode-row-click-mirrors-registry——"点击必须落在那个会话"）。
   // 与 gridAwareSwitchSession 的区别：bot chat 是跨 Agent 通信会话，被
@@ -1027,11 +1038,57 @@ export default function App() {
     // 域焦点置位都收敛到 store/workspace.ts 单写点（唯一注册点保持此处）
     registerBotChatSession(id);
     setWorkspaceOwner({ kind: 'bot-chat', key: id });
+    const canonical = profile
+      ? getUnionRoster().find(
+          (r) =>
+            r.connectionId === LOCAL_CONNECTION_ID && r.entry.profile === profile,
+        )?.entry.canonical_session_id ?? ''
+      : '';
+    // `canonical` 为空 = roster 尚未加载，**不**把当前 id 假定为 canonical
+    // （否则用户打开历史 `Bot Chat #N` 时，roster 一到就会把视图抢走）。
+    followBotChatRef.current = {
+      sid: id,
+      profile: profile ?? '',
+      canonicalAtOpen: canonical,
+    };
     if (viewMode !== 'single') {
       setViewMode('single');
     }
     void handleSwitchSession(id, { forceProfile: profile || undefined });
   }, [viewMode, handleSwitchSession]);
+
+  /** 🔴 2026-10-25：已开私聊跟随 canonical 轮转（新话题/压缩轮转后 canonical
+   *  会话 id 变化；Hermes 用 forceResume + background:true 重开）。只在
+   *  "打开时是 canonical" 的会话上生效，历史话题不抢焦点。 */
+  const unionRosterForBot = useUnionRoster();
+  useEffect(() => {
+    if (viewMode !== 'single') return;
+    const sid = sess.sessionId;
+    if (!sid || !isBotPlatformSessionId(sid)) return;
+    const opened = followBotChatRef.current;
+    if (!opened || opened.sid !== sid || opened.canonicalAtOpen !== sid) return;
+    const row = unionRosterForBot.find(
+      (r) =>
+        r.connectionId === LOCAL_CONNECTION_ID &&
+        r.entry.profile === opened.profile,
+    );
+    const canonical = row?.entry.canonical_session_id ?? '';
+    if (!canonical || canonical === sid) return;
+    // 先更新跟随目标，再切（effect 下一拍看到 canonical === sid 即停）。
+    followBotChatRef.current = {
+      sid: canonical,
+      profile: opened.profile,
+      canonicalAtOpen: canonical,
+    };
+    handleOpenBotChat(canonical);
+    // `handleOpenBotChat` 会按当前 roster 重写 ref；roster 可能还没刷新到
+    // 新 canonical，这里再钉一次，保证下一次轮转仍能跟随。
+    followBotChatRef.current = {
+      sid: canonical,
+      profile: opened.profile,
+      canonicalAtOpen: canonical,
+    };
+  }, [unionRosterForBot, sess.sessionId, viewMode, handleOpenBotChat]);
 
   // 🔴 2026-09-04 stage-4：插件宿主门注入（晚绑定——plugin-host 能力随
   // App mount 注入/卸载置 null；handleOpenBotChat 是 useCallback（依赖
@@ -1945,6 +2002,7 @@ export default function App() {
                       pattern={currentApproval.pattern}
                       choices={currentApproval.choices}
                       run_id={currentApproval.run_id}
+                      request_id={currentApproval.request_id}
                       onDone={() => handleApprovalDone(currentApprovalSessionId)}
                     />
                   )}
@@ -2002,6 +2060,7 @@ export default function App() {
                               pattern={it.data.pattern}
                               choices={it.data.choices}
                               run_id={it.data.run_id}
+                              request_id={it.data.request_id as string | undefined}
                               onDone={() => handleApprovalDone(sid)}
                             />
                           )}
@@ -2177,6 +2236,9 @@ export default function App() {
           </ErrorBoundary>
         )}
 
+        {/* 🔴 2026-10-25：远端成员轮审批（Desktop courier；target 只在 status
+            的 running 帧暴露，authority 无直连通道）。App 级挂载，切视图不丢。 */}
+        <PeerApprovalModal />
       </AppShell>
 
       <ErrorBoundary>

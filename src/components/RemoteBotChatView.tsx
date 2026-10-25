@@ -19,7 +19,8 @@
  */
 import { WsEvent, WsMethod } from '../types/ws-contract.generated';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Bot, Send } from 'lucide-react';
+import { ArrowLeft, Bot, Paperclip, Send, Square, X } from 'lucide-react';
+import { base64FromDataURL, readFileAsDataURL } from '../utils/file';
 import { getRemoteSocket } from '../services/connections';
 import { submitPromptViaWs } from '../lib/prompt-submit';
 import { fetchRemoteSessionHistory, type RemoteChatMessage } from '../utils/api';
@@ -33,6 +34,9 @@ import { cn } from '@/lib/utils';
 // 🔴 阶段1 统一（frontend-chat-unification-2026-09-09）：渲染层收敛到
 // MessageRow——删除手写气泡/自造光标，与单视图/宫格同一渲染原语。
 import MessageRow from './MessageRow';
+import ApprovalCard from './ApprovalCard';
+import ClarifyCard from './ClarifyCard';
+import ClarifyBatchCard, { type BatchQuestionWire } from './ClarifyBatchCard';
 import type { ChatMessage } from '@/types';
 
 function partsText(m: RemoteChatMessage): string {
@@ -69,6 +73,31 @@ export default function RemoteBotChatView({
   const { messages, streamingText, error } = remoteState;
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  /** 🔴 2026-10-25：远端私聊图片附件（先在 target 侧 `image.attach_bytes`
+   *  附着到成员会话，再 `prompt.submit` 自动 drain——与本地单视图同链路）。 */
+  const [attached, setAttached] = useState<
+    Array<{
+      id: string;
+      name: string;
+      preview: string;
+      dataUrl: string;
+      kind: 'image' | 'file';
+    }>
+  >([]);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  /** 🔴 2026-10-25：远端会话的交互卡（审批/澄清）。事件由目标网关的
+   *  `approval.request` / `clarify.request` 推来；响应骑目标 socket。 */
+  const [interactions, setInteractions] = useState<
+    Record<string, { kind: 'approval' | 'clarify'; data: Record<string, unknown> }>
+  >({});
+  const removeInteraction = useCallback((requestId: string) => {
+    setInteractions((cur) => {
+      if (!cur[requestId]) return cur;
+      const next = { ...cur };
+      delete next[requestId];
+      return next;
+    });
+  }, []);
   /**
    * 已发送但服务器历史尚未出现的用户消息（optimistic；服务器出现同文本后由 load 清退）。
    *
@@ -106,9 +135,67 @@ export default function RemoteBotChatView({
     }
   }, []);
 
+  /** 🔴 2026-10-25：target 拒写附件目录时的文本兜底（不落盘，直接把内容
+   *  内联进 prompt；仅文本/代码，64KB 上限）。二进制没有安全的零落盘表示。 */
+  async function inlineTextAttachment(dataUrl: string, name: string): Promise<string | null> {
+    const comma = dataUrl.indexOf(',');
+    if (comma < 0) return null;
+    const meta = dataUrl.slice(0, comma).toLowerCase();
+    const textual =
+      meta.includes('text/') ||
+      meta.includes('json') ||
+      meta.includes('xml') ||
+      meta.includes('javascript') ||
+      /\.(txt|md|markdown|json|jsonl|yaml|yml|toml|csv|tsv|log|py|rs|ts|tsx|js|jsx|go|java|c|h|cpp|css|html|xml|sql|sh)$/i.test(
+        name,
+      );
+    if (!textual || !meta.includes('base64')) return null;
+    try {
+      const bytes = Uint8Array.from(atob(dataUrl.slice(comma + 1)), (c) => c.charCodeAt(0));
+      if (bytes.byteLength > 64 * 1024) return null;
+      const text = new TextDecoder().decode(bytes);
+      return text.trim() ? text : null;
+    } catch {
+      return null;
+    }
+  }
+
+  const addFiles = useCallback(async (files: FileList | File[] | null) => {
+    if (!files?.length) return;
+    const picked: Array<{
+      id: string;
+      name: string;
+      preview: string;
+      dataUrl: string;
+      kind: 'image' | 'file';
+    }> = [];
+    for (const file of Array.from(files)) {
+      if (attached.length + picked.length >= 4) break;
+      if (file.size > 25 * 1024 * 1024) continue;
+      const isImage =
+        /^image\//.test(file.type || '') ||
+        /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name || '');
+      try {
+        const dataUrl = await readFileAsDataURL(file);
+        picked.push({
+          id: crypto.randomUUID(),
+          name: file.name || (isImage ? 'image' : 'file'),
+          preview: isImage ? dataUrl : '',
+          dataUrl,
+          kind: isImage ? 'image' : 'file',
+        });
+      } catch {
+        /* 单个文件读取失败跳过 */
+      }
+    }
+    if (picked.length) setAttached((cur) => [...cur, ...picked].slice(0, 4));
+  }, [attached.length]);
+
   // ── 事件订阅（对齐 Hermes：事件流经 Desktop 持有的 socket 直达）──
   useEffect(() => {
     const owner = remoteChatOwner(chat.connId, chat.sessionId);
+    setAttached([]);
+    setInteractions({});
     // 🔴 阶段3：挂载/切换 chat 即认领（reset + 换 owner——旧 chat 状态不残留，
     // 旧视图迟到写入被 owner 守卫丢弃）
     claimRemoteChatState(owner);
@@ -123,7 +210,24 @@ export default function RemoteBotChatView({
 
     const handler = (eventName: string, rawData: unknown) => {
       const data = (rawData || {}) as Record<string, unknown>;
-      if (data.session_id !== sid) return;
+      // 交互事件可能不带 session_id（按连接推送）——只在它存在时过滤。
+      if (data.session_id !== undefined && data.session_id !== sid) return;
+      if (
+        eventName === WsEvent.APPROVAL_REQUEST ||
+        eventName === WsEvent.CLARIFY_REQUEST ||
+        eventName === WsEvent.CLARIFY_BATCH_REQUEST
+      ) {
+        const requestId = String(data.request_id ?? data.clarify_id ?? '');
+        if (!requestId) return;
+        const kind = eventName === WsEvent.APPROVAL_REQUEST ? 'approval' : 'clarify';
+        setInteractions((cur) => ({ ...cur, [requestId]: { kind, data } }));
+        return;
+      }
+      if (eventName === WsEvent.APPROVAL_RESPONDED) {
+        const requestId = String(data.request_id ?? '');
+        if (requestId) removeInteraction(requestId);
+        return;
+      }
       if (eventName === WsEvent.MESSAGE_DELTA) {
         const delta = (data.delta as string) || '';
         if (!delta) return;
@@ -162,32 +266,84 @@ export default function RemoteBotChatView({
   // 自动滚底（新消息 / 流式增长）
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages.length, streamingText]);
+  }, [messages.length, streamingText, interactions]);
+
+  // 🔴 2026-10-25（对齐 Hermes 远端会话复用主视图的停止能力）：远端轮此前一旦
+  // 开跑就无法从 UI 停下，只能等预算耗尽。`session.interrupt` 是远端网关的
+  // 既有方法（清 inbox + 置中断 + deny 审批），骑 owner socket 直发。
+  const stop = async () => {
+    const owner = remoteChatOwner(chat.connId, chat.sessionId);
+    try {
+      await getRemoteSocket(chat.connId).sendRpc(WsMethod.SESSION_INTERRUPT, {
+        session_id: chat.sessionId,
+      });
+    } catch (e) {
+      setRemoteChatError(owner, `停止失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
 
   const send = async () => {
     const text = draft.trim();
-    if (!text || sending) return;
+    const files = attached;
+    if ((!text && !files.length) || sending) return;
     setSending(true);
     const owner = remoteChatOwner(chat.connId, chat.sessionId);
     setRemoteChatError(owner, null);
+    const display = text || `（${files.length} 个附件）`;
     const pendingId = `pending-${(pendingSeqRef.current += 1)}`;
-    pendingRef.current = [...pendingRef.current, { id: pendingId, text }];
+    pendingRef.current = [...pendingRef.current, { id: pendingId, text: display }];
     setDraft('');
+    setAttached([]);
     appendRemoteChatMessage(owner, {
       id: pendingId,
       role: 'user',
-      parts: [{ type: 'text', text }],
+      parts: [{ type: 'text', text: display }],
     });
     try {
+      const sock = getRemoteSocket(chat.connId);
+      const refs: string[] = [];
+      // 图片走 bytes 附件（vision 链路）；普通文件走 `file.attach` 的
+      // data_url staging，返回 `@file:` 引用注入 prompt（target workspace 落盘）。
+      for (const f of files) {
+        if (f.kind === 'image') {
+          await sock.sendRpc(WsMethod.IMAGE_ATTACH_BYTES, {
+            session_id: chat.sessionId,
+            content_base64: base64FromDataURL(f.dataUrl),
+            filename: f.name,
+          });
+        } else {
+          try {
+            const res = (await sock.sendRpc(WsMethod.FILE_ATTACH, {
+              session_id: chat.sessionId,
+              data_url: f.dataUrl,
+              name: f.name,
+            })) as { ref_text?: string; ref_path?: string };
+            const ref = String(
+              res?.ref_text || (res?.ref_path ? `@file:${res.ref_path}` : ''),
+            ).trim();
+            if (ref) refs.push(ref);
+          } catch (e) {
+            // target 附件目录不可写：文本/代码内联进 prompt（不落盘）；二进制
+            // 没有安全的零落盘表示，保持明确失败。
+            const text = await inlineTextAttachment(f.dataUrl, f.name);
+            if (!text) throw e;
+            refs.push(`[附件 ${f.name}]\n\`\`\`text\n${text}\n\`\`\``);
+          }
+        }
+      }
       // 🔴 阶段2 统一：prompt.submit 公共骨架（ensureConnected + steer/queued
       // outcome toast + 新会话回调）——协议与单视图/宫格同源，此前独立实现
       // 无 outcome 消费。流式/回包全部经事件监听器到达（上方 handler），零轮询
+      const promptText = [text, ...refs].filter(Boolean).join('\n\n') || '（附件）';
       void submitPromptViaWs(
-        getRemoteSocket(chat.connId),
-        { text, sessionId: chat.sessionId },
+        sock,
+        { text: promptText, sessionId: chat.sessionId },
       ).catch((e) => {
         setRemoteChatError(owner, `发送失败：${e instanceof Error ? e.message : String(e)}`);
       });
+    } catch (e) {
+      setRemoteChatError(owner, `附件上传失败：${e instanceof Error ? e.message : String(e)}`);
+      setAttached(files);
     } finally {
       setSending(false);
     }
@@ -209,6 +365,15 @@ export default function RemoteBotChatView({
             远程连接 · @{chat.profile} · Bot Chat
           </div>
         </div>
+        <button
+          type="button"
+          className="ml-auto p-1 rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground shrink-0"
+          title="停止当前轮"
+          aria-label="停止当前轮"
+          onClick={() => void stop()}
+        >
+          <Square size={13} />
+        </button>
       </div>
 
       {error && (
@@ -240,19 +405,178 @@ export default function RemoteBotChatView({
             }}
           />
         )}
+        {Object.entries(interactions).map(([requestId, it]) => {
+          if (it.kind === 'approval') {
+            return (
+              <div key={`interact-${requestId}`} className="max-w-[92%] self-center w-full">
+                <ApprovalCard
+                  command={String(it.data.command ?? it.data.args_preview ?? '')}
+                  description={String(it.data.description ?? '')}
+                  pattern={String(it.data.pattern ?? '')}
+                  choices={['once', 'deny']}
+                  run_id={chat.sessionId}
+                  request_id={requestId}
+                  profile={chat.profile}
+                  onSubmit={async (choice) => {
+                    const res = (await getRemoteSocket(chat.connId).sendRpc(
+                      WsMethod.APPROVAL_RESPOND,
+                      {
+                        session_id: chat.sessionId,
+                        choice,
+                        all: false,
+                        request_id: requestId,
+                        profile: chat.profile,
+                      },
+                    )) as { resolved?: number };
+                    if (res?.resolved !== 0) removeInteraction(requestId);
+                    return res || {};
+                  }}
+                  onDone={() => removeInteraction(requestId)}
+                />
+              </div>
+            );
+          }
+          // 🔴 2026-10-25：批量澄清渲染完整多题表单（此前只取第一题，
+          // 后续问题永远拿不到答案）。提交载荷仍为 Hermes 的
+          // `{answers:{qid:raw}, timed_out:false}`，骑目标 socket 发。
+          const batchItems = [
+            it.data.questions,
+            it.data.items,
+            it.data.prompts,
+            (it.data.batch as Record<string, unknown> | undefined)?.questions,
+          ].find((v): v is Array<Record<string, unknown>> =>
+            Array.isArray(v) && v.length > 0
+          );
+          if (batchItems) {
+            const questions: BatchQuestionWire[] = batchItems.map((q, idx) => {
+              // 自定义 batch schema：字段名常见变体统一归一（不猜业务语义，
+              // 只接受明确等价的 id/question/choices/multi 字段）。
+              const rawChoices = q.choices ?? q.options ?? q.values;
+              return {
+                qid: String(q.qid ?? q.id ?? q.key ?? q.name ?? `q${idx + 1}`),
+                question: String(q.question ?? q.prompt ?? q.text ?? q.label ?? q.title ?? ''),
+                choices: Array.isArray(rawChoices)
+                  ? (rawChoices as unknown[])
+                      .map((c) =>
+                        typeof c === 'string'
+                          ? c
+                          : String((c as Record<string, unknown>)?.label ?? (c as Record<string, unknown>)?.value ?? ''),
+                      )
+                      .filter(Boolean)
+                  : null,
+                multi_select: (q.multi_select ?? q.multiSelect) === true,
+              };
+            });
+            return (
+              <div key={`interact-${requestId}`} className="max-w-[92%] self-center w-full">
+                <ClarifyBatchCard
+                  clarifyId={requestId}
+                  title={String(it.data.title ?? '远端成员想确认几个问题')}
+                  questions={questions}
+                  submit={async (payload) => {
+                    const res = await getRemoteSocket(chat.connId).sendRpc(
+                      WsMethod.CLARIFY_RESPOND,
+                      { request_id: requestId, answer: payload },
+                    );
+                    removeInteraction(requestId);
+                    return (res as { status?: string; ok?: boolean }) || { status: 'ok' };
+                  }}
+                  onDone={() => removeInteraction(requestId)}
+                />
+              </div>
+            );
+          }
+          const choices = Array.isArray(it.data.choices)
+            ? (it.data.choices as string[])
+            : undefined;
+          return (
+            <div key={`interact-${requestId}`} className="max-w-[92%] self-center w-full">
+              <ClarifyCard
+                clarifyId={requestId}
+                title="远端成员想确认一下"
+                question={String(it.data.question ?? '')}
+                choices={choices}
+                multiSelect={Boolean(it.data.multi_select)}
+                submit={async (answer) => {
+                  await getRemoteSocket(chat.connId).sendRpc(WsMethod.CLARIFY_RESPOND, {
+                    request_id: requestId,
+                    answer,
+                  });
+                  removeInteraction(requestId);
+                  return { status: 'ok' };
+                }}
+                onDone={() => removeInteraction(requestId)}
+                onExpired={() => removeInteraction(requestId)}
+              />
+            </div>
+          );
+        })}
         <div ref={bottomRef} />
       </div>
 
       {/* 输入行 */}
       <div className="p-3 pt-1">
         <div className="composer-surface relative rounded-2xl border">
+          {attached.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-(--composer-surface-pad-x) pt-2">
+              {attached.map((f) => (
+                <div key={f.id} className="relative group">
+                  {f.preview ? (
+                    <img
+                      src={f.preview}
+                      alt={f.name}
+                      className="h-14 w-14 object-cover rounded-md border border-[var(--ui-stroke-tertiary)]"
+                    />
+                  ) : (
+                    <div className="h-14 max-w-40 px-2 flex items-center rounded-md border border-[var(--ui-stroke-tertiary)] bg-accent/40 text-[10px] text-muted-foreground">
+                      <span className="truncate">{f.name}</span>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    className="absolute -top-1.5 -right-1.5 p-0.5 rounded-full bg-background border border-[var(--ui-stroke-tertiary)] text-muted-foreground"
+                    title="移除附件"
+                    onClick={() => setAttached((cur) => cur.filter((i) => i.id !== f.id))}
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="flex items-end gap-2 px-(--composer-surface-pad-x) py-(--composer-surface-pad-y)">
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                void addFiles(e.target.files);
+                e.target.value = '';
+              }}
+            />
+            <button
+              type="button"
+              className="inline-flex size-(--composer-control-size) shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground"
+              onClick={() => fileRef.current?.click()}
+              title="添加附件（最多 4 个）"
+              aria-label="Add attachment"
+            >
+              <Paperclip size={15} />
+            </button>
             <textarea
               className="max-h-(--composer-input-max-height) min-h-(--composer-input-min-height) w-full resize-none border-0 bg-transparent px-1 py-1 text-sm leading-normal outline-none placeholder:text-muted-foreground/60"
-              placeholder={`发消息给 @${chat.profile}… (Enter 发送)`}
+              placeholder={`发消息给 @${chat.profile}… (Enter 发送，可粘贴图片/文件)`}
               rows={1}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              onPaste={(e) => {
+                const fs = e.clipboardData?.files;
+                if (fs?.length) {
+                  e.preventDefault();
+                  void addFiles(fs);
+                }
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
@@ -266,7 +590,7 @@ export default function RemoteBotChatView({
                 'bg-foreground text-background hover:bg-foreground/90 active:scale-90',
                 'disabled:cursor-not-allowed disabled:bg-foreground/30 disabled:opacity-100 disabled:active:scale-100',
               )}
-              disabled={!draft.trim() || sending}
+              disabled={(!draft.trim() && !attached.length) || sending}
               onClick={() => void send()}
               title="发送"
               aria-label="Send message"

@@ -18,6 +18,7 @@ import { attentionKey } from '../hooks/useBotAttention';
 import { formatBotPreview } from '../lib/bot-preview';
 import { profileFromSessionId } from '../utils/session';
 import { BotAttentionBadge } from './bots/BotAttentionBadge';
+import BotRosterMenuItems from './bots/BotRosterMenuItems';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from './ui/dropdown-menu';
@@ -273,10 +274,12 @@ function BotChatStatusDot({ sessionId, dotClassName }: { sessionId: string; dotC
  * 数据源与未读点同帧（`bots.roster.last_message`），不再单开一路轮询；
  * 前缀剥离/压平/截断在 `lib/bot-preview.ts`（纯函数，可单测）。
  */
-function BotChatPreviewLine({ sessionId, virtual }: { sessionId: string; virtual?: boolean }) {
+function BotChatPreviewLine({ sessionId, virtual, historical }: { sessionId: string; virtual?: boolean; historical?: boolean }) {
   const last = useBotLastMessage(sessionId);
   const preview = virtual ? '' : formatBotPreview(last?.text);
-  const text = preview || (virtual ? '点击开始对话' : '还没有消息');
+  // 🔴 2026-10-25：轮转后的 `Bot Chat #N` 是**历史话题**（roster 的 last_message
+  // 只挂在当前 canonical 上），不能显示成"还没有消息"——那会让用户以为记录丢了。
+  const text = preview || (virtual ? '点击开始对话' : historical ? '历史话题' : '还没有消息');
   return (
     <span
       className={cn(
@@ -312,6 +315,9 @@ const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, r
   // 与 `services/bot-relay.ts` 用 `LOCAL_CONNECTION_ID` 写入的形态一致。
   const botProfile = botChat ? profileFromSessionId(s.id) : null;
   const attentionRowKey = botProfile ? attentionKey('local', botProfile) : null;
+  // 轮转后的历史话题（`Bot Chat #N`）：预览表没有它的水位线（键=当前 canonical）。
+  const historicalBotChat =
+    !!botChat && title !== 'Bot Chat' && isCanonicalBotChatTitle(title);
 
   // 对齐 Hermes session-actions-menu：身份（重命名·置顶·归档）/ 会话操作
   // （撤销·压缩·分支·用量）/ 分享（导出·复制ID）/ 危险（删除）
@@ -363,6 +369,9 @@ const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, r
             <span className="flex-1">新话题（清空上下文）</span>
           </DropdownMenuItem>
         )}
+        {/* 🔴 2026-10-25：Agent 级展示偏好（置顶/隐藏/编辑/复制）——从已卸载的
+            私聊分组菜单接回 HOME 的私聊行。占位行没有 profile 行，不渲染。 */}
+        {botChat && !virtual && botProfile && <BotRosterMenuItems profile={botProfile} />}
         <DropdownMenuItem disabled={!s.id} onSelect={() => void actions.onBranch(s.id)}>
           <GitBranch size={12} className="shrink-0" />
           <span className="flex-1">分支会话</span>
@@ -432,7 +441,13 @@ const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, r
           {isPinned && <Pin size={10} className="shrink-0 text-muted-foreground/50" />}
           <span className="text-[10px] text-muted-foreground shrink-0">{fmtTime(s.lastActive || s.startedAt)}</span>
         </div>
-        {botChat && <BotChatPreviewLine sessionId={s.id} virtual={virtual} />}
+        {botChat && (
+          <BotChatPreviewLine
+            sessionId={s.id}
+            virtual={virtual}
+            historical={historicalBotChat}
+          />
+        )}
       </div>
       {!virtual && menu}
     </div>
