@@ -52,6 +52,16 @@ const watermarks = new Map<string, number>();
 /** 未读标志（键同上） */
 const unread = new Map<string, boolean>();
 
+/** 末条消息预览（键同上）。数据源 = `bots.roster` 的 `last_message`
+ *  （后端 `sessions.last_message_text/at` 冗余快照，不读事件流）——
+ *  Hermes `bot-row.tsx` 第二行（`@handle · preview`）同源。 */
+export interface BotLastMessage {
+  text: string;
+  /** epoch 秒（与 `last_active` 同口径） */
+  at: number;
+}
+const lastMessageByKey = new Map<string, BotLastMessage>();
+
 /** 持久化（幂等：快照未变化不写盘；轮询 5s 一跳，水位线多数 tick 不变）。
  * 🔴 round-78：恢复后 seeded=true——历史水位线已覆盖，重启不误报旧消息。 */
 const UNREAD_PERSIST_KEY = 'eleve.plugin.bots.unreadState';
@@ -106,6 +116,16 @@ export function ingestBotRoster(bots: BotRosterEntry[]): void {
     const serverRead = bot.last_read_at ?? la;
     const wm = Math.max(watermarks.get(key) ?? 0, serverRead);
     latestByKey.set(key, la);
+    // 末条消息预览：只前进不回退（同一 last_active 的重复帧不覆盖）。
+    // 预览变化同样要 emit——否则 `useBotLastMessage` 的订阅者永远看到旧值。
+    const lm = bot.last_message;
+    const prevLm = lastMessageByKey.get(key);
+    if (lm && lm.text && lm.at >= (prevLm?.at ?? 0)) {
+      if (prevLm?.text !== lm.text || prevLm?.at !== lm.at) {
+        lastMessageByKey.set(key, { text: lm.text, at: lm.at });
+        changed = true;
+      }
+    }
 
     // 不在屏上 = 该 canonical 会话不是当前活动会话（键即 sid；远端会话
     // 永不可能是本地活动会话 → 远端活动正确置未读）。
@@ -261,5 +281,15 @@ export function useBotUnread(key: string): boolean {
     subscribe,
     () => unread.get(key) ?? false,
     () => false,
+  );
+}
+
+/** 订阅单个 bot 的末条消息预览（键同上：`canonical_session_id ?? profile`）。
+ *  未加载到（roster 首帧未到 / 新会话无消息）返回 null。 */
+export function useBotLastMessage(key: string): BotLastMessage | null {
+  return useSyncExternalStore(
+    subscribe,
+    () => lastMessageByKey.get(key) ?? null,
+    () => null,
   );
 }

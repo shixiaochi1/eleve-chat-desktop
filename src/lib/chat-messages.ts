@@ -704,16 +704,23 @@ function timelineTaskCount(metadata: unknown): number | undefined {
 const AGENT_MESSAGE_RE =
   /^(?:Message from (?:🤖\s*)?([^:\n(]{1,64}?)(?:\s*\(@([a-z0-9][a-z0-9_-]{0,63})(?:@[a-zA-Z0-9][a-zA-Z0-9_-]{0,63})?\))?:\s*|\[Message from agent '([^']{1,64})'\]\s*)([\s\S]*)$/u
 
-/** DM 来信行的 system 事件文案（Hermes AgentMessageNote 的单行等价物——
- *  Hermes 是头像 + "Message from {sender}" + 正文折叠 details；ELEVE system
- *  行无折叠面，正文按 160 摘要内联）。 */
+/** DM 来信行的 system 事件文案（对齐 Hermes `AgentMessageNote`：
+ *  头像/归属行 + 正文折叠 details）。
+ *
+ *  渲染层（`SystemMessage`）需要**完整正文**才能折叠，所以消息文本 =
+ *  人类可读摘要 + `\u0000` + JSON 载荷。`\u0000` 不会出现在正常文本里，
+ *  其它消费者（搜索/复制）读到的仍是前半句；ChatMessage 只在内存中，
+ *  不落库（源行仍是普通 user 消息）。 */
+const AGENT_DM_PAYLOAD_SEP = '\u0000'
+
 function agentDmNoticeLine(m: RegExpExecArray): string {
   const name = (m[1] || m[3] || '').trim()
   const handle = m[2]
   const body = (m[4] || '').trim()
   const digest = body.length > 160 ? `${body.slice(0, 160)}…` : body
   const who = handle ? `🤖 ${name} (@${handle})` : `🤖 ${name || '队友'}`
-  return digest ? `${who} 的私信：${digest}` : `${who} 的私信`
+  const summary = digest ? `${who} 的私信：${digest}` : `${who} 的私信`
+  return `${summary}${AGENT_DM_PAYLOAD_SEP}${JSON.stringify({ name, handle: handle || '', body })}`
 }
 
 function timelineDisplayContent(message: SessionMessage, content: string): string {
@@ -759,6 +766,12 @@ function timelineDisplayContent(message: SessionMessage, content: string): strin
     const failed = head[1] === 'FAILED'
     const body = content.slice(head[0].length)
     const trimmed = body.replace(/\n\[Replied to: "[\s\S]*"\]\s*$/, '').trim()
+    // 🔴 2026-10-25：空回信是**成功**（后端按 Hermes `(empty reply)` 语义发 REPLY）。
+    // 给它固定中文行，别把 `(empty reply — … not a failure)` 的模型侧英文说明
+    // 直接摊到会话流（与 SILENT/TIMEOUT 同一条规则）。
+    if (!failed && trimmed.startsWith('(empty reply')) {
+      return `${who} 的回信已送达（本轮无文本内容，不是失败）`
+    }
     const digest = trimmed.length > 160 ? `${trimmed.slice(0, 160)}…` : trimmed
     const label = failed ? '的 DM 未能送达回信' : '的回信已送达'
     return digest ? `${who} ${label}：${digest}` : `${who} ${label}`

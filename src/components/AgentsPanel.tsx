@@ -31,7 +31,16 @@ import { getPluginHost } from '../contrib/host';
 import type { AgentEditTarget } from '../contrib/host';
 import { useAgentPanelFilters, type AgentPanelFilterState } from '../hooks/useAgentPanelData';
 import { gatewayOptions } from '../lib/roster-filter';
-import { refreshRooms, selectRoom, useRooms, useUnionRoster } from '../plugins/bots/state';
+import { openRemoteBotChat } from '../lib/bot-open';
+import { attentionKey } from '../hooks/useBotAttention';
+import { BotAttentionBadge } from './bots/BotAttentionBadge';
+import {
+  refreshRooms,
+  selectRoom,
+  useRooms,
+  useUnionRoster,
+  type UnionRosterRow,
+} from '../plugins/bots/state';
 
 interface AgentsPanelProps {
   currentProfile?: string;
@@ -112,6 +121,34 @@ export default function AgentsPanel(props: AgentsPanelProps) {
     getPluginHost()?.openView('bots');
   }, []);
 
+  // 🔴 2026-10-24（对齐 Hermes 花名册）：**远端 Agent 的私聊入口**。
+  // 2026-10-22 的"私聊即 HOME 一条会话"只覆盖**本机** profile——远端会话
+  // 开在它的网关里，进不了本机 HOME 树。此前 `openRemoteBotChat` 是死代码，
+  // 远端 Agent 只作为群成员可见。这里为远端行补一个受限区块（不是旧私聊分组：
+  // 本机私聊仍只在 HOME 树里，不重复）。
+  const [openingRemote, setOpeningRemote] = useState<string | null>(null);
+  const remoteBots = useMemo(
+    () => allBots.filter((r) => r.isRemote && (filters.showHidden || !r.entry.hidden)),
+    [allBots, filters.showHidden],
+  );
+  const handleOpenRemote = useCallback(
+    async (row: UnionRosterRow) => {
+      if (openingRemote) return;
+      const key = `${row.connectionId}:${row.entry.profile}`;
+      setOpeningRemote(key);
+      try {
+        await openRemoteBotChat(row, {
+          onOpened: handleOpenRoomView,
+          onError,
+          onNotice,
+        });
+      } finally {
+        setOpeningRemote(null);
+      }
+    },
+    [openingRemote, handleOpenRoomView, onError, onNotice],
+  );
+
   return (
     <div className="relative flex flex-col h-full min-h-0">
       {/* ── ① Agent 卡片区（自然高度；max-h-[38%] 仅极端保护，超限内部滚动） ──
@@ -142,6 +179,54 @@ export default function AgentsPanel(props: AgentsPanelProps) {
         <ProjectTreePanel {...rest} onOpenBotChat={onOpenBotChat} />
       </div>
 
+      {/* ── ②b 远端 Agent 私聊（仅在名册里有远端行时出现；有界滚动） ── */}
+      {remoteBots.length > 0 && (
+        <div className="shrink-0 max-h-[26%] flex flex-col min-h-0 border-t border-[var(--ui-stroke-tertiary)]">
+          <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">
+            远端 Agents
+          </div>
+          <div className="overflow-y-auto px-1 pb-1">
+            {remoteBots.map((row) => {
+              const key = `${row.connectionId}:${row.entry.profile}`;
+              const opening = openingRemote === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={!row.reachable || openingRemote !== null}
+                  onClick={() => void handleOpenRemote(row)}
+                  className={cn(
+                    'w-full flex items-center justify-between gap-2 px-2 py-1 rounded-md text-left',
+                    'hover:bg-accent/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                  )}
+                  title={
+                    row.reachable
+                      ? `打开 @${row.entry.handle} 的远端私聊（${row.connectionLabel}）`
+                      : `连接「${row.connectionLabel}」当前不可达`
+                  }
+                >
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <span
+                      className={cn(
+                        'w-1.5 h-1.5 rounded-full shrink-0',
+                        row.entry.busy ? 'bg-emerald-500' : 'bg-muted-foreground/40',
+                      )}
+                    />
+                    <span className="text-xs text-foreground truncate">@{row.entry.handle}</span>
+                    {/* 🔴 2026-10-25：relay 投递失败的"需用户处理"徽标——
+                        远端行的键 = `${connectionId}::${profile}`，与
+                        services/bot-relay.ts 的写入口同源。 */}
+                    <BotAttentionBadge rowKey={attentionKey(row.connectionId, row.entry.profile)} />
+                  </span>
+                  <span className="text-[10px] text-muted-foreground truncate">
+                    {opening ? '连接中…' : row.connectionLabel}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── ③ 群聊区（有界 + 内部滚动；可折叠） ── */}
       <div className="shrink-0 max-h-[45%] flex flex-col min-h-0 border-t border-[var(--ui-stroke-tertiary)]">

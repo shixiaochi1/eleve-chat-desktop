@@ -13,6 +13,11 @@ import { useWorkspaceNodeOpen } from '../lib/sidebar-node-open';
 import { exportSessionAction, copySessionId } from '../lib/session-actions';
 import * as storage from '../utils/storage';
 import { SessionStatusDot } from './SessionStatusDot';
+import { useBotLastMessage, useBotUnread } from '../hooks/useBotUnread';
+import { attentionKey } from '../hooks/useBotAttention';
+import { formatBotPreview } from '../lib/bot-preview';
+import { profileFromSessionId } from '../utils/session';
+import { BotAttentionBadge } from './bots/BotAttentionBadge';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from './ui/dropdown-menu';
@@ -234,6 +239,57 @@ export function savePinnedIds(ids: Set<string>): void {
   } catch { /* ignore */ }
 }
 
+/**
+ * 🔴 2026-10-25：canonical 私聊行的未读点。
+ *
+ * `SessionStatusDot` 的 unread 来自 WS 事件（`message.complete`），而 bot 会话
+ * **从不 attach**（`hooks/useBotUnread.ts` 模块注释）——事件到不了前端，所以
+ * 私聊行此前永远不会亮红点。Hermes 同样遇到这个限制，解决办法是 roster 轮询
+ * 水位线（`hermes-bots/roster-actions.ts trackInboundActivity` →
+ * `markSessionUnreadFinished`）。这里直接复用 ELEVE 的那条唯一信号源。
+ *
+ * 只有 bot 行挂这个组件：`useBotUnread` 订阅全局 roster 帧，若挂在所有会话行上，
+ * 每次未读变化都会重渲染整棵树。
+ */
+function BotChatStatusDot({ sessionId, dotClassName }: { sessionId: string; dotClassName?: string }) {
+  const unread = useBotUnread(sessionId);
+  if (!unread) return <SessionStatusDot sessionId={sessionId} dotClassName={dotClassName} />;
+  return (
+    <span
+      className="inline-flex shrink-0 items-center"
+      role="status"
+      title="有新消息"
+      aria-label="有新消息"
+    >
+      <span className={cn('inline-block size-1.5 rounded-full bg-success', dotClassName)} aria-hidden="true" />
+    </span>
+  );
+}
+
+/**
+ * 私聊行第二行：末条消息预览（对齐 Hermes `bot-row.tsx:314-324` 的 details
+ * row——`@handle · preview`；ELEVE 的标题已经是 "Bot Chat"，故只留 preview）。
+ *
+ * 数据源与未读点同帧（`bots.roster.last_message`），不再单开一路轮询；
+ * 前缀剥离/压平/截断在 `lib/bot-preview.ts`（纯函数，可单测）。
+ */
+function BotChatPreviewLine({ sessionId, virtual }: { sessionId: string; virtual?: boolean }) {
+  const last = useBotLastMessage(sessionId);
+  const preview = virtual ? '' : formatBotPreview(last?.text);
+  const text = preview || (virtual ? '点击开始对话' : '还没有消息');
+  return (
+    <span
+      className={cn(
+        'block truncate text-[10px] leading-4',
+        preview ? 'text-muted-foreground/75' : 'text-muted-foreground/50',
+      )}
+      title={preview || undefined}
+    >
+      {text}
+    </span>
+  );
+}
+
 const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, rowClassName, botChat, virtual, onNewTopic }: {
   s: SessionPreview;
   isActive: boolean;
@@ -251,6 +307,11 @@ const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, r
 }) {
   const title = s.title || s.id.slice(0, 8);
   const isPinned = actions.isPinned(s);
+  // 🔴 2026-10-25：私聊行的 attention 徽标（对齐 Hermes bot-row warning 图标）。
+  // 键 = `${connectionId}::${profile}`；HOME 里的私聊恒为本机连接，故 'local'
+  // 与 `services/bot-relay.ts` 用 `LOCAL_CONNECTION_ID` 写入的形态一致。
+  const botProfile = botChat ? profileFromSessionId(s.id) : null;
+  const attentionRowKey = botProfile ? attentionKey('local', botProfile) : null;
 
   // 对齐 Hermes session-actions-menu：身份（重命名·置顶·归档）/ 会话操作
   // （撤销·压缩·分支·用量）/ 分享（导出·复制ID）/ 危险（删除）
@@ -261,7 +322,11 @@ const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, r
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors opacity-0 group-hover/row:opacity-100 data-[state=open]:opacity-100"
+          className={cn(
+            'p-0.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors opacity-0 group-hover/row:opacity-100 data-[state=open]:opacity-100',
+            // 两行私聊行：菜单与标题行对齐（items-start 下默认会贴顶）
+            botChat && 'mt-0.5',
+          )}
           onClick={(e) => e.stopPropagation()}
           title="会话操作"
         >
@@ -335,7 +400,10 @@ const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, r
   const row = (
     <div
       className={cn(
-        'flex items-center gap-2 pl-8 pr-3 py-1 cursor-pointer text-xs hover:bg-accent/40 transition-colors group/row rounded-md',
+        'flex gap-2 pl-8 pr-3 cursor-pointer text-xs hover:bg-accent/40 transition-colors group/row rounded-md',
+        // 🔴 2026-10-25：私聊行 = 两行（标题 + 末条预览，对齐 Hermes bot row）；
+        // 普通会话行保持单行紧凑。items-start 让圆点/图标与标题行对齐。
+        botChat ? 'items-start py-1.5' : 'items-center py-1',
         isActive && 'bg-accent/30',
         rowClassName,
       )}
@@ -344,16 +412,28 @@ const SessionItem = memo(function SessionItem({ s, isActive, onClick, actions, r
       //   （症状：点击行消息区被覆盖/颜色不显示，只能钻取内点才生效）
       onClick={(e) => { e.stopPropagation(); onClick(); }}
     >
-      <SessionStatusDot sessionId={s.id} dotClassName={isActive ? '!bg-accent-orange' : undefined} />
+      <span className={cn('shrink-0', botChat && 'mt-[3px]')}>
+        {botChat ? (
+          <BotChatStatusDot sessionId={s.id} dotClassName={isActive ? '!bg-accent-orange' : undefined} />
+        ) : (
+          <SessionStatusDot sessionId={s.id} dotClassName={isActive ? '!bg-accent-orange' : undefined} />
+        )}
+      </span>
       {/* 🔴 2026-08-12 老大：选中会话行图标变橙色（区分当前消息） */}
       {botChat ? (
-        <MessageCircle size={12} className={cn('shrink-0', isActive ? 'text-accent-orange' : 'text-muted-foreground')} />
+        <MessageCircle size={12} className={cn('shrink-0 mt-[2px]', isActive ? 'text-accent-orange' : 'text-muted-foreground')} />
       ) : (
         <MessageSquare size={12} className={cn('shrink-0', isActive ? 'text-accent-orange' : 'text-muted-foreground')} />
       )}
-      <span className={cn('truncate flex-1', isActive && 'text-accent-orange')}>{title}</span>
-      {isPinned && <Pin size={10} className="shrink-0 text-muted-foreground/50" />}
-      <span className="text-[10px] text-muted-foreground shrink-0">{fmtTime(s.lastActive || s.startedAt)}</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className={cn('truncate flex-1', isActive && 'text-accent-orange')}>{title}</span>
+          {attentionRowKey && <BotAttentionBadge rowKey={attentionRowKey} />}
+          {isPinned && <Pin size={10} className="shrink-0 text-muted-foreground/50" />}
+          <span className="text-[10px] text-muted-foreground shrink-0">{fmtTime(s.lastActive || s.startedAt)}</span>
+        </div>
+        {botChat && <BotChatPreviewLine sessionId={s.id} virtual={virtual} />}
+      </div>
       {!virtual && menu}
     </div>
   );
@@ -684,8 +764,10 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
   isDragOver?: boolean;
   /** 🔴 2026-08-13 问题2：会话行点击 → 所属项目域激活 */
   onSessionRowActivate?: (project: ProjectNode) => void;
-  /** 🔴 2026-10-22 任务 A：HOME 的 Bot Chat 行走 bot 登记链（而非普通 switchSession） */
-  onOpenBotChat?: (sessionId: string) => void;
+  /** 🔴 2026-10-22 任务 A：HOME 的 Bot Chat 行走 bot 登记链（而非普通 switchSession）。
+   *  第二参 = 会话标题：只有精确 `Bot Chat` 才推进已读水位线，`Bot Chat #N`
+   *  （轮转历史）不得清掉当前 canonical 的未读。 */
+  onOpenBotChat?: (sessionId: string, title?: string) => void;
   /** 🔴 2026-10-22 用户需求：在项目（含 HOME）里直接新开会话——行内 hover 的 + 按钮 */
   onNewSessionInProject?: (cwd: string) => void;
   /** 🔴 2026-10-23：私聊「新话题」——轮转 canonical，旧会话保留、新会话零上下文 */
@@ -838,7 +920,7 @@ export const ProjectItem = memo(function ProjectItem({ project, sessionId, onSwi
                     onNewTopic={botChat ? onNewBotChatTopic : undefined}
                     onClick={() => {
                       onSessionRowActivate?.(project);
-                      if (botChat && onOpenBotChat) onOpenBotChat(s.id);
+                      if (botChat && onOpenBotChat) onOpenBotChat(s.id, s.title);
                       else onSwitchSession?.(s.id);
                     }}
                     actions={sessionActions}

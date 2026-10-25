@@ -319,6 +319,14 @@ function dispatchPayloadOf(d: PendingDispatch): Record<string, unknown> | undefi
 interface PeerTurnStatus {
   state: 'running' | 'completed' | 'cancelled';
   reply?: string | null;
+  /** 🔴 2026-10-25：成员会话的外部写入快照（target 在收口帧附带；authority
+   *  据此把远端成员的 CLI/工具写入回填进房间日志，对齐 Hermes
+   *  group-external-writes 的跨机分支）。 */
+  external?: {
+    session_id: string;
+    max_id: number;
+    rows: Array<{ id: number; text: string }>;
+  };
 }
 
 /** 在飞轮询防重入（dispatchId → true） */
@@ -580,7 +588,11 @@ async function deliverPeerDispatch(authority: { id: string; remote: RemoteConnec
   if (dispatchPollers.has(d.id)) return;
   dispatchPollers.set(d.id, true);
   try {
-    const postResult = async (payload: { reply?: string; error?: string }) => {
+    const postResult = async (payload: {
+      reply?: string;
+      error?: string;
+      external?: PeerTurnStatus['external'];
+    }) => {
       try {
         await requestForBot(routeOf(authority), 'bot.rooms.peer_result', { id: d.id, ...payload });
       } catch {
@@ -660,7 +672,9 @@ async function deliverPeerDispatch(authority: { id: string; remote: RemoteConnec
         );
         const st = res?.status;
         if (st?.state === 'completed') {
-          await postResult({ reply: String(st.reply || '') });
+          // 🔴 2026-10-25：把 target 采的外部写入快照一并转回 authority
+          // （远端成员会话只在 target 可读——这是唯一能跨机回填的通道）。
+          await postResult({ reply: String(st.reply || ''), external: st.external });
           return;
         }
         if (st?.state === 'cancelled') {

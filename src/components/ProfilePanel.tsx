@@ -23,6 +23,9 @@ import { LOCAL_CONNECTION_ID } from '../services/bot-relay';
 import { isBotWorkerActive, isGatewayBusy } from '../lib/bot-activity';
 import { formatChatListTime } from '../lib/relative-time';
 import { useBotUnread } from '../hooks/useBotUnread';
+import { attentionKey } from '../hooks/useBotAttention';
+import { formatBotPreview } from '../lib/bot-preview';
+import { BotAttentionBadge } from './bots/BotAttentionBadge';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from './ui/dialog';
@@ -133,7 +136,9 @@ function ProfileCard({
   // 未读：订阅该 Agent canonical 私聊的未读标志（无键回退 profile，与 ingest 同公式）
   const unread = useBotUnread(unreadKey || profile.name);
   const lastMessage = runtime?.lastMessage ?? null;
-  const preview = (lastMessage?.text ?? '').replace(/\s+/g, ' ').trim();
+  // 与 HOME 私聊行同一格式化（剥 DM 投递前缀 / 压平 / 截断）——联系人行
+  // 不该显示 "Message from 🤖 …" 日志行。
+  const preview = formatBotPreview(lastMessage?.text);
   const activityAt = lastMessage?.at || runtime?.lastActive || 0;
   const subText = preview || (runtime?.busy ? '正在处理…' : '还没有消息');
   return (
@@ -215,6 +220,10 @@ function ProfileCard({
               <Star size={10} strokeWidth={1.5} className="text-muted-foreground/50" />
             </span>
           )}
+          {/* 🔴 2026-10-25：relay 投递失败的"需用户处理"徽标（对齐 Hermes
+              bot-row needs-attention）。只有 auth/quota/config/blocked 类入册，
+              transient 失败不打扰。 */}
+          <BotAttentionBadge rowKey={attentionKey(LOCAL_CONNECTION_ID, profile.name)} />
           {switching && <Loader size={12} strokeWidth={1.5} className="shrink-0 animate-spin text-primary" />}
           {/* 时间：hover 时让位给删除（微信行没有删除，但管理能力要保留） */}
           <span

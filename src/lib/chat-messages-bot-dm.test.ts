@@ -63,6 +63,19 @@ describe('bot_dm 回执四态', () => {
     ]);
   });
 
+  it('空回信（REPLY + (empty reply)）→ 成功文案，不外泄英文说明', () => {
+    const out = toChatMessages([
+      msg({
+        display_kind: 'bot_dm',
+        content:
+          '[BOT DM REPLY — @scout (Scout)]\n\n(empty reply — the teammate\'s turn completed without text; this is not a failure.)\n\n[Replied to: "ping"]',
+      }),
+    ]);
+    expect(texts(out)).toEqual([
+      { role: 'system', text: '@scout 的回信已送达（本轮无文本内容，不是失败）' },
+    ]);
+  });
+
   it('TIMEOUT → 超时行，不带英文回执正文', () => {
     const out = toChatMessages([
       msg({
@@ -89,13 +102,16 @@ describe('bot_dm 回执四态', () => {
 });
 
 describe('DM 来信行（AGENT_MESSAGE_RE）', () => {
-  it('标准形 → system 事件行 + 归属文案', () => {
+  it('标准形 → system 事件行 + 归属文案 + 可展开的完整正文载荷', () => {
     const out = toChatMessages([
       msg({ content: 'Message from 🤖 Scribe (@scribe): ping 一下' }),
     ]);
-    expect(texts(out)).toEqual([
-      { role: 'system', text: '🤖 Scribe (@scribe) 的私信：ping 一下' },
-    ]);
+    const [row] = texts(out);
+    expect(row.role).toBe('system');
+    expect(row.text.startsWith('🤖 Scribe (@scribe) 的私信：ping 一下')).toBe(true);
+    // 🔴 2026-10-24：摘要后跟 `\0` + JSON（SystemMessage 渲染 details 用）
+    const payload = JSON.parse(row.text.split('\u0000')[1]);
+    expect(payload).toEqual({ name: 'Scribe', handle: 'scribe', body: 'ping 一下' });
   });
 
   it('relay 限定形（@handle@connection）→ 同样识别', () => {
