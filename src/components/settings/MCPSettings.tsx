@@ -24,8 +24,9 @@ import { Textarea } from '../ui/textarea';
 import { SectionCard, SettingsSaveBar } from './SettingBlocks';
 import {
   Plus, Trash2, ToggleLeft, ToggleRight, RefreshCw,
-  Code2, Server,
+  Code2, Server, SlidersHorizontal,
 } from 'lucide-react';
+import McpServerAdvanced from './McpServerAdvanced';
 
 interface MCPServer {
   name: string;
@@ -56,6 +57,10 @@ export default function MCPSettings({ currentProfile }: { currentProfile?: strin
   // server name → 运行状态（拿不到就保持空：配置页不能因为网关没起来就空屏）
   const [statuses, setStatuses] = useState<Record<string, McpServerStatus>>({});
   const [runtimeReady, setRuntimeReady] = useState(true);
+  /** 原始配置条目（高级表单需要未拍平的对象做增量合并） */
+  const [rawServers, setRawServers] = useState<Record<string, Record<string, any>>>({});
+  /** 当前展开高级配置的服务器名 */
+  const [advancedFor, setAdvancedFor] = useState<string | null>(null);
 
   const [jsonMode, setJsonMode] = useState(false);
   const [jsonContent, setJsonContent] = useState('');
@@ -78,6 +83,7 @@ export default function MCPSettings({ currentProfile }: { currentProfile?: strin
         env: conf.env ? (typeof conf.env === 'object' ? JSON.stringify(conf.env, null, 2) : String(conf.env)) : '',
       }));
       setServers(list);
+      setRawServers(mcpServers as Record<string, Record<string, any>>);
       setJsonContent(JSON.stringify(mcpServers, null, 2));
     } catch {
       setServers([]);
@@ -281,8 +287,10 @@ export default function MCPSettings({ currentProfile }: { currentProfile?: strin
           <>
             {servers.map((s) => {
               const ttype = getTransportType(s);
+              const expanded = advancedFor === s.name;
               return (
-                <div key={s.name} className="flex items-center gap-3 px-3.5 py-2.5 transition-colors hover:bg-[var(--ui-row-hover-background)]">
+                <div key={s.name}>
+                <div className="flex items-center gap-3 px-3.5 py-2.5 transition-colors hover:bg-[var(--ui-row-hover-background)]">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <span className="text-[13px] font-medium text-foreground">{s.name}</span>
@@ -329,9 +337,30 @@ export default function MCPSettings({ currentProfile }: { currentProfile?: strin
                   >
                     {s.enabled ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
                   </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => setAdvancedFor(expanded ? null : s.name)}
+                    title={expanded ? '收起高级配置' : '高级配置（lazy / 过滤 / sampling / elicitation）'}
+                    className={expanded ? 'text-primary' : 'text-muted-foreground/60'}
+                  >
+                    <SlidersHorizontal size={14} />
+                  </Button>
                   <Button variant="ghost" size="icon-xs" onClick={() => handleDelete(s.name)} title="删除">
                     <Trash2 size={14} className="text-destructive" />
                   </Button>
+                </div>
+                {expanded && rawServers[s.name] && (
+                  <McpServerAdvanced
+                    name={s.name}
+                    entry={rawServers[s.name]}
+                    onSaved={() => {
+                      setAdvancedFor(null);
+                      loadServers();
+                    }}
+                    onCancel={() => setAdvancedFor(null)}
+                  />
+                )}
                 </div>
               );
             })}
