@@ -2,12 +2,20 @@
  * MCP 设置 — 对齐 Eleve mcp-settings.tsx
  *
  * MCP Server 列表管理：添加/编辑/删除/启用禁用
- * 功能：传输类型标签、计数、env编辑、JSON编辑器
+ * 功能：传输类型标签、**运行状态**、计数、env编辑、JSON编辑器
  *
  * 2026-08-31 卡片 UI 重构：裸行列表 → 统一分组卡片列表（逻辑不变）。
+ * 2026-10-30 接入运行状态（`GET /api/mcp/servers`）+ elicitation 收件箱：
+ *   - 配置（config.yaml）与运行态是两件事：前者决定"配了什么"，后者决定
+ *     "连上没有"。只显示配置的话，用户永远看不出某台服务器已经挂了。
+ *   - `parked` 是空闲回收，**工具仍在**，不能画成错误色。
  */
 import { useEffect, useState } from 'react';
 import { call } from '../../utils/bridge';
+import { fetchMcpServers } from '../../utils/api';
+import type { McpServerStatus } from '../../utils/api';
+import { describeMcpStatus } from '../../utils/mcp-status';
+import ElicitationInbox from './ElicitationInbox';
 import { notifySuccess, notifyError } from '../../utils/notifications';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
@@ -36,19 +44,26 @@ interface MCPConfigEntry {
   env?: unknown;
 }
 
-export default function MCPSettings() {
+/** `currentProfile` 只影响**运行状态**的归属：MCP 服务器配置是全局的
+ * （`config.yaml → mcp_servers`），但"谁采纳了这些连接"是 per-profile 的。
+ * 传错 profile 会让每台都显示"未连接"（scope 对不上）。 */
+export default function MCPSettings({ currentProfile }: { currentProfile?: string }) {
   const [servers, setServers] = useState<MCPServer[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [newServer, setNewServer] = useState<{ name: string; command: string; args: string; env: string }>({ name: '', command: '', args: '', env: '' });
   const [reloading, setReloading] = useState(false);
+  // server name → 运行状态（拿不到就保持空：配置页不能因为网关没起来就空屏）
+  const [statuses, setStatuses] = useState<Record<string, McpServerStatus>>({});
+  const [runtimeReady, setRuntimeReady] = useState(true);
 
   const [jsonMode, setJsonMode] = useState(false);
   const [jsonContent, setJsonContent] = useState('');
 
   useEffect(() => {
     loadServers();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentProfile]);
 
   const loadServers = async () => {
     try {
@@ -67,7 +82,24 @@ export default function MCPSettings() {
     } catch {
       setServers([]);
     }
+    await loadStatuses();
     setLoading(false);
+  };
+
+  /** 运行状态是**次要信息**：取不到就静默降级（不阻塞配置的展示与编辑）。 */
+  const loadStatuses = async () => {
+    try {
+      const data = await fetchMcpServers(currentProfile);
+      const map: Record<string, McpServerStatus> = {};
+      for (const item of data.servers || []) {
+        map[item.name] = item;
+      }
+      setStatuses(map);
+      setRuntimeReady(data.runtime_ready !== false);
+    } catch {
+      setStatuses({});
+      setRuntimeReady(false);
+    }
   };
 
   const handleReload = async () => {
@@ -108,6 +140,10 @@ export default function MCPSettings() {
     http: 'http',
     custom: 'custom',
   };
+
+  /** 运行状态徽标（映射逻辑在 `utils/mcp-status.ts`，那里有单测钉住
+   * "parked 不是错误"、"failed 优先于 parked" 这两条容易做错的判断）。 */
+  const statusBadge = (s: MCPServer) => describeMcpStatus(statuses[s.name], runtimeReady);
 
 
 
@@ -192,6 +228,8 @@ export default function MCPSettings() {
 
   return (
     <div className="max-w-2xl">
+      {/* 服务器请求用户输入的待办（无待办时不占版面） */}
+      <ElicitationInbox />
       <SectionCard
         icon={Server}
         title="MCP Server"
@@ -257,6 +295,21 @@ export default function MCPSettings() {
                       )}>
                         {transportLabel[ttype]}
                       </span>
+                      {/* 运行状态：与 transport（静态属性）分开，避免"配的是 stdio 所以是绿的" */}
+                      {(() => {
+                        const badge = statusBadge(s);
+                        return (
+                          <span
+                            title={badge.title}
+                            className={cn(
+                              'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                              badge.cls,
+                            )}
+                          >
+                            {badge.text}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground/70">
                       {s.command} {s.args}

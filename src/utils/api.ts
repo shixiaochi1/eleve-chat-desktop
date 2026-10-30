@@ -381,6 +381,80 @@ export async function toggleToolset(name: string, enabled: boolean, profile?: st
   return resp.json();
 }
 
+// ====== MCP 运行状态 ======
+
+/** MCP 服务器运行状态（`GET /api/mcp/servers`）。
+ *
+ * 三个容易读错的语义：
+ * - `parked` 是空闲回收：**工具仍在、调用会自动唤醒**，不是掉线
+ * - `status: "configured"` 是"配了但还没连"（发现阶段未跑完），与 `failed` 不同
+ * - `reason` 只在 failed 出现，取值是类型化的（后端刻意不回显原始错误文本，
+ *   避免 token / 自定义 header 经界面泄漏）
+ */
+export interface McpServerStatus {
+  name: string;
+  transport: string;
+  status: 'connected' | 'disabled' | 'failed' | 'configured';
+  connected: boolean;
+  disabled: boolean;
+  tools: number;
+  parked: boolean;
+  reason?: 'auth_required' | 'check_failed' | 'blocked';
+}
+
+export interface McpServersResponse {
+  servers: McpServerStatus[];
+  /** false = bootstrap 还没跑完，此时每台都是 connected:false（不是"没配"） */
+  runtime_ready: boolean;
+}
+
+/** GET /api/mcp/servers — 每台**已配置**服务器都会出现（含连不上的）。 */
+export async function fetchMcpServers(profile?: string): Promise<McpServersResponse> {
+  const qs = profile ? `?profile=${encodeURIComponent(profile)}` : '';
+  const resp = await fetch(`${getApiBase()}/api/mcp/servers${qs}`);
+  if (!resp.ok) throw new Error(`GET /api/mcp/servers: ${resp.status}`);
+  return resp.json();
+}
+
+// ====== MCP elicitation（服务器请求用户输入） ======
+
+/** 一条待用户应答的 elicitation 请求。 */
+export interface PendingElicitation {
+  id: number;
+  server: string;
+  message: string;
+  /** `字段名 (类型): 描述`，让用户先看到"要什么"再决定 */
+  fields: string[];
+  /** false = 后端不采集字段值，界面只渲染「同意 / 拒绝」 */
+  form_supported: boolean;
+}
+
+/** GET /api/elicitations — 轮询待办（建议 3s 一次；没有待办时返回空数组）。 */
+export async function fetchElicitations(): Promise<PendingElicitation[]> {
+  const resp = await fetch(`${getApiBase()}/api/elicitations`);
+  if (!resp.ok) throw new Error(`GET /api/elicitations: ${resp.status}`);
+  const data = await resp.json();
+  return Array.isArray(data?.pending) ? data.pending : [];
+}
+
+/** POST /api/elicitations/:id/respond — 应答一条请求。
+ *
+ * `decision` 三态：`accept` / `decline` / `cancel`。
+ * 后端对未知取值一律按 decline 处理（fail-closed），但这里不该依赖那层兜底。
+ */
+export async function respondElicitation(
+  id: number,
+  decision: 'accept' | 'decline' | 'cancel',
+): Promise<{ resolved: boolean }> {
+  const resp = await fetch(`${getApiBase()}/api/elicitations/${id}/respond`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decision }),
+  });
+  if (!resp.ok) throw new Error(`POST /api/elicitations/${id}/respond: ${resp.status}`);
+  return resp.json();
+}
+
 // ====== 多 Profile 管理（F9+ Profile 选择器，对齐 Hermes profile list/use） ======
 
 /** profiles.list — 列出所有 profile（含 model/provider/skill_count/has_env 富信息）

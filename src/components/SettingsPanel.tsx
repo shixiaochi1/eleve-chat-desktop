@@ -836,7 +836,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       case 'voice':
         return <VoiceSettings onSaved={() => {}} />;
       case 'mcp':
-        return <MCPSettings />;
+        return <MCPSettings currentProfile={currentProfile} />;
       // 🔴 2026-08-10 网关功能已搬入 LOGO 面板（GatewayPanel），设置里移除重复入口
       case 'connection':
         return <ConnectionSettings />;
