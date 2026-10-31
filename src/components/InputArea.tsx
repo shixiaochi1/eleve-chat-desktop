@@ -5,8 +5,6 @@ import ModelPill from './ModelPill';
 import AttachMenu from './AttachMenu';
 import GoalBar from './GoalBar';
 import VoiceActivityBar from './VoiceActivityBar';
-import ThinkingButton from './ThinkingButton';
-import FastModeButton from './FastModeButton';
 import WebWindowButton from './WebWindowButton';
 import SlashCommandPopup from './SlashCommandPopup';
 import QueuePanel from './QueuePanel';
@@ -888,12 +886,9 @@ function InputArea({
             </button>
             {/* 唤醒词耳朵开关 — 对齐 Hermes composer WakeWordButton（persist 显式手势翻配置） */}
             <WakeWordButton pausedForVoice={voice.status === 'recording'} />
-            {/* 模型胶囊 — 模型显示 + 分组下拉切换（Hermes 式 Model Pill） */}
-            <ModelPill />
-            {/* 思考深度 — 低/中/高，config.set 持久化（对齐 Hermes reasoning_effort） */}
-            <ThinkingButton />
-            {/* 快速模式 — 开关（对齐 Hermes fastMode = agent.service_tier fast，已接线后端透传） */}
-            <FastModeButton />
+            {/* 模型胶囊 — 模型显示 + 分组下拉切换（Hermes 式 Model Pill；
+                标签叠加 `· 快速 中`；思考/快速/推理强度在每行模型的齿轮子菜单里） */}
+            <ModelPill showEffort sessionId={sessionId} />
             {/* 网页窗口 — 已接通后端 browser.manage（连接/断开浏览器） */}
             <WebWindowButton sessionId={sessionId} />
             <div className="ml-auto flex items-center gap-(--composer-control-gap)">

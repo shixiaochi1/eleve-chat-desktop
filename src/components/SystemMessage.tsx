@@ -36,7 +36,7 @@ export default function SystemMessage({ text }: SystemMessageProps) {
       const body = (payload.body || '').trim();
       return (
         <details
-          className="group w-[72%] max-w-[44rem] self-center rounded-md border border-[var(--ui-stroke-tertiary)] px-2.5 py-1 text-[0.6875rem] leading-5 text-muted-foreground/60"
+          className="group mx-auto w-[72%] max-w-[44rem] rounded-md border border-[var(--ui-stroke-tertiary)] px-2.5 py-1 text-[0.6875rem] leading-5 text-muted-foreground/60"
           data-role="system"
         >
           <summary className="flex cursor-pointer list-none items-center gap-1.5">
@@ -61,7 +61,7 @@ export default function SystemMessage({ text }: SystemMessageProps) {
   if (steerNote?.groups) {
     return (
       <div
-        className="flex max-w-[min(86%,44rem)] items-center gap-1.5 self-center px-2 py-0.5 text-[0.6875rem] leading-5 text-muted-foreground/60"
+        className="mx-auto flex w-fit max-w-[min(86%,44rem)] items-center gap-1.5 px-2 py-0.5 text-[0.6875rem] leading-5 text-muted-foreground/60"
         data-role="system"
       >
         <Compass className="text-muted-foreground/55" size={12} strokeWidth={1.5} />
@@ -81,7 +81,7 @@ export default function SystemMessage({ text }: SystemMessageProps) {
     return (
       <div
         className={cn(
-          'w-[60%] max-w-[44rem] self-center px-2 py-0.5 text-[0.6875rem] leading-5 text-muted-foreground/60',
+          'mx-auto w-fit max-w-[min(86%,44rem)] px-2 py-0.5 text-[0.6875rem] leading-5 text-muted-foreground/60',
           multiline ? 'text-left' : 'text-center'
         )}
         data-role="system"
@@ -103,7 +103,7 @@ export default function SystemMessage({ text }: SystemMessageProps) {
   return (
     <div
       className={cn(
-        'w-[60%] max-w-[44rem] self-center px-2 py-0.5 text-[0.6875rem] leading-5 text-muted-foreground/55',
+        'mx-auto w-fit max-w-[min(86%,44rem)] px-2 py-0.5 text-[0.6875rem] leading-5 text-muted-foreground/55',
         multiline ? 'text-left' : 'text-center'
       )}
       data-role="system"

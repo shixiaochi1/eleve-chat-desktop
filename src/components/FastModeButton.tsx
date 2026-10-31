@@ -4,6 +4,10 @@ import { FastIcon } from './Icons';
 import { getWsClient } from '@/services/ws-client';
 
 /**
+ * ⚠️ 2026-10-31 已停用：入口并入 ThinkingButton 菜单的「快速」开关
+ * （对齐 Hermes 把 Thinking / Fast 放在同一 Options 区）。本文件保留备查，
+ * InputArea 不再挂载。
+ *
  * 快速模式 — 开关按钮（对齐 Hermes fastMode = agent.service_tier fast/priority/on）
  *
  * 🔴 2026-08-10 断链修复：此前写 agent.fast_mode（后端 AgentConfig 无此字段，
@@ -36,7 +40,8 @@ export default function FastModeButton() {
     const next = !on;
     setOn(next);
     // fast/normal（对齐 Hermes fastMode 开关写 service_tier；priority/on 由 config.yaml 手写保留）
-    getWsClient().configSet(CONFIG_KEY, next ? 'fast' : 'normal').catch((err) => {
+    // 对齐 Hermes：fast 布尔 ↔ service_tier="priority"（"fast" 是非法 wire 值）
+    getWsClient().configSet(CONFIG_KEY, next ? 'priority' : null).catch((err) => {
       console.warn('[FastModeButton] config.set failed:', err);
     });
   }, [on]);

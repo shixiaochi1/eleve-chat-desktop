@@ -73,6 +73,9 @@ import ImageEditorModal from './components/ImageEditorModal';
 import { ImageEditorContext, type ImageEditorTarget, type ImageEditorApi } from './store/image-editor';
 import { initPreviewEvents } from '@/lib/preview-events';
 import { initPaneReveal } from '@/lib/pane-reveal';
+import { initDesktopUiEvents, layoutPresetToRail } from '@/lib/desktop-ui-events';
+import TipBubble, { type TipState } from './components/TipBubble';
+import TourOverlay, { type TourState } from './components/TourOverlay';
 import { usePaneOpenRequest, getPreviewStoreState, closeTab as closePreviewTab } from '@/store/preview';
 import { useReviewRevealRequest } from '@/store/review';
 import ArtifactPanel from './components/ArtifactPanel';
@@ -127,6 +130,14 @@ export default function App() {
     handleToggleFiles,
     MIN_CHAT_WIDTH,
   } = usePanelLayout();
+
+  // show_tip 的气泡状态（apply_layout / show_tip 见 initDesktopUiEvents）
+  const [tip, setTip] = useState<TipState | null>(null);
+  // gui_tour 的引导状态（渲染进程翻页，模型不逐步驱动）
+  const [tour, setTour] = useState<TourState | null>(null);
+  // start_chat 需要"当前渲染"的发送/新建函数——effect 只挂一次，直接捕获会是旧闭包
+  const sendMessageRef = useRef<((text: string) => Promise<unknown>) | null>(null);
+  const newSessionRef = useRef<(() => void) | null>(null);
 
   // 🔴 Artifact 右栏化（对齐 Hermes openArtifact → 打开右栏 tab）：
   // 消息内卡片点击 openArtifact() 后，单视图自动打开右栏并切到「产物」tab；
@@ -520,6 +531,36 @@ export default function App() {
         // files / terminal / preview / artifacts → 右栏对应 tab
         setRightOpen(true);
         setRightTab(pane);
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 桌面表面工具：apply_layout / show_tip / gui_tour / start_chat
+  // （同一聚焦门禁：后台 turn 不动界面、不弹引导、不开新会话）
+  useEffect(() => {
+    return initDesktopUiEvents({
+      getFocusedSessionId: () => focusedSessionIdRef.current,
+      onApplyLayout: (preset) => {
+        const rail = layoutPresetToRail(preset);
+        if (rail.rightTab) setRightTab(rail.rightTab);
+        setRightOpen(rail.rightOpen);
+        if (rail.focusComposer) {
+          (document.getElementById('input') as HTMLElement | null)?.focus();
+        }
+      },
+      onShowTip: (payload) => setTip(payload),
+      onStartTour: (steps) => setTour({ steps }),
+      onStopTour: () => setTour(null),
+      // start_chat：新开一个可见会话并把首条任务发过去（对齐 Hermes 语义）。
+      // 用 ref 取**当前渲染**的 handleSend，避免 effect 闭包拿到首次渲染的旧值。
+      onStartChat: ({ message }) => {
+        newSessionRef.current?.();
+        const send = sendMessageRef.current;
+        if (!send) return;
+        void send(message).catch((e: unknown) => {
+          console.warn('[start_chat] send failed', e);
+        });
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1456,6 +1497,14 @@ export default function App() {
     }
   }, [rawHandleSend, attachedImages, clearImages, isSendingRef, sess.sessionId, sess, currentProfile, uploadUnuploaded, markUnuploaded, attachedFiles, clearFilesAttachment]);
 
+  // start_chat（桌面工具）用最新渲染的发送/新建闭包，effect 只挂一次不能直接捕获
+  useEffect(() => {
+    sendMessageRef.current = handleSend;
+    newSessionRef.current = () => {
+      handleNewSession();
+    };
+  }, [handleSend, handleNewSession]);
+
   // 适配 addImage 签名：useImageAttachments 返回 Promise<AttachedImage | null>，
   // InputArea 的 onAddImage 期望 Promise<void>，丢弃返回值即可
   const handleAddImage = useCallback(async (file: File): Promise<void> => {
@@ -1669,15 +1718,8 @@ export default function App() {
     <ThemeProvider>
       <ImageEditorContext.Provider value={imageEditorApi}>
       <ModelProvider value={modelContextValue}>
-      <AppShell
-        titlebar={titlebarEl}
-        connectionStatus={connectionStatus}
-        gatewayOnline={gatewayHealth.online}
-        gatewayChecking={gatewayHealth.checking}
-        sessionId={sess.sessionId}
-        profileName={currentProfileLabel}
-        onOpenSettings={handleOpenSettings}
-      >
+      {/* 🔴 2026-10-31 老大：底部状态栏（连接状态 / Agent 名 / 右下 ID）整条下线 */}
+      <AppShell titlebar={titlebarEl}>
         {/* ===== PaneShell 三栏布局：图标栏 + 侧边面板 + 聊天区 ===== */}
         <ErrorBoundary>
         <PaneShell
@@ -2257,6 +2299,12 @@ export default function App() {
 
       {/* Toast 通知栈 — 顶部居中浮动 */}
       <Toast />
+
+      {/* show_tip 指向性气泡（工具侧 show_tip → tip.show 事件） */}
+      <TipBubble tip={tip} onDismiss={() => setTip(null)} />
+
+      {/* gui_tour 多步引导（工具侧 gui_tour → tour.start/stop 事件） */}
+      <TourOverlay tour={tour} onClose={() => setTour(null)} />
 
       {/* Agent 编辑面板（双击宫格卡片 / 花名册右键打开） */}
       {editTarget && (

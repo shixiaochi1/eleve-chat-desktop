@@ -438,6 +438,7 @@ export const AgentChatCard = memo(function AgentChatCard({
           <div className="-my-1">
             <ModelPill
               model={state.modelName ?? undefined}
+              sessionId={state.sessionId}
               onSelect={(modelId) => onSelectModel?.(profile.name, modelId, state.sessionId)}
             />
           </div>

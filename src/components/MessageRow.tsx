@@ -153,7 +153,7 @@ export const MessageRow = memo(function MessageRow({ message: m, onDelete, sessi
               case 'reasoning':
                 // 🔴 Phase 3: pending 自门控（审查 #7）— 仅未冻结（!done）块随消息 pending，
                 // 已 reasoning.end 的块不再显示“思考中”计时器；块级 timerKey 消灭多块同读数。
-                return <ReasoningBlock key={item.key} text={item.text} visible={!!item.text} messageId={m.id} blockIndex={item.idx} pending={!!m.pending && !item.done} />
+                return <ReasoningBlock key={item.key} text={item.text} visible={!!item.text} messageId={m.id} blockIndex={item.idx} pending={!!m.pending && !item.done} sessionId={sessionId} />
               case 'text':
                 return (
                   <MessageBubble

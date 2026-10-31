@@ -11,7 +11,6 @@ import {
   PaletteIcon,
   ToolIcon,
   UsageIcon,
-  ChannelsIcon,
   KanbanIcon,
   AgentIcon,
 } from './Icons';
@@ -64,8 +63,7 @@ export default function IconBar({ activePanel, onPanelChange, onOpenOverlay, gat
     { id: 'cron',     icon: CronIcon,     label: '定时任务', order: 50 },
     { id: 'tools',    icon: ToolIcon,     label: '工具', order: 60 },
     { id: 'learning', icon: BookOpen,    label: '学习', order: 70 },
-    // 🔴 2026-08-12 老大指示：频道按钮移到用量分析前面
-    { id: 'channels', icon: ChannelsIcon, label: '频道', order: 80 },
+    // 🔴 2026-10-31 老大：频道按钮无功能，入口下线（ChannelsPanel 文件保留备查）
     { id: 'usage',    icon: UsageIcon,    label: '用量分析', order: 90 },
     { id: 'debug',    icon: DebugIcon,    label: '调试', order: 100 },
   ];

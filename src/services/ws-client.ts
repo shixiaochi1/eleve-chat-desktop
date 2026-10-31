@@ -826,9 +826,15 @@ export class GatewayWsClient {
     return result as ConfigGetResponse
   }
 
-  /** 写配置 — config.set { key, value }，内存+磁盘原子更新、立即生效 */
-  async configSet(key: string, value: unknown): Promise<ConfigSetResponse> {
-    const result = await this.sendRpc(WsMethod.CONFIG_SET, { key, value })
+  /** 写配置 — config.set { key, value }，内存+磁盘原子更新、立即生效
+   *
+   * 🔴 2026-10-31 对齐 Hermes：`sessionId` 非空时写**会话级**作用域
+   * （后端 key="reasoning" 走 SessionHandle::set_reasoning_effort），
+   * 不落全局 config。 */
+  async configSet(key: string, value: unknown, sessionId?: string | null): Promise<ConfigSetResponse> {
+    const params: Record<string, unknown> = { key, value }
+    if (sessionId) params.session_id = sessionId
+    const result = await this.sendRpc(WsMethod.CONFIG_SET, params)
     return result as ConfigSetResponse
   }
 

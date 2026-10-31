@@ -54,6 +54,7 @@ import { normalizeWsEvent, admitBySlotGuard } from '@/lib/ws-event-router';
 import { createAtomStore, type AtomStore } from '@/lib/store-factory';
 import { completionErrorText } from '@/lib/completion-error';
 import { handleGlobalEvent } from '@/lib/global-events';
+import { setSessionDisplayOverrides } from '../store/display-settings';
 import { writeAgentTerminalChunk } from '@/lib/agent-terminal-stream';
 import { burstVibeHearts } from '@/lib/vibe-hearts';
 import { interpretSlashResult, type SlashExecResult } from '@/lib/slash-result';
@@ -984,6 +985,13 @@ export function useGridChat(
           if (options?.onSessionCwd && options.currentProfile?.() === profile) {
             options.onSessionCwd((payload.cwd as string) || '');
           }
+          // 🔴 2026-10-31 /reasoning show|hide|full|clamp：会话级显示覆盖按 sid 归属
+          //   （宫格卡片与单视图共用 ReasoningBlock，不按会话区分会串台）
+          setSessionDisplayOverrides(
+            (payload.session_id as string) || '',
+            typeof payload.show_reasoning === 'boolean' ? payload.show_reasoning : null,
+            typeof payload.reasoning_full === 'boolean' ? payload.reasoning_full : null,
+          );
           // 🔴 Phase B: running=false 自愈 — WS 重连 / 后端重启后，锁可能泄漏（message.complete 丢失）
           // 单视图 useMessageStream:565 有等价分支；宫格之前缺失 → 流式卡死锁无逃生
           if (payload.running === false && sendingRef.current[profile]) {

@@ -14,6 +14,8 @@ import {
   setIsStreaming as storeSetIsStreaming,
 } from '../store/messages';
 import { type DebugToolCall, type MonitorState } from '../store/debug';
+import { setFastMode, setSessionReasoning } from '../store/session-reasoning';
+import { setSessionDisplayOverrides } from '../store/display-settings';
 import {
   textPart,
   reasoningPart,
@@ -756,6 +758,10 @@ export function useMessageStream({
       title: string
       version: string
       reasoning_effort: string
+      /** 会话级推理显示覆盖（null = 继承 config.yaml 的 display.show_reasoning） */
+      show_reasoning?: boolean | null
+      /** 会话级完整显示覆盖（null = 继承 display.reasoning_full） */
+      reasoning_full?: boolean | null
       service_tier: string
       fast: boolean
       yolo: boolean
@@ -825,6 +831,17 @@ export function useMessageStream({
       }
       // 🔴 W-7: 同步会话 cwd（后端 session.info 携带；旧版丢弃 → preview.restart cwd 恒空）
       setSessionCwd?.(data.cwd || '');
+      // 🔴 2026-10-31 对齐 Hermes SessionView：session.info 是**会话级**思考档位 /
+      //   快速模式的权威快照（模型胶囊标签与思考菜单共用此源）。
+      //   reasoning_effort 为空 = 该会话未覆盖 → 继承全局 agent.reasoning_effort。
+      setSessionReasoning(data.session_id, data.reasoning_effort || '');
+      setFastMode(Boolean(data.fast));
+      // 🔴 /reasoning show|hide|full|clamp 的会话级覆盖（null = 继承 config.yaml）
+      setSessionDisplayOverrides(
+        data.session_id,
+        data.show_reasoning ?? null,
+        data.reasoning_full ?? null,
+      );
       // T5: 恢复 pending 交互 UI — 归一化提取（与宫格 useGridChat 同一权威源）
       const pending = extractPendingInteractions(data.pending_prompts as Record<string, Record<string, unknown>> | undefined, data.run_id);
       if (pending) {

@@ -90,6 +90,17 @@ describe('bot_dm 回执四态', () => {
     expect(row.text).not.toContain('No reply from');
   });
 
+  it('私聊 intro kick（「（系统）」注入引导）→ 整行不上屏', () => {
+    const out = toChatMessages([
+      msg({
+        display_kind: 'bot_dm',
+        content:
+          '（系统）这是你的常驻私聊通道，刚刚建立。请用简短的一段话向用户自我介绍：你是谁、你擅长什么、可以怎样被协作使用。不要罗列工具清单，不要反问用户。',
+      }),
+    ]);
+    expect(out).toEqual([]);
+  });
+
   it('无回执头（intro kick / cron 投递）→ 中性系统注入文案，不冒称回信', () => {
     const out = toChatMessages([
       msg({ display_kind: 'bot_dm', content: '向用户介绍一下你自己：你是谁、能做什么。' }),

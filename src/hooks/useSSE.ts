@@ -85,6 +85,10 @@ export interface SSECallbacks {
     title: string
     version: string
     reasoning_effort: string
+    /** 会话级推理显示覆盖（null = 继承 config.yaml 的 display.show_reasoning） */
+    show_reasoning?: boolean | null
+    /** 会话级完整显示覆盖（null = 继承 display.reasoning_full） */
+    reasoning_full?: boolean | null
     service_tier: string
     fast: boolean
     yolo: boolean
@@ -498,6 +502,9 @@ function processEvent(
         title: (chunk.title as string) || '',
         version: (chunk.version as string) || '',
         reasoning_effort: (chunk.reasoning_effort as string) || '',
+        // 会话级显示覆盖：只有 bool 才算覆盖，缺键/其它一律 null（继承全局）
+        show_reasoning: typeof chunk.show_reasoning === 'boolean' ? chunk.show_reasoning : null,
+        reasoning_full: typeof chunk.reasoning_full === 'boolean' ? chunk.reasoning_full : null,
         service_tier: (chunk.service_tier as string) || '',
         fast: (chunk.fast as boolean) || false,
         yolo: (chunk.yolo as boolean) || false,

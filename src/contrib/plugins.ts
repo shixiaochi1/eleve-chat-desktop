@@ -9,11 +9,12 @@ import { createPluginContext, disposePlugin } from './plugin';
 import { isPluginEnabled, publishPlugin, setPluginReloadHandler } from './plugins-store';
 
 import canvasPlugin from '../plugins/canvas/plugin';
-import helloPlugin from '../plugins/hello/plugin';
 import botsPlugin from '../plugins/bots/plugin';
 
 /** bundled 鎻掍欢娓呭崟锛堟柊澧炴彃浠讹細import + 鏁扮粍杩藉姞锛?*/
-const BUNDLED: ElevePlugin[] = [canvasPlugin, helloPlugin, botsPlugin];
+/* 🔴 2026-10-31 老大：Hello 示例插件的工具栏按钮无功能，从 bundled 清单下线
+ *   （src/plugins/hello/plugin.tsx 文件保留备查，重新上架只需加回本数组）。 */
+const BUNDLED: ElevePlugin[] = [canvasPlugin, botsPlugin];
 
 function loadOne(plugin: ElevePlugin): void {
   const ctx = createPluginContext(plugin);

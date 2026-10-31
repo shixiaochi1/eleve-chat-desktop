@@ -652,6 +652,25 @@ function transcriptContent(displayKind: string | undefined, content: string): st
   return displayKind === 'hidden' ? null : content
 }
 
+/** 🔴 2026-10-31 老大：私聊常驻通道的 **intro kick**（后端
+ *  `crates/eleve-app/src/bot_chat.rs` 的 `INTRO_KICK_PROMPT`，形如
+ *  「（系统）这是你的常驻私聊通道，刚刚建立。请用简短的一段话向用户自我介绍…」）
+ *  是写给模型看的开场引导，不是对话内容。此前被降级成「系统注入消息：…」
+ *  挤在会话流顶部（块宽 60% 又左对齐，观感既不居中也不像正常对话）——现整行
+ *  不上屏。行本身仍 replay 给模型，后端会话不受影响。
+ *
+ *  只认带「（系统）」标记的 bot_dm 行（display_kind=bot_dm 恒为系统注入，
+ *  不可能是用户输入）；cron 生产者投递等无此标记的仍走「系统注入消息：…」中性文案。 */
+const BOT_DM_SYSTEM_INJECT_RE = /（系统）/
+
+/** 是否为不上屏的系统注入行（intro kick 等） */
+function isHiddenSystemInject(message: SessionMessage, content: unknown): boolean {
+  return (
+    message.display_kind === 'bot_dm' &&
+    BOT_DM_SYSTEM_INJECT_RE.test(textFromUnknown(content))
+  )
+}
+
 /**
  * steer 行的显示还原（2026-09-11 对齐 Hermes desktop）。
  *
@@ -951,6 +970,13 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
     }
 
     const content = message.content || message.text || message.context || message.name
+    // 🔴 2026-10-31：系统注入行（私聊 intro kick）整行不上屏——与 hidden 行同
+    //   路径：不产 parts，下方空行分支直接跳过（行仍 replay 给模型）。
+    if (isHiddenSystemInject(message, content)) {
+      flushPendingTools(index)
+      activeAssistantIndex = null
+      return
+    }
     // 🔴 2026-10-24：DM 来信行识别（const 定义与理由见 AGENT_MESSAGE_RE 头注）。
     // 只认 display_kind 为空的 user 行（typed 行各有去处：steer/bot_dm/…）。
     const agentDm =

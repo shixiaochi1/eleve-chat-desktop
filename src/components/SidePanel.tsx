@@ -14,12 +14,12 @@ import UsagePanel from './UsagePanel';
 import ProcessPanel from './ProcessPanel';
 import RollbackPanel from './RollbackPanel';
 import LearningPanel from './LearningPanel';
-import ChannelsPanel from './ChannelsPanel';
+
 import KanbanPanelForSidebar from './KanbanPanelForSidebar';
 import {
   CronIcon,
   DebugIcon, ToolIcon,
-  UsageIcon, ChannelsIcon, AgentIcon, KanbanIcon,
+  UsageIcon, AgentIcon, KanbanIcon,
 } from './Icons';
 import { Radio, Activity, GitCommit, BookOpen } from 'lucide-react';
 import { useContributions } from '@/contrib/registry';
@@ -102,7 +102,6 @@ export default function SidePanel({ activePanel, onPanelChange, ...props }: Side
     gateway:  { title: '网关状态',   Icon: Radio,       component: GatewayPanel },
     // 🔴 2026-08-12：projects 面板已合并进 Agent 面板（AgentsPanel 内嵌项目区），
     //   IconBar 无入口，此配置为死项已删除
-    channels: { title: '频道',     Icon: ChannelsIcon, component: ChannelsPanel },
     cron:     { title: '定时任务', Icon: CronIcon,    component: CronPanel },
     tools:    { title: '工具',     Icon: ToolIcon,    component: ToolsPanel },
     processes: { title: '进程',     Icon: Activity,    component: ProcessPanel },

@@ -15,7 +15,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import { REASONING_EFFORTS } from '../../lib/reasoning-efforts';
+import { REASONING_EFFORT_OPTIONS } from '../../lib/reasoning-efforts';
 import { selectCls } from '../../lib/ui-styles';
 import { SectionCard } from './SettingBlocks';
 import { notifySuccess, notifyError } from '../../utils/notifications';
@@ -349,7 +349,7 @@ export default function ModelSettings({
                     title={fbUnsupported ? '该模型不支持思考模式，此设置不会生效' : undefined}
                   >
                     <option value="">跟随模型默认</option>
-                    {REASONING_EFFORTS.map(ef => <option key={ef.value} value={ef.value}>{ef.label}</option>)}
+                    {REASONING_EFFORT_OPTIONS.map(ef => <option key={ef.value} value={ef.value}>{ef.label}</option>)}
                   </select>
                   <button
                     type="button"
@@ -429,7 +429,7 @@ export default function ModelSettings({
                       disabled={reasoningUnsupported}
                     >
                       <option value="">跟随模型默认</option>
-                      {REASONING_EFFORTS.map(ef => <option key={ef.value} value={ef.value}>{ef.label}</option>)}
+                      {REASONING_EFFORT_OPTIONS.map(ef => <option key={ef.value} value={ef.value}>{ef.label}</option>)}
                     </select>
                     {reasoningUnsupported && (
                       <p className="text-[10px] leading-snug text-warning/80">该模型不支持思考模式，此设置不会生效</p>

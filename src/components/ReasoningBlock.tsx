@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useDeferredValue, useRef, useLayoutEffe
 import { ThinkingIcon, CopyIcon, CheckIcon, ExpandIcon } from './Icons';
 import ActivityTimerText from './ActivityTimerText';
 import { useElapsedSeconds } from '@/hooks/useActivityTimer';
-import { useShowReasoning } from '@/store/display-settings';
+import { useReasoningFull, useReasoningMaxLines, useShowReasoning } from '@/store/display-settings';
 import { cleanThinkingText } from '@/lib/thinking-text';
 import { cn } from '@/lib/utils';
 import StreamBlocks from './StreamBlocks';
@@ -17,6 +17,8 @@ interface ReasoningBlockProps {
   blockIndex?: number;
   /** 是否正在思考（pending 状态—由 MessageRow 自门控：仅未冻结块随消息 pending） */
   pending?: boolean;
+  /** 会话 ID — 显示覆盖（/reasoning hide|full）按会话归属，单视图/宫格不串台 */
+  sessionId?: string | null;
 }
 
 /**
@@ -43,10 +45,13 @@ interface ReasoningBlockProps {
  *     静止态保持 Brain 静态图标
  *   - 🔴 禁止 scrollIntoView — 虚拟化列表中会造成反馈循环
  */
-export default function ReasoningBlock({ text, visible, messageId, blockIndex, pending }: ReasoningBlockProps) {
-  // 显示推理过程开关（config.yaml display.show_reasoning，设置>聊天）。
+export default function ReasoningBlock({ text, visible, messageId, blockIndex, pending, sessionId }: ReasoningBlockProps) {
+  // 显示推理过程开关：本会话覆盖（/reasoning show|hide）> config.yaml display。
   // 关闭时整个推理块不渲染；数据层 parts 保留，重新打开后历史推理块恢复显示。
-  const showReasoning = useShowReasoning();
+  const showReasoning = useShowReasoning(sessionId);
+  // 完整显示 vs 截断（/reasoning full|clamp → 会话覆盖 > display.reasoning_full）
+  const reasoningFull = useReasoningFull(sessionId);
+  const maxLines = useReasoningMaxLines();
   // 🔴 默认折叠（老大 2026-08-05 定调：思考过程中折叠，漏两行预览，想看点击展开）：
   // userOpen=null（从未手动操作）→ 恒折叠，不随 pending 自动展开；首次手动 toggle 后永久生效。
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
@@ -63,6 +68,17 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
   const cleanText = useMemo(() => cleanThinkingText(text ?? '').trimStart(), [text]);
   // 渲染降级：思考流每 token 重渲染，useDeferredValue 降为低优先级（对齐 Hermes DeferStreamingText）
   const deferredClean = useDeferredValue(cleanText);
+
+  // 🔴 2026-10-31 对齐 Hermes `display.reasoning_full=false`（clamp）：
+  //   展开态也只显示前 N 行（reasoning_max_lines，默认 10），末尾给「显示全部」。
+  //   本地 showAll 是一次性展开（不改配置）；`/reasoning full` 改的是持久覆盖。
+  const [showAll, setShowAll] = useState(false);
+  const lineCount = useMemo(() => deferredClean.split('\n').length, [deferredClean]);
+  const clamped = !reasoningFull && !showAll && lineCount > maxLines;
+  const displayText = useMemo(
+    () => (clamped ? deferredClean.split('\n').slice(0, maxLines).join('\n') : deferredClean),
+    [deferredClean, clamped, maxLines],
+  );
 
   // 🔴 2026-08-18 老大需求 v2→v3：折叠态思考流滚动预览——长思考可见文字滚动。
   // v1 平滑滚动（scroll-behavior:smooth + 每 token 写 scrollTop）被流式打断后
@@ -191,8 +207,17 @@ export default function ReasoningBlock({ text, visible, messageId, blockIndex, p
           setUserOpen(true);
         }}
       >
-        <StreamBlocks text={deferredClean} streaming={!!pending} disableArtifacts />
+        <StreamBlocks text={displayText} streaming={!!pending} disableArtifacts />
       </div>
+      {/* clamp 截断提示（仅展开态；点一次看全文，不落配置） */}
+      {open && clamped && (
+        <button
+          className="mt-1 text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
+          onClick={() => setShowAll(true)}
+        >
+          …已显示前 {maxLines} 行 / 共 {lineCount} 行，点击显示全部
+        </button>
+      )}
     </div>
   );
 }

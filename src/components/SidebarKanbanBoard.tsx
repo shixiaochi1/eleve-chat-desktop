@@ -171,9 +171,10 @@ function SidebarKanbanRow({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={cn(
-          // 固定高度 h-[82px]：以默认主窗体 1440×900 反推——可用 900−32(titlebar)−15(statusbar)=853px，
-          // 看板顶栏 ~48px → 9 排可用 805px；排间缝隙 6px → 9×(82+6)=792 ≤ 805，
-          // 默认主窗体下 9 排全部显示无滚动条，窗体再缩小才出现整体竖向滚动条。
+          // 固定高度 h-[82px]：以默认主窗体 1440×900 反推——可用 900−32(titlebar)=868px
+          // （2026-10-31 起底部状态栏移除，较此前多 15px），看板顶栏 ~48px → 9 排可用 820px；
+          // 排间缝隙 6px → 9×(82+6)=792 ≤ 820，默认主窗体下 9 排全部显示无滚动条，
+          // 窗体再缩小才出现整体竖向滚动条。
           // 卡片高度 = 82−排头−内边距 ≈ 50px，保持可见（不随卡片内容伸缩）。
           'rounded-xl border border-solid h-[82px] flex flex-col transition-colors duration-150',
           // 淡淡的投影（主题阴影色），让排框有轻微悬浮层次
