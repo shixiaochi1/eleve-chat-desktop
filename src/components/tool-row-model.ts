@@ -68,6 +68,8 @@ const TOOL_VARIANTS: Record<string, ToolRowVariant> = {
 const TOOL_TITLES: Record<string, string> = {
   delegate_task: '委派',
   memory: '记忆',
+  // 规范名在前；旧名保留以渲染 2026-10-30 之前的历史会话
+  todo_list: '任务规划',
   todo: '任务规划',
   clarify: '澄清提问',
   image_generate: '图像生成',
@@ -75,7 +77,10 @@ const TOOL_TITLES: Record<string, string> = {
   video_gen: '视频生成',
   tts: '语音合成',
   vision_analyze: '视觉分析',
+  cronjob_manage: '定时任务',
   cronjob: '定时任务',
+  process_manage: '后台进程',
+  process: '后台进程',
   messaging: '消息发送',
   // PowerShell 孪生工具（对齐 DSH：bash row family + 专属标题）
   pwsh: 'Pwsh',
@@ -557,6 +562,8 @@ export function specializedRowModel(
   state: ToolRowState,
 ): SpecializedRowModel | null {
   switch (toolName) {
+    // 规范名 `todo_list`；`todo` 是 2026-10-30 之前的旧名（历史会话仍要渲染成计划行）
+    case 'todo_list':
     case 'todo':
       return todoRowModel(args, parsedResult, state);
     case 'clarify':

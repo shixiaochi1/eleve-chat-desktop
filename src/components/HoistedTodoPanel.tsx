@@ -66,14 +66,15 @@ export default function HoistedTodoPanel({ todos }: HoistedTodoPanelProps) {
 /**
  * 从消息 parts 中提取 todo 列表（对齐 Eleve todosFromMessageContent）
  *
- * 遍历消息的 tool-call parts，找到 toolName === 'todo' 的，
- * 从其结果中提取 TodoItem 数组
+ * 遍历消息的 tool-call parts，找到计划工具的调用（规范名 `todo_list`；
+ * 2026-10-30 前的历史消息里是旧名 `todo`，两者都要认），从其结果中提取 TodoItem 数组
  */
 export function todosFromMessageParts(parts: readonly { type: string; toolName?: string; result?: unknown }[]): TodoItem[] {
   const todos: TodoItem[] = [];
   for (let pi = 0; pi < parts.length; pi++) {
     const part = parts[pi];
-    if (part.type !== 'tool-call' || part.toolName !== 'todo') continue;
+    const isPlanTool = part.toolName === 'todo_list' || part.toolName === 'todo';
+    if (part.type !== 'tool-call' || !isPlanTool) continue;
     const result = part.result;
     if (!result || typeof result !== 'object') continue;
 

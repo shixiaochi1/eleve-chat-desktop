@@ -46,6 +46,15 @@ describe('classifyTool / toolTitle', () => {
     expect(toolTitle('bash', 'pwsh')).toBe('Pwsh');
   });
 
+  it('重命名后的规范名与旧名都有专属标题', () => {
+    expect(toolTitle('others', 'todo_list')).toBe('任务规划');
+    expect(toolTitle('others', 'todo')).toBe('任务规划');
+    expect(toolTitle('others', 'cronjob_manage')).toBe('定时任务');
+    expect(toolTitle('others', 'cronjob')).toBe('定时任务');
+    expect(toolTitle('others', 'process_manage')).toBe('后台进程');
+    expect(toolTitle('others', 'process')).toBe('后台进程');
+  });
+
   it('无专属标题回落 variant 标题', () => {
     expect(toolTitle('search', 'web_search')).toBe('搜索');
     expect(toolTitle('others', 'unknown_tool')).toBe('工具调用');
@@ -345,15 +354,18 @@ describe('delegateRowModel（keyed 专属行）', () => {
 describe('specializedRowModel（keyed 分发）', () => {
   const todos = { todos: [{ id: '1', content: 'a', status: 'pending' }] };
 
-  it('命中 todo/clarify/delegate_task', () => {
+  it('命中 todo/todo_list/clarify/delegate_task', () => {
     // todo 摘要依赖 todos 数据（实际调用 args 必带全量列表），null args → 通用行兜底
     expect(specializedRowModel('todo', todos, null, 'running')).not.toBeNull();
+    // 2026-10-30：规范名 todo_list（旧名 todo 仅用于历史会话）
+    expect(specializedRowModel('todo_list', todos, null, 'running')).not.toBeNull();
     expect(specializedRowModel('clarify', null, null, 'running')).not.toBeNull();
     expect(specializedRowModel('delegate_task', null, null, 'running')).not.toBeNull();
   });
 
   it('todo 无数据（running 且 args 未到）→ null 通用行兜底', () => {
     expect(specializedRowModel('todo', null, null, 'running')).toBeNull();
+    expect(specializedRowModel('todo_list', null, null, 'running')).toBeNull();
   });
 
   it('未命中 → null（通用行兜底）', () => {
