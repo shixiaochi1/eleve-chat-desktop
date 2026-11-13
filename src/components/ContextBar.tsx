@@ -1,7 +1,9 @@
-import { memo, useEffect, useRef } from 'react';
-import { Plus } from 'lucide-react';
+import { memo, useEffect, useRef, useState } from 'react';
+import { AlarmClock, Plus } from 'lucide-react';
 import ModeSwitchButton from './ModeSwitchButton';
 import MoaToggleButton from './MoaToggleButton';
+import BotRoutinesDialog from './BotRoutinesDialog';
+import { profileFromSessionId } from '../utils/session';
 import { useSessionContext } from '../hooks/useSessionContext';
 // 🔴 2026-09-01 收敛：fmtNum 局部复制版删除，统一 utils/format.formatCompactTokens
 //（别名过渡：调用处 fmtNum 零改动）
@@ -52,6 +54,10 @@ interface ContextBarProps {
 const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNewSession, viewMode = 'single', onToggleViewMode, agentCount = 1, isBotChat = false, botLabel = null }: ContextBarProps) {
   const elapsedRef = useRef<HTMLSpanElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 🔴 2026-11-13（对齐 Hermes Bot Routines）：tile 跟随"正在聊的 bot"——
+  // profile 从会话 id 派生（canonical Bot Chat 的 sid 平台段恒为 bot）。
+  const [showRoutines, setShowRoutines] = useState(false);
+  const botProfile = isBotChat && sessionId ? profileFromSessionId(sessionId) : null;
 
   // 统一轮询：useSessionContext（响应序号守卫 + 链式 setTimeout，防旧响应覆盖新值）
   // 🔴 2026-08-11 降频（工具卡住根因修复）：3s → 15s。高频轮询 context_breakdown
@@ -123,6 +129,17 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
               <span className="max-w-40 truncate font-medium">{botLabel}</span>
             </span>
           )}
+          {/* 🔴 2026-11-13（对齐 Hermes Bot Routines）：例程入口跟随当前 bot */}
+          {botProfile && (
+            <button
+              className="flex items-center gap-1 h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground border border-[var(--ui-stroke-quaternary)] bg-card hover:bg-accent/50 rounded-md shadow-sm transition-colors"
+              title={`${botLabel || botProfile} 的例程（定时让它在 Bot Chat 里跑一轮）`}
+              onClick={() => setShowRoutines(true)}
+            >
+              <AlarmClock size={13} strokeWidth={1.5} />
+              <span>例程</span>
+            </button>
+          )}
           <button
             className="flex items-center gap-1 h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground border border-[var(--ui-stroke-quaternary)] bg-card hover:bg-accent/50 rounded-md shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-card disabled:hover:text-muted-foreground"
             title={isBotChat ? 'Bot Chat 是常驻会话，不支持新建会话' : '新建会话 (Ctrl+N)'}
@@ -169,6 +186,14 @@ const ContextBar = memo(function ContextBar({ sessionId, sessionStartedAt, onNew
         />
         <div className="absolute top-0 w-0.5 h-full bg-muted-foreground/20" style={{ left: '80%' }} />
       </div>
+
+      {botProfile && (
+        <BotRoutinesDialog
+          profile={botProfile}
+          open={showRoutines}
+          onClose={() => setShowRoutines(false)}
+        />
+      )}
     </div>
   );
 });

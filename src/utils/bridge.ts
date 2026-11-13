@@ -199,6 +199,9 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   bot_chat_mark_read:     'bot.chat.mark_read',
   // 🔴 2026-10-23：私聊「新话题」（轮转 canonical，上下文清零）
   bot_chat_new_topic:     'bot.chat.new_topic',
+  // 🔴 2026-11-13（对齐 Hermes Bot Routines）：bot 例程 = 该 bot profile 的
+  // cron 任务，名字带 `[bot:<profile>]` 命名空间、投递 `bot-chat:<profile>`。
+  cron_manage:            'cron.manage',
   // 🔴 2026-10-23：成员 hold 控制面（RPC 由聊天指令之外显式调用）
   bot_rooms_hold:         'bot.rooms.hold',
   bot_chats_list:         'bot.chats.list',
@@ -237,6 +240,12 @@ const COMMAND_TO_WS_METHOD: Record<string, string> = {
   bot_rooms_grant_capabilities: 'bot.rooms.grant.capabilities',
   bot_rooms_grant_revoke: 'bot.rooms.grant.revoke',
   bot_rooms_grant_register: 'bot.rooms.grant.register',
+  // 🔴 2026-11-13 连线修复：设置 → 连接 →「Peer 智能体网关」注册表
+  // 后端 rpc_bots.rs:3237-3239 已注册 bot.peers.list/add/remove，此处缺映射 →
+  // call 抛 "No WS/HTTP mapping" → 该区块恒空、添加/移除必失败。
+  'bot.peers.list':       'bot.peers.list',
+  'bot.peers.add':        'bot.peers.add',
+  'bot.peers.remove':     'bot.peers.remove',
   // 🔴 2026-08-02 断线修复：Agent 编辑卡（EditAgentDialog）读/写 SOUL/MEMORY/USER + 主题色/昵称
   // 缺映射 → bridge 抛 "No WS/HTTP mapping" → 用户档案空白、保存失败
   get_soul:               'profiles.get_soul',
