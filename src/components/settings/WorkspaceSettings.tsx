@@ -8,6 +8,7 @@ import { Terminal } from 'lucide-react';
 import { SectionCard, SettingRow, SettingField, SettingsSaveBar } from './SettingBlocks';
 import { selectCls } from '@/lib/ui-styles';
 import { TERMINAL_FONT_SUGGESTIONS, normalizeTerminalFontFamily, setTerminalFontFamily } from '../../lib/terminal-font';
+import { setSettingsDirty } from '../../store/settings-dirty';
 
 
 /**
@@ -61,6 +62,7 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
 
   const update = (field: string, value: unknown) => {
     setConfig(prev => ({ ...prev, [field]: value } as typeof prev));
+    setSettingsDirty(true);
   };
 
   const handleSave = async () => {
@@ -80,6 +82,7 @@ export default function WorkspaceSettings({ onSaved }: { onSaved?: () => void })
       });
       // 本地状态即时生效（终端热切换，不重启；对齐 Hermes setTerminalFontFamilyFromConfig）
       setTerminalFontFamily(config.terminal_font_family);
+      setSettingsDirty(false);
       notifySuccess('工作区配置已保存');
       onSaved?.();
     } catch (e) {

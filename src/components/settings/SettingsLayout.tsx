@@ -6,6 +6,9 @@ interface SettingsLayoutProps {
   footer?: ReactNode;
   children: ReactNode;
   onClose?: () => void;
+  /** 🔴 2026-11-13：分区键——变化时重建滚动容器，切分区回到顶部
+   *  （此前右侧只有一个滚动容器，从「模型」滚到底再点「系统」会从底部开始） */
+  contentKey?: string;
 }
 
 /**
@@ -17,7 +20,7 @@ interface SettingsLayoutProps {
  * 无标题栏、无分割线、无背板缝隙——整个布局就只有左右两块的卡片。
  * 关闭 = 右上角唯一极简 X（图标无背景无边框）。
  */
-export default function SettingsLayout({ nav, footer, children, onClose }: SettingsLayoutProps) {
+export default function SettingsLayout({ nav, footer, children, onClose, contentKey }: SettingsLayoutProps) {
   return (
     <div className="relative flex h-full w-full overflow-hidden rounded-xl bg-[var(--ui-card-bg)]">
       {/* 右上角唯一关闭按钮（极简：图标无背景无边框） */}
@@ -46,7 +49,7 @@ export default function SettingsLayout({ nav, footer, children, onClose }: Setti
 
       {/* 右卡：内容（纯色），与左卡贴紧无缝隙 */}
       <div className="flex-1 min-w-0 bg-[var(--ui-card-bg)] flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto pt-16 px-6 pb-8">
+        <div key={contentKey} className="flex-1 overflow-y-auto pt-16 px-6 pb-8">
           {children}
         </div>
       </div>

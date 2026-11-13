@@ -8,6 +8,7 @@ import { Brain, Shrink } from 'lucide-react';
 import { SectionCard, SettingRow, SettingField, SettingsSaveBar } from './SettingBlocks';
 import { selectCls } from '@/lib/ui-styles';
 import MemoryPanel from '../MemoryPanel';
+import { setSettingsDirty } from '../../store/settings-dirty';
 
 /**
  * MemorySettings — 记忆与上下文设置
@@ -54,9 +55,13 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
         // 后端键名 provider（空串 = builtin，对齐 Hermes memory.provider 语义）
         memory_provider: memory.provider || 'builtin',
         compression_enabled: compression.enabled ?? true,
-        compression_threshold: compression.threshold ?? 3000,
-        compression_target_ratio: compression.target_ratio ?? 0.3,
-        compression_protect_last_n: compression.protect_last_n ?? 4,
+        // 🔴 2026-11-13：兜底值对齐后端 serde default（eleve-config
+        // default_compression_threshold=0.50 / target_ratio=0.20 / protect_last_n=20）。
+        // 旧兜底 3000 / 0.3 / 4 与本页文案和后端都不一致，读失败时输入框会显示
+        // 3000 这种超出 max=0.95 的非法值。
+        compression_threshold: compression.threshold ?? 0.5,
+        compression_target_ratio: compression.target_ratio ?? 0.2,
+        compression_protect_last_n: compression.protect_last_n ?? 20,
       });
       setLoaded(true);
     } catch {
@@ -67,6 +72,7 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
 
   const update = (field: string, value: unknown) => {
     setConfig(prev => ({ ...prev, [field]: value } as typeof prev));
+    setSettingsDirty(true);
   };
 
   const handleSave = async () => {
@@ -90,6 +96,7 @@ export default function MemorySettings({ onSaved, currentProfile }: { onSaved?: 
           },
         },
       });
+      setSettingsDirty(false);
       notifySuccess('记忆配置已保存');
       onSaved?.();
     } catch (e) {

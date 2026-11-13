@@ -365,7 +365,7 @@ export default function ModelSettings({
             )}
           </div>
           <button
-            className="w-full mt-1.5 inline-flex items-center justify-center gap-1 rounded-xl border border-dashed border-[var(--ui-stroke-tertiary)]text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-accent/30 transition-colors py-2 text-xs font-medium cursor-pointer bg-transparent"
+            className="w-full mt-1.5 inline-flex items-center justify-center gap-1 rounded-xl border border-dashed border-[var(--ui-stroke-tertiary)] text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-accent/30 transition-colors py-2 text-xs font-medium cursor-pointer bg-transparent"
             onClick={addFallback}
           >
             <Plus size={14} strokeWidth={2} /> 添加备用链路
@@ -500,7 +500,7 @@ export default function ModelSettings({
             一套组合就是一个预设，预设会以模型形式出现在模型列表，可配置多套随时切换。
           </p>
           {!moa || Object.keys(moaPresets).length === 0 ? (
-            <div className="space-y-3 rounded-xl border border-dashed border-[var(--ui-stroke-tertiary)]p-4">
+            <div className="space-y-3 rounded-xl border border-dashed border-[var(--ui-stroke-tertiary)] p-4">
               <p className="text-xs text-muted-foreground/70 leading-relaxed">
                 还没有 MoA 预设。创建默认预设（参考：qwen3.7-plus + deepseek-v4-pro，聚合器：qwen3.7-plus），创建后可自由编辑；或自定义创建空预设。
               </p>
@@ -770,7 +770,7 @@ export default function ModelSettings({
               </div>
 
               {/* 添加预设（卡片外独立区域，不裹在大卡片里） */}
-              <div className="rounded-xl border border-dashed border-[var(--ui-stroke-tertiary)]p-3 space-y-1.5">
+              <div className="rounded-xl border border-dashed border-[var(--ui-stroke-tertiary)] p-3 space-y-1.5">
                 <p className="text-[11px] text-muted-foreground/70">添加预设（复制当前预设内容，创建后可编辑）</p>
                 <div className="flex items-center gap-2">
                   <Input

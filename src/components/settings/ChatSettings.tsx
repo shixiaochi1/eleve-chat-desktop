@@ -181,9 +181,8 @@ export default function ChatSettings() {
           />
         </SettingRow>
 
-        {/* 工具调用显示模式 */}
-        <div>
-          <label className="block text-xs font-medium text-foreground mb-1.5">工具调用显示</label>
+        {/* 工具调用显示模式（统一 SettingField：此前裸 div 缺 px-4，文字贴卡片边缘） */}
+        <SettingField label="工具调用显示" desc="产品模式隐藏原始工具数据；技术模式显示完整输入/输出。">
           <div className="flex gap-2.5">
             {TOOL_VIEW_OPTIONS.map(({ id, label, desc, Icon }) => {
               const selected = toolViewMode === id;
@@ -206,10 +205,7 @@ export default function ChatSettings() {
               );
             })}
           </div>
-          <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1.5">
-            产品模式隐藏原始工具数据；技术模式显示完整输入/输出。
-          </p>
-        </div>
+        </SettingField>
 
         <SettingField label="图片输入模式" desc="控制 Agent 如何处理图片输入。auto 会根据模型能力自动选择。">
           <select

@@ -23,9 +23,14 @@ interface OverlayViewProps {
 export default function OverlayView({ children, onClose, title, wide = false, panel = false }: OverlayViewProps) {
   // ESC 键关闭
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose?.();
+    if (e.key !== 'Escape') return;
+    // 🔴 2026-11-13 ESC 层级：任一层 Radix 弹层（MoA 删除确认 / 媒体服务商弹窗等）
+    // 打开时，本次 ESC 归弹层自己处理。否则两层 document 监听都会触发 →
+    // 弹层关掉的同时整个浮层（含设置面板未保存改动）一并被关。
+    if (document.querySelector('[data-slot="dialog-content"][data-state="open"], [data-slot="alert-dialog-content"][data-state="open"]')) {
+      return;
     }
+    onClose?.();
   }, [onClose]);
 
   useEffect(() => {

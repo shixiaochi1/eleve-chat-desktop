@@ -53,6 +53,7 @@ import OverlayView from './components/OverlayView';
 import { useOpenArtifact, clearArtifactRegistry } from './store/artifacts';
 import ThemePanel from './components/ThemePanel';
 import SettingsPanel from './components/SettingsPanel';
+import { isSettingsDirty, setSettingsDirty } from './store/settings-dirty';
 import AboutPanel from './components/AboutPanel';
 import ToolStatusBar from './components/ToolStatusBar'
 import MessageContainer from './components/MessageContainer';
@@ -244,7 +245,16 @@ export default function App() {
   const handleOpenOverlay = useCallback((panelName: string) => {
     setOverlayPanel(panelName);
   }, []);
-  const handleCloseOverlay = useCallback(() => setOverlayPanel(null), []);
+  // 🔴 2026-11-13：设置面板有 6 个显式保存页（工作区/记忆/安全防护/语音/高级/连接），
+  // X / ESC / 点遮罩三条关闭路径都汇到这里——有未保存改动先确认，避免静默丢弃。
+  const handleCloseOverlay = useCallback(() => {
+    if (overlayPanel === 'settings' && isSettingsDirty()
+      && !window.confirm('当前设置页有未保存的修改，确定关闭？')) {
+      return;
+    }
+    setSettingsDirty(false);
+    setOverlayPanel(null);
+  }, [overlayPanel]);
   const handleOpenSettings = useCallback(() => handleOpenOverlay('settings'), [handleOpenOverlay]);
 
   // 🔴 宫格按钮修复：运行期建/删 Agent 由 ProfilePanel 回调驱动（消灭一次性快照平行源）。
@@ -1611,11 +1621,18 @@ export default function App() {
   }, [pendingInteractions, removeInteraction]);
 
   // ── command center navigation ──
+  // 🔴 2026-11-13 修复：overlay 型目标（settings/about/theme）此前也丢给左栏
+  // handleLeftPanelChange → SidePanel.panels 无此键 → 返回空白侧栏卡片，
+  // Cmd+K 的 Settings / About 永远打不开设置面板。按入口类型分流：
+  //   overlay → handleOpenOverlay；skills 内嵌在「工具」面板（ToolsPanel 承载
+  //   SkillsPanel）；其余仍走左栏（agents 打开臂联动主区回最近会话）。
   const handleNavigate = useCallback((panel: string) => {
-    // 🔴 2026-08-10 日志已搬入 LOGO 面板（GatewayPanel 内嵌 LogsPanel），移除 overlay 入口
-    // 🔴 round-68：统一走左栏打开回调（agents 打开臂联动主区回最近会话）
-    handleLeftPanelChange(panel);
-  }, [handleLeftPanelChange]);
+    if (panel === 'settings' || panel === 'about' || panel === 'theme') {
+      handleOpenOverlay(panel);
+      return;
+    }
+    handleLeftPanelChange(panel === 'skills' ? 'tools' : panel);
+  }, [handleLeftPanelChange, handleOpenOverlay]);
 
   // ── restart backend ──
   const handleRestartService = useCallback(async () => {

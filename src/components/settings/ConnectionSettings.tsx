@@ -14,6 +14,7 @@ import {
   probeRemote,
   normalizeRemoteBaseUrl,
 } from '../../lib/connection';
+import { setSettingsDirty } from '../../store/settings-dirty';
 
 /**
  * ConnectionSettings — 连接设置（对齐 Hermes gateway-settings 的连接区块）
@@ -32,6 +33,9 @@ export default function ConnectionSettings() {
   const [mode, setMode] = useState<'local' | 'remote'>('local');
   const [baseUrl, setBaseUrl] = useState('');
   const [remoteVersion, setRemoteVersion] = useState<string | null>(null);
+  /** 🔴 2026-11-13：已保存的连接（与上方草稿态区分）——"当前"必须显示已生效值，
+   *  否则改模式/地址未保存时会把草稿误报成当前连接 */
+  const [saved, setSaved] = useState<ConnectionState>(DEFAULT_CONNECTION);
   const [probing, setProbing] = useState(false);
   const [probeResult, setProbeResult] = useState<{
     reachable: boolean;
@@ -46,6 +50,7 @@ export default function ConnectionSettings() {
     setMode(conn.mode);
     setBaseUrl(conn.baseUrl);
     setRemoteVersion(conn.remoteVersion ?? null);
+    setSaved(conn);
     setLoaded(true);
   }, []);
 
@@ -72,6 +77,8 @@ export default function ConnectionSettings() {
           ? { mode: 'remote', baseUrl: normalizeRemoteBaseUrl(baseUrl), remoteVersion }
           : { ...DEFAULT_CONNECTION };
       await saveConnection(next);
+      setSaved(next);
+      setSettingsDirty(false);
       // 🔴 不立即 applyConnection：当前 WS 已连旧 base，立即改 HTTP base 会造成
       // WS（旧连接）与 HTTP（新 base）状态分裂。连接 base 只在启动时决定
       // （对齐 Hermes：connection 切换走 setConnection + 全量重连；ELEVE 最小集 =
@@ -94,7 +101,7 @@ export default function ConnectionSettings() {
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => setMode('local')}
+              onClick={() => { setMode('local'); setSettingsDirty(true); }}
               className={`h-9 flex-1 cursor-pointer rounded-lg border px-3 text-xs transition-colors ${
                 mode === 'local'
                   ? 'border-primary/60 bg-primary/10 font-medium text-primary'
@@ -105,7 +112,7 @@ export default function ConnectionSettings() {
             </button>
             <button
               type="button"
-              onClick={() => setMode('remote')}
+              onClick={() => { setMode('remote'); setSettingsDirty(true); }}
               className={`h-9 flex-1 cursor-pointer rounded-lg border px-3 text-xs transition-colors ${
                 mode === 'remote'
                   ? 'border-primary/60 bg-primary/10 font-medium text-primary'
@@ -127,6 +134,7 @@ export default function ConnectionSettings() {
                 onChange={e => {
                   setBaseUrl(e.target.value);
                   setProbeResult(null);
+                  setSettingsDirty(true);
                 }}
               />
               <Button variant="secondary" size="sm" disabled={probing || !baseUrl.trim()} onClick={handleProbe}>
@@ -169,8 +177,8 @@ export default function ConnectionSettings() {
       <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground/70">
         <Network size={12} />
         <span>
-          当前：{mode === 'local' ? '本地模式' : `远程模式（${normalizeRemoteBaseUrl(baseUrl) || '未配置地址'}）`}
-          {mode === 'remote' && remoteVersion ? ` · v${remoteVersion}` : ''}
+          当前：{saved.mode === 'local' ? '本地模式' : `远程模式（${saved.baseUrl || '未配置地址'}）`}
+          {saved.mode === 'remote' && saved.remoteVersion ? ` · v${saved.remoteVersion}` : ''}
         </span>
       </div>
 

@@ -76,9 +76,11 @@ export default function PasswordDialog({ mode, storedHash, onSuccess, onCancel }
   const inputClasses =
     'desktop-input-chrome h-9 w-full min-w-0 rounded-md border px-3 py-1 text-base outline-none selection:bg-primary selection:text-primary-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm';
 
-    // @ts-ignore
   return (
-    <Dialog onOpenChange={(open: boolean) => { if (!open) onCancel?.(); }}>
+    // 🔴 2026-11-13 修复：必须显式 open——Radix Dialog Root 缺省为非受控且
+    // open=false（Presence present={forceMount || context.open}），漏传会让
+    // 整个对话框永不渲染：设置密码 / 解锁查看 API Key 点了完全没反应。
+    <Dialog open onOpenChange={(open: boolean) => { if (!open) onCancel?.(); }}>
       <DialogContent
         showCloseButton={false}
         className="sm:max-w-sm"

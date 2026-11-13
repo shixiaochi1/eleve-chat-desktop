@@ -16,6 +16,11 @@ export interface ProviderCardData {
   hasKey?: boolean;
   credentialType?: string;
   source?: string;
+  /** 注册表展示元数据（后端 provider.list 下发） */
+  description?: string;
+  signupUrl?: string;
+  fallbackModels?: string[];
+  supportsModelListing?: boolean;
 }
 
 /**
@@ -57,7 +62,8 @@ export default function ProviderSettings({
   requestDelete: (id: string) => void;
   requestUnlock: (id: string) => void;
   keyUnlocked: boolean;
-  handleSave: () => void;
+  /** 🔴 2026-11-13：携带本卡 id——只落当前卡片，未配置预设不再被一次性入池 */
+  handleSave: (providerId?: string) => void;
   addProviderOpen: boolean;
   setAddProviderOpen: (v: boolean) => void;
   newProvider: { name: string; slug: string; keyEnv: string; apiKey: string; baseUrl: string; transport: string; modelsRaw: string; contextLength: string };
@@ -92,7 +98,7 @@ export default function ProviderSettings({
             onDelete={requestDelete}
             onRequestUnlock={requestUnlock}
             keyVisible={keyUnlocked}
-            onSave={handleSave}
+            onSave={() => handleSave(p.id)}
             deleteDisabled={p.source === 'preset'}
             onDisconnect={onDisconnect}
           />

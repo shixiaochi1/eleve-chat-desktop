@@ -1,26 +1,44 @@
-import { setPluginEnabled, usePluginRecords } from "../../contrib/plugins-store";
+import { Puzzle } from 'lucide-react';
+import { setPluginEnabled, usePluginRecords } from '../../contrib/plugins-store';
+import { SectionCard, SettingRow } from './SettingBlocks';
+import { Switch } from '../ui/switch';
+
+/**
+ * PluginsSettings — 插件开关
+ *
+ * 2026-11-13 统一卡片语言：此前是设置页里唯一没改造的页面（英文标题
+ * "Plugins" / "empty"、ON-OFF 裸按钮、无分组卡片），与其余 12 页
+ * （中文 + SectionCard + 13px 标签 + 开关控件）断层。开关逻辑不变。
+ */
 export default function PluginsSettings() {
   const records = usePluginRecords();
+
   return (
-    <div className="space-y-2 p-1">
-      <h3 className="text-sm font-medium">Plugins</h3>
-      {records.map(rec => (
-        <div key={rec.id} className="flex items-center justify-between rounded-md border px-3 py-2">
-          <div>
-            <div className="text-sm">
-              {rec.name} <span className="text-xs opacity-60">("{rec.id}")</span>
-            </div>
-            {rec.description ? <div className="text-xs opacity-60">{rec.description}</div> : null}
+    <div className="max-w-2xl">
+      <SectionCard
+        icon={Puzzle}
+        title="插件"
+        desc="启用或停用已安装的插件；停用后其界面入口与贡献同时下线"
+      >
+        {records.length === 0 ? (
+          <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+            暂无插件
           </div>
-          <button
-            className={'rounded px-2 py-1 text-xs ' + (rec.enabled ? "bg-primary/20" : "bg-primary/5")}
-            onClick={() => setPluginEnabled(rec.id, !rec.enabled)}
-            type="button">
-            {rec.enabled ? "ON" : "OFF"}
-          </button>
-        </div>
-      ))}
-      {records.length === 0 ? <div className="text-xs opacity-60">empty</div> : null}
+        ) : (
+          records.map(rec => (
+            <SettingRow
+              key={rec.id}
+              label={rec.name}
+              desc={rec.description ? `${rec.description}（${rec.id}）` : rec.id}
+            >
+              <Switch
+                checked={rec.enabled}
+                onCheckedChange={(v: boolean) => setPluginEnabled(rec.id, v)}
+              />
+            </SettingRow>
+          ))
+        )}
+      </SectionCard>
     </div>
   );
 }

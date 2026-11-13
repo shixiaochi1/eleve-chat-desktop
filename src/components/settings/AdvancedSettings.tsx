@@ -7,6 +7,7 @@ import { Switch } from '../ui/switch';
 import { Wrench, MessageSquare, ScrollText, Users, Timer, History, Terminal } from 'lucide-react';
 import { SectionCard, SettingRow, SettingField, SettingsSaveBar } from './SettingBlocks';
 import { selectCls } from '@/lib/ui-styles';
+import { setSettingsDirty } from '../../store/settings-dirty';
 
 /**
  * AdvancedSettings — 高级设置
@@ -88,6 +89,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
 
   const update = (field: string, value: unknown) => {
     setConfig(prev => ({ ...prev, [field]: value } as typeof prev));
+    setSettingsDirty(true);
   };
 
   const handleSave = async () => {
@@ -100,9 +102,12 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
             api_max_retries: config.api_max_retries,
             tool_use_enforcement: config.tool_use_enforcement,
             service_tier: config.service_tier === 'fast' ? 'fast' : 'normal',
+            // 🔴 2026-11-13 清空修复：清空必须写 []（undefined 会被 yaml.dump 丢弃
+            // → 旧工具集残留）。后端 len 侧读空数组一律落 None（= 使用默认工具集），
+            // 见 eleve-config read_enabled_toolsets「空 → None」。
             enabled_toolsets: config.toolsets
               ? config.toolsets.split(',').map((s: string) => s.trim()).filter(Boolean)
-              : undefined,
+              : [],
             checkpoints: {
               max_snapshots: config.checkpoints_max_snapshots,
             },
@@ -131,6 +136,7 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
           },
         },
       });
+      setSettingsDirty(false);
       notifySuccess('高级配置已保存');
       onSaved?.();
     } catch (e) {

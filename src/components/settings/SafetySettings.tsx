@@ -7,6 +7,7 @@ import { Switch } from '../ui/switch';
 import { ClipboardCheck, ShieldCheck, Globe, History } from 'lucide-react';
 import { SectionCard, SettingRow, SettingField, SettingsSaveBar } from './SettingBlocks';
 import { selectCls } from '@/lib/ui-styles';
+import { setSettingsDirty } from '../../store/settings-dirty';
 
 /**
  * SafetySettings — 安全设置
@@ -69,6 +70,7 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
 
   const update = (field: string, value: unknown) => {
     setConfig(prev => ({ ...prev, [field]: value } as typeof prev));
+    setSettingsDirty(true);
   };
 
   const handleSave = async () => {
@@ -80,9 +82,12 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
             mode: config.approvals_mode,
             timeout: config.approvals_timeout,
             mcp_reload_confirm: config.mcp_reload_confirm,
+            // 🔴 2026-11-13 清空修复：后端 command_allowlist 是 Vec<String>，
+            // 清空必须写 []。旧写法写 undefined 会被 yaml.dump 丢弃 → config.set.raw
+            // 收不到该键 → 旧白名单原样残留（界面空了但命令仍自动放行，安全假撤销）。
             command_allowlist: config.command_allowlist
               ? config.command_allowlist.split(',').map((s: string) => s.trim()).filter(Boolean)
-              : undefined,
+              : [],
           },
           security: {
             redact_secrets: config.redact_secrets,
@@ -100,6 +105,7 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
           },
         },
       });
+      setSettingsDirty(false);
       notifySuccess('安全配置已保存');
       onSaved?.();
     } catch (e) {

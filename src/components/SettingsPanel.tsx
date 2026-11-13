@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { call } from '../utils/bridge';
+import { setSettingsDirty } from '../store/settings-dirty';
 import { loadSettings, saveSettings, slugifyProviderName, AUX_TASKS, PROVIDER_REGISTRY, findProvider, listPoolProviders, upsertPoolProvider, removePoolProvider, savePoolProviderKey, disconnectPoolProvider } from '../utils/settings-store';
 import type { ProviderEntry, ProviderModel, AuxTaskEntry } from '../utils/settings-store';
 import { notifySuccess, notifyError } from '../utils/notifications';
@@ -31,6 +32,13 @@ interface Provider extends ProviderEntry {
   hasKey?: boolean;
   credentialType?: string;
   source?: string; // 'global_pool' | 'preset' | 'config' | undefined
+  /** 注册表展示元数据（后端 provider.list 下发；池 id 命中已知 provider 才有） */
+  description?: string;
+  signupUrl?: string;
+  /** live /models 不可用时的精选候选 */
+  fallbackModels?: string[];
+  /** false ⇒ 不提供 /models 面（隐藏"检测模型"） */
+  supportsModelListing?: boolean;
 }
 
 interface FallbackEntry {
@@ -78,6 +86,8 @@ const KEY_VISIBLE_DURATION = 60_000; // 60 秒
 
 /** 导出脱敏：匹配敏感字段名（api_key/token/secret/password/credential 等） */
 const SENSITIVE_KEY_PATTERN = /(api[_-]?key|token|secret|password|passwd|credential)/i;
+/** 导出时写入的脱敏占位符（导入必须识别并跳过，见 stripRedacted） */
+const REDACTED_PLACEHOLDER = '***REDACTED***';
 
 /** 递归替换敏感字段值为占位符，防止导出 JSON 泄露明文密钥（对齐 RPC 层脱敏语义） */
 function redactSensitive(obj: unknown): unknown {
@@ -86,8 +96,28 @@ function redactSensitive(obj: unknown): unknown {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
       out[k] = (SENSITIVE_KEY_PATTERN.test(k) && typeof v === 'string' && v !== '')
-        ? '***REDACTED***'
+        ? REDACTED_PLACEHOLDER
         : redactSensitive(v);
+    }
+    return out;
+  }
+  return obj;
+}
+
+/**
+ * 导入前置处理：剔除脱敏占位符键（连同空占位结构）。
+ *
+ * 🔴 2026-11-13 修复：导出文件里 api_key/token 等已被换成 "***REDACTED***"，
+ * 原实现把这些值原样 update_config 回写 → 真实凭据被占位符覆盖，provider
+ * 直接不可用。这里丢掉占位符键：加性写入语义下"没写" = 保留本机现值。
+ */
+function stripRedacted(obj: unknown): unknown {
+  if (Array.isArray(obj)) return obj.map(stripRedacted);
+  if (obj && typeof obj === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      if (typeof v === 'string' && v === REDACTED_PLACEHOLDER) continue;
+      out[k] = stripRedacted(v);
     }
     return out;
   }
@@ -121,7 +151,8 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
   const [delMaxIterations, setDelMaxIterations] = useState(30);
 
   // ── UI 状态 ──
-  const [gatewayOnline, setGatewayOnline] = useState(false);
+  // 🔴 2026-11-13：删除 gatewayOnline 死状态——只写不读（设置面板没有任何 UI
+  // 消费它），每次打开设置却要多发一次 list_models 探测。
   const [activeSection, setActiveSection] = useState('providers');
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
@@ -176,9 +207,14 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       if (!file) return;
       try {
         const text = await file.text();
-        const cfg = JSON.parse(text);
+        const parsed = JSON.parse(text);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('配置文件必须是一个 JSON 对象');
+        }
+        // 剔除脱敏占位符：跳过 = 保留本机真实凭据（加性写不写即不改）
+        const cfg = stripRedacted(parsed);
         await call('update_config', { config: cfg });
-        notifySuccess('配置已导入，刷新后生效');
+        notifySuccess('配置已合并导入（脱敏字段保留本机原值），刷新后生效');
         loadBackendConfig();
       } catch (err: unknown) {
         notifyError((err as Error).message || err, '导入失败：文件格式不正确');
@@ -214,6 +250,11 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
           models: pp.models.map(m => ({ name: m.name, context_length: m.context_length, max_output: m.max_output, supports_vision: m.supports_vision, use_prompt_caching: m.use_prompt_caching })),
           hasKey: pp.has_key,
           credentialType: pp.credential_type,
+          // 注册表展示元数据（一句话说明 / 获取 Key 入口 / 候选模型）
+          description: pp.description,
+          signupUrl: pp.signup_url,
+          fallbackModels: pp.fallback_models,
+          supportsModelListing: pp.supports_model_listing,
           source: 'global_pool' as const,
         }));
       } catch { /* pool 未初始化时忽略 */ }
@@ -306,22 +347,28 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
         setMoaConfig(bc.moa as Record<string, unknown>);
       }
     } catch { /* ignore */ }
-    checkGateway();
   };
-
-  const checkGateway = useCallback(async () => {
-    try {
-      const data = await call('list_models', {});
-      setGatewayOnline(!!data);
-    } catch {
-      setGatewayOnline(false);
-    }
-  }, []);
 
   // ====== 提供商锁定计时器 ======
   useEffect(() => {
     return () => { if (unlockTimer.current) clearTimeout(unlockTimer.current); };
   }, []);
+
+  // 🔴 2026-11-13 ESC 层级：密码框 / 删除确认打开时，OverlayView 挂在 document
+  // 冒泡阶段的 ESC 监听会把整个设置面板一起关掉（未保存改动全丢）。这里在
+  // window 捕获阶段先截获并只关当前弹层——capture 先于 document 冒泡执行，
+  // stopPropagation 后 OverlayView / Radix 都收不到该事件。
+  useEffect(() => {
+    if (!passwordDialog && !deleteConfirm) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      if (passwordDialog) setPasswordDialog(null);
+      else setDeleteConfirm(null);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [passwordDialog, deleteConfirm]);
 
   const requestUnlock = (providerId: string) => {
     if (keyUnlocked) return;
@@ -649,8 +696,10 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       providers: fbFiltered.map(f => {
         const raw = rawFb.find(r => r.provider === f.providerId && r.model === f.model) || {};
         const entry: Record<string, unknown> = { ...raw, provider: f.providerId, model: f.model };
-        // 思考深度：非空写 reasoning_effort（对齐 Hermes fallback reasoning_effort）
-        if (f.reasoningEffort) entry.reasoning_effort = f.reasoningEffort;
+        // 🔴 2026-11-13 清空修复：必须显式写 null（yaml null → 后端 Option::None）。
+        // 旧写法"非空才写"会让 raw 里 spread 回来的旧值继续生效——
+        // UI 选回「跟随模型默认」实际不生效。
+        entry.reasoning_effort = f.reasoningEffort || null;
         return entry;
       }),
     };
@@ -664,10 +713,14 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       const taskCfg: Record<string, unknown> = {
         provider: c.providerId || 'auto',
         timeout: c.timeout,
+        // 🔴 2026-11-13 清空修复：model / reasoning_effort / download_timeout 后端
+        // 均为 Option 字段，清空必须显式写 null。旧写法"非空才写" + 下方 raw patch
+        // 会把读到的旧值 spread 回来 → 选回「跟随 Provider 默认」/「跟随模型默认」
+        // 实际永远保留旧模型，后台继续打旧 provider。
+        model: c.model || null,
+        reasoning_effort: c.reasoningEffort || null,
+        download_timeout: c.downloadTimeout ?? null,
       };
-      if (c.model) taskCfg.model = c.model;
-      if (c.reasoningEffort) taskCfg.reasoning_effort = c.reasoningEffort;
-      if (c.downloadTimeout != null) taskCfg.download_timeout = c.downloadTimeout;
       // 手写字段优先保留，前端字段覆盖同名
       auxObj[key] = { ...(rawAux[key] || {}), ...taskCfg };
     }
@@ -690,7 +743,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     });
   }, []);
 
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(async (onlyId?: string) => {
 
     // 🔴 2026-08-10：fallback/aux/delegation/moa 已全部即时保存（update_config 单段加性写），
     // handleSave 仅剩：settings.json passwordHash + 服务商池同步（ProviderCard 保存按钮用）
@@ -708,7 +761,14 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     }).catch(() => { /* passwordHash 保存失败不阻塞主流程 */ });
 
     // Phase P5: 同步到全局 Provider 池（池=唯一权威源）
-    const poolPromises = providers.map(async (p) => {
+    // 🔴 2026-11-13：只写"当前操作的这张卡"（onlyId），未传则只写已入池的卡。
+    // 旧实现 providers.map(...) 会连未配置的预设一起 upsert——点任意一张卡的
+    // 保存，aliyun/deepseek/ollama/lmstudio 四家预设全部落进 providers.yaml
+    // （模型下拉被未配置服务商污染），与"预设卡片 → 保存入池"的单卡语义不符。
+    const targets = onlyId
+      ? providers.filter(p => p.id === onlyId)
+      : providers.filter(p => p.source !== 'preset');
+    const poolPromises = targets.map(async (p) => {
       const transport = (p.transport && p.transport !== 'auto') ? p.transport : undefined;
       const modelsMap = buildModelsMap(p.models);
       await upsertPoolProvider({
@@ -727,7 +787,7 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     // 旧实现吞掉所有失败照样显示“✓ 已生效”→ 池里没数据但用户以为成功。
     const poolResults = await Promise.allSettled(poolPromises);
     const poolFailures = poolResults
-      .map((r, i) => ({ r, id: providers[i]?.id ?? '?' }))
+      .map((r, i) => ({ r, id: targets[i]?.id ?? '?' }))
       .filter(({ r }) => r.status === 'rejected');
     if (poolFailures.length > 0) {
       const msgs = poolFailures
@@ -762,14 +822,12 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
       const d = await call('list_models', {});
       if (d) {
         notifySuccess('服务商配置已保存');
-        setGatewayOnline(true);
         setTimeout(() => onBack?.(), 1500);
       } else {
         throw new Error('异常');
       }
     } catch {
       notifySuccess('配置已保存');
-      setGatewayOnline(false);
     }
   }, [providers, passwordHash, onBack]);
 
@@ -868,10 +926,15 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     <main className="h-full overflow-hidden">
       <SettingsLayout
         onClose={onBack}
+        contentKey={activeSection}
         nav={
           <SettingsNav
             activeSection={activeSection}
-            onSectionChange={setActiveSection}
+            onSectionChange={(id) => {
+              // 切分区 = 放弃当前页草稿（各页独立保存模型），先清脏标记
+              setSettingsDirty(false);
+              setActiveSection(id);
+            }}
           />
         }
         footer={

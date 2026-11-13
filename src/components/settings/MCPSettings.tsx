@@ -52,7 +52,8 @@ export default function MCPSettings({ currentProfile }: { currentProfile?: strin
   const [servers, setServers] = useState<MCPServer[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
-  const [newServer, setNewServer] = useState<{ name: string; command: string; args: string; env: string }>({ name: '', command: '', args: '', env: '' });
+  // 🔴 2026-11-13：补 url/transport——远程 MCP（HTTP/SSE）此前只能靠 JSON 编辑器手写
+  const [newServer, setNewServer] = useState<{ name: string; command: string; args: string; url: string; transport: string; env: string }>({ name: '', command: '', args: '', url: '', transport: 'http', env: '' });
   const [reloading, setReloading] = useState(false);
   // server name → 运行状态（拿不到就保持空：配置页不能因为网关没起来就空屏）
   const [statuses, setStatuses] = useState<Record<string, McpServerStatus>>({});
@@ -154,18 +155,28 @@ export default function MCPSettings({ currentProfile }: { currentProfile?: strin
 
 
   const handleAdd = async () => {
-    if (!newServer.name.trim() || !newServer.command.trim()) return;
+    const name = newServer.name.trim();
+    const command = newServer.command.trim();
+    const url = newServer.url.trim();
+    // 两种传输二选一：stdio 走 command+args，HTTP/SSE 走 url
+    if (!name || (!command && !url)) return;
+    if (command && url) {
+      notifyError(new Error('命令（stdio）与 URL（HTTP/SSE）只能二选一'), '添加失败');
+      return;
+    }
     try {
       const cfg = await call('get_config', {});
       const mcp: Record<string, any> = cfg?.mcp_servers || {};
-      const entry: Record<string, any> = {
-        command: newServer.command.trim(),
-        args: newServer.args.trim() ? newServer.args.trim().split(/\s+/) : [],
-        enabled: true,
-      };
-      // 解析 env 字段
+      const entry: Record<string, any> = url
+        ? { url, transport: newServer.transport || 'http', enabled: true }
+        : {
+          command,
+          args: newServer.args.trim() ? newServer.args.trim().split(/\s+/) : [],
+          enabled: true,
+        };
+      // 解析 env 字段（仅 stdio 子进程环境；HTTP 认证走 headers，不在本表单）
       const envStr = newServer.env.trim();
-      if (envStr) {
+      if (!url && envStr) {
         try {
           entry.env = JSON.parse(envStr);
         } catch {
@@ -180,10 +191,10 @@ export default function MCPSettings({ currentProfile }: { currentProfile?: strin
           if (Object.keys(envObj).length > 0) entry.env = envObj;
         }
       }
-      mcp[newServer.name.trim()] = entry;
+      mcp[name] = entry;
       await call('replace_config', { sections: { mcp_servers: mcp } });
-      notifySuccess(`MCP Server "${newServer.name.trim()}" 已添加`);
-      setNewServer({ name: '', command: '', args: '', env: '' });
+      notifySuccess(`MCP Server "${name}" 已添加`);
+      setNewServer({ name: '', command: '', args: '', url: '', transport: 'http', env: '' });
       setAddOpen(false);
       loadServers();
     } catch (err) {
@@ -320,7 +331,8 @@ export default function MCPSettings({ currentProfile }: { currentProfile?: strin
                       })()}
                     </div>
                     <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground/70">
-                      {s.command} {s.args}
+                      {/* HTTP/SSE 型显示 URL（此前只渲染 command+args → 远程服务器整行为空） */}
+                      {s.url || `${s.command} ${s.args}`}
                     </div>
                     {s.env && (
                       <div className="mt-0.5 truncate text-[10px] text-muted-foreground/50">
@@ -376,25 +388,53 @@ export default function MCPSettings({ currentProfile }: { currentProfile?: strin
             <Input className="h-8 text-xs" value={newServer.name} onChange={(e) => setNewServer({ ...newServer, name: e.target.value })} placeholder="my-server" />
           </div>
           <div className="grid gap-1.5">
-            <label className="block text-[13px] font-medium leading-snug text-foreground">命令</label>
+            <label className="block text-[13px] font-medium leading-snug text-foreground">命令（stdio）</label>
             <Input className="h-8 text-xs" value={newServer.command} onChange={(e) => setNewServer({ ...newServer, command: e.target.value })} placeholder="npx @example/mcp-server" />
           </div>
           <div className="grid gap-1.5">
-            <label className="block text-[13px] font-medium leading-snug text-foreground">参数 (空格分隔)</label>
+            <label className="block text-[13px] font-medium leading-snug text-foreground">URL（HTTP / SSE，与上方命令二选一）</label>
+            <div className="flex gap-2">
+              <Input
+                className="h-8 flex-1 text-xs font-mono"
+                value={newServer.url}
+                onChange={(e) => setNewServer({ ...newServer, url: e.target.value })}
+                placeholder="https://example.com/mcp"
+              />
+              <select
+                className="h-8 shrink-0 rounded-md border border-input bg-transparent px-2 text-xs text-foreground shadow-xs outline-none"
+                value={newServer.transport}
+                onChange={(e) => setNewServer({ ...newServer, transport: e.target.value })}
+                title="传输类型（仅 URL 模式生效）"
+              >
+                <option value="http">http</option>
+                <option value="sse">sse</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <label className="block text-[13px] font-medium leading-snug text-foreground">参数 (空格分隔，仅 stdio)</label>
             <Input className="h-8 text-xs" value={newServer.args} onChange={(e) => setNewServer({ ...newServer, args: e.target.value })} placeholder="--port 3000" />
           </div>
           <div className="grid gap-1.5">
-            <label className="block text-[13px] font-medium leading-snug text-foreground">环境变量 (JSON 或 key=value 每行一个)</label>
+            <label className="block text-[13px] font-medium leading-snug text-foreground">环境变量（仅 stdio；JSON 或 key=value 每行一个）</label>
             <Textarea
-              className="min-h-[60px] font-mono text-xs resize-y"
+              className="min-h-[60px] font-mono text-xs resize-y disabled:opacity-50"
               value={newServer.env}
               onChange={(e) => setNewServer({ ...newServer, env: e.target.value })}
               placeholder='{"KEY": "value"} 或\nKEY=value'
+              disabled={!!newServer.url.trim()}
             />
           </div>
           <SettingsSaveBar>
             <Button variant="outline" size="sm" onClick={() => setAddOpen(false)}>取消</Button>
-            <Button variant="default" size="sm" onClick={handleAdd} disabled={!newServer.name.trim() || !newServer.command.trim()}>添加</Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleAdd}
+              disabled={!newServer.name.trim() || (!newServer.command.trim() && !newServer.url.trim())}
+            >
+              添加
+            </Button>
           </SettingsSaveBar>
         </div>
       ) : (

@@ -1,5 +1,6 @@
 import { Shield, Zap, Puzzle, Lock, Power, FolderOpen, Brain, Wrench, Plug, MessageCircle, ShieldCheck, Mic, Network, type LucideIcon } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useSettingsDirty } from '../../store/settings-dirty';
 
 interface NavItem {
   id: string;
@@ -26,11 +27,19 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export default function SettingsNav({ activeSection, onSectionChange }: { activeSection: string; onSectionChange: (id: string) => void }) {
+  // 🔴 2026-11-13：显式保存页有未落盘改动时，标题旁给一个可见提示
+  const dirty = useSettingsDirty();
   return (
     <nav className="flex flex-col px-2.5 pt-6 pb-3">
       {/* 面板标题 */}
-      <div className="px-3 pb-4 text-base font-semibold text-[var(--theme-foreground)]">
+      <div className="flex items-center gap-2 px-3 pb-4 text-base font-semibold text-[var(--theme-foreground)]">
         设置
+        {dirty && (
+          <span
+            className="size-1.5 shrink-0 rounded-full bg-warning"
+            title="当前页有未保存的修改"
+          />
+        )}
       </div>
 
       <div className="flex flex-col gap-1.5">

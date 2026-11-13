@@ -1,5 +1,6 @@
 import { Switch } from '../ui/switch';
 import { Power } from 'lucide-react';
+import { notifyError } from '../../utils/notifications';
 import { SectionCard, SettingRow } from './SettingBlocks';
 
 /**
@@ -30,7 +31,8 @@ export default function SystemSettings({
                 const result = await invoke('set_auto_start', { enable: val });
                 setAutoStart(result as boolean);
               } catch (err) {
-                console.error('Failed to set auto-start:', err);
+                // 失败必须可见：开关会保持旧值，静默 console 会让人以为已生效
+                notifyError(err, '设置开机自启失败');
               }
             }}
           />

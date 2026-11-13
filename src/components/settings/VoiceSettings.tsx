@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { call } from '../../utils/bridge';
 import { notifySuccess, notifyError } from '../../utils/notifications';
 import { Button } from '../ui/button';
@@ -7,6 +7,7 @@ import { Switch } from '../ui/switch';
 import { Mic, Volume2, SlidersHorizontal, AlertTriangle } from 'lucide-react';
 import { SectionCard, SettingRow, SettingField, SettingsSaveBar } from './SettingBlocks';
 import { selectCls } from '@/lib/ui-styles';
+import { setSettingsDirty } from '../../store/settings-dirty';
 
 /**
  * VoiceSettings — 语音设置
@@ -32,6 +33,13 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  /** 原始段快照（保存时 raw patch 保留手写字段：openai api_key / base_url /
+   *  stop_phrases / silence_threshold 等面板不暴露的键） */
+  const rawSectionsRef = useRef<{
+    stt?: Record<string, any>;
+    tts?: Record<string, any>;
+    voice?: Record<string, any>;
+  }>({});
 
   useEffect(() => {
     loadConfig();
@@ -44,6 +52,7 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
       const stt = bc.stt || {};
       const tts = bc.tts || {};
       const voice = bc.voice || {};
+      rawSectionsRef.current = { stt, tts, voice };
 
       setConfig({
         stt_enabled: stt.enabled ?? false,
@@ -67,38 +76,61 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
 
   const update = (field: string, value: unknown) => {
     setConfig(prev => ({ ...prev, [field]: value } as typeof prev));
+    setSettingsDirty(true);
   };
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await call('update_config', {
-        config: {
+      // 🔴 2026-11-13 清空修复：stt / tts / voice 三段改走 config.replace（整段替换 +
+      // raw patch 保留手写字段）。原实现用 config.set.raw（加性）+ 空值写 undefined，
+      // 而 js-yaml 会丢弃 undefined 键 → 旧值永远清不掉；这些子字段又都是 String
+      // （非 Option），写 null 会让整份 Config 反序列化失败。
+      // 正确语义 = 清空即删键 → 整段替换 → serde default 生效（edge 默认语音 /
+      // 默认 TTS 模型 / ctrl+b 录音键），且不误伤 api_key / base_url /
+      // stop_phrases / silence_threshold 等面板不暴露的手写键。
+      const rawStt = rawSectionsRef.current.stt || {};
+      const rawTts = rawSectionsRef.current.tts || {};
+      const rawVoice = rawSectionsRef.current.voice || {};
+
+      const sttLocal: Record<string, unknown> = { ...(rawStt.local || {}), model: config.stt_local_model };
+      if (config.stt_local_language) sttLocal.language = config.stt_local_language;
+      else delete sttLocal.language;
+
+      const ttsEdge: Record<string, unknown> = { ...(rawTts.edge || {}) };
+      if (config.tts_edge_voice) ttsEdge.voice = config.tts_edge_voice;
+      else delete ttsEdge.voice;
+
+      const ttsOpenai: Record<string, unknown> = { ...(rawTts.openai || {}), voice: config.tts_openai_voice };
+      if (config.tts_openai_model) ttsOpenai.model = config.tts_openai_model;
+      else delete ttsOpenai.model;
+
+      const voiceSection: Record<string, unknown> = {
+        ...rawVoice,
+        auto_tts: config.voice_auto_tts,
+        max_recording_seconds: config.voice_max_recording_seconds,
+      };
+      if (config.voice_record_key) voiceSection.record_key = config.voice_record_key;
+      else delete voiceSection.record_key;
+
+      await call('replace_config', {
+        sections: {
           stt: {
+            ...rawStt,
             enabled: config.stt_enabled,
             provider: config.stt_provider,
-            local: {
-              model: config.stt_local_model,
-              language: config.stt_local_language || undefined,
-            },
+            local: sttLocal,
           },
           tts: {
+            ...rawTts,
             provider: config.tts_provider,
-            edge: {
-              voice: config.tts_edge_voice || undefined,
-            },
-            openai: {
-              voice: config.tts_openai_voice,
-              model: config.tts_openai_model || undefined,
-            },
+            edge: ttsEdge,
+            openai: ttsOpenai,
           },
-          voice: {
-            auto_tts: config.voice_auto_tts,
-            record_key: config.voice_record_key || undefined,
-            max_recording_seconds: config.voice_max_recording_seconds,
-          },
+          voice: voiceSection,
         },
       });
+      setSettingsDirty(false);
       notifySuccess('语音配置已保存');
       onSaved?.();
     } catch (e) {
@@ -117,7 +149,7 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
         <AlertTriangle size={14} strokeWidth={1.75} className="mt-0.5 shrink-0" />
         <span>
           语音输入已可用（麦克风录音 + 云端转录，需 OpenAI API Key）。
-          本地 STT 模型、回复后自动朗读（auto_tts）暂未接入。
+          回复后自动朗读（auto_tts）已接线；本地 STT 模型需本机 whisper 运行时。
         </span>
       </div>
 
@@ -224,7 +256,7 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
             onChange={e => update('voice_record_key', e.target.value)}
           />
         </SettingField>
-        <SettingField label="最大录音时长（秒）" desc="单次录音的最大时长限制（默认 30 秒）。">
+        <SettingField label="最大录音时长（秒）" desc="单次录音的最大时长限制（默认 120 秒）。">
           <Input
             type="number"
             min={5}
