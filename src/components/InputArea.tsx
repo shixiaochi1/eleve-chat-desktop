@@ -685,7 +685,9 @@ function InputArea({
   }, []);
 
   return (
-    <div className="p-3">
+    // 🔴 2026-11-02：底部留白改由 .chat-area 统一给 8px（`pb-0` 抵掉这里的 p-3 下边），
+    // 避免"容器 padding + 自身 padding"叠成 20px、又随主题变量漂移。
+    <div className="p-3 pb-0">
       {/* 🔴 2026-08-18 老大调整：TodoPanel 迁出 InputArea——任务计划改挂
           在 ContextBar（新建/宫格按钮行）上方，见 App.tsx；此处仅保留
           GoalBar 与 composer 的底部 dock 顺序。 */}

@@ -1088,6 +1088,9 @@ canvas {
   min-height: 0;
   overflow: hidden;
   position: relative; /* 子 Agent 监控抽屉的定位锚点 */
+  /* 🔴 2026-11-02：窗口底部固定 8px 缝隙。单一来源 —— 输入区自身改成 `pb-0`，
+     避免"容器 padding + 输入区 padding"叠成 20px（且随主题变量漂移）。 */
+  padding-bottom: 8px;
 }
 
 /* ── StateDot 像素追逐动画（复刻 DSH ui-primitives StateDot ongoing 态）──

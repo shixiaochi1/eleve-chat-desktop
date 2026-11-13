@@ -93,6 +93,13 @@ export default function ModelOptionsSubmenu({
       ) : (
         <>
           <DropdownMenuLabel className={dropdownMenuSectionLabel}>推理强度</DropdownMenuLabel>
+          {/* 🔴 2026-11-02：中文档位里有 4 个"越来越强"的说法（高/极高/最高/超高），
+              单看汉字分不清。这里把**线路规范名**（high/xhigh/max/ultra）作为弱化后缀
+              显示 —— 它不是内部黑话，而是各家 provider 实际接受的取值
+              （对齐 Hermes：`sends X on this route` 用同一套名字）。 */}
+          <div className="px-2.5 pb-1 text-[0.625rem] leading-4 text-muted-foreground/70">
+            超出模型支持范围的档位会自动下调到最近的可用档
+          </div>
           <DropdownMenuRadioGroup
             value={activeLevel}
             // 作用域由父组件决定：活跃行写会话/全局，非活跃行只记忆 preset
@@ -106,7 +113,10 @@ export default function ModelOptionsSubmenu({
                 onSelect={(event) => event.preventDefault()}
                 title={e.desc}
               >
-                {e.label}
+                <span>{e.label}</span>
+                <span className="ml-auto font-mono text-[0.625rem] text-muted-foreground/70">
+                  {e.value}
+                </span>
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>
