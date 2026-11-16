@@ -20,6 +20,11 @@ interface Provider {
   hasKey?: boolean;
   credentialType?: string;
   source?: string;
+  /** 注册表展示元数据（后端 provider.list 下发） */
+  description?: string;
+  signupUrl?: string;
+  fallbackModels?: string[];
+  supportsModelListing?: boolean;
 }
 
 interface ProviderCardProps {
@@ -218,6 +223,23 @@ export default function ProviderCard({
               )}
             </div>
             <div className={cn('text-[10px] font-mono text-muted-foreground/60 truncate')}>{provider.id}</div>
+            {/* 注册表说明 + 获取 Key 入口（后端 provider.list 下发；池 id 未知时为空） */}
+            {provider.description && (
+              <div className={cn('text-[10px] text-muted-foreground/70 truncate max-w-[420px]')} title={provider.description}>
+                {provider.description}
+                {provider.signupUrl && (
+                  <a
+                    href={provider.signupUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={cn('ml-1.5 text-info hover:underline')}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    获取 Key
+                  </a>
+                )}
+              </div>
+            )}
           </div>
         </div>
         <div className={cn('flex items-center gap-1.5 shrink-0')}>

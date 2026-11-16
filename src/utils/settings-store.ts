@@ -421,6 +421,13 @@ export interface PoolProvider {
   has_key: boolean;
   credential_type: string;
   models: { name: string; context_length: number; max_output: number; supports_vision?: boolean | null; use_prompt_caching?: boolean | null }[];
+  /** 注册表展示元数据（池 id 命中已知 provider 时才有） */
+  description?: string;
+  signup_url?: string;
+  /** live /models 不可用时的精选候选 */
+  fallback_models?: string[];
+  /** false ⇒ 不提供 /models 面，UI 应隐藏"检测模型" */
+  supports_model_listing?: boolean;
   source?: string;
 }
 
