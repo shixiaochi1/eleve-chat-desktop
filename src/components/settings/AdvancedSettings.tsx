@@ -119,7 +119,9 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
             max_iterations: config.max_iterations,
             max_concurrent_children: config.max_concurrent_children,
             child_timeout_seconds: config.child_timeout_seconds,
-            reasoning_effort: config.reasoning_effort,
+            // 空值写 null（Option 字段）：空串会变成 Some("")，后端每次委派都要打
+            // 一条 "Unknown delegation.reasoning_effort ''" warning 才回退继承
+            reasoning_effort: config.reasoning_effort || null,
           },
           terminal: {
             env_type: config.terminal_backend,
@@ -158,7 +160,11 @@ export default function AdvancedSettings({ onSaved }: { onSaved?: () => void }) 
         </SettingField>
         <SettingField label="API 重试次数" desc="API 调用失败时的最大重试次数（默认 3）。">
           <Input type="number" className="w-36" min={0} max={20} value={config.api_max_retries}
-            onChange={e => update('api_max_retries', parseInt(e.target.value) || 3)} />
+            onChange={e => {
+              // min=0 是合法值（不重试），不能用 `|| 3` 把 0 吞掉
+              const n = parseInt(e.target.value, 10);
+              update('api_max_retries', Number.isFinite(n) ? n : 3);
+            }} />
         </SettingField>
         <SettingField label="工具执行强制" desc="控制 Agent 是否必须使用工具来完成任务。">
           <select className={selectCls} value={config.tool_use_enforcement}

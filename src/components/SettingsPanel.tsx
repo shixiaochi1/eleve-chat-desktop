@@ -370,6 +370,9 @@ export default function SettingsPanel({ onBack, currentProfile }: SettingsPanelP
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [passwordDialog, deleteConfirm]);
 
+  // 兜底：面板卸载（异常关闭 / 热更新）也清脏标记，防下次打开误显示"未保存"
+  useEffect(() => () => setSettingsDirty(false), []);
+
   const requestUnlock = (providerId: string) => {
     if (keyUnlocked) return;
     if (!passwordHash) {

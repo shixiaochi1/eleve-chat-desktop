@@ -34,6 +34,8 @@ interface MCPServer {
   args: string;
   enabled: boolean;
   url: string;
+  /** HTTP 传输细分：http / sse（stdio 时为空） */
+  transport: string;
   env: string;
 }
 
@@ -42,6 +44,7 @@ interface MCPConfigEntry {
   args?: string | string[];
   enabled?: boolean;
   url?: string;
+  transport?: string;
   env?: unknown;
 }
 
@@ -81,6 +84,7 @@ export default function MCPSettings({ currentProfile }: { currentProfile?: strin
         args: Array.isArray(conf.args) ? conf.args.join(' ') : (conf.args || ''),
         enabled: conf.enabled !== false,
         url: conf.url || '',
+        transport: conf.transport || '',
         env: conf.env ? (typeof conf.env === 'object' ? JSON.stringify(conf.env, null, 2) : String(conf.env)) : '',
       }));
       setServers(list);
@@ -136,8 +140,9 @@ export default function MCPSettings({ currentProfile }: { currentProfile?: strin
     setReloading(false);
   };
 
-  const getTransportType = (s: { url?: string; command?: string }) => {
-    if (s.url) return 'http';
+  const getTransportType = (s: { url?: string; command?: string; transport?: string }) => {
+    // URL 型细分 http / sse（后端 mcp_servers.<name>.transport）
+    if (s.url) return s.transport === 'sse' ? 'sse' : 'http';
     if (s.command) return 'stdio';
     return 'custom';
   };
@@ -145,6 +150,7 @@ export default function MCPSettings({ currentProfile }: { currentProfile?: strin
   const transportLabel = {
     stdio: 'stdio',
     http: 'http',
+    sse: 'sse',
     custom: 'custom',
   };
 
@@ -310,6 +316,7 @@ export default function MCPSettings({ currentProfile }: { currentProfile?: strin
                         'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
                         ttype === 'stdio' && 'bg-success/10 text-success',
                         ttype === 'http' && 'bg-info/10 text-info',
+                        ttype === 'sse' && 'bg-info/10 text-info',
                         ttype === 'custom' && 'bg-muted-foreground/10 text-muted-foreground',
                       )}>
                         {transportLabel[ttype]}

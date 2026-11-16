@@ -139,7 +139,7 @@ export default function SafetySettings({ onSaved }: { onSaved?: () => void }) {
             max={600}
             step={5}
             value={config.approvals_timeout}
-            onChange={e => update('approvals_timeout', parseInt(e.target.value) || 60)}
+            onChange={e => update('approvals_timeout', parseInt(e.target.value, 10) || 300)}
             className="w-40"
           />
         </SettingField>

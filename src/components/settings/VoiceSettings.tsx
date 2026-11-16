@@ -33,6 +33,8 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  /** 读取现有配置失败（后端不可达）→ 禁止保存，见 handleSave 首行守卫 */
+  const [loadFailed, setLoadFailed] = useState(false);
   /** 原始段快照（保存时 raw patch 保留手写字段：openai api_key / base_url /
    *  stop_phrases / silence_threshold 等面板不暴露的键） */
   const rawSectionsRef = useRef<{
@@ -55,7 +57,9 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
       rawSectionsRef.current = { stt, tts, voice };
 
       setConfig({
-        stt_enabled: stt.enabled ?? false,
+        // 后端 SttConfig::default().enabled = true（voice_audio.rs）；兜底 false
+        // 会把"字段缺失"误显示成"已关闭"
+        stt_enabled: stt.enabled ?? true,
         stt_provider: stt.provider || 'local',
         stt_local_model: stt.local?.model || 'base',
         stt_local_language: stt.local?.language || '',
@@ -68,7 +72,12 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
         voice_max_recording_seconds: voice.max_recording_seconds ?? 120,
       });
       setLoaded(true);
+      setLoadFailed(false);
     } catch {
+      // 🔴 2026-11-16：读不到现有配置时禁止保存。保存走 config.replace 整段替换
+      // stt/tts/voice，raw 快照为空会把 api_key / stop_phrases / speed 等手写键
+      // 一并抹掉（旧实现是加性写，不会）。
+      setLoadFailed(true);
       setLoaded(true);
     }
     setLoading(false);
@@ -80,6 +89,13 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
   };
 
   const handleSave = async () => {
+    if (loadFailed || !rawSectionsRef.current.stt) {
+      notifyError(
+        new Error('未能读取现有语音配置（后端不可达或读取失败），已阻止保存以免覆盖手写字段'),
+        '保存失败',
+      );
+      return;
+    }
     setSaving(true);
     try {
       // 🔴 2026-11-13 清空修复：stt / tts / voice 三段改走 config.replace（整段替换 +
@@ -152,6 +168,16 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
           回复后自动朗读（auto_tts）已接线；本地 STT 模型需本机 whisper 运行时。
         </span>
       </div>
+
+      {/* 读取失败阻断保存（否则整段替换会用空 raw 覆盖手写字段） */}
+      {loadFailed && (
+        <div className="mb-5 flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3.5 py-2.5 text-xs leading-relaxed text-destructive">
+          <AlertTriangle size={14} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+          <span>
+            未能读取现有语音配置（后端不可达或读取失败）。为避免覆盖 config.yaml 里的手写字段，保存已禁用；请关闭后重开设置面板重试。
+          </span>
+        </div>
+      )}
 
       {/* ══════════ 语音转文字 (STT) ══════════ */}
       <SectionCard icon={Mic} title="语音转文字 (STT)" desc="平台语音消息自动转录">
@@ -271,7 +297,7 @@ export default function VoiceSettings({ onSaved }: { onSaved?: () => void }) {
 
       {/* 保存按钮 */}
       <SettingsSaveBar>
-        <Button variant="default" size="sm" disabled={saving} onClick={handleSave}>
+        <Button variant="default" size="sm" disabled={saving || loadFailed} onClick={handleSave}>
           {saving ? '保存中…' : '保存配置'}
         </Button>
       </SettingsSaveBar>
