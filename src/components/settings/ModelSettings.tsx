@@ -806,8 +806,7 @@ export default function ModelSettings({
           {/* 说明 + 当前生效模型（合并为一张轻量卡） */}
           <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--ui-stroke-tertiary)] bg-card shadow-xs px-4 py-3">
             <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
-              Agent 调用<span className="font-medium text-foreground">媒体生成</span>工具时使用的模型（ELEVE 媒体生成后端）。
-              点击卡片即切换并保存（图片写入生图引擎、视频写入生视频引擎）；标「待接入」的通道后端尚未实现，不可选。
+              选择 Agent 生图、生视频使用的模型。点击卡片即保存；「待接入」模型暂不可选。
             </p>
             {imageGen?.has_models && (() => {
               // 🔴 2026-09-03 分域 current：生图/生视频各显示各自生效模型
@@ -848,7 +847,7 @@ export default function ModelSettings({
                   key={cat}
                   icon={CatIcon}
                   title={cat}
-                  desc={`${implementedCount} 个已实现 / ${catModels.length} 个通道${catModels.some((m) => m.implemented !== false) ? ` · 点击已实现模型即切换${cat === '视频' ? '生视频' : '生图'}模型` : ''}`}
+                  desc={`${implementedCount} / ${catModels.length} 个可用${catModels.some((m) => m.implemented !== false) ? ' · 点击切换' : ''}`}
                 >
                   {groups.map((g) => (
                     <div key={g} className="px-4 py-3">

@@ -317,7 +317,7 @@ export interface DirectoryProviderEntry {
     image: DirectoryModelEntry[];
     video: DirectoryModelEntry[];
   };
-  /** ELEVE 媒体生成预设的 MXAPI 通道分类元数据（卡片展开「能力全览」） */
+  /** ELEVE 媒体生成预设附带的 MXAPI 通道分类元数据 */
   mxapi?: { channels: MxapiChannelGroup[] };
 }
 
@@ -369,7 +369,7 @@ export async function setMediaConfigValue(
   return res as { ok: boolean; key: string };
 }
 
-/** MXAPI 通道分类（directory 附加元数据，卡片弹窗「能力全览」） */
+/** MXAPI 通道分类（providers.directory 附加元数据） */
 export interface MxapiChannelGroup {
   group: string;
   category: string; // 图片 / 视频 / 音乐
